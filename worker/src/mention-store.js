@@ -2,6 +2,7 @@
    Delivery sits in an outbox so a failed push can be retried without
    losing the mention. Bios never come through here. */
 
+import { friendshipLive } from "./friends-pref.js";
 import { extractMentions } from "../../shared/mentions.js";
 import { resolveName } from "./usernames.js";
 import { canMention } from "./name-rules.js";
@@ -89,7 +90,7 @@ async function privateAllows(env, actorId, target) {
   const friend = await env.DB.prepare(
     "SELECT user_id FROM account_friends WHERE user_id = ? AND friend_id = ?"
   ).bind(target.public_id, actorId).first();
-  if (friend) return true;
+  if (friend && await friendshipLive(env, target.public_id, actorId)) return true;
   const follow = await env.DB.prepare(
     "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id = ?"
   ).bind(target.public_id, "app:" + actorId).first();

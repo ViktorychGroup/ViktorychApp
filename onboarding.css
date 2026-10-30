@@ -827,3 +827,15 @@ html[data-oobe-dir="back"]::view-transition-new(oobe-step) { animation-name: oob
 .oobe-key-ico { width: 52px; height: 52px; animation: oobe-key 900ms 200ms var(--oobe-spring) both; }
 @keyframes oobe-key { from { opacity: 0; transform: rotate(-60deg) scale(0.6); } }
 @media (prefers-reduced-motion: reduce) { .oobe-key-ico { animation: none; } }
+
+/* Friends row in the privacy step: X-native check box row, not a switch. */
+.oobe-toggle.oobe-xrow { align-items: center; }
+.oobe-xcopy { display: flex; flex-direction: column; gap: 2px; }
+.oobe-xcopy b { font-weight: inherit; }
+.oobe-xcopy small { color: var(--muted, #71767b); font-size: 13px; line-height: 16px; font-weight: 400; }
+.oobe-xcheck { flex: none; width: 20px; height: 20px; box-sizing: border-box; border: 2px solid var(--muted, #71767b); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; transition: background-color 0.2s var(--oobe-ease), border-color 0.2s var(--oobe-ease); }
+.oobe-xcheck svg { width: 16px; height: 16px; fill: #fff; opacity: 0; }
+.oobe-xcheck.on { background: var(--blue, #1d9bf0); border-color: var(--blue, #1d9bf0); }
+.oobe-xcheck.on svg { opacity: 1; }
+.oobe-toggle .oobe-xcheck { flex: none; width: 20px; }
+.oobe-toggle .oobe-xcopy { flex: 1; min-width: 0; }

@@ -3,6 +3,7 @@
    visible. Credit is capped by the time since the last beat, so a page
    cannot claim more time than really passed. */
 
+import { liveFriendIds } from "./friends-pref.js";
 import { awardActivity } from "./points.js";
 import { handleGameSocial, afterBeat, roomsFor, canSeeGame, GAME_SOCIAL_SCHEMA } from "./game-social.js";
 
@@ -69,7 +70,7 @@ export function beatCredit(claimed, beatAt, now) {
 async function friendIds(env, publicId) {
   try {
     const got = await env.DB.prepare("SELECT friend_id FROM account_friends WHERE user_id = ? ORDER BY created_at DESC LIMIT 200").bind(publicId).all();
-    return rows(got).map((row) => String(row.friend_id)).filter((id) => /^\d{12}$/.test(id));
+    return await liveFriendIds(env, publicId, rows(got).map((row) => String(row.friend_id)).filter((id) => /^\d{12}$/.test(id)));
   } catch (err) {
     return [];
   }

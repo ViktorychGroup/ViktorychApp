@@ -12,12 +12,13 @@
    Never suggested: yourself, accounts you follow or asked to follow,
    blocks either way, mutes, people you dismissed, protected accounts,
    profile-less accounts, accounts that turned off "Let others see me in
-   People you may know", and temporary accounts unless they opted in.
+   People you may know", accounts that turned Friends off, and temporary accounts unless they opted in.
 
    Reasons never name anyone whose follows are private, and the payload
    carries handles (as the viewer may see them), never account numbers. */
 import { notLocked } from "./locked-sql.js";
 
+import { friendsOffAmong } from "./friends-pref.js";
 import { resolveName, viewerHandle } from "./usernames.js";
 
 export const ACCOUNT_KINDS = ["person", "business", "organization", "media", "government", "creator", "bot", "community", "other"];
@@ -194,6 +195,9 @@ export async function computeSuggestions(env, request, viewerId, deps, now) {
   const signals = await signalsFor(env, viewerId, now);
   const ranked = rankCandidates(signals, excluded);
   const rows = await eligibleRows(env, ranked.map((r) => r.id).slice(0, POOL * 2));
+  // People who turned Friends off are never suggested to anyone.
+  const friendsOff = await friendsOffAmong(env, Array.from(rows.keys()));
+  friendsOff.forEach((id) => rows.delete(id));
   const groups = {};
   const nameCache = new Map();
   for (let i = 0; i < ranked.length; i++) {

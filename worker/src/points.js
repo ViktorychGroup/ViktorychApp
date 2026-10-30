@@ -1,6 +1,7 @@
 /* Viktorychs (free points earned by effort, never sold) and gifts. Amounts are chosen here, never from the client.
    The ledger is append-only. A repeated ref does not pay twice. */
 
+import { friendshipLive } from "./friends-pref.js";
 import { inspectHandle } from "../../shared/handle-skeleton.js";
 import { GIFTS, SEASONS, FREE_PER_DAY, POPULAR } from "../../shared/gift-catalog.js";
 import { limitedById } from "../../shared/store-catalog.js";
@@ -602,7 +603,8 @@ async function birthdayGiftAllowed(env, viewerId, recipientId, now) {
     const friends = await env.DB.prepare(
       "SELECT user_id FROM account_friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)"
     ).bind(viewerId, recipientId, recipientId, viewerId).first();
-    if (!follow || (!back && !friends)) return false;
+    const friendCounts = !!friends && await friendshipLive(env, viewerId, recipientId);
+    if (!follow || (!back && !friendCounts)) return false;
   }
   return true;
 }

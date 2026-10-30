@@ -11,6 +11,7 @@
    name is left the viewer gets a neutral placeholder. A name looked up by
    someone outside its audience is a 404. */
 
+import { friendshipLive } from "./friends-pref.js";
 import { inspectHandle } from "../../shared/handle-skeleton.js";
 import { handleHeld } from "./account-delete.js";
 
@@ -156,7 +157,8 @@ export async function relationTo(env, ownerId, viewerId) {
   try {
     lists = rowsOf(await env.DB.prepare("SELECT m.list_id FROM audience_members m JOIN audience_lists l ON l.id = m.list_id AND l.public_id = ? WHERE m.member_id = ?").bind(ownerId, viewerId).all()).map((row) => row.list_id);
   } catch (err) { lists = []; }
-  return cleanRel({ id: viewerId, follows: !!follow, friends: !!(friend || (follow && back)), lists });
+  const friendCounts = !!friend && await friendshipLive(env, ownerId, viewerId);
+  return cleanRel({ id: viewerId, follows: !!follow, friends: !!(friendCounts || (follow && back)), lists });
 }
 
 const memos = new WeakMap();
