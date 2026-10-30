@@ -294,11 +294,13 @@ async function run(browser, origin, size) {
 
   /* Privacy > Games. */
   await page.evaluate(() => { location.hash = "#/settings/privacy"; });
-  await page.waitForSelector("[data-gs-privacy] [data-gs-aud]", { timeout: 10000 }).catch(() => fail(label + ": no Privacy > Games"));
-  const aud = await page.evaluate(() => [...new Set([...document.querySelectorAll("[data-gs-aud]")].map((b) => b.getAttribute("data-gs-aud")))]);
+  await page.waitForSelector("[data-gs-privacy] [data-gs-aud-open]", { timeout: 10000 }).catch(() => fail(label + ": no Privacy > Games"));
+  const aud = await page.evaluate(() => [...new Set([...document.querySelectorAll("[data-gs-aud-open]")].map((b) => b.getAttribute("data-gs-aud-open")))]);
   if (aud.join() !== "together,room,stats") fail(label + ": audiences " + aud.join());
-  await page.evaluate(() => document.querySelector("[data-gs-aud=\"room\"][data-value=\"only\"]").scrollIntoView({ block: "center" }));
-  await page.click("[data-gs-aud=\"room\"][data-value=\"only\"]", { timeout: 10000 });
+  if (await page.$("[data-gs-privacy] select, [data-gs-notify] select")) fail(label + ": native select in Games settings");
+  await page.evaluate(() => document.querySelector("[data-gs-aud-open=\"room\"]").scrollIntoView({ block: "center" }));
+  await page.click("[data-gs-aud-open=\"room\"]", { timeout: 10000 });
+  await page.click(".xs-sheet-back:not(.xs-leaving) [data-xs-opt=\"only\"]", { timeout: 10000 });
   await page.waitForTimeout(300);
   const pref = posts.filter((x) => x.path === "/v1/games/prefs").pop();
   if (!pref || !pref.body.audiences || pref.body.audiences.room !== "only") fail(label + ": privacy save " + JSON.stringify(pref));

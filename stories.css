@@ -225,27 +225,6 @@
 .aud-card { border-bottom: 1px solid var(--line); padding: 8px 0; }
 .aud-name, .aud-edit button { border: 0; background: transparent; color: var(--text); font: 700 15px/20px var(--font); text-align: left; }
 .aud-edit input, .aud-settings > input, .aud-person { width: 100%; box-sizing: border-box; margin: 4px 0; }
-.un-settings { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
-.un-settings h2 { font: 800 20px/24px var(--font); margin: 16px 0 0; }
-.un-settings h3 { font: 700 15px/20px var(--font); margin: 8px 0 0; }
-.un-card { border-bottom: 1px solid var(--line); padding: 8px 0; }
-.un-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; width: 100%; border: 0; background: transparent; color: var(--text); font: 700 15px/20px var(--font); text-align: left; padding: 4px 0; min-width: 0; }
-.un-at { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.un-who { flex-basis: 100%; color: var(--muted); font-weight: 400; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.un-badge { flex: none; height: 20px; line-height: 20px; padding: 0 8px; border-radius: 999px; background: var(--accent-soft, rgba(29, 155, 240, 0.1)); color: var(--accent, #1d9bf0); font-size: 12px; font-weight: 700; }
-.un-edit { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 8px; }
-.un-check { display: flex; align-items: center; gap: 8px; min-height: 32px; font: 15px/20px var(--font); }
-.un-row { display: flex; align-items: center; gap: 8px; min-height: 40px; justify-content: space-between; font: 15px/20px var(--font); }
-.un-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.un-input, .un-people { flex: 1 1 auto; min-width: 0; width: 100%; box-sizing: border-box; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--text); font: 15px/20px var(--font); }
-.un-select { flex: none; max-width: 60%; height: 32px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); font: 14px/18px var(--font); }
-.un-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.un-btn { flex: none; height: 32px; padding: 0 16px; border-radius: 999px; border: 1px solid transparent; background: var(--text); color: var(--bg); font: 700 14px/30px var(--font); white-space: nowrap; }
-.un-btn.outline { background: transparent; color: var(--text); border-color: var(--line); }
-.un-btn.danger { color: #f4212e; }
-.un-btn[disabled] { opacity: 0.4; }
-.un-note { color: #f4212e; font: 14px/18px var(--font); margin: 0; }
-.un-preview-out { font: 700 15px/20px var(--font); margin: 0; }
 .mention-hint { padding: 12px 16px; color: var(--muted); font: 14px/18px var(--font); }
 .hl-row { display: flex; gap: 14px; overflow-x: auto; padding: 4px 16px 12px; scrollbar-width: none; }
 .hl-row::-webkit-scrollbar { display: none; }

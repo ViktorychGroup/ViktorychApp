@@ -184,7 +184,7 @@ async function main() {
       await exercise(page, vp, origin);
     }
     console.log("composer page ok");
-    const [home, hub, own, single, dock, vfall, guard, names, setai, nostr, games, livetr, friendp2p, cinstant, rinstant] = await riders;
+    const [home, hub, own, single, dock, vfall, guard, names, dnames, setai, nostr, games, livetr, friendp2p, cinstant, rinstant] = await riders;
     if (home !== 0) fail("community home check failed");
     if (hub !== 0) fail("communities hub check failed");
     if (own !== 0) fail("own post check failed");
@@ -193,6 +193,7 @@ async function main() {
     if (vfall !== 0) fail("video fallback check failed");
     if (guard !== 0) fail("device data protection check failed");
     if (names !== 0) fail("usernames settings check failed");
+    if (dnames !== 0) fail("display names check failed");
     if (setai !== 0) fail("settings assistant check failed");
     if (nostr !== 0) fail("nostr check failed");
     if (games !== 0) fail("games check failed");

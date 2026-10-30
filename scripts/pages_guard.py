@@ -220,8 +220,8 @@ def superseded(sha: str, url: str) -> int:
 def selftest() -> int:
     assert shell_changed(["app.js"]) and shell_changed(["data/communities/x.json", "sw.js"])
     assert not shell_changed(["data/communities/x.json", "feeds.json", ""])
-    assert live_shell_sha('const VERSION = "viktorych-a259-' + "a" * 40 + '";') == "a" * 40
-    assert live_shell_sha('const VERSION = "viktorych-a259-__SW_VERSION__";') == ""
+    assert live_shell_sha('const VERSION = "viktorych-a270-' + "a" * 40 + '";') == "a" * 40
+    assert live_shell_sha('const VERSION = "viktorych-a270-__SW_VERSION__";') == ""
     now = time.time()
     later = datetime.fromtimestamp(now + 5, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     earlier = datetime.fromtimestamp(now - 60, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

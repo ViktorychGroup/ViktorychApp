@@ -110,48 +110,84 @@ async function check(browser, port, size, lang) {
   const settingsHeading = await page.textContent(".un-settings:not(.un-in-edit) h2");
   if (await page.$(".un-settings:not(.un-in-edit) .un-card")) fail(label + ": names listed twice in Settings");
   await page.click('[data-acct="edit-usernames"]');
-  await page.waitForSelector(".ep .un-in-edit .un-card", { timeout: 15000 }).catch(() => fail(label + ": names did not load in Edit profile"));
+  await page.waitForSelector('.ep .un-in-edit [data-un="open-name"]', { timeout: 15000 }).catch(() => fail(label + ": names did not load in Edit profile"));
   const layout = await page.evaluate(() => {
     const scroller = document.scrollingElement;
-    const pills = Array.from(document.querySelectorAll(".un-btn, .un-badge")).filter((el) => el.offsetParent).map((el) => el.getBoundingClientRect().height);
+    const pills = Array.from(document.querySelectorAll(".xs-pill, .xs-badge")).filter((el) => el.offsetParent).map((el) => el.getBoundingClientRect().height);
     const over = Array.from(document.querySelectorAll(".un-settings *")).filter((el) => { const r = el.getBoundingClientRect(); return r.width && r.right > window.innerWidth + 1; }).map((el) => el.className);
-    const heading = document.querySelector(".ep .acct-edit-head h1");
-    return { names: Array.from(document.querySelectorAll(".un-at")).map((el) => el.textContent), pills, over, wide: scroller.scrollWidth > window.innerWidth + 1, heading: heading ? heading.textContent : "" };
+    const heading = document.querySelector(".ep .acct-edit-head h1 .xs-head-title") || document.querySelector(".ep .acct-edit-head h1");
+    const row = document.querySelector('.ep [data-un="open-name"]');
+    const natives = Array.from(document.querySelectorAll(".ep .un-in-edit select, .ep .un-in-edit textarea")).length;
+    return { names: Array.from(document.querySelectorAll(".un-at")).map((el) => el.textContent), pills, over, wide: scroller.scrollWidth > window.innerWidth + 1, heading: heading ? heading.textContent : "", rowPad: row ? getComputedStyle(row).paddingLeft : "", natives };
   });
   if (layout.names.join(",") !== "@user_a,@user_a_close_friends_long") fail(label + ": names " + layout.names);
   if (layout.wide || layout.over.length) fail(label + ": overflow " + layout.over.slice(0, 3));
-  if (layout.pills.some((h) => h > 36)) fail(label + ": pill grew " + layout.pills);
+  if (layout.pills.some((h) => h > 40)) fail(label + ": pill grew " + layout.pills);
+  if (layout.rowPad !== "16px") fail(label + ": row padding " + layout.rowPad);
+  if (layout.natives) fail(label + ": native selects or text areas on the Usernames page");
   const want = { en: "Usernames", es: "Nombres de usuario", ru: "Имена пользователя" }[lang];
   if (layout.heading !== want || settingsHeading !== want) fail(label + ": heading " + layout.heading + " / " + settingsHeading);
 
-  await page.fill("[data-un-new]", "taken_one");
-  await page.click('[data-un="add"]');
-  await page.waitForSelector(".un-note", { timeout: 5000 }).catch(() => fail(label + ": taken name gave no note"));
-  await page.fill("[data-un-new]", "user_a_new");
-  await page.click('[data-un="add"]');
-  await page.waitForFunction(() => document.querySelectorAll(".un-card").length === 3 && document.querySelector(".un-edit"), null, { timeout: 5000 }).catch(() => fail(label + ": add did not open the new name"));
-  await page.check('.un-edit [data-un-exc-list="l2"]');
-  await page.fill('.un-edit [data-un-side="exc"]', "@user_x, user_y");
-  await page.click('.un-edit [data-un="save"]');
-  await page.waitForTimeout(150);
-  const patch = log.find((line) => line.indexOf("PATCH /v1/usernames ") === 0);
-  if (!patch) fail(label + ": no save");
-  const sent = JSON.parse(patch.slice(patch.indexOf("{")));
-  if (sent.handle !== "user_a_new" || !sent.audience.include.followers || sent.audience.exclude.lists.join() !== "l2" || sent.audience.exclude.people.join() !== "user_x,user_y") fail(label + ": saved " + patch);
+  /* Add username: a bottom sheet with a floating-label field. */
+  await page.click('.ep [data-un="add-sheet"]');
+  await page.fill(".xs-sheet-back:not(.xs-leaving) [data-un-new]", "taken_one");
+  await page.click(".xs-sheet-back:not(.xs-leaving) [data-xs-add]");
+  await page.waitForSelector(".xs-sheet-back:not(.xs-leaving) .xs-ferror", { timeout: 5000 }).catch(() => fail(label + ": taken name gave no error"));
+  await page.fill(".xs-sheet-back:not(.xs-leaving) [data-un-new]", "user_a_new");
+  await page.click(".xs-sheet-back:not(.xs-leaving) [data-xs-add]");
+  await page.waitForSelector('.ep .un-in-edit[data-un-view="name"]', { timeout: 5000 }).catch(() => fail(label + ": add did not open the new name"));
+  if (await page.$(".xs-sheet-back:not(.xs-leaving)")) fail(label + ": add sheet stayed open");
 
-  await page.selectOption("[data-un-preview-tier]", "list:l1");
-  await page.click('[data-un="preview-tier"]');
-  await page.waitForSelector(".un-preview-out", { timeout: 5000 }).catch(() => fail(label + ": no preview"));
-  if (!(await page.textContent(".un-preview-out")).includes("@user_a_close_friends_long")) fail(label + ": preview text");
+  /* Detail: hide from a list and two people; it saves on its own. */
+  await page.click('.ep [data-un="toggle-hide"]');
+  await page.locator('.ep label:has([data-un-aud="exc:list:l2"])').click();
+  await page.fill('.ep [data-xs-chip-input="exc"]', "user_x");
+  await page.press('.ep [data-xs-chip-input="exc"]', "Enter");
+  await page.fill('.ep [data-xs-chip-input="exc"]', "@user_y");
+  await page.press('.ep [data-xs-chip-input="exc"]', "Enter");
+  for (let i = 0; i < 40 && !log.some((line) => line.indexOf("PATCH /v1/usernames ") === 0 && line.indexOf("user_y") > 0); i++) await page.waitForTimeout(100);
+  await page.waitForSelector(".xs-toast", { timeout: 5000 }).catch(() => fail(label + ": no Saved toast"));
+  const patches = log.filter((line) => line.indexOf("PATCH /v1/usernames ") === 0);
+  if (!patches.length) fail(label + ": no autosave");
+  const sent = JSON.parse(patches[patches.length - 1].slice(patches[patches.length - 1].indexOf("{")));
+  if (sent.handle !== "user_a_new" || !sent.audience.include.followers || sent.audience.exclude.lists.join() !== "l2" || sent.audience.exclude.people.join() !== "user_x,user_y") fail(label + ": saved " + patches[patches.length - 1]);
+  if ((await page.$$('.ep [data-xs-chip-remove="exc"]')).length !== 2) fail(label + ": hide-from chips");
 
-  await page.selectOption('[data-un-mention="followers"]', "replies");
-  await page.fill('[data-un-mention-people="block"]', "@user_z");
-  await page.click('[data-un="mentions"]');
+  /* Back goes to the list first; Preview as is a sheet with radios. */
+  await page.click('.ep [data-acct="edit-back"]');
+  await page.waitForSelector('.ep .un-in-edit[data-un-view="main"]', { timeout: 5000 }).catch(() => fail(label + ": back did not return to the list"));
+  await page.click('.ep [data-un="preview-sheet"]');
+  await page.click('.xs-sheet-back:not(.xs-leaving) [data-xs-opt="list:l1"]');
+  await page.waitForSelector(".xs-sheet-back:not(.xs-leaving) .un-preview-out", { timeout: 5000 }).catch(() => fail(label + ": no preview"));
+  if (!(await page.textContent(".xs-sheet-back:not(.xs-leaving) .un-preview-out")).includes("@user_a_close_friends_long")) fail(label + ": preview text");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.querySelector(".xs-sheet-back:not(.xs-leaving)") && document.querySelector(".ep"), null, { timeout: 3000 }).catch(() => fail(label + ": Escape did not close only the sheet"));
+
+  /* Remove waits behind Undo. */
+  await page.click('.ep [data-un="name-menu"][data-handle="user_a_new"]');
+  await page.locator(".xs-sheet-back:not(.xs-leaving) .xs-menuitem.is-danger").click();
+  await page.waitForSelector(".xs-toast [data-xs-undo]", { timeout: 3000 }).catch(() => fail(label + ": no Undo"));
+  if ((await page.$$eval(".un-at", (els) => els.map((el) => el.textContent))).indexOf("@user_a_new") >= 0) fail(label + ": removed name still listed");
+  await page.click(".xs-toast [data-xs-undo]");
   await page.waitForTimeout(150);
-  const put = log.find((line) => line.indexOf("PUT /v1/usernames/mentions") === 0);
+  if (log.some((line) => line.indexOf("DELETE /v1/usernames") === 0)) fail(label + ": Undo still deleted");
+  if ((await page.$$eval(".un-at", (els) => els.map((el) => el.textContent))).indexOf("@user_a_new") < 0) fail(label + ": Undo did not bring the name back");
+
+  /* Who can mention you: summary row, Advanced, and people chips. */
+  await page.click('.ep [data-un="open-mentions"]');
+  await page.click('.ep [data-un="toggle-advanced"]');
+  await page.click('.ep [data-un="m-sheet"][data-key="followers"]');
+  await page.click('.xs-sheet-back:not(.xs-leaving) [data-xs-opt="replies"]');
+  await page.fill('.ep [data-xs-chip-input="block"]', "@user_z");
+  await page.press('.ep [data-xs-chip-input="block"]', "Enter");
+  for (let i = 0; i < 40 && !log.some((line) => line.indexOf("PUT /v1/usernames/mentions") === 0 && line.indexOf("user_z") > 0); i++) await page.waitForTimeout(100);
+  const puts = log.filter((line) => line.indexOf("PUT /v1/usernames/mentions") === 0);
+  const put = puts[puts.length - 1];
   if (!put || put.indexOf('"followers":"replies"') < 0 || put.indexOf('"block":["user_z"]') < 0) fail(label + ": mention rules " + put);
 
-  /* Back from a subpage opened by the Settings shortcut closes Edit profile. */
+  /* Back to the list, then back from the Settings shortcut closes Edit profile. */
+  await page.click('.ep [data-acct="edit-back"]');
+  await page.waitForSelector('.ep .un-in-edit[data-un-view="main"]', { timeout: 5000 }).catch(() => fail(label + ": back from mentions"));
   await page.click('.ep [data-acct="edit-back"]');
   await page.waitForFunction(() => !document.querySelector(".ep"), null, { timeout: 5000 }).catch(() => fail(label + ": back did not close Edit profile"));
 
