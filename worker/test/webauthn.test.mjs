@@ -488,3 +488,30 @@ test("passkey signup, login, a second key, and the failures", async () => {
   }).then(() => "accepted", (err) => err.message);
   assert.equal(direct, "challenge");
 });
+
+test("a passkey sign-up follows the owner and imports nothing else", async () => {
+  const origin = "https://viktorychgroup.github.io";
+  const rpId = "viktorychgroup.github.io";
+  const db = await mf.getD1Database("DB");
+  await db.prepare("INSERT INTO accounts (public_id, handle, skeleton, display_name, avatar, banner, bio, owner, number_lookup, number_hash, salt, created_at, profile_less) VALUES ('900000000001', 'ownerbox', 'ownerbox', 'Owner', '', '', '', 1, 'x', 'x', 'x', ?, 0) ON CONFLICT DO NOTHING").bind(Date.now()).run();
+  const ownerRow = await db.prepare("SELECT public_id FROM accounts WHERE owner = 1").first();
+  assert.ok(ownerRow);
+  const key = await authenticator(-7);
+  const ip = "203.0.113.190";
+  const options = await call("/v1/webauthn/signup/options", { method: "POST", ip, origin, body: { displayName: "Key Friend", handle: "keyfriend" } });
+  assert.equal(options.status, 200, JSON.stringify(options.body));
+  const created = await call("/v1/webauthn/signup/verify", {
+    method: "POST",
+    ip,
+    origin,
+    body: { challengeId: options.body.challengeId, credential: await key.registration(origin, rpId, options.body.publicKey.challenge, "none"), label: "Key device" }
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const publicId = created.body.account.publicId;
+  const listed = await db.prepare("SELECT target_id FROM account_follows WHERE follower_id = ?").bind(publicId).all();
+  assert.deepEqual(listed.results.map((r) => r.target_id), ["app:" + ownerRow.public_id]);
+  const imported = await call("/v1/follows/import", { method: "POST", token: created.body.token, body: { ids: ["x:copperlane", "youtube:news"] } });
+  assert.equal(imported.status, 200);
+  assert.equal(imported.body.imported, 0);
+  assert.equal(imported.body.followingCount, 1);
+});

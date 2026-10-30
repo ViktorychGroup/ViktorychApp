@@ -3350,8 +3350,14 @@ function signupPayload() {
         return;
       }
       form.passkey = true;
+      /* Same as a number sign-up: the server already follows the owner, and
+         this device's guest follows are never imported into the account. */
+      if (res.account && res.account.publicId) writeStored("follows-imported-v2-" + res.account.publicId, "1");
       if (saveDataWanted() && window.ViktorychDataSaver) {
         try { window.ViktorychDataSaver.apply(true); } catch (err) { /* the account still opens */ }
+      }
+      if (typeof window.ViktorychAccounts.onSignup === "function") {
+        try { window.ViktorychAccounts.onSignup(res.account || {}); } catch (err) { /* the session still opens */ }
       }
       writePending({ token: res.token, accountNumber: res.accountNumber, recoveryCodes: res.recoveryCodes || [], account: res.account });
       markSetupPost(res.account);
@@ -4311,6 +4317,7 @@ function signupPayload() {
     }
     return "";
   }
+  var FOLLOW_IMPORT_CUTOFF = Date.UTC(2026, 9, 28, 18, 4, 30);
   function syncFollows() {
     var session = readSession();
     if (!session || !hasApi() || !session.account) return Promise.resolve();
@@ -4321,7 +4328,10 @@ function signupPayload() {
     syncingFollows = true;
     var epoch = followEpoch;
     var key = "follows-imported-v2-" + session.account.publicId;
-    var imported = readStored(key) === "1";
+    /* Accounts made since new accounts started out following only the owner
+       never import this device's follows; only older accounts move theirs. */
+    var made = Number(session.account.createdAt) || 0;
+    var imported = readStored(key) === "1" || !made || made >= FOLLOW_IMPORT_CUTOFF;
     var local = localFeedFollows().concat(localAppFollows()).filter(function (id, index, all) {
       return id && all.indexOf(id) === index;
     });

@@ -344,6 +344,8 @@ function ensureSchema(env) {
       env.DB.prepare("CREATE INDEX IF NOT EXISTS account_reposts_recent ON account_reposts(public_id, created_at DESC)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS account_follows (follower_id TEXT NOT NULL, target_id TEXT NOT NULL, snapshot TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, PRIMARY KEY (follower_id, target_id))"),
       env.DB.prepare("CREATE INDEX IF NOT EXISTS account_follows_target ON account_follows(target_id, created_at DESC)"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS owner_follow_drops (follower_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL)"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS owner_follow_backfills (ran_at INTEGER NOT NULL, added INTEGER NOT NULL)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS account_friend_requests (sender_id TEXT NOT NULL, receiver_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (sender_id, receiver_id))"),
       env.DB.prepare("CREATE INDEX IF NOT EXISTS account_friend_requests_recv ON account_friend_requests(receiver_id, created_at DESC)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS account_friends (user_id TEXT NOT NULL, friend_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (user_id, friend_id))"),
@@ -784,6 +786,13 @@ async function createAccount(env, request, fields) {
     if (/UNIQUE/i.test(message)) return { error: fields.owner ? "handle_taken" : "handle_taken" };
     throw err;
   }
+  // Every sign-up path (number, temporary, profile-less, passkey) makes
+  // its account here, so the owner follow lives here too. It is a direct
+  // write: the owner's follow requests, locks and audiences never hold it.
+  if (!fields.owner) {
+    try { await followOwnerAccounts(env, publicId); }
+    catch (err) { /* the account still exists without starter follows */ }
+  }
   const row = await env.DB.prepare("SELECT " + ACCOUNT_COLS + " FROM accounts WHERE public_id = ?").bind(publicId).first();
   const token = await mintSession(env, publicId);
   return { token, accountNumber: number, account: await presentAccount(env, request, row, true) };
@@ -896,13 +905,7 @@ async function handleSignup(request, env) {
       return json(503, { error: "unavailable" });
     }
     created.account.temporary = { expiresAt: tempUntil };
-    try { await followOwnerAccounts(env, created.account.publicId); }
-    catch (err) { /* the account still exists without starter follows */ }
     return json(201, { token: created.token, accountNumber: created.accountNumber, recoveryCodes: [], account: created.account, temporary: { expiresAt: tempUntil } });
-  }
-  if (!checked.owner) {
-    try { await followOwnerAccounts(env, created.account.publicId); }
-    catch (err) { /* the account still exists without starter follows */ }
   }
   const recoveryCodes = await issueRecoveryCodes(env, created.account.publicId, recoveryDeps());
   return json(201, {
@@ -954,15 +957,33 @@ async function followOwnerAccounts(env, publicId) {
   const owner = await env.DB.prepare("SELECT public_id FROM accounts WHERE owner = 1 AND profile_less = 0").first();
   if (!owner || !owner.public_id || owner.public_id === publicId) return [];
   const ids = ["app:" + owner.public_id];
-  const identities = await listAccountIdentities(env, owner.public_id);
+  let identities = [];
+  try { identities = await listAccountIdentities(env, owner.public_id) || []; }
+  catch (err) { identities = []; }
   identities.forEach((row) => {
     if (!row || row.verified === false || row.hidden || (row.audience && row.audience !== "public")) return;
     const id = cleanFollowId(String(row.platform || "") + ":" + String(row.handle || "").replace(/^@/, ""));
     if (id && ids.indexOf(id) < 0) ids.push(id);
   });
   const now = Date.now();
-  await env.DB.batch(ids.map((id) => env.DB.prepare("INSERT INTO account_follows (follower_id, target_id, snapshot, created_at) VALUES (?, ?, '', ?) ON CONFLICT(follower_id, target_id) DO NOTHING").bind(publicId, id, now)));
+  // The owner's app account first and on its own, so a bad linked identity
+  // can never cost the new account its owner follow.
+  await env.DB.prepare("INSERT INTO account_follows (follower_id, target_id, snapshot, created_at) VALUES (?, ?, '', ?) ON CONFLICT(follower_id, target_id) DO NOTHING").bind(publicId, ids[0], now).run();
+  const rest = ids.slice(1);
+  if (rest.length) {
+    try { await env.DB.batch(rest.map((id) => env.DB.prepare("INSERT INTO account_follows (follower_id, target_id, snapshot, created_at) VALUES (?, ?, '', ?) ON CONFLICT(follower_id, target_id) DO NOTHING").bind(publicId, id, now))); }
+    catch (err) { /* the owner follow is already saved */ }
+  }
   return ids;
+}
+
+/* Someone dropped the owner follow on purpose: remember it so a later
+   owner-follow backfill never adds it back. */
+async function noteOwnerFollowDrop(env, followerId, targetId) {
+  if (String(targetId || "").indexOf("app:") !== 0) return;
+  const owner = await env.DB.prepare("SELECT public_id FROM accounts WHERE owner = 1").first();
+  if (!owner || "app:" + owner.public_id !== targetId) return;
+  await env.DB.prepare("INSERT INTO owner_follow_drops (follower_id, created_at) VALUES (?, ?) ON CONFLICT(follower_id) DO NOTHING").bind(followerId, Date.now()).run();
 }
 
 /* Member cards for native servers: name, handle and the avatar this viewer
@@ -5123,6 +5144,8 @@ async function handleFollowDelete(request, env) {
     await deleteOutgoingRequest(env, gate.row.public_id, account.public_id);
   }
   await env.DB.prepare("DELETE FROM account_follows WHERE follower_id = ? AND target_id = ?").bind(gate.row.public_id, id).run();
+  try { await noteOwnerFollowDrop(env, gate.row.public_id, id); }
+  catch (err) { /* the unfollow is saved */ }
   try { await env.DB.prepare("DELETE FROM locked_follows WHERE owner_id = ? AND target_id = ?").bind(gate.row.public_id, id).run(); }
   catch (err) { /* no lock table yet */ }
   if (id.indexOf("app:") === 0 && /^\d{12}$/.test(id.slice(4))) {
@@ -5130,6 +5153,19 @@ async function handleFollowDelete(request, env) {
     catch (err) { /* the unfollow is saved */ }
   }
   return followWriteResult(env, gate.row.public_id, id, shown, false);
+}
+
+/* New accounts follow only the owner (#280, merged 2026-10-28 18:04:30
+   UTC). Accounts made from then on never bulk-import follows. */
+const FOLLOW_IMPORT_CUTOFF = Date.UTC(2026, 9, 28, 18, 4, 30);
+
+async function importAllowedFor(env, row) {
+  let created = Number(row && row.created_at);
+  if (!created) {
+    const fresh = await env.DB.prepare("SELECT created_at FROM accounts WHERE public_id = ?").bind(row.public_id).first();
+    created = Number(fresh && fresh.created_at) || Date.now();
+  }
+  return created < FOLLOW_IMPORT_CUTOFF;
 }
 
 async function handleFollowImport(request, env) {
@@ -5141,6 +5177,15 @@ async function handleFollowImport(request, env) {
   if (body.error) return json(400, { error: body.error });
   const incoming = Array.isArray(body.ids) ? body.ids : null;
   if (!incoming) return json(400, { error: "bad_follow" });
+  // Accounts made since new accounts started out following only the owner
+  // never take a bulk import: a device's guest follows (default feeds and
+  // anything another account left there) stay on the device, and every
+  // other follow is a tap. The answer still looks done, so an old client
+  // stops retrying.
+  if (!(await importAllowedFor(env, gate.row))) {
+    const followingCount = await followCount(env, "SELECT COUNT(*) AS n FROM account_follows WHERE follower_id = ?", gate.row.public_id);
+    return json(200, { ok: true, imported: 0, followingCount });
+  }
   const ids = [];
   for (let i = 0; i < incoming.length && ids.length < 5000; i++) {
     let id = cleanFollowId(incoming[i]);

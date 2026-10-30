@@ -337,6 +337,14 @@ export async function runWatchdog(env, now, fetcher) {
     try { await env.DB.prepare("SELECT 1").first(); }
     catch (err) { add(problems, "d1_down", "down", "D1 did not answer the Worker. A spent daily limit is the usual cause."); }
   }
+  let signups = null;
+  if (env.DB) {
+    try { signups = await signupCheck(env, at); }
+    catch (err) { signups = null; }
+    if (signups && signups.newest && signups.newest.followsOwner === false) {
+      add(problems, "signup_owner_follow", "warn", "The newest sign-up does not follow the owner account. Every sign-up path should add that follow.");
+    }
+  }
 
   // 5. Once a day: tokens, keys, storage.
   const daily = !prev.dailyAt || at - Number(prev.dailyAt) >= 20 * HOUR;
@@ -372,6 +380,7 @@ export async function runWatchdog(env, now, fetcher) {
     version: versionState,
     dailyAt: daily ? at : prev.dailyAt,
     dailyProblems,
+    signups,
     actions: actions.concat(prev.actions || []).slice(0, 40),
     issue: prev.issue || null,
     told: prev.told || ""
@@ -439,8 +448,43 @@ export function publicSummary(doc) {
   return {
     ok: d.ok !== false,
     at: Number(d.at) || 0,
-    problems: (d.problems || []).map((p) => ({ code: p.code, level: p.level, text: p.text, since: p.since }))
+    problems: (d.problems || []).map((p) => ({ code: p.code, level: p.level, text: p.text, since: p.since })),
+    signups: d.signups || null
   };
+}
+
+/* Counts only, never ids or handles: does the newest sign-up follow the
+   owner, how many follows it has, how many of them landed in one write at
+   the same instant (a bulk import, not taps), and the last owner-follow
+   backfill. Accounts that dropped the owner follow on purpose are fine. */
+export async function signupCheck(env, at) {
+  const owner = await env.DB.prepare("SELECT public_id FROM accounts WHERE owner = 1 AND profile_less = 0").first();
+  if (!owner) return null;
+  const row = await env.DB.prepare("SELECT public_id, created_at FROM accounts WHERE owner = 0 ORDER BY created_at DESC LIMIT 1").first();
+  let newest = null;
+  if (row) {
+    const target = "app:" + owner.public_id;
+    const has = await env.DB.prepare("SELECT 1 AS y FROM account_follows WHERE follower_id = ? AND target_id = ?").bind(row.public_id, target).first();
+    let dropped = null;
+    try { dropped = await env.DB.prepare("SELECT 1 AS y FROM owner_follow_drops WHERE follower_id = ?").bind(row.public_id).first(); }
+    catch (err) { dropped = null; }
+    const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM account_follows WHERE follower_id = ?").bind(row.public_id).first();
+    const bulk = await env.DB.prepare("SELECT created_at AS t, COUNT(*) AS n FROM account_follows WHERE follower_id = ? AND target_id != ? GROUP BY created_at ORDER BY n DESC LIMIT 1").bind(row.public_id, target).first();
+    const created = Number(row.created_at) || 0;
+    newest = {
+      ageMinutes: created ? Math.max(0, Math.round((at - created) / 60000)) : null,
+      followsOwner: has ? true : (dropped ? null : false),
+      follows: Number(total && total.n) || 0,
+      importedAtOnce: bulk && Number(bulk.n) > 1 ? Number(bulk.n) : 0,
+      importedSecondsAfterSignup: bulk && Number(bulk.n) > 1 && created ? Math.round((Number(bulk.t) - created) / 1000) : null
+    };
+  }
+  let backfill = null;
+  try {
+    const b = await env.DB.prepare("SELECT ran_at, added FROM owner_follow_backfills ORDER BY ran_at DESC, rowid DESC LIMIT 1").first();
+    if (b) backfill = { at: Number(b.ran_at) || 0, added: Number(b.added) || 0 };
+  } catch (err) { backfill = null; }
+  return { newest, ownerFollowBackfill: backfill };
 }
 
 export async function handleWatchdog(request, env, path, deps) {

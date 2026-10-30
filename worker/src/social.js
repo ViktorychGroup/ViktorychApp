@@ -268,6 +268,10 @@ export async function declineFollowRequest(env, viewerId, requesterId) {
 
 export async function removeFollower(env, viewerId, followerId) {
   await env.DB.prepare("DELETE FROM account_follows WHERE follower_id = ? AND target_id = ?").bind(followerId, "app:" + viewerId).run();
+  try {
+    const owner = await env.DB.prepare("SELECT public_id FROM accounts WHERE owner = 1").first();
+    if (owner && owner.public_id === viewerId) await env.DB.prepare("INSERT INTO owner_follow_drops (follower_id, created_at) VALUES (?, ?) ON CONFLICT(follower_id) DO NOTHING").bind(followerId, Date.now()).run();
+  } catch (err) { /* the removal is saved */ }
   await env.DB.prepare("DELETE FROM account_follow_requests WHERE requester_id = ? AND target_id = ?").bind(followerId, viewerId).run();
 }
 
