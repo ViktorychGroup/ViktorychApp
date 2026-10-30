@@ -14,10 +14,12 @@ let pct = -1;
 let checkedAt = 0;
 let day = "";
 let busy = false;
+let d1Pct = -1;
 
 const QUERY = `query Q($acc: String!, $today: Date!) {
   viewer { accounts(filter: { accountTag: $acc }) {
     w: workersInvocationsAdaptive(limit: 100, filter: { date: $today }) { sum { requests } }
+    d: d1AnalyticsAdaptiveGroups(limit: 10, filter: { date: $today }) { sum { rowsRead } }
   } }
 }`;
 
@@ -25,6 +27,20 @@ export function quotaPct(now) {
   const today = new Date(Number(now) || Date.now()).toISOString().slice(0, 10);
   if (day && today !== day) return 0;
   return pct;
+}
+
+/* D1 rows read today against the free 5M/day, as one percent; -1 unknown. */
+export function d1ReadPct(now) {
+  const today = new Date(Number(now) || Date.now()).toISOString().slice(0, 10);
+  if (day && today !== day) return 0;
+  return d1Pct;
+}
+
+export function d1PctFrom(acc) {
+  const rows = (acc && acc.d) || [];
+  if (!rows.length) return -1;
+  const n = rows.reduce((t, r) => t + Number(r.sum && r.sum.rowsRead || 0), 0);
+  return Math.min(999, Math.round(n / FREE_LIMITS.d1RowsReadDay * 100));
 }
 
 export function quotaFrom(acc) {
@@ -46,11 +62,12 @@ export function refreshQuota(env, ctx, now, fetcher) {
     const acc = body && body.data && body.data.viewer && body.data.viewer.accounts && body.data.viewer.accounts[0];
     if (!acc) return;
     pct = quotaFrom(acc);
+    d1Pct = d1PctFrom(acc);
     day = today;
   }).catch(() => {}).finally(() => { busy = false; });
   if (ctx && ctx.waitUntil) ctx.waitUntil(run);
   return run;
 }
 
-export function resetQuota() { pct = -1; checkedAt = 0; day = ""; busy = false; }
-export function setQuotaForTest(value, today) { pct = value; day = today || ""; }
+export function resetQuota() { pct = -1; d1Pct = -1; checkedAt = 0; day = ""; busy = false; }
+export function setQuotaForTest(value, today, d1) { pct = value; day = today || ""; if (d1 !== undefined) d1Pct = d1; }

@@ -45,6 +45,8 @@ export const NOTIFICATION_SCHEMA = [
   )`,
   "CREATE UNIQUE INDEX IF NOT EXISTS notifications_idem ON notifications(public_id, idempotency_key)",
   "CREATE INDEX IF NOT EXISTS notifications_time ON notifications(public_id, at DESC)",
+  "CREATE INDEX IF NOT EXISTS notifications_recent ON notifications(public_id, at DESC, note_id)",
+  "CREATE INDEX IF NOT EXISTS notifications_updated ON notifications(public_id, updated_at)",
   `CREATE TABLE IF NOT EXISTS notification_state (
     public_id TEXT PRIMARY KEY,
     read_until INTEGER NOT NULL DEFAULT 0,

@@ -381,10 +381,21 @@
     var room = poolHasRoom();
     return list.filter(function (p) { return !(p && p.code === "usage_worker_requests" && room); });
   }
+  function utcMidnightLocal() {
+    var d = new Date();
+    var next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
+    try { return next.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+    catch (err) { return next.getHours() + ":00"; }
+  }
   /* Each entry calls tr() itself so the phrase is translated when shown. */
   var USAGE_TEXT = {
     usage_worker_requests: function (v) { return tr("Worker requests today are at {pct}% of the free limit.", v); },
-    usage_d1_reads: function (v) { return tr("Database rows read today are at {pct}% of the free limit.", v); },
+    // D1 counts a UTC day, so "today" ends at 00:00 UTC, shown in local time.
+    usage_d1_reads: function (v) {
+      var text = tr("Database rows read today are at {pct}% of the free daily limit. The count starts again at {time}.", { pct: v.pct, time: utcMidnightLocal() });
+      if (v.pct >= 90) text += " " + tr("Until then, public pages are served from a saved copy so the app keeps working.");
+      return text;
+    },
     usage_d1_writes: function (v) { return tr("Database rows written today are at {pct}% of the free limit.", v); },
     usage_durable: function (v) { return tr("Durable Object requests today are at {pct}% of the free limit.", v); },
     usage_r2_class_a: function (v) { return tr("Storage writes this month are at {pct}% of the free limit.", v); },

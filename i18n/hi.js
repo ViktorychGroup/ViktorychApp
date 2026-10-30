@@ -4844,6 +4844,8 @@ SI18n.addPack("hi", {
   "Some servers not counted yet": "कुछ सर्वर अभी गिने नहीं गए",
   "Worker requests today are at {pct}% of the free limit.": "आज के Worker अनुरोध मुफ़्त सीमा के {pct}% पर हैं।",
   "Database rows read today are at {pct}% of the free limit.": "आज पढ़ी गई डेटाबेस पंक्तियाँ मुफ़्त सीमा के {pct}% पर हैं।",
+  "Database rows read today are at {pct}% of the free daily limit. The count starts again at {time}.": "आज पढ़ी गई डेटाबेस पंक्तियाँ मुफ़्त दैनिक सीमा के {pct}% पर हैं। गिनती {time} पर फिर से शुरू होगी।",
+  "Until then, public pages are served from a saved copy so the app keeps working.": "तब तक सार्वजनिक पेज सहेजी गई कॉपी से दिखाए जाते हैं ताकि ऐप चलता रहे।",
   "Database rows written today are at {pct}% of the free limit.": "आज लिखी गई डेटाबेस पंक्तियाँ मुफ़्त सीमा के {pct}% पर हैं।",
   "Durable Object requests today are at {pct}% of the free limit.": "आज के Durable Object अनुरोध मुफ़्त सीमा के {pct}% पर हैं।",
   "Storage writes this month are at {pct}% of the free limit.": "इस महीने के स्टोरेज राइट मुफ़्त सीमा के {pct}% पर हैं।",

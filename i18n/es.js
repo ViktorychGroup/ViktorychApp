@@ -4938,6 +4938,8 @@ SI18n.addPack("es", {
   "Some servers not counted yet": "Algunos servidores aún sin contar",
   "Worker requests today are at {pct}% of the free limit.": "Las solicitudes del Worker de hoy están al {pct}% del límite gratuito.",
   "Database rows read today are at {pct}% of the free limit.": "Las filas leídas hoy de la base de datos están al {pct}% del límite gratuito.",
+  "Database rows read today are at {pct}% of the free daily limit. The count starts again at {time}.": "Las filas leídas hoy de la base de datos están al {pct}% del límite diario gratuito. El recuento vuelve a empezar a las {time}.",
+  "Until then, public pages are served from a saved copy so the app keeps working.": "Hasta entonces, las páginas públicas se sirven desde una copia guardada para que la app siga funcionando.",
   "Database rows written today are at {pct}% of the free limit.": "Las filas escritas hoy en la base de datos están al {pct}% del límite gratuito.",
   "Durable Object requests today are at {pct}% of the free limit.": "Las solicitudes de Durable Objects de hoy están al {pct}% del límite gratuito.",
   "Storage writes this month are at {pct}% of the free limit.": "Las escrituras de almacenamiento de este mes están al {pct}% del límite gratuito.",

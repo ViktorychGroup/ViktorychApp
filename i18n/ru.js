@@ -4937,6 +4937,8 @@ SI18n.addPack("ru", {
   "Some servers not counted yet": "Некоторые серверы ещё не посчитаны",
   "Worker requests today are at {pct}% of the free limit.": "Запросы к Worker сегодня: {pct}% бесплатного лимита.",
   "Database rows read today are at {pct}% of the free limit.": "Прочитано строк базы данных сегодня: {pct}% бесплатного лимита.",
+  "Database rows read today are at {pct}% of the free daily limit. The count starts again at {time}.": "Прочитано строк базы данных сегодня: {pct}% бесплатного дневного лимита. Счётчик обнулится в {time}.",
+  "Until then, public pages are served from a saved copy so the app keeps working.": "До этого публичные страницы отдаются из сохранённой копии, чтобы приложение продолжало работать.",
   "Database rows written today are at {pct}% of the free limit.": "Записано строк базы данных сегодня: {pct}% бесплатного лимита.",
   "Durable Object requests today are at {pct}% of the free limit.": "Запросы Durable Objects сегодня: {pct}% бесплатного лимита.",
   "Storage writes this month are at {pct}% of the free limit.": "Записи в хранилище за месяц: {pct}% бесплатного лимита.",

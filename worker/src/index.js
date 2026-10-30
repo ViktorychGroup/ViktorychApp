@@ -12,7 +12,8 @@ import { handleDrive, DRIVE_SCHEMA } from "./drive.js";
 import { handleCommunityRoute, COMMUNITY_SCHEMA } from "./communities.js";
 import { handleFederationRoute, FEDERATION_SCHEMA, isPublicFederationRoute } from "./federation.js";
 import { usageReport } from "./usage.js";
-import { quotaPct, refreshQuota } from "./quota.js";
+import { quotaPct, refreshQuota, d1ReadPct } from "./quota.js";
+import { withD1Saver } from "./d1-saver.js";
 import { guardClass, guardKey, takeToken, noteGuardTier, tokenGuardKey, publishPulse, pulseResponse } from "./guard.js";
 import { handleNostr } from "./nostr.js";
 import { handleIdentitiesRoute, IDENTITY_SCHEMA, listAccountIdentities, visibleIdentities } from "./identities.js";
@@ -244,7 +245,7 @@ function withCors(request, env, response) {
   headers.set("access-control-allow-origin", origin);
   headers.set("vary", "Origin");
   headers.set("access-control-allow-headers", "Content-Type, Authorization, Range, X-Feed-Refresh, If-None-Match, X-Viktorych-Intent, X-Block, X-Locked-Grant");
-  headers.set("access-control-expose-headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Retry-After, X-Limit-Scope, X-Quota-Pct, X-Block-Removed");
+  headers.set("access-control-expose-headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Retry-After, X-Limit-Scope, X-Quota-Pct, X-Block-Removed, X-D1-Saver");
   const quota = quotaPct(Date.now());
   if (quota >= 0) headers.set("x-quota-pct", String(quota));
   headers.set("access-control-allow-methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS");
@@ -6072,6 +6073,16 @@ export async function runBackgroundJobs(env, at, only) {
   return { ran: names, failed };
 }
 
+/* Signed-out GET reads keep a cached copy for when D1 rows read run low. */
+function saverDeps(ctx) {
+  return {
+    cache: typeof caches !== "undefined" && caches.default ? caches.default : null,
+    pct: () => d1ReadPct(Date.now()),
+    now: Date.now(),
+    waitUntil: ctx && ctx.waitUntil ? (p) => ctx.waitUntil(p) : null
+  };
+}
+
 export default {
   async fetch(request, env, ctx) {
     let path = "";
@@ -6089,7 +6100,7 @@ export default {
         const take = takeToken(guardKey(request), kind, Date.now());
         if (!take.ok) return withCors(request, env, json(429, { error: "rate_limited", scope: "device" }, { "retry-after": String(take.retry), "x-limit-scope": "device" }));
       }
-      const response = scopeLimit(await withEtag(request, await withBlocks(request, await withDisplayNames(request, env, await route(request, env, ctx), displayNameDeps(env)))));
+      const response = scopeLimit(await withEtag(request, await withBlocks(request, await withDisplayNames(request, env, await withD1Saver(request, () => route(request, env, ctx), saverDeps(ctx)), displayNameDeps(env)))));
       return withCors(request, env, response);
     } catch (err) {
       logError(areaFor(path, request.method), err);

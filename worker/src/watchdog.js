@@ -151,7 +151,7 @@ export function usageProblems(usage, storage) {
 
 /* Optional cron work pauses while a daily limit is nearly spent. */
 export function shouldPause(problems) {
-  return (problems || []).some((p) => (p.code === "usage_worker_requests" || p.code === "usage_d1_writes" || p.code === "usage_r2_class_a" || p.code === "usage_durable") && Number(p.ratio) >= USAGE_PAUSE);
+  return (problems || []).some((p) => (p.code === "usage_worker_requests" || p.code === "usage_d1_reads" || p.code === "usage_d1_writes" || p.code === "usage_r2_class_a" || p.code === "usage_durable") && Number(p.ratio) >= USAGE_PAUSE);
 }
 
 const STORAGE_QUERY = `query S($acc: String!, $since: Date!) {

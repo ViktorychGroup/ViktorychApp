@@ -4936,6 +4936,8 @@ SI18n.addPack("en", {
   "Some servers not counted yet": "Some servers not counted yet",
   "Worker requests today are at {pct}% of the free limit.": "Worker requests today are at {pct}% of the free limit.",
   "Database rows read today are at {pct}% of the free limit.": "Database rows read today are at {pct}% of the free limit.",
+  "Database rows read today are at {pct}% of the free daily limit. The count starts again at {time}.": "Database rows read today are at {pct}% of the free daily limit. The count starts again at {time}.",
+  "Until then, public pages are served from a saved copy so the app keeps working.": "Until then, public pages are served from a saved copy so the app keeps working.",
   "Database rows written today are at {pct}% of the free limit.": "Database rows written today are at {pct}% of the free limit.",
   "Durable Object requests today are at {pct}% of the free limit.": "Durable Object requests today are at {pct}% of the free limit.",
   "Storage writes this month are at {pct}% of the free limit.": "Storage writes this month are at {pct}% of the free limit.",
