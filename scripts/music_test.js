@@ -150,7 +150,7 @@ assert.strictEqual(L.sameSection({ name: "music", section: "home", id: "" }, "#/
 assert.strictEqual(L.publishable(merged.songs).length, 1);
 
 const worker = fs.readFileSync("sw.js", "utf8");
-assert.ok(worker.includes('VERSION = "viktorych-a259-__SW_VERSION__"'));
+assert.ok(worker.includes('VERSION = "viktorych-a260-__SW_VERSION__"'));
 assert.ok(worker.includes("./marks.js") && !worker.includes("./brand.js"));
 assert.ok(worker.includes("./icons/music-192.png"));
 assert.ok(worker.includes("sintel-music-offline"));

@@ -6278,7 +6278,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       <button class="action ${cls}${cls === "like" && liked ? " on" : ""}${cls === "bookmark" && booked ? " on" : ""}${cls === "repost" && reposted ? " on" : ""}" data-act="${act}" data-id="${esc(id)}" aria-label="${esc(label)}" data-tooltip="${esc(tip || label)}">
         <span class="ic">${icon(path)}</span>${count ? `<span class="count">${esc(count)}</span>` : ""}
       </button>`;
-    const replyCount = shownCount(stats.replies, 0);
+    const replyCount = shownCount(stats.replies, detail ? appRepliesFor(post).length : 0);
     const replyOnX = (post.platform || "x") === "x";
     const replyLink = post.appPost
       ? `<button class="action reply" type="button" data-act="public-reply" data-id="${esc(id)}" aria-label="${tr("Reply")}" data-tooltip="${tr("Reply")}"><span class="ic">${icon("reply")}</span>${replyCount ? `<span class="count">${esc(replyCount)}</span>` : ""}</button>`
@@ -6341,6 +6341,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       quoted.embedded = true;
       render();
     }).catch(() => {});
+  }
+
+  /* The post being quoted, embedded under the comment in the Quote sheet. */
+  function quoteSheetCard(post) {
+    if (!post) return "";
+    try { return `<div class="quote-sheet-embed" data-act="stop">${quoteCard(Object.assign({}, post, { quoted: null })).replace(/^<div class="quote" data-(?:open|href)="[^"]*">/, '<div class="quote">')}</div>`; }
+    catch (err) { return ""; }
   }
 
   function quoteCard(quoted) {
@@ -9392,12 +9399,32 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<span class="status-menu-wrap">${btn}<div class="menu status-menu" data-act="stop" role="menu">${items}</div></span>`;
   }
 
+  /* Replies written in this app to a feed post (X, YouTube, …) are app posts
+     with extParent. They never come back from the source, so the post page
+     lists them first, like X shows your reply right under the post. */
+  function appRepliesFor(post) {
+    if (!post || post.appPost || (post.platform || "x") === "app") return [];
+    const plat = post.platform || "x";
+    const ids = [String(post.statusId || ""), String(post.id || "")].filter(Boolean);
+    const seen = {};
+    return publicPosts.filter((item) => {
+      const ext = item && item.extParent;
+      if (!ext || seen[item.id] || !notGone(item)) return false;
+      if ((ext.platform || "x") !== plat) return false;
+      if (ids.indexOf(String(ext.statusId || ext.id || "")) < 0) return false;
+      seen[item.id] = true;
+      return true;
+    }).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)).map(appCardPost);
+  }
+
   function replyList(post) {
     const tools = "";
+    const mine = appRepliesFor(post).map((item) => card(item, "reply", { focus: post })).join("");
     const slice = replySlice(post);
-    if (slice.loading) return tools + replySkeleton(3);
-    if (slice.error) return tools + replyError(postKey(post));
+    if (slice.loading) return tools + mine + replySkeleton(3);
+    if (slice.error) return tools + mine + replyError(postKey(post));
     if (!slice.shown.length && !slice.more && !slice.spam) {
+      if (mine) return tools + mine;
       return tools + `<div class="reply-empty">${slice.missing ? tr("Replies aren’t available for this post.") : tr("No replies yet.")}</div>`;
     }
     const id = postKey(post);
@@ -9434,7 +9461,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const more = bucketNow.loadingMore ? replySkeleton(2)
       : moreRows ? `<div class="reply-more-sentinel" data-id="${esc(id)}"></div><button class="more-replies" type="button" data-act="more-replies" data-id="${esc(id)}">${tr("Show more replies")}</button>` : "";
     const spam = slice.spam ? `<button class="more-replies spam" type="button" data-act="spam-replies" data-id="${esc(id)}">${tr("Show probable spam")}</button>` : "";
-    return tools + html + more + spam;
+    return tools + mine + html + more + spam;
   }
 
   function composer(bridge, post) {
@@ -18113,7 +18140,7 @@ if (STATE.histClear) {
         <div class="modal-head"><button class="icon-btn" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${tr("Quote")}</h2><button id="quote-post" class="save" data-act="quote-post" disabled>${tr("Post")}</button></div>
         <div class="modal-body" style="display:flex;gap:12px">
           ${face}
-          <div style="flex:1"><textarea id="quote-text" maxlength="280" placeholder="${tr("Add a comment")}" style="width:100%;min-height:120px;background:transparent;border:0;resize:vertical;font-size:20px;outline:none"></textarea></div>
+          <div style="flex:1;min-width:0"><textarea id="quote-text" maxlength="280" placeholder="${tr("Add a comment")}" style="width:100%;min-height:120px;background:transparent;border:0;resize:vertical;font-size:20px;outline:none"></textarea>${quoteSheetCard(locatePost(STATE.quoteTarget))}</div>
         </div></div></div>`;
     }
     if (STATE.modal === "list") {

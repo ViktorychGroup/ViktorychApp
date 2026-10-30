@@ -33,7 +33,7 @@ function staticChecks() {
   const tabsAt = header.indexOf('class="tabs-bar"');
   if (trayAt < 0 || tabsAt < 0 || trayAt > tabsAt) fail("stories must sit above For you and Following");
   if (!app.includes('getElementById("new-posts")')) fail("new posts pill hook missing");
-  if (!read("sw.js").includes('VERSION = "viktorych-a259-__SW_VERSION__"')) fail("service worker cache was not bumped");
+  if (!read("sw.js").includes('VERSION = "viktorych-a260-__SW_VERSION__"')) fail("service worker cache was not bumped");
   console.log("ok story bar layout rules");
 }
 
