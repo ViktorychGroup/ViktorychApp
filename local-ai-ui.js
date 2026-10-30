@@ -63,6 +63,7 @@
     return null;
   }
   function saveChats() {
+    if (prefs().history === "off") { write(CHATS_KEY, []); return; }
     S.chats.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
     S.chats = S.chats.slice(0, MAX_CHATS);
     write(CHATS_KEY, S.chats.map(function (c) {
@@ -73,7 +74,9 @@
   /* ---------- model choice ---------- */
   function currentModel() {
     var A = core();
-    var m = S.model && A.model(S.model);
+    var saved = setupOn() ? setupSaved() : null;
+    var id = S.model || (saved && saved.model) || "";
+    var m = id && A.model(id);
     if (m && S.choices && S.choices.list.indexOf(m) >= 0) return m;
     if (m && m.engine === "instant") return m;
     return A.model("instant");
@@ -92,6 +95,7 @@
     if (!mb) return tr("No download");
     return mb >= 1000 ? tr("{n} GB", { n: (mb / 1000).toFixed(1) }) : tr("{n} MB", { n: Math.round(mb) });
   }
+  function partText(mb) { return mb >= 1000 ? tr("{n} GB", { n: (mb / 1000).toFixed(1) }) : tr("{n} MB", { n: Math.round(mb || 0) }); }
   function modelBlurb(m) {
     if (m.engine === "instant") return tr("Built-in rules. Instant, works on every device, no download.");
     if (m.engine === "nano") return tr("Chrome's built-in model. Chrome keeps it; nothing to download here.");
@@ -182,7 +186,7 @@
     var h = host();
     var values = h ? h.values() : {};
     var m = currentModel();
-    var lang = A.langOf(text, h ? h.lang() : "en");
+    var lang = prefs().lang || A.langOf(text, h ? h.lang() : "en");
     if (m.engine === "instant" || !(S.engine.state === "ready" && S.engine.id === m.id)) {
       var parsed = A.parse(text, values);
       return Promise.resolve({ reply: "", calls: parsed.calls, unknown: parsed.unknown, engine: "instant" });
@@ -263,7 +267,7 @@
   /* ---------- sending ---------- */
   function send(text, opts) {
     text = String(text || "").trim();
-    if (!text || S.busy) return;
+    if (!text || S.busy || S.setup) return;
     var c = chat();
     if (!c) {
       c = { id: uid(), title: text.slice(0, 60), at: Date.now(), msgs: [] };
@@ -287,6 +291,12 @@
       var values = h ? h.values() : {};
       var plan = core().plan(res.calls, values);
       var reply = res.reply && res.reply.trim() ? res.reply.trim() : instantReply(plan, res.unknown);
+      // Setup said "only show where settings are": changes become links.
+      if (!prefs().canChange && plan.changes.length) {
+        plan.changes.forEach(function (ch) { if (!plan.opens.some(function (r) { return r.id === ch.id; })) { var row = reg().get(ch.id); if (row && row.page) plan.opens.push({ id: ch.id, row: row, risk: row.risk }); } });
+        plan.changes = [];
+        reply = tr("Changing settings is off, so here's where to do it yourself:");
+      }
       if (res.reply && plan.opens.length && !/http|#\//.test(reply)) reply += "";
       msg.engine = res.engine;
       msg.plan = plan.changes.map(function (ch) { return { id: ch.id, from: ch.from, to: ch.to, risky: !!ch.risky, signedIn: !!ch.signedIn }; });
@@ -386,8 +396,8 @@
     void groups;
     return '<div class="lai-side-top"><a class="lai-brand" href="#/ai" data-lai="new"><span class="lai-brand-mark">' + mark() + '</span><span>' + esc(tr("Local AI")) + '</span></a><button type="button" class="lai-icon lai-side-x" data-lai="side" aria-label="' + esc(tr("Close")) + '">' + I.side + "</button></div>" +
       '<button type="button" class="lai-new" data-lai="new">' + I.edit + "<span>" + esc(tr("New chat")) + "</span></button>" +
-      '<nav class="lai-hist" aria-label="' + esc(tr("History")) + '">' + (rows || '<p class="lai-hist-empty">' + esc(tr("Your chats stay on this device.")) + "</p>") + "</nav>" +
-      '<div class="lai-side-foot"><a href="#/settings" class="lai-side-link">' + esc(tr("All settings")) + "</a></div>";
+      '<nav class="lai-hist" aria-label="' + esc(tr("History")) + '">' + (prefs().history === "off" ? '<p class="lai-hist-empty">' + esc(tr("Chat history is off. Chats are gone when you leave the page.")) + "</p>" : "") + (rows || (prefs().history === "off" ? "" : '<p class="lai-hist-empty">' + esc(tr("Your chats stay on this device.")) + "</p>")) + "</nav>" +
+      '<div class="lai-side-foot">' + (setupOn() ? '<button type="button" class="lai-side-link" data-lai="setup-again">' + esc(tr("Set up Local AI again")) + "</button>" : "") + '<a href="#/settings" class="lai-side-link">' + esc(tr("All settings")) + "</a></div>";
   }
   function chips() {
     return [tr("Make text bigger"), tr("Stop autoplay on mobile data"), tr("Hide friends stuff"), tr("Make my account private"), tr("Dark mode"), tr("Where are muted words?")];
@@ -414,7 +424,8 @@
       return '<button type="button" role="menuitemradio" aria-checked="' + (m === cur ? "true" : "false") + '" class="lai-menu-item' + (m === cur ? " on" : "") + '" data-lai="pick" data-id="' + esc(m.id) + '"><span class="lai-menu-name">' + esc(modelName(m)) + badge + '</span><span class="lai-menu-sub">' + esc(modelBlurb(m)) + (size ? " · " + esc(size) : "") + "</span>" + (m === cur ? '<span class="lai-menu-check">' + I.check + "</span>" : "") + "</button>";
     }).join("");
     var tier = S.info ? '<p class="lai-menu-foot">' + esc(S.info.webgpu ? tr("This device can run models on its graphics chip.") : tr("No WebGPU here, so models run on the processor.")) + "</p>" : "";
-    return '<div class="lai-menu" role="menu">' + '<p class="lai-menu-head">' + esc(tr("Model")) + "</p>" + rows + tier + "</div>";
+    var again = setupOn() ? '<button type="button" role="menuitem" class="lai-menu-item lai-menu-again" data-lai="setup-again"><span class="lai-menu-name">' + esc(tr("Set up Local AI again")) + "</span></button>" : "";
+    return '<div class="lai-menu" role="menu">' + '<p class="lai-menu-head">' + esc(tr("Model")) + "</p>" + rows + tier + again + "</div>";
   }
   function heroHtml() {
     return '<div class="lai-hero"><span class="lai-hero-mark">' + mark() + "</span><h1>" + esc(tr("What should we change?")) + "</h1></div>";
@@ -553,7 +564,7 @@
     el.className = "lai";
     el.innerHTML = '<aside class="lai-side" aria-label="' + esc(tr("Chats")) + '"></aside><div class="lai-scrim" data-lai="side"></div>' +
       '<section class="lai-main"><header class="lai-head"><a class="lai-icon lai-back" href="#/settings" aria-label="' + esc(tr("Back")) + '">' + I.back + '</a><button type="button" class="lai-icon lai-menu-btn" data-lai="side" aria-label="' + esc(tr("Chats")) + '">' + I.menu + '</button><span class="lai-title"></span><button type="button" class="lai-icon" data-lai="new" aria-label="' + esc(tr("New chat")) + '">' + I.edit + "</button></header>" +
-      '<div class="lai-scroll"><div class="lai-thread" aria-live="polite"></div></div><div class="lai-dock"><div class="lai-hero-slot"></div><div class="lai-prog-slot"></div><div class="lai-bar-slot"></div><div class="lai-chips-slot"></div><div class="lai-browse-slot"></div><p class="lai-note">' + esc(tr("Runs on this device. Nothing you type is sent anywhere.")) + "</p></div></section><div class=\"lai-sheet-slot\"></div>";
+      '<div class="lai-scroll"><div class="lai-thread" aria-live="polite"></div></div><div class="lai-dock"><div class="lai-hero-slot"></div><div class="lai-prog-slot"></div><div class="lai-bar-slot"></div><div class="lai-chips-slot"></div><div class="lai-browse-slot"></div><p class="lai-note">' + esc(tr("Runs on this device. Nothing you type is sent anywhere.")) + "</p></div></section><div class=\"lai-sheet-slot\"></div><div class=\"lai-su-slot\"></div>";
     el.addEventListener("click", onClick);
     el.addEventListener("submit", function (e) { e.preventDefault(); onSend(); });
     el.addEventListener("keydown", onKey);
@@ -570,13 +581,15 @@
     var c = chat();
     var empty = !c || !c.msgs.length;
     S.root.classList.toggle("is-empty", empty);
-    S.root.classList.toggle("side-open", S.sideOpen);
+    S.root.classList.toggle("side-open", S.sideOpen && !S.setup);
+    S.root.classList.toggle("is-setup", !!S.setup);
+    paintSetup();
     S.root.querySelector(".lai-side").innerHTML = sideHtml();
-    S.root.querySelector(".lai-title").textContent = c && c.title ? c.title : tr("Local AI");
+    S.root.querySelector(".lai-title").textContent = S.setup ? tr("Set up Local AI") : (c && c.title ? c.title : tr("Local AI"));
     S.root.querySelector(".lai-hero-slot").innerHTML = empty ? heroHtml() : "";
     S.root.querySelector(".lai-chips-slot").innerHTML = empty ? chipsHtml() : "";
     var bs = S.root.querySelector(".lai-browse-slot");
-    if (bs) bs.innerHTML = empty ? browseHtml() : "";
+    if (bs) bs.innerHTML = empty && prefs().canChange ? browseHtml() : "";
     S.root.querySelector(".lai-thread").innerHTML = threadHtml();
     S.root.querySelector(".lai-sheet-slot").innerHTML = sheetHtml();
     paintBar();
@@ -605,7 +618,8 @@
   }
   function paintProgress() {
     if (!S.root) return;
-    S.root.querySelector(".lai-prog-slot").innerHTML = progressHtml();
+    S.root.querySelector(".lai-prog-slot").innerHTML = S.setup ? "" : progressHtml();
+    paintSetupProgress();
     var pct = S.root.querySelector(".lai-pill-pct");
     if (pct) pct.textContent = Math.round(S.engine.progress * 100) + "%";
     else if (S.engine.state === "loading" || S.engine.state === "ready") { /* pill repaints with the bar */ }
@@ -634,6 +648,7 @@
   }
   function onKey(e) {
     if (e.key === "Enter" && !e.shiftKey && e.target && e.target.classList.contains("lai-input") && !e.isComposing) { e.preventDefault(); onSend(); }
+    if (e.key === "Escape" && S.setup) return;
     if (e.key === "Escape") { if (S.menu) { S.menu = false; paintBar(); } else if (S.sheet) { S.sheet = null; paint(); } else if (S.sideOpen) { S.sideOpen = false; paint(); } }
   }
   function msgAt(el) { var c = chat(); return c ? c.msgs[Number(el.getAttribute("data-m"))] : null; }
@@ -646,13 +661,16 @@
     if (act === "form" || act === "send") return;
     e.preventDefault();
     var h = host();
+    if (act.indexOf("su-") === 0) { onSetupClick(act, el); return; }
+    if (act === "setup-again") { S.menu = false; startSetup("full"); return; }
+    if (S.setup) return;
     if (act === "new") { S.chatId = ""; S.sideOpen = false; paint(); focusBox(); return; }
     if (act === "side") { S.sideOpen = !S.sideOpen; S.root.classList.toggle("side-open", S.sideOpen); if (window.innerWidth >= 1000) { S.root.classList.toggle("side-hidden"); } return; }
     if (act === "open-chat") { S.chatId = el.getAttribute("data-id"); S.sideOpen = false; paint(); return; }
     if (act === "del-chat") { var id = el.getAttribute("data-id"); S.chats = S.chats.filter(function (c) { return c.id !== id; }); if (S.chatId === id) S.chatId = ""; saveChats(); paint(); return; }
     if (act === "chip") { send(el.textContent); return; }
     if (act === "tab") { S.browse = el.getAttribute("data-cat"); var b = S.root.querySelector(".lai-browse-slot"); if (b) b.innerHTML = browseHtml(); var t = S.root.querySelector('.lai-tab.on'); if (t) t.focus(); return; }
-    if (act === "quick") { quick(el.getAttribute("data-id")); return; }
+    if (act === "quick") { if (prefs().canChange) quick(el.getAttribute("data-id")); return; }
     if (act === "models") { S.menu = !S.menu; detectOnce(); paintBar(); return; }
     if (act === "pick") {
       var m = core().model(el.getAttribute("data-id"));
@@ -739,22 +757,382 @@
     }).catch(function () { S.micBusy = false; paintBar(); });
   }
 
+  /* ---------- first-run setup ----------
+     Required once before the chat opens (the owner can turn the
+     local_ai_setup switch off). The choices sync with the account through
+     settings.aiSetup; model files stay on this device, so a new device only
+     runs the download and test steps. Instant is the only way to skip. */
+  var STEPS_FULL = ["welcome", "device", "download", "test", "prefs", "done"];
+  var LANGS = [["en", "English"], ["es", "Español"], ["ru", "Русский"], ["hi", "हिन्दी"]];
+  function setupOn() { var h = host(); return !!(h && h.setupRequired && h.setupRequired()); }
+  function setupSaved() { var h = host(); var v = h && h.setup ? h.setup() : null; return v && typeof v === "object" ? v : null; }
+  function prefs() {
+    var s = setupOn() ? setupSaved() : null;
+    return { lang: s && s.lang ? String(s.lang) : "", canChange: !s || s.canChange !== false, history: s && s.history === "off" ? "off" : "keep" };
+  }
+  function needsFiles(m) { return !!m && (m.engine === "webllm" || m.engine === "tjs"); }
+  /* What still has to happen here: "" (nothing), "full" or "device". */
+  function setupNeed() {
+    if (!setupOn()) return "";
+    var s = setupSaved();
+    if (!s || !s.done) return "full";
+    var m = core().model(s.model);
+    if (!m) return "full";
+    return needsFiles(m) && !S.have[m.id] ? "device" : "";
+  }
+  function inChoices(id) { return !!(S.choices && S.choices.list.some(function (m) { return m.id === id; })); }
+  function startSetup(mode, auto) {
+    var saved = setupSaved() || {};
+    var h = host();
+    var lang = saved.lang || (h ? h.lang() : "en");
+    S.setup = {
+      mode: mode, auto: !!auto, steps: mode === "device" ? ["download", "test"] : STEPS_FULL.slice(), i: 0,
+      pick: mode === "device" ? String(saved.model || "") : "", lang: lang, canChange: saved.canChange !== false, history: saved.history === "off" ? "off" : "keep",
+      dl: "idle", test: "idle", ms: 0, storage: null, persisted: null
+    };
+    S.menu = false; S.sheet = null; S.sideOpen = false;
+    detectOnce().then(function () {
+      var st = S.setup;
+      if (!st) return;
+      if (st.mode === "device" && !inChoices(st.pick)) { st.steps = ["device", "download", "test"]; st.pick = ""; }
+      if (!st.pick) st.pick = (S.choices.recommended || core().model("instant")).id;
+      paint();
+    });
+    if (navigator.storage && navigator.storage.estimate) {
+      navigator.storage.estimate().then(function (e) { if (S.setup) { S.setup.storage = { quota: e.quota || 0, usage: e.usage || 0 }; paintSetup(); } }, function () {});
+    }
+    if (navigator.storage && navigator.storage.persisted) {
+      navigator.storage.persisted().then(function (p) { if (S.setup) { S.setup.persisted = !!p; paintSetup(); } }, function () {});
+    }
+    paint();
+  }
+  function stepName() { return S.setup ? S.setup.steps[S.setup.i] : ""; }
+  function pickedModel() { return core().model(S.setup && S.setup.pick) || core().model("instant"); }
+  function goStep(name) {
+    var st = S.setup;
+    var i = st.steps.indexOf(name);
+    if (i < 0) return;
+    st.i = i;
+    if (name === "download") {
+      var m = pickedModel();
+      // Instant and Chrome's own model have nothing to download here.
+      if (!needsFiles(m) && m.engine !== "nano") { goStep("test"); return; }
+      if (S.engine.state === "ready" && S.engine.id === m.id) st.dl = "done";
+      else if (st.dl !== "loading") st.dl = S.have[m.id] ? "loading" : "idle";
+      if (st.dl === "loading") startDownload();
+    }
+    if (name === "test") runTest();
+    if (name === "done") saveSetupNow();
+    paint();
+    var card = S.root && S.root.querySelector(".lai-su-card");
+    if (card) { card.scrollTop = 0; var f = card.querySelector("h1"); if (f) { f.setAttribute("tabindex", "-1"); f.focus({ preventScroll: true }); } }
+  }
+  function nextStep() {
+    var st = S.setup;
+    if (st.i >= st.steps.length - 1) { finishSetup(); return; }
+    goStep(st.steps[st.i + 1]);
+  }
+  function prevStep() {
+    var st = S.setup;
+    if (!st || st.i <= 0) return;
+    var name = stepName();
+    if (name === "download" && st.dl === "loading") pauseDownload();
+    var back = st.steps[st.i - 1];
+    // Going back over a step with nothing to do skips it.
+    if (back === "download" && !needsFiles(pickedModel()) && pickedModel().engine !== "nano") back = st.steps[st.i - 2] || back;
+    if (back === "test") back = st.steps[st.steps.indexOf("download")] || back;
+    st.i = st.steps.indexOf(back);
+    paint();
+  }
+  function saveSetupNow() {
+    var h = host();
+    var st = S.setup;
+    if (!st) return;
+    var v = { v: 1, done: true, at: Date.now(), model: st.pick || "instant", lang: st.lang, canChange: !!st.canChange, history: st.history };
+    if (h && h.saveSetup) h.saveSetup(v);
+    S.model = v.model;
+    write(MODEL_KEY, v.model);
+    if (v.history === "off") { S.chats = []; S.chatId = ""; write(CHATS_KEY, []); }
+  }
+  function finishSetup() {
+    saveSetupNow();
+    S.setup = null;
+    var m = currentModel();
+    if (m.engine === "instant") S.engine = { state: "ready", id: m.id, progress: 1 };
+    paint();
+    focusBox();
+  }
+  function skipSetup() {
+    if (!S.setup) return;
+    S.setup.pick = "instant";
+    finishSetup();
+  }
+  function askPersist() {
+    if (!navigator.storage || !navigator.storage.persist) return;
+    navigator.storage.persist().then(function (p) { if (S.setup) { S.setup.persisted = !!p; paintSetup(); } }, function () {});
+  }
+  function startDownload() {
+    var st = S.setup;
+    var m = pickedModel();
+    st.dl = "loading";
+    askPersist();
+    loadModel(m).then(function () {
+      if (!S.setup || S.setup.pick !== m.id) return;
+      S.setup.dl = "done";
+      if (stepName() === "download") nextStep();
+    }, function () {
+      if (!S.setup || S.setup.pick !== m.id) return;
+      if (S.setup.dl === "paused") { S.engine = { state: "idle", id: "", progress: S.setup.pausedAt || 0, text: "" }; paint(); return; }
+      S.setup.dl = "error";
+      paint();
+    });
+    paint();
+  }
+  /* Pause stops the download worker. The files that already finished stay in
+     the browser cache, so Resume carries on from there. */
+  function pauseDownload() {
+    var st = S.setup;
+    if (!st || st.dl !== "loading") return;
+    st.dl = "paused";
+    st.pausedAt = S.engine.progress || 0;
+    if (S.worker) { try { S.worker.terminate(); } catch (err) { /* already gone */ } S.worker = null; }
+    Object.keys(S.jobs).forEach(function (k) { S.jobs[k].reject(new Error("paused")); delete S.jobs[k]; });
+    paint();
+  }
+  function smallerThan(m) {
+    var list = (S.choices && S.choices.list) || [];
+    var i = list.indexOf(m);
+    for (var j = i + 1; j < list.length; j += 1) if (list[j].engine !== "instant") return list[j];
+    return null;
+  }
+  /* The warm-up asks the model one real question and checks it answers. */
+  function runTest() {
+    var st = S.setup;
+    var m = pickedModel();
+    var A = core();
+    var h = host();
+    var values = h ? h.values() : {};
+    var q = "make text bigger";
+    st.test = "running";
+    st.ms = 0;
+    var t0 = Date.now();
+    var job;
+    if (m.engine === "instant") {
+      job = A.parse(q, values).calls.length ? Promise.resolve({ text: "ok" }) : Promise.reject(new Error("rules"));
+    } else {
+      var p = A.prompt(q, values, { lang: "en", limit: 12 });
+      job = loadModel(m).then(function () {
+        if (m.engine === "nano") return nanoSession(true).then(function (s) { return s.prompt(p.system + "\n\nUser: " + q, { responseConstraint: A.SCHEMA }); }).then(function (text) { return { text: text }; });
+        return ask({ type: "chat", messages: [{ role: "system", content: p.system }, { role: "user", content: q }], schema: m.engine === "webllm" ? A.SCHEMA : null, maxTokens: 160 });
+      });
+      var limit = new Promise(function (resolve, reject) { setTimeout(function () { reject(new Error("timeout")); }, 120000); });
+      job = Promise.race([job, limit]);
+    }
+    job.then(function (res) {
+      if (!S.setup || S.setup.pick !== m.id) return;
+      if (!String(res && res.text || "").trim()) throw new Error("empty");
+      S.setup.test = "ok";
+      S.setup.ms = Date.now() - t0;
+      paint();
+    }).catch(function () {
+      if (!S.setup || S.setup.pick !== m.id) return;
+      S.setup.test = "fail";
+      paint();
+    });
+  }
+  function usePick(id) {
+    var st = S.setup;
+    st.pick = id;
+    st.dl = "idle";
+    st.test = "idle";
+    goStep(st.steps.indexOf("download") >= 0 ? "download" : "test");
+  }
+
+  function gb(bytes) { return (bytes / 1e9).toFixed(1); }
+  function suRadio(on) { return '<i class="lai-su-radio' + (on ? " is-on" : "") + '" aria-hidden="true"></i>'; }
+  function suCheck(on) { return '<i class="lai-cb' + (on ? " is-on" : "") + '" aria-hidden="true">' + I.check + "</i>"; }
+  function logo() { var h = host(); return h && h.logo ? h.logo() : mark(); }
+  function appName() { var h = host(); return (h && h.appName && h.appName()) || ""; }
+  function setupHtml() {
+    var st = S.setup;
+    if (!st) return "";
+    var name = stepName();
+    var A = core();
+    var m = pickedModel();
+    var body = "", foot = "";
+    var pill = function (act, label, extra) { return '<button type="button" class="lai-su-btn" data-lai="' + act + '"' + (extra || "") + ">" + esc(label) + "</button>"; };
+    var ghost = function (act, label, extra) { return '<button type="button" class="lai-su-btn ghost" data-lai="' + act + '"' + (extra || "") + ">" + esc(label) + "</button>"; };
+    if (name === "welcome") {
+      var app = appName();
+      body = '<h1>' + esc(tr("Set up Local AI")) + "</h1><p class=\"lai-su-lead\">" + esc(app ? tr("Local AI in {app} changes your settings when you ask in plain words.", { app: app }) : tr("Local AI changes your settings when you ask in plain words.")) + "</p>" +
+        '<ul class="lai-su-points"><li><b>' + esc(tr("Everything stays on this device")) + "</b><span>" + esc(tr("The model runs here. What you type is never sent anywhere, not even to us.")) + "</span></li>" +
+        "<li><b>" + esc(tr("Download once, then offline")) + "</b><span>" + esc(tr("We check what this device can run and suggest the best model.")) + "</span></li>" +
+        "<li><b>" + esc(tr("You stay in control")) + "</b><span>" + esc(tr("Every change shows on a card first. Nothing changes until you tap Apply, and Undo puts it back.")) + "</span></li></ul>";
+      foot = pill("su-next", tr("Get started")) + '<button type="button" class="lai-su-link" data-lai="su-skip">' + esc(tr("Skip and use Instant (no download)")) + "</button>";
+    } else if (name === "device") {
+      var info = S.info;
+      if (!info || !S.choices) {
+        body = "<h1>" + esc(tr("Checking this device…")) + '</h1><div class="lai-su-spin" role="status" aria-label="' + esc(tr("Checking this device…")) + '"></div>';
+      } else {
+        var free = st.storage ? Math.max(0, st.storage.quota - st.storage.usage) : 0;
+        var facts = [
+          [tr("Graphics chip (WebGPU)"), info.webgpu ? tr("Yes") : tr("No")],
+          [tr("Memory"), info.mem ? tr("About {n} GB", { n: info.mem }) : tr("Unknown")],
+          [tr("Free space"), st.storage ? tr("{n} GB free", { n: gb(free) }) : tr("Unknown")],
+          [tr("Device"), info.mobile ? tr("Phone or tablet") : tr("Computer")]
+        ];
+        var rec = S.choices.recommended;
+        var rows = S.choices.list.map(function (c) {
+          var mb = A.downloadMB(c);
+          var on = c.id === st.pick;
+          var size = c.engine === "instant" || c.engine === "nano" ? tr("No download") : (S.have[c.id] ? tr("Downloaded") : sizeText(mb));
+          return '<button type="button" class="lai-su-opt' + (on ? " on" : "") + '" role="radio" aria-checked="' + (on ? "true" : "false") + '" data-lai="su-pick" data-id="' + esc(c.id) + '"><span class="lai-su-opt-text"><span class="lai-su-opt-name">' + esc(modelName(c)) + (c === rec ? '<em class="lai-badge">' + esc(tr("Recommended")) + "</em>" : "") + '</span><span class="lai-su-opt-sub">' + esc(modelBlurb(c)) + '</span><span class="lai-su-opt-size">' + esc(size) + "</span></span>" + suRadio(on) + "</button>";
+        }).join("");
+        var tooBig = st.storage && needsFiles(m) && !S.have[m.id] && A.downloadMB(m) * 1e6 > free;
+        body = "<h1>" + esc(tr("This device")) + '</h1><p class="lai-su-lead">' + esc(tr("Best for this device: {name} · {size}", { name: modelName(rec), size: rec.engine === "instant" || rec.engine === "nano" ? tr("No download") : sizeText(A.downloadMB(rec)) })) + "</p>" +
+          '<dl class="lai-su-facts">' + facts.map(function (f) { return "<div><dt>" + esc(f[0]) + "</dt><dd>" + esc(f[1]) + "</dd></div>"; }).join("") + "</dl>" +
+          '<p class="lai-su-sec">' + esc(tr("Model")) + '</p><div class="lai-su-opts" role="radiogroup" aria-label="' + esc(tr("Model")) + '">' + rows + "</div>" +
+          (tooBig ? '<p class="lai-su-warn">' + esc(tr("There may not be enough free space for this model.")) + "</p>" : "");
+        foot = pill("su-next", tr("Next"));
+      }
+    } else if (name === "download") {
+      var mb2 = A.downloadMB(m);
+      var pct = Math.round((st.dl === "paused" ? st.pausedAt || 0 : S.engine.id === m.id ? S.engine.progress || 0 : 0) * 100);
+      var conn = navigator.connection || {};
+      var phone = (S.info && S.info.mobile) || conn.type === "cellular";
+      var warn = [];
+      if (conn.type === "cellular") warn.push(tr("You're on mobile data. Wi-Fi is better for this."));
+      else if (phone) warn.push(tr("On a phone, use Wi-Fi for this download."));
+      if (S.info && S.info.saveData) warn.push(tr("Data saver is on. This is a big download."));
+      var status = { idle: tr("Ready to download"), loading: S.have[m.id] ? tr("Loading {name}…", { name: modelName(m) }) : tr("Downloading…"), paused: tr("Paused. Finished parts are kept."), done: tr("Downloaded"), error: tr("The download stopped.") }[st.dl] || "";
+      var persist = st.persisted === true ? tr("Storage is kept for good on this device.") : (st.persisted === false && st.dl !== "idle" ? tr("The browser may clear the model if space runs low. You can download it again.") : tr("We'll ask the browser to keep the model for good."));
+      body = "<h1>" + esc(tr("Download {name}", { name: modelName(m) })) + '</h1><p class="lai-su-lead">' + esc(m.engine === "nano" ? tr("Chrome's built-in model. Chrome keeps it; nothing to download here.") : tr("{size}. Downloads once from Hugging Face and stays on this device.", { size: sizeText(mb2) })) + "</p>" +
+        '<div class="lai-su-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><div class="lai-su-prog-top"><span class="lai-su-status">' + esc(status) + '</span><b class="lai-su-pct">' + pct + '%</b></div><div class="lai-prog-track"><i style="width:' + pct + '%"></i></div>' +
+        (mb2 ? '<p class="lai-su-mb">' + esc(tr("{done} of {size}", { done: partText(mb2 * pct / 100), size: sizeText(mb2) })) + "</p>" : "") + "</div>" +
+        (warn.length ? '<p class="lai-su-warn">' + warn.map(esc).join("<br>") + "</p>" : "") +
+        '<p class="lai-su-note">' + esc(persist) + "</p>";
+      if (st.dl === "idle") foot = pill("su-dl", tr("Download")) + (st.steps.indexOf("device") >= 0 ? ghost("su-back", tr("Pick another model")) : ghost("su-instant", tr("Use Instant")));
+      else if (st.dl === "loading") foot = m.engine === "nano" ? "" : ghost("su-pause", tr("Pause"));
+      else if (st.dl === "paused") foot = pill("su-dl", tr("Resume")) + ghost("su-instant", tr("Use Instant"));
+      else if (st.dl === "error") {
+        var sm = smallerThan(m);
+        foot = pill("su-dl", tr("Try again")) + (sm ? ghost("su-use", tr("Use {name} instead", { name: modelName(sm) }), ' data-id="' + esc(sm.id) + '"') : "") + ghost("su-instant", tr("Use Instant"));
+      }
+    } else if (name === "test") {
+      var sm2 = smallerThan(m);
+      if (st.test === "ok") {
+        body = '<div class="lai-su-ok">' + I.check + "</div><h1>" + esc(tr("{name} works", { name: modelName(m) })) + '</h1><p class="lai-su-lead">' + esc(m.engine === "instant" ? tr("Instant answered right away.") : tr("It answered a test question in {s} s.", { s: (st.ms / 1000).toFixed(1) })) + "</p>";
+        foot = pill("su-next", st.i >= st.steps.length - 1 ? tr("Done") : tr("Next"));
+      } else if (st.test === "fail") {
+        body = "<h1>" + esc(tr("{name} didn't answer", { name: modelName(m) })) + '</h1><p class="lai-su-lead">' + esc(tr("This device may not have enough memory for it. A smaller model or Instant will work.")) + "</p>";
+        foot = (sm2 ? pill("su-use", tr("Use {name} instead", { name: modelName(sm2) }), ' data-id="' + esc(sm2.id) + '"') : "") + (sm2 ? ghost("su-instant", tr("Use Instant")) : pill("su-instant", tr("Use Instant"))) + ghost("su-retest", tr("Try again"));
+      } else {
+        body = "<h1>" + esc(tr("Quick test")) + '</h1><p class="lai-su-lead">' + esc(tr("Checking that {name} answers on this device…", { name: modelName(m) })) + '</p><div class="lai-su-spin" role="status" aria-label="' + esc(tr("Quick test")) + '"></div>';
+      }
+    } else if (name === "prefs") {
+      body = "<h1>" + esc(tr("How should Local AI work?")) + "</h1>" +
+        '<p class="lai-su-sec">' + esc(tr("Reply language")) + '</p><div class="lai-su-opts" role="radiogroup" aria-label="' + esc(tr("Reply language")) + '">' + LANGS.map(function (l) {
+          var on = st.lang === l[0];
+          return '<button type="button" class="lai-su-opt slim' + (on ? " on" : "") + '" role="radio" aria-checked="' + (on ? "true" : "false") + '" data-lai="su-lang" data-v="' + l[0] + '"><span class="lai-su-opt-text"><span class="lai-su-opt-name">' + esc(l[1]) + "</span></span>" + suRadio(on) + "</button>";
+        }).join("") + "</div>" +
+        '<p class="lai-su-sec">' + esc(tr("Settings")) + '</p><div class="lai-su-opts"><button type="button" class="lai-su-opt" role="checkbox" aria-checked="' + (st.canChange ? "true" : "false") + '" data-lai="su-change"><span class="lai-su-opt-text"><span class="lai-su-opt-name">' + esc(tr("Let Local AI change settings")) + '</span><span class="lai-su-opt-sub">' + esc(tr("Each change shows on a card first. Nothing changes until you tap Apply, and Undo puts it back. Off: it only shows where each setting is.")) + "</span></span>" + suCheck(st.canChange) + "</button></div>" +
+        '<p class="lai-su-sec">' + esc(tr("Chat history")) + '</p><div class="lai-su-opts" role="radiogroup" aria-label="' + esc(tr("Chat history")) + '">' + [["keep", tr("Keep chats on this device"), tr("Your chats show in the sidebar. They never leave this device.")], ["off", tr("Don't keep chats"), tr("Chats are gone when you leave the page.")]].map(function (o) {
+          var on = st.history === o[0];
+          return '<button type="button" class="lai-su-opt' + (on ? " on" : "") + '" role="radio" aria-checked="' + (on ? "true" : "false") + '" data-lai="su-hist" data-v="' + o[0] + '"><span class="lai-su-opt-text"><span class="lai-su-opt-name">' + esc(o[1]) + '</span><span class="lai-su-opt-sub">' + esc(o[2]) + "</span></span>" + suRadio(on) + "</button>";
+        }).join("") + "</div>";
+      foot = pill("su-next", tr("Next"));
+    } else if (name === "done") {
+      var langName = (LANGS.filter(function (l) { return l[0] === st.lang; })[0] || ["", st.lang])[1];
+      body = '<div class="lai-su-ok">' + I.check + "</div><h1>" + esc(tr("You're all set")) + '</h1><p class="lai-su-lead">' + esc(tr("Ask in your own words, or start with one of these.")) + "</p>" +
+        '<dl class="lai-su-facts">' + [[tr("Model"), modelName(m)], [tr("Reply language"), langName], [tr("Settings"), st.canChange ? tr("Changes after you tap Apply") : tr("Only shows where they are")], [tr("Chat history"), st.history === "off" ? tr("Not kept") : tr("Kept on this device")]].map(function (f) { return "<div><dt>" + esc(f[0]) + "</dt><dd>" + esc(f[1]) + "</dd></div>"; }).join("") + "</dl>" +
+        '<div class="lai-chips lai-su-chips">' + chips().slice(0, 4).map(function (c) { return '<button type="button" class="lai-chip" data-lai="su-chip">' + esc(c) + "</button>"; }).join("") + "</div>";
+      foot = pill("su-finish", tr("Start chatting"));
+    }
+    var n = st.i + 1, total = st.steps.length;
+    var bar = st.steps.map(function (s, k) { return '<i class="' + (k <= st.i ? "on" : "") + '"></i>'; }).join("");
+    var canBack = st.i > 0 && name !== "done" && !(name === "test" && st.test === "running");
+    return '<div class="lai-su" data-step="' + esc(name) + '"><div class="lai-su-bg" aria-hidden="true"><span class="lai-su-bg-mark">' + logo() + "</span></div>" +
+      '<section class="lai-su-card" role="dialog" aria-modal="true" aria-label="' + esc(tr("Set up Local AI")) + '"><span class="lai-su-grab" aria-hidden="true"></span>' +
+      '<header class="lai-su-head">' + (canBack ? '<button type="button" class="lai-icon" data-lai="su-back" aria-label="' + esc(tr("Back")) + '">' + I.back + "</button>" : '<a class="lai-icon" href="#/settings" aria-label="' + esc(tr("Close")) + '">' + I.x + "</a>") +
+      '<span class="lai-su-logo">' + logo() + "</span></header>" +
+      '<div class="lai-su-steps" aria-hidden="true">' + bar + "</div>" +
+      '<div class="lai-su-body"><p class="lai-su-count">' + esc(tr("Step {n} of {total}", { n: n, total: total })) + "</p>" + body + "</div>" + (foot ? '<div class="lai-su-foot">' + foot + "</div>" : "") + "</section></div>";
+  }
+  function paintSetup() {
+    if (!S.root) return;
+    var slot = S.root.querySelector(".lai-su-slot");
+    if (!slot) return;
+    var html = setupHtml();
+    var card = slot.querySelector(".lai-su-card");
+    var top = card ? card.scrollTop : 0;
+    slot.innerHTML = html;
+    var c2 = slot.querySelector(".lai-su-card");
+    if (c2) c2.scrollTop = top;
+  }
+  /* Download progress without repainting the whole step. */
+  function paintSetupProgress() {
+    var st = S.setup;
+    if (!st || !S.root || stepName() !== "download" || st.dl !== "loading") return;
+    var m = pickedModel();
+    if (S.engine.id !== m.id) return;
+    var pct = Math.round((S.engine.progress || 0) * 100);
+    var bar = S.root.querySelector(".lai-su-prog");
+    if (!bar) return;
+    bar.setAttribute("aria-valuenow", String(pct));
+    var b = bar.querySelector(".lai-su-pct"); if (b) b.textContent = pct + "%";
+    var i = bar.querySelector(".lai-prog-track i"); if (i) i.style.width = pct + "%";
+    var mb = core().downloadMB(m);
+    var t = bar.querySelector(".lai-su-mb"); if (t && mb) t.textContent = tr("{done} of {size}", { done: partText(mb * pct / 100), size: sizeText(mb) });
+  }
+  function onSetupClick(act, el) {
+    var st = S.setup;
+    if (!st) return false;
+    if (act === "su-next") { if (stepName() === "device" && !st.pick) return true; nextStep(); return true; }
+    if (act === "su-back") { prevStep(); return true; }
+    if (act === "su-skip") { skipSetup(); return true; }
+    if (act === "su-pick") { st.pick = el.getAttribute("data-id"); st.dl = "idle"; st.test = "idle"; paintSetup(); return true; }
+    if (act === "su-dl") { startDownload(); return true; }
+    if (act === "su-pause") { pauseDownload(); return true; }
+    if (act === "su-use") { usePick(el.getAttribute("data-id")); return true; }
+    if (act === "su-instant") { usePick("instant"); return true; }
+    if (act === "su-retest") { runTest(); paint(); return true; }
+    if (act === "su-lang") { st.lang = el.getAttribute("data-v"); paintSetup(); return true; }
+    if (act === "su-change") { st.canChange = !st.canChange; paintSetup(); return true; }
+    if (act === "su-hist") { st.history = el.getAttribute("data-v"); paintSetup(); return true; }
+    if (act === "su-finish") { finishSetup(); return true; }
+    if (act === "su-chip") { var text = el.textContent; finishSetup(); send(text); return true; }
+    return false;
+  }
+
   /* ---------- page hooks ---------- */
   function page() {
     return '<div class="lai-host"></div>';
   }
-  function mount() {
+  function mount(route) {
     var spot = document.querySelector(".lai-host");
     if (!spot) return;
+    var again = !!(route && route.query && route.query.get && route.query.get("setup") === "1");
+    if (again) { try { history.replaceState(history.state, "", "#/ai"); } catch (err) { /* keeps ?setup=1 */ } }
     if (!S.root) {
       S.root = build();
+      var need = setupNeed();
+      if (again) startSetup("full");
+      else if (need) startSetup(need, true);
       paint();
       detectOnce().then(function () {
         var m = currentModel();
         // A model that was downloaded before loads on its own (from the cache).
-        if (m.engine !== "instant" && (S.have[m.id] || m.engine === "nano")) loadModel(m).catch(function () {});
+        if (!S.setup && m.engine !== "instant" && (S.have[m.id] || m.engine === "nano")) loadModel(m).catch(function () {});
       });
       micCheck();
+    }
+    else if (again) startSetup("full");
+    else {
+      // Synced choices can arrive after the page opened: follow them while
+      // the person has not started yet.
+      var now = setupNeed();
+      if (S.setup && S.setup.auto && S.setup.i === 0 && S.setup.mode !== now) { if (now) startSetup(now, true); else { S.setup = null; paint(); } }
+      else if (!S.setup && now) startSetup(now, true);
     }
     if (S.root.parentNode !== spot) {
       spot.appendChild(S.root);
@@ -768,5 +1146,5 @@
   }
   if (window.SI18n && window.SI18n.onChange) window.SI18n.onChange(function () { if (S.root) paint(); });
 
-  window.ViktorychLocalAIPage = { page: page, mount: mount, unmount: unmount, _state: S, send: send };
+  window.ViktorychLocalAIPage = { page: page, mount: mount, unmount: unmount, _state: S, send: send, setup: function () { startSetup("full"); } };
 })();

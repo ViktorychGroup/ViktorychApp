@@ -2481,7 +2481,7 @@ var numberNote = form.passkey
     if (!reg) return [];
     return reg.localKeys({ allOff: !!settings && settings.syncUi === false, lookOwn: deviceOwnUi() });
   }
-  var EXTRA_PREFS = ["privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "translateAuto", "translateNever", "bells", "livePreview", "notifPrivacy", "accent", "fontSize", "density", "reduceMotion", "peopleLinks", "avatarShape", "haptics", "keyboard", "busyPrefs", "inboxLayout", "aiFab", "friendsRail", "brandLogo"];
+  var EXTRA_PREFS = ["privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "translateAuto", "translateNever", "bells", "livePreview", "notifPrivacy", "accent", "fontSize", "density", "reduceMotion", "peopleLinks", "avatarShape", "haptics", "keyboard", "busyPrefs", "inboxLayout", "aiFab", "aiSetup", "friendsRail", "brandLogo"];
   function pickPrefs(local, remote) {
     // Home pills and Stories: each key keeps the newer choice.
     var out = {};

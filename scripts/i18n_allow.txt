@@ -463,3 +463,6 @@ settings-registry.js|Owner only: show a Temporary label on temporary accounts.
 settings-registry.js|Go through the first-time setup again.
 settings-registry.js|Internal app data.
 settings-registry.js|Friends master switch: turn Friends off entirely (no requests, lists, counts or online status), or choose who can send requests and see your friends.
+# Local AI setup: each reply language is shown in its own name.
+local-ai-ui.js|English
+local-ai-ui.js|Español

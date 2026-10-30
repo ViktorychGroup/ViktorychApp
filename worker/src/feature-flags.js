@@ -36,7 +36,10 @@ export const FEATURES = {
   // Nearby chat (Bitchat). No server endpoints; clients stop offering it when off.
   bitchat: { paths: [] },
   // Local AI settings page. No server endpoints: models run on the device.
-  local_ai: { paths: [] }
+  local_ai: { paths: [] },
+  // Local AI first-run setup: device check, download, test and preferences
+  // before the chat opens. No server endpoints; choices sync with prefs.
+  local_ai_setup: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

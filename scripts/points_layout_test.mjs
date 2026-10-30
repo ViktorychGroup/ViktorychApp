@@ -26,7 +26,7 @@ function staticChecks() {
   if (!read("gifts-ui.js").includes('data-gift="dm"')) fail("messages need a direct gift action");
   const external = app.slice(app.indexOf("function profileView"), app.indexOf("function statusView"));
   if (external.includes("?tab=gifts") || external.includes("ProfileGifts")) fail("external profiles must not show gifts");
-  if (!read("sw.js").includes('VERSION = "viktorych-a259-__SW_VERSION__"')) fail("service worker cache was not bumped");
+  if (!read("sw.js").includes('VERSION = "viktorych-a395-__SW_VERSION__"')) fail("service worker cache was not bumped");
   console.log("ok points layout rules");
 }
 

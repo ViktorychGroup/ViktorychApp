@@ -142,6 +142,11 @@ assert.ok(worker.indexOf("@mlc-ai/web-llm@" + A.WEBLLM_VERSION) >= 0, "worker an
 assert.ok(worker.indexOf("@huggingface/transformers@" + A.TJS_VERSION) >= 0, "worker and core agree on the transformers.js version");
 const flags = fs.readFileSync(path.join(root, "worker", "src", "feature-flags.js"), "utf8");
 assert.ok(/local_ai:\s*\{/.test(flags), "Local AI has its own switch");
+assert.ok(/local_ai_setup:\s*\{/.test(flags), "Local AI setup has its own switch");
+const appJs = fs.readFileSync(path.join(root, "app.js"), "utf8");
+assert.ok(/SERVER_FEATURES\s*=\s*\[[^\]]*"local_ai_setup"/.test(appJs) && /local_ai_setup:\s*\[tr\(/.test(appJs), "Local AI setup is listed with a label in the owner switches");
+const sync = fs.readFileSync(path.join(root, "settings-sync.js"), "utf8");
+assert.ok(/"aiSetup"/.test(sync), "setup choices follow the account");
 
 // A page-only setting that fits better wins over a weak toggle match.
 for (const q of ["who can send me friend requests", "stop friend requests"]) {

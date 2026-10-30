@@ -1791,7 +1791,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai"];
+  const SERVER_FEATURES = ["shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -1874,7 +1874,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       bitchat: [tr("Nearby chat (Bitchat)"), tr("The backup chat offered when nothing else loads: Bluetooth on the TV app, public Nostr area chat in browsers.")],
       feed_requests: [tr("Source requests"), tr("Only you add accounts and feeds. Others press the same buttons to send you a request you allow, block or ban.")],
       friends_off: [tr("Friends switch"), tr("Lets each person turn Friends off: no friend requests, no friends lists, counts or online status.")],
-      local_ai: [tr("Local AI"), tr("The Local AI page that changes settings from plain words. Models run on each person's device; nothing is sent to us.")]
+      local_ai: [tr("Local AI"), tr("The Local AI page that changes settings from plain words. Models run on each person's device; nothing is sent to us.")],
+      local_ai_setup: [tr("Local AI setup"), tr("Everyone sets up Local AI once before the chat opens: device check, model download, a quick test and preferences. Off opens the chat straight away.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -17127,7 +17128,8 @@ const here = parseRoute();
         ${homeFeatureSwitch("stories", tr("Stories"), tr("The stories tray and viewer. Off loads nothing for it."))}
         ${sw("story-notes", notesOn, tr("Show notes"), tr("Notes sit above stories. Turn this off to hide them."))}
         ${friendsOffNow() ? "" : sw("toggle-privacy-pref", friendsOn, tr("Friends panel"), tr("Show active friends beside the home feed."), ` data-key="friendsRail"`)}
-        ${localAiOn() ? sw("ai-fab", !!st.aiFab, tr("Local AI button"), tr("A round button on every page that opens Local AI."), "") : ""}`)}
+        ${localAiOn() ? sw("ai-fab", !!st.aiFab, tr("Local AI button"), tr("A round button on every page that opens Local AI."), "") : ""}
+        ${localAiSetupOn() ? `<div class="set-list">${settingsRow("#/ai?setup=1", tr("Set up Local AI again"), tr("Check this device, pick a model and choose how Local AI works."))}</div>` : ""}`)}
       ${sec(tr("Your feed"), `${sw("pz-feed", st.forYouReposts !== false, tr("Show reposts"), "", ` data-key="forYouReposts"`)}
         ${sw("pz-feed", st.forYouReplies !== false, tr("Show replies in tab"), "", ` data-key="forYouReplies"`)}
         ${sw("pz-feed", st.communitiesHome !== false, tr("Communities in Home"), "", ` data-key="communitiesHome"`)}
@@ -17176,6 +17178,7 @@ const here = parseRoute();
   /* Local AI (local-ai-ui.js): an owner switch, an entry at the top of
      Settings, the side menu, and an optional floating button. */
   function localAiOn() { return !serverOffList().includes("local_ai"); }
+  function localAiSetupOn() { return localAiOn() && !serverOffList().includes("local_ai_setup"); }
   function localAiEntryHtml() {
     if (!localAiOn() || String(STATE.settingsQ || "").trim()) return "";
     return `<a class="lai-entry" href="#/ai"><span class="lai-entry-ico" aria-hidden="true">${icon("spark")}</span><span class="lai-entry-copy"><b>${esc(tr("Ask Local AI"))}</b><span>${esc(tr("Say what you want changed, like “bigger text” or “make it private”. It runs on this device."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></a>`;
@@ -30201,7 +30204,21 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     },
     go: (hash) => goHash(hash),
     toast: (msg) => toast(msg),
-    icon: (name) => icon(name)
+    icon: (name) => icon(name),
+    logo: () => markSvg("mark", "lai-logo"),
+    appName: () => productName("app"),
+    /* First-run setup. The choices sync with the account; model files stay on the device. */
+    setupRequired: () => localAiSetupOn(),
+    setup: () => {
+      const v = STATE.settings && STATE.settings.aiSetup;
+      return v && typeof v === "object" ? Object.assign({}, v) : null;
+    },
+    saveSetup: (v) => {
+      if (!STATE.settings) return;
+      STATE.settings.aiSetup = v && typeof v === "object" ? v : null;
+      STATE.settings.prefsAt = Object.assign({}, STATE.settings.prefsAt || {}, { aiSetup: Date.now() });
+      saveSettings();
+    }
   };
 
   window.ViktorychSetup = {
