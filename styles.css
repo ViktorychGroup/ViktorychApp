@@ -7262,6 +7262,54 @@ input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
   .fr-preview { margin-left: 0; }
   .fr-actions select { max-width: 100%; flex: 1 1 100%; }
 }
+/* Source request review in X's settings style: a "Who can see it" row with a
+   bottom sheet, a floating-label input and pill buttons. */
+.fr-actions { flex-direction: column; align-items: stretch; gap: 10px; }
+.fr-dest { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 12px 8px 16px; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 12px; font: inherit; text-align: left; cursor: pointer; }
+.fr-dest:hover { background: var(--hover-soft); }
+.fr-dest:focus-visible { outline: 2px solid var(--accent, var(--blue)); outline-offset: 1px; }
+.fr-dest-copy { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.fr-dest-label { color: var(--muted); font-size: 13px; line-height: 16px; }
+.fr-dest-value { color: var(--text); font-size: 15px; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-dest-chev { flex: 0 0 auto; color: var(--muted); display: inline-flex; }
+.fr-dest-chev svg { width: 18px; height: 18px; fill: currentColor; }
+.fr-float { position: relative; display: block; }
+.fr-float[hidden] { display: none; }
+.fr-float input { width: 100%; height: 58px; padding: 26px 12px 6px; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 4px; font-size: 17px; outline: none; box-sizing: border-box; }
+.fr-float span { position: absolute; left: 12px; top: 17px; color: var(--muted); font-size: 17px; pointer-events: none; transition: top .15s, font-size .15s, color .15s; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-float input:focus { border-color: var(--accent, var(--blue)); box-shadow: 0 0 0 1px var(--accent, var(--blue)); }
+.fr-float input:focus + span, .fr-float.has-value span, .fr-float input:not(:placeholder-shown) + span { top: 6px; font-size: 13px; line-height: 16px; }
+.fr-float input:focus + span { color: var(--accent, var(--blue)); }
+.fr-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.fr-pill { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 0 16px; border-radius: 9999px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.fr-pill:hover { background: var(--hover-soft); }
+.fr-pill:disabled { opacity: .5; cursor: default; }
+.fr-pill.is-accent { background: var(--accent, var(--blue)); border-color: transparent; color: #fff; }
+.fr-pill.is-accent:hover { filter: brightness(.92); background: var(--accent, var(--blue)); }
+.fr-pill.is-danger { color: #f4212e; border-color: rgba(244, 33, 46, .5); }
+.fr-pill.is-danger:hover { background: rgba(244, 33, 46, .1); }
+.fr-buttons .fr-pill.is-accent { flex: 1 1 auto; }
+.fr-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .45); border-top-color: #fff; animation: fr-spin .8s linear infinite; }
+@keyframes fr-spin { to { transform: rotate(360deg); } }
+.fr-bulk .fr-pill { min-height: 32px; font-size: 14px; }
+.fr-sheet-wrap { position: fixed; inset: 0; z-index: 1000; background: rgba(91, 112, 131, .4); display: flex; align-items: center; justify-content: center; }
+.fr-sheet { width: min(600px, 100%); max-height: 90vh; overflow-y: auto; background: var(--bg); color: var(--text); border-radius: 16px; padding: 8px 0 16px; box-shadow: 0 0 15px rgba(255, 255, 255, .2), 0 0 3px 1px rgba(255, 255, 255, .15); }
+.fr-sheet h2 { margin: 12px 24px 4px; font-size: 20px; line-height: 24px; font-weight: 800; }
+.fr-sheet p { margin: 0 24px 8px; color: var(--muted); font-size: 15px; }
+.fr-grab { display: none; width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 4px auto 0; }
+.fr-sheet-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 24px; background: transparent; border: 0; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.fr-sheet-row:hover, .fr-sheet-row:focus-visible { background: var(--hover-soft); outline: none; }
+.fr-sheet-copy { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.fr-sheet-copy b { font-size: 15px; font-weight: 700; }
+.fr-sheet-copy span { color: var(--muted); font-size: 13px; }
+.fr-radio { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--muted); box-sizing: border-box; }
+.fr-radio.on { border-color: var(--accent, var(--blue)); background: radial-gradient(circle, var(--accent, var(--blue)) 0 4px, transparent 5px); }
+.fr-sheet-cancel { display: block; width: calc(100% - 48px); margin: 12px 24px 0; min-height: 44px; border-radius: 9999px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+@media (max-width: 600px) {
+  .fr-sheet-wrap { align-items: flex-end; }
+  .fr-sheet { border-radius: 16px 16px 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .fr-grab { display: block; }
+}
 
 /* Local AI entry points (the page itself lives in local-ai.css). */
 .lai-entry { display: flex; align-items: center; gap: 12px; margin: 4px 16px 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 18px; color: var(--text); text-decoration: none; background: color-mix(in srgb, var(--blue) 7%, var(--bg)); }

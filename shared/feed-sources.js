@@ -98,6 +98,8 @@ function detectInput(raw) {
   }
 
   if (/^https?:\/\//i.test(text)) return detectUrl(text);
+  // A link pasted without https:// (instagram.com/name, www.x.com/name).
+  if (/^(?:www\.|m\.|mobile\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,24}\/\S*$/i.test(text)) return detectUrl("https://" + text);
 
   if (/^[A-Za-z0-9._-]{1,80}\.bsky\.social$/i.test(text.replace(/^@/, ""))) {
     return blueskySpec(text.replace(/^@/, ""));

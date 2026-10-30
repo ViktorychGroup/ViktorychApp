@@ -12,7 +12,7 @@
    from here, or from any peer (the hash verifies the bytes). */
 
 import { ERROR_TEXT, accountId, cleanLabel, detectInput } from "../../shared/feed-sources.js";
-import { probeAccount } from "./owner-feeds.js";
+import { probeAccount, probeWithin, unverifiedProbe } from "./owner-feeds.js";
 import { bannedSpec, keyVariants } from "./feed-requests.js";
 
 const DOC_KEY = "owner/source-lists.json";
@@ -213,13 +213,15 @@ async function ownerBody(env, doc) {
   };
 }
 
-async function addSource(env, doc, list, input) {
+async function addSource(env, doc, list, input, opts) {
+  const options = opts || {};
   const spec = detectInput(input || "");
   if (!spec.ok) return { error: spec.error || "bad_input", status: 400 };
   if (spec.platform === "tiktok") return { error: "unsupported_tiktok", status: 400 };
   if (await bannedSpec(env, spec)) return { error: "banned", status: 403 };
   if (list.sources.length >= SOURCES_PER_LIST) return { error: "full", status: 400 };
-  const probed = await probeAccount(spec);
+  let probed = options.unverified ? await probeWithin(spec, options.probeMs || 6000) : await probeAccount(spec);
+  if (probed.error && options.unverified && probed.error !== "private_host" && probed.error !== "bad_feed") probed = unverifiedProbe(spec, probed);
   if (probed.error) return { error: probed.error, status: probed.error === "not_found" ? 404 : probed.error === "rate" ? 429 : 400 };
   const handle = probed.profile.handle || spec.handle;
   const id = accountId(Object.assign({}, spec, { channelId: probed.channelId || spec.channelId || "", handle }));
@@ -451,7 +453,7 @@ async function allowIntoList(env, deps, opts) {
     list = { id: newId("s"), name, sources: [], members: [], at: Date.now() };
     doc.lists.push(list);
   }
-  const added = await addSource(env, doc, list, opts.input);
+  const added = await addSource(env, doc, list, opts.input, { unverified: !!opts.unverified });
   if (added.error) return added;
   (opts.memberIds || []).forEach((id) => {
     const text = String(id || "");

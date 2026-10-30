@@ -17,8 +17,10 @@
     mine: null, mineLoading: false, mineTab: "pending", mineError: "",
     queue: null, queueState: "pending", queueLoading: false, queueError: "",
     bans: null, bansLoading: false,
-    count: 0, countAt: 0, picked: {}, busy: {}, previews: {}
+    count: 0, countAt: 0, picked: {}, busy: {}, previews: {},
+    dest: {}, members: {}, sheet: ""
   };
+  const API_TIMEOUT_MS = 30000;
 
   function tr(key, vars) { return hooks && hooks.tr ? hooks.tr(key, vars) : key; }
   function esc(value) { return hooks && hooks.esc ? hooks.esc(value) : String(value == null ? "" : value); }
@@ -41,14 +43,19 @@
     const token = hooks.accountToken();
     const headers = body ? { "content-type": "application/json" } : {};
     if (!anonymous && token) headers.Authorization = "Bearer " + token;
+    const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    let late = false;
+    const timer = ctrl ? setTimeout(() => { late = true; ctrl.abort(); }, API_TIMEOUT_MS) : null;
     return fetch(base + path, {
       method: method || "GET",
       headers,
       body: body ? JSON.stringify(body) : undefined,
       cache: "no-store",
-      credentials: "omit"
+      credentials: "omit",
+      signal: ctrl ? ctrl.signal : undefined
     }).then((res) => res.json().then((data) => ({ ok: res.ok, status: res.status, body: data || {} })).catch(() => ({ ok: res.ok, status: res.status, body: {} })))
-      .catch(() => ({ ok: false, status: 0, body: { error: "offline" } }));
+      .catch(() => ({ ok: false, status: 0, body: { error: late ? "timeout" : (typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "network") } }))
+      .then((out) => { if (timer) clearTimeout(timer); return out; });
   }
 
   function norm(id) { return String(id || "").trim().toLowerCase().replace(/^bsky:/, "bluesky:"); }
@@ -249,10 +256,37 @@
     if (!ms) return "";
     try { return new Date(ms).toLocaleDateString(hooks.lang ? hooks.lang() : undefined, { month: "short", day: "numeric" }); } catch (err) { return ""; }
   }
-  function title(row) { return row.name || row.input || row.key || ""; }
+  /* "@handle" (or r/name, a feed's host) from a request, never the pasted URL. */
+  function handleText(row) {
+    const p = row.platform || "";
+    const key = String(row.key || "");
+    const input = String(row.input || "");
+    if (row.kind === "community" || /^reddit:r:/.test(key)) return "r/" + (row.handle || key.replace(/^reddit:r:/, ""));
+    if (p === "reddit") return "u/" + (row.handle || key.replace(/^reddit:(u:)?/, ""));
+    if (p === "mastodon") return "@" + key.replace(/^mastodon:/, "");
+    if (p === "rss" || p === "news" || p === "nostr" || row.kind === "news") {
+      const url = row.url || (/^https?:\/\//i.test(input) ? input : "");
+      if (url) { try { return new URL(url).hostname.replace(/^www\./, ""); } catch (err) { /* fall through */ } }
+      return row.handle || key.replace(/^[a-z]+:/, "");
+    }
+    let handle = row.handle || "";
+    if (!handle) {
+      const m = input.match(/^[a-z]+:@?(.+)$/i) || key.match(/^[a-z]+:(.+)$/);
+      if (m && !/^\/\//.test(m[1])) handle = m[1];
+      else {
+        try { handle = new URL(input).pathname.split("/").filter(Boolean)[0] || ""; } catch (err) { handle = ""; }
+        handle = handle.replace(/^@/, "");
+      }
+    }
+    // A YouTube channel id is not a name people know; the title carries it.
+    if (p === "youtube" && /^UC[\w-]{20,}$/.test(handle)) return row.name ? "" : tr("YouTube channel");
+    return handle ? "@" + handle : "";
+  }
+  function title(row) { return row.name || handleText(row) || row.key || ""; }
   function subline(row) {
     const bits = [platformName(row.platform)];
-    if (row.input && row.input !== row.name) bits.push(row.input);
+    const handle = handleText(row);
+    if (handle && handle !== title(row)) bits.push(handle);
     return bits.filter(Boolean).join(" · ");
   }
   function stateLabel(state) {
@@ -356,11 +390,34 @@
     });
   }
 
+  function destOptions(lists) {
+    return [["everyone", tr("Everyone"), tr("Everyone who uses the app can follow it.")], ["requester", tr("Only who asked"), tr("Only the people who requested it.")]]
+      .concat((lists || []).map((l) => ["list:" + l.id, tr("List: {name}", { name: l.name }), tr("People in this source list.")]))
+      .concat([["new", tr("New list…"), tr("A new source list for the people you name.")]]);
+  }
+  function destOf(id) { return S.dest[id] || "everyone"; }
+  function destLabel(id, lists) {
+    const hit = destOptions(lists).find((o) => o[0] === destOf(id));
+    return hit ? hit[1] : tr("Everyone");
+  }
+  /* X settings row: "Who can see it  Everyone ›", opens a bottom sheet. */
   function destPicker(row, lists) {
-    const options = [`<option value="everyone">${esc(tr("Everyone"))}</option>`, `<option value="requester">${esc(tr("Only who asked"))}</option>`]
-      .concat(lists.map((l) => `<option value="list:${esc(l.id)}">${esc(tr("List: {name}", { name: l.name }))}</option>`))
-      .concat([`<option value="new">${esc(tr("New list…"))}</option>`]).join("");
-    return `<select data-fr-field="dest" data-fr-id="${esc(row.id)}" aria-label="${esc(tr("Allow for"))}">${options}</select>`;
+    const chev = hooks.icon ? hooks.icon("chevR") : "›";
+    return `<button type="button" class="fr-dest" data-fr-act="dest-open" data-fr-id="${esc(row.id)}" aria-haspopup="dialog"><span class="fr-dest-copy"><span class="fr-dest-label">${esc(tr("Who can see it"))}</span><span class="fr-dest-value">${esc(destLabel(row.id, lists))}</span></span><span class="fr-dest-chev" aria-hidden="true">${chev}</span></button>`;
+  }
+  function membersField(row) {
+    const d = destOf(row.id);
+    const show = d === "new" || d.indexOf("list:") === 0;
+    const value = S.members[row.id] || "";
+    return `<label class="fr-float${value ? " has-value" : ""}"${show ? "" : " hidden"}><input data-fr-field="members" data-fr-id="${esc(row.id)}" value="${esc(value)}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder=" "><span>${esc(tr("@usernames, comma separated"))}</span></label>`;
+  }
+  function sheetHtml() {
+    const id = S.sheet;
+    if (!id || !S.queue) return "";
+    const lists = S.queue.lists || [];
+    const current = destOf(id);
+    const rows = destOptions(lists).map(([value, label, sub]) => `<button type="button" class="fr-sheet-row" role="radio" aria-checked="${value === current ? "true" : "false"}" data-fr-act="dest-pick" data-fr-id="${esc(id)}" data-fr-value="${esc(value)}"><span class="fr-sheet-copy"><b>${esc(label)}</b><span>${esc(sub)}</span></span><span class="fr-radio${value === current ? " on" : ""}" aria-hidden="true"></span></button>`).join("");
+    return `<div class="fr-sheet-wrap" data-fr-act="dest-close"><div class="fr-sheet" role="dialog" aria-modal="true" aria-label="${esc(tr("Who can see it"))}"><span class="fr-grab" aria-hidden="true"></span><h2>${esc(tr("Who can see it"))}</h2><p>${esc(tr("Choose who gets this source when you allow it."))}</p><div role="radiogroup">${rows}</div><button type="button" class="fr-sheet-cancel" data-fr-act="dest-close">${esc(tr("Cancel"))}</button></div></div>`;
   }
 
   function requesterHtml(row) {
@@ -390,11 +447,10 @@
     const count = row.count > 1 ? `<span class="fr-count">${esc(tr("{count} requests", { count: String(row.count) }))}</span>` : "";
     const actions = decided
       ? `<span class="fr-state is-${esc(row.state)}">${esc(stateLabel(row.state))}${row.dest ? " · " + esc(row.dest === "everyone" ? tr("Everyone") : row.dest === "requester" ? tr("Only who asked") : tr("Source list")) : ""}</span>`
-      : `<div class="fr-actions">${destPicker(row, lists)}
-          <input class="search fr-members" data-fr-field="members" data-fr-id="${esc(row.id)}" placeholder="${esc(tr("@usernames, comma separated"))}" aria-label="${esc(tr("Who sees it"))}" hidden>
-          <button type="button" class="follow fr-allow" data-fr-act="allow" data-fr-id="${esc(row.id)}"${busy ? " disabled" : ""}>${esc(tr("Allow"))}</button>
-          <button type="button" class="feeds-pill" data-fr-act="block" data-fr-id="${esc(row.id)}"${busy ? " disabled" : ""}>${esc(tr("Block"))}</button>
-          <button type="button" class="feeds-pill is-danger" data-fr-act="ban" data-fr-id="${esc(row.id)}"${busy ? " disabled" : ""}>${esc(tr("Ban"))}</button></div>`;
+      : `<div class="fr-actions">${destPicker(row, lists)}${membersField(row)}
+          <div class="fr-buttons"><button type="button" class="fr-pill is-accent" data-fr-act="allow" data-fr-id="${esc(row.id)}"${busy ? " disabled" : ""}>${S.busy[row.id] === "allow" ? `<span class="fr-spin" aria-hidden="true"></span>${esc(tr("Allowing…"))}` : esc(tr("Allow"))}</button>
+          <button type="button" class="fr-pill" data-fr-act="block" data-fr-id="${esc(row.id)}"${busy ? " disabled" : ""}>${esc(tr("Block"))}</button>
+          <button type="button" class="fr-pill is-danger" data-fr-act="ban" data-fr-id="${esc(row.id)}"${busy ? " disabled" : ""}>${esc(tr("Ban"))}</button></div></div>`;
     return `<article class="feeds-row fr-qrow${row.unseen && !decided ? " is-new" : ""}"${busy ? ' aria-busy="true"' : ""}>${check}<div class="fr-main">
       <span class="feeds-who"><span class="feeds-face">${face(row)}</span><span class="feeds-copy"><span class="feeds-name">${esc(title(row))}${count}</span><span class="feeds-sub">${esc(subline(row))}</span></span></span>
       ${requesterHtml(row)}
@@ -418,14 +474,14 @@
     const ids = q && !decided ? q.requests.map((r) => r.id) : [];
     const picked = ids.filter((id) => S.picked[id]);
     const bulk = !decided && ids.length ? `<div class="feeds-bulk fr-bulk" role="region" aria-label="${esc(tr("Bulk actions"))}"><span>${esc(tr("{count} selected", { count: String(picked.length) }))}</span>
-      <button type="button" data-fr-act="pick-all">${esc(picked.length === ids.length ? tr("Clear") : tr("Select all"))}</button>
-      ${picked.length ? `<button type="button" data-fr-act="bulk" data-fr-do="allow">${esc(tr("Allow for everyone"))}</button><button type="button" data-fr-act="bulk" data-fr-do="block">${esc(tr("Block"))}</button><button type="button" class="is-danger" data-fr-act="bulk" data-fr-do="ban">${esc(tr("Ban"))}</button>` : ""}</div>` : "";
+      <button type="button" class="fr-pill" data-fr-act="pick-all">${esc(picked.length === ids.length ? tr("Clear") : tr("Select all"))}</button>
+      ${picked.length ? `<button type="button" class="fr-pill is-accent" data-fr-act="bulk" data-fr-do="allow">${esc(tr("Allow for everyone"))}</button><button type="button" class="fr-pill" data-fr-act="bulk" data-fr-do="block">${esc(tr("Block"))}</button><button type="button" class="fr-pill is-danger" data-fr-act="bulk" data-fr-do="ban">${esc(tr("Ban"))}</button>` : ""}</div>` : "";
     const hint = `<p class="feeds-hint fr-hint">${esc(tr("Only you add sources. Allow lets it in, Block says no for now, Ban stops it for good and removes copies."))}</p>`;
     let body;
     if (!q) body = empty(S.queueError || tr("Loading…"), "");
     else if (!q.requests.length) body = empty(decided ? tr("Nothing decided yet") : tr("No requests waiting"), decided ? "" : tr("When someone asks for an account or feed, it shows up here."));
     else body = q.requests.map((r) => queueRow(r, lists, decided)).join("");
-    return head + `<div class="feeds-org fr-page fr-owner">${hint}${bar}${bulk}<section class="feeds-section fr-list">${body}</section></div>`;
+    return head + `<div class="feeds-org fr-page fr-owner">${hint}${bar}${bulk}<section class="feeds-section fr-list">${body}</section></div>${sheetHtml()}`;
   }
 
   function bansView() {
@@ -465,8 +521,8 @@
   }
 
   function destBody(id) {
-    const dest = fieldOf("dest", id) || "everyone";
-    const members = fieldOf("members", id).split(/[\s,]+/).map((m) => m.replace(/^@/, "")).filter(Boolean);
+    const dest = destOf(id);
+    const members = String(S.members[id] || fieldOf("members", id) || "").split(/[\s,]+/).map((m) => m.replace(/^@/, "")).filter(Boolean);
     if (dest === "everyone") return { dest: "everyone" };
     if (dest === "requester") return { dest: "requester" };
     if (dest === "new") {
@@ -481,17 +537,40 @@
     const body = action === "allow" ? destBody(id) : {};
     S.busy[id] = action;
     paint();
+    const row = S.queue && S.queue.requests.find((r) => r.id === id);
+    const name = row ? title(row) : "";
     api("/v1/owner/feed-requests/" + encodeURIComponent(id) + "/" + action, "POST", body).then((res) => {
       delete S.busy[id];
       if (res.ok) {
-        toast(action === "allow" ? tr("Allowed") : action === "block" ? tr("Blocked. It can be asked for again.") : tr("Banned"));
+        toast(action === "allow" ? (res.body.unverified ? tr("Allowed. Posts show up after the next sync.") : tr("Allowed")) : action === "block" ? tr("Blocked. It can be asked for again.") : tr("Banned"));
+        delete S.dest[id];
+        delete S.members[id];
         if (S.queue) S.queue.requests = S.queue.requests.filter((r) => r.id !== id);
         delete S.picked[id];
         if (res.body.pending != null) S.count = Number(res.body.pending) || 0;
         if (action === "ban") S.bans = null;
-      } else toast(res.body && res.body.error === "unsupported" ? tr("That source can’t be added yet.") : tr("Couldn’t save. Try again."));
+      } else {
+        toast(decideFail(action, res, name));
+        if (res.status === 404 && res.body && res.body.error === "not_found") loadQueue(true);
+      }
       paint();
     });
+  }
+
+  /* A clear message for every way Allow, Block or Ban can fail. */
+  function decideFail(action, res, name) {
+    const code = (res && res.body && res.body.error) || "";
+    if (res && res.status === 0) return code === "timeout" ? tr("The server took too long. Try again.") : tr("You’re offline. Check your connection and try again.");
+    if (code === "banned") return tr("This source is banned. Unban it first.");
+    if (code === "not_found" && res.status === 404 && !res.body.message) return tr("This request was already handled.");
+    if (code === "full") return tr("The feed list is full.");
+    if (code === "bad_list") return tr("Pick a list or name a new one.");
+    if (code === "unsupported_tiktok") return tr("TikTok can’t go into a source list. Allow it for everyone or only who asked.");
+    if (code === "bad_input" || code === "bad_feed" || code === "private_host" || code === "unsupported" || code === "unsupported_facebook" || code === "unsupported_discord") return tr("That link isn’t a source the app can read.");
+    if (code === "rate_limited" || code === "rate" || (res && res.status === 429)) return tr("Too many changes. Try again in a minute.");
+    if (code === "auth" || code === "forbidden" || (res && (res.status === 401 || res.status === 403))) return tr("Sign in again as the owner to do this.");
+    if (action === "allow") return name ? tr("Couldn’t allow {name}. Try again.", { name }) : tr("Couldn’t allow it. Try again.");
+    return tr("Couldn’t save. Try again.");
   }
 
   function bulk(action) {
@@ -507,9 +586,14 @@
         if (S.queue) S.queue.requests = S.queue.requests.filter((r) => !done.has(r.id));
         done.forEach((id) => { delete S.picked[id]; });
         if (res.body.pending != null) S.count = Number(res.body.pending) || 0;
-        toast(tr("{count} updated", { count: String(done.size) }));
+        const failed = (res.body.results || []).filter((r) => !r.ok);
+        if (failed.length) {
+          const first = failed[0];
+          const why = decideFail(action, { ok: false, status: first.error === "banned" ? 403 : 400, body: { error: first.error, message: "x" } }, "");
+          toast(tr("{done} updated, {failed} couldn’t be: {why}", { done: String(done.size), failed: String(failed.length), why }));
+        } else toast(tr("{count} updated", { count: String(done.size) }));
         if (action === "ban") S.bans = null;
-      } else toast(tr("Couldn’t save. Try again."));
+      } else toast(decideFail(action, res, ""));
       paint();
     });
   }
@@ -563,6 +647,20 @@
       return;
     }
     if (act === "allow" || act === "block" || act === "ban") { decide(id, act); return; }
+    if (act === "dest-open") { S.sheet = id; paint(); focusSheet(); return; }
+    if (act === "dest-close") {
+      if (btn.classList.contains("fr-sheet-wrap") && event.target !== btn) return;
+      closeSheet();
+      return;
+    }
+    if (act === "dest-pick") {
+      S.dest[id] = btn.dataset.frValue || "everyone";
+      closeSheet();
+      if (S.dest[id] === "new" || S.dest[id].indexOf("list:") === 0) {
+        setTimeout(() => { const el = document.querySelector(`[data-fr-field="members"][data-fr-id="${CSS.escape(id)}"]`); if (el) el.focus(); }, 0);
+      }
+      return;
+    }
     if (act === "preview") { preview(id); return; }
     if (act === "pick-all") {
       const ids = S.queue ? S.queue.requests.map((r) => r.id) : [];
@@ -582,6 +680,26 @@
     }
   }
 
+  function closeSheet() {
+    const back = S.sheet;
+    S.sheet = "";
+    paint();
+    if (back) setTimeout(() => { const el = document.querySelector(`[data-fr-act="dest-open"][data-fr-id="${CSS.escape(back)}"]`); if (el) el.focus(); }, 0);
+  }
+  function focusSheet() {
+    setTimeout(() => { const el = document.querySelector('.fr-sheet [aria-checked="true"]') || document.querySelector(".fr-sheet-row"); if (el) el.focus(); }, 0);
+  }
+  function onKey(event) {
+    if (S.sheet && event.key === "Escape") { event.preventDefault(); closeSheet(); }
+  }
+  function onInput(event) {
+    const el = event.target;
+    if (!el || !el.dataset || el.dataset.frField !== "members") return;
+    S.members[el.dataset.frId] = el.value;
+    const wrap = el.closest(".fr-float");
+    if (wrap) wrap.classList.toggle("has-value", !!el.value);
+  }
+
   function onChange(event) {
     const el = event.target;
     if (!el || !el.dataset) return;
@@ -589,10 +707,6 @@
       S.picked[el.dataset.frId] = !!el.checked;
       paint();
       return;
-    }
-    if (el.dataset.frField === "dest") {
-      const members = document.querySelector(`[data-fr-field="members"][data-fr-id="${CSS.escape(el.dataset.frId)}"]`);
-      if (members) members.hidden = !(el.value === "new" || el.value.indexOf("list:") === 0);
     }
   }
 
@@ -628,6 +742,8 @@
     document.addEventListener("click", onClick, true);
     document.addEventListener("change", onChange, true);
     document.addEventListener("submit", onSubmit, true);
+    document.addEventListener("input", onInput, true);
+    document.addEventListener("keydown", onKey, true);
     setTimeout(() => {
       if (!signedIn() || !active()) return;
       if (ownerOn()) loadCount(true);
