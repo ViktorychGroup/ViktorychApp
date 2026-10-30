@@ -16821,6 +16821,51 @@ const here = parseRoute();
     return matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || navigator.standalone === true;
   }
 
+  function installPromptNow() {
+    const prompt = STATE.installPrompt || window.__VIKTORYCH_INSTALL;
+    return prompt && typeof prompt.prompt === "function" ? prompt : null;
+  }
+
+  function installedHere() {
+    try { return !!localStorage.getItem("viktorychapp-installed"); } catch (err) { return false; }
+  }
+
+  // Which browser's own install steps to show when there is no install prompt.
+  function installHelpKind(ua) {
+    const text = String(ua == null ? navigator.userAgent || "" : ua);
+    const mobile = /android|mobile/i.test(text);
+    if (/firefox\/|fxios/i.test(text)) return mobile ? "firefox-android" : "firefox";
+    if (/edg\/|edga\//i.test(text)) return mobile ? "chrome-android" : "edge";
+    if (/chrome|chromium/i.test(text)) return mobile ? "chrome-android" : "chrome";
+    if (/macintosh/i.test(text) && /safari/i.test(text)) return "safari-mac";
+    return "other";
+  }
+
+  function installHelpHtml() {
+    const kind = installHelpKind();
+    const steps = (list) => `<ol class="install-steps">${list.map((line) => `<li>${esc(line)}</li>`).join("")}</ol>`;
+    const lead = installedHere() && kind !== "firefox" && kind !== "other"
+      ? `<p class="install-help-lead">${esc(tr("It looks like the app is already installed on this device. Open it from your apps or desktop."))}</p>`
+      : "";
+    let body = "";
+    if (kind === "chrome") {
+      body = steps([tr("Click the install icon at the right end of the address bar."), tr("Or open the ⋮ menu, choose Cast, save, and share, then Install page as app.")]);
+    } else if (kind === "edge") {
+      body = steps([tr("Click the install icon at the right end of the address bar."), tr("Or open the … menu, choose Apps, then Install this site as an app.")]);
+    } else if (kind === "chrome-android") {
+      body = steps([tr("Open the ⋮ menu."), tr("Choose Add to Home screen, then Install.")]);
+    } else if (kind === "safari-mac") {
+      body = steps([tr("In the menu bar, choose File."), tr("Choose Add to Dock, then click Add.")]);
+    } else if (kind === "firefox") {
+      body = `<p>${esc(tr("Firefox can’t install web apps on computers. Open this page in Chrome or Edge to install it."))}</p>`;
+    } else if (kind === "firefox-android") {
+      body = steps([tr("Open the ⋮ menu."), tr("Choose Add app to Home screen.")]);
+    } else {
+      body = `<p>${esc(tr("Open your browser menu and look for Install or Add to Home Screen. If it isn’t there, open this page in Chrome or Edge."))}</p>`;
+    }
+    return `<div class="install-help" data-kind="${esc(kind)}">${lead}${body}</div>`;
+  }
+
   function installOfferHtml() {
     const kind = installKindNow();
     const api = window.ViktorychNative;
@@ -16834,10 +16879,10 @@ const here = parseRoute();
       body = `<p>${esc(tr("This browser can’t add the app to your Home Screen. Open the page in Safari, then use the Share button."))}</p>`;
     } else if (kind === "ios-safari") {
       body = `${benefits}<ol class="install-steps"><li>${esc(tr("Tap Share in Safari"))}</li><li>${esc(tr("Choose Add to Home Screen"))}</li><li>${esc(tr("Tap Add"))}</li></ol>`;
-    } else if (kind === "native" || STATE.installPrompt) {
+    } else if (installPromptNow()) {
       body = `${benefits}<button class="install-go" type="button" data-act="install-go">${esc(tr("Install"))}</button>`;
     } else {
-      body = `<p>${esc(tr("In Safari, use Share or File, then Add to Dock. In Firefox, use the install icon in the address bar."))}</p>`;
+      body = installHelpHtml();
     }
     const pointer = arrow ? `<div class="install-arrow is-${arrow}" aria-hidden="true">${icon(arrow === "up" ? "arrowUp" : "arrowDown")}</div>` : "";
     return `<div class="install-offer" data-act="stop"><div class="install-panel" role="dialog" aria-modal="true" aria-label="${esc(tr("Install app"))}">
@@ -22337,15 +22382,24 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "install-go") {
-      const prompt = STATE.installPrompt || window.__VIKTORYCH_INSTALL;
-      if (prompt && prompt.prompt) {
-        STATE.installPrompt = null;
-        window.__VIKTORYCH_INSTALL = null;
-        Promise.resolve().then(() => prompt.prompt()).then(() => prompt.userChoice).then(() => {
-          STATE.modal = null;
-          render();
-        }).catch(() => render());
+      const prompt = installPromptNow();
+      // A deferred prompt can be used once. Without one, show the browser's
+      // own install steps instead of a button that does nothing.
+      STATE.installPrompt = null;
+      window.__VIKTORYCH_INSTALL = null;
+      if (!prompt) {
+        render();
+        return;
       }
+      let shown;
+      try { shown = prompt.prompt(); } catch (err) { shown = Promise.reject(err); }
+      Promise.resolve(shown).then(() => prompt.userChoice).then((choice) => {
+        if (choice && choice.outcome === "accepted") {
+          try { localStorage.setItem("viktorychapp-installed", String(Date.now())); } catch (err) { /* private mode */ }
+          STATE.modal = null;
+        }
+        render();
+      }).catch(() => render());
       return;
     }
     if (act === "install-later" || act === "install-never") {
@@ -28769,16 +28823,28 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (choice.mode !== "later") return;
       if (offerInstall("return")) render();
     }, 1600);
-    window.addEventListener("beforeinstallprompt", (event) => {
-      event.preventDefault();
+    // index.html catches beforeinstallprompt in <head>, before this file
+    // runs; pick up a prompt that already arrived and any later one.
+    if (window.__VIKTORYCH_INSTALL && window.__VIKTORYCH_INSTALL.prompt) STATE.installPrompt = window.__VIKTORYCH_INSTALL;
+    const takeInstallPrompt = (event) => {
       STATE.installPrompt = event;
       window.__VIKTORYCH_INSTALL = event;
-      try { document.dispatchEvent(new CustomEvent("viktorych-install-ready")); } catch (err) { /* the menu install button still works */ }
+      try { localStorage.removeItem("viktorychapp-installed"); } catch (err) { /* private mode */ }
       render();
+    };
+    document.addEventListener("viktorych-install-ready", () => {
+      if (window.__VIKTORYCH_INSTALL && window.__VIKTORYCH_INSTALL !== STATE.installPrompt) takeInstallPrompt(window.__VIKTORYCH_INSTALL);
+    });
+    window.addEventListener("beforeinstallprompt", (event) => {
+      event.preventDefault();
+      if (event === STATE.installPrompt) return;
+      takeInstallPrompt(event);
     });
     window.addEventListener("appinstalled", () => {
       STATE.installPrompt = null;
       window.__VIKTORYCH_INSTALL = null;
+      try { localStorage.setItem("viktorychapp-installed", String(Date.now())); } catch (err) { /* private mode */ }
+      if (STATE.modal === "install") STATE.modal = null;
       if (window.ViktorychStorage && window.ViktorychStorage.askPersist) window.ViktorychStorage.askPersist();
       render();
     });

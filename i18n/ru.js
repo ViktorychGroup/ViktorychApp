@@ -5576,5 +5576,16 @@ SI18n.addPack("ru", {
   "liked your post": "понравился ваш пост",
   "mentioned you": "упомянул(а) вас",
   "replied to you": "ответил(а) вам",
-  "reposted your post": "сделал(а) репост вашего поста"
+  "reposted your post": "сделал(а) репост вашего поста",
+  "It looks like the app is already installed on this device. Open it from your apps or desktop.": "Похоже, приложение уже установлено на этом устройстве. Откройте его из списка приложений или с рабочего стола.",
+  "Click the install icon at the right end of the address bar.": "Нажмите значок установки справа в адресной строке.",
+  "Or open the ⋮ menu, choose Cast, save, and share, then Install page as app.": "Или откройте меню ⋮, выберите «Трансляция, сохранение и отправка», затем «Установить страницу как приложение».",
+  "Or open the … menu, choose Apps, then Install this site as an app.": "Или откройте меню …, выберите «Приложения», затем «Установить этот сайт как приложение».",
+  "Open the ⋮ menu.": "Откройте меню ⋮.",
+  "Choose Add to Home screen, then Install.": "Выберите «Добавить на главный экран», затем «Установить».",
+  "In the menu bar, choose File.": "В строке меню выберите «Файл».",
+  "Choose Add to Dock, then click Add.": "Выберите «Добавить в Dock», затем нажмите «Добавить».",
+  "Firefox can’t install web apps on computers. Open this page in Chrome or Edge to install it.": "Firefox не умеет устанавливать веб-приложения на компьютер. Откройте эту страницу в Chrome или Edge, чтобы установить его.",
+  "Choose Add app to Home screen.": "Выберите «Добавить приложение на главный экран».",
+  "Open your browser menu and look for Install or Add to Home Screen. If it isn’t there, open this page in Chrome or Edge.": "Откройте меню браузера и найдите «Установить» или «Добавить на главный экран». Если такого пункта нет, откройте эту страницу в Chrome или Edge."
 });

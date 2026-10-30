@@ -36,7 +36,7 @@ try {
   const out = await page.evaluate(async () => {
     const S = window.ViktorychStorage;
     const put = async (name, url, bytes, type) => (await caches.open(name)).put(url, new Response(new Uint8Array(bytes), { headers: { "content-type": type || "application/octet-stream", "content-length": String(bytes) } }));
-    await put("shell-viktorych-a258-x", "/app.js", 300000, "text/javascript");
+    await put("shell-viktorych-a264-x", "/app.js", 300000, "text/javascript");
     await put("media-v1", "https://pbs.twimg.com/media/a.jpg", 500000, "image/jpeg");
     await put("data-v1", "/feeds.json", 120000, "application/json");
     await put("viktorych-prefs", "/__prefs/off.json", 20, "application/json");
@@ -60,7 +60,7 @@ try {
     await S.clearStored("all");
     const keys = async (n) => (await (await caches.open(n)).keys()).length;
     const docs = await S.listDocs(db);
-    return { hero, sizes, html, shell: await keys("shell-viktorych-a258-x"), prefs: await keys("viktorych-prefs"), music: await keys("sintel-music-offline"), media: await keys("media-v1"), data: await keys("data-v1"), docs: docs.map((d) => d.category) };
+    return { hero, sizes, html, shell: await keys("shell-viktorych-a264-x"), prefs: await keys("viktorych-prefs"), music: await keys("sintel-music-offline"), media: await keys("media-v1"), data: await keys("data-v1"), docs: docs.map((d) => d.category) };
   });
   const need = ["App files", "Feeds and posts", "Photos and videos", "Downloaded music", "Large videos", "Databases", "Settings"];
   need.forEach((label) => { if (!out.sizes[label]) fail("missing store row " + label + " " + JSON.stringify(out.sizes)); });

@@ -254,7 +254,7 @@ async function testCleanUpdate(browser) {
   try {
     // Media saved under an older versioned cache name moves into the stable cache.
     await page.evaluate(async () => {
-      const old = await caches.open("media-viktorych-a258-old");
+      const old = await caches.open("media-viktorych-a264-old");
       await old.put("https://pbs.twimg.com/media/kept.jpg", new Response("img", { headers: { "content-type": "image/jpeg" } }));
     });
     state.version = NEW;
@@ -266,7 +266,7 @@ async function testCleanUpdate(browser) {
       moved = await page.evaluate(async () => {
         const keys = await caches.keys();
         const hit = await caches.match("https://pbs.twimg.com/media/kept.jpg", { cacheName: "media-v1" });
-        return { old: keys.includes("media-viktorych-a258-old"), hit: !!hit };
+        return { old: keys.includes("media-viktorych-a264-old"), hit: !!hit };
       }).catch(() => null);
       if (moved && moved.hit && !moved.old) break;
       await page.waitForTimeout(250);

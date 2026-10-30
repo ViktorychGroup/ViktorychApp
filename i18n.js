@@ -315,12 +315,36 @@
     }
   }
 
+  var MANIFEST_URL_KEYS = { id: 1, start_url: 1, scope: 1, src: 1, url: 1, action: 1 };
+  function absoluteManifest(data, href) {
+    var base;
+    try { base = new URL(href, typeof location !== "undefined" ? location.href : undefined).href; } catch (err) { return data; }
+    var walk = function (node) {
+      if (!node || typeof node !== "object") return;
+      var key;
+      for (key in node) {
+        if (!Object.prototype.hasOwnProperty.call(node, key)) continue;
+        var value = node[key];
+        if (typeof value === "string" && MANIFEST_URL_KEYS[key] && !/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+          try { node[key] = new URL(value, base).href.replace(/%25s/g, "%s"); } catch (err) { /* keep the original */ }
+        } else if (value && typeof value === "object") {
+          walk(value);
+        }
+      }
+    };
+    walk(data);
+    return data;
+  }
+
   function updateManifest() {
     if (typeof document === "undefined" || typeof fetch === "undefined") return;
     var link = document.querySelector('link[rel="manifest"]');
     if (!link) return;
     var apply = function (data) {
-      var next = brandManifest(data);
+      // A blob: manifest has no folder of its own, so every relative URL in it
+      // (start_url, scope, icons) would be invalid and Chrome and Edge would
+      // refuse to install the app. Resolve them against the real manifest URL.
+      var next = absoluteManifest(brandManifest(data), manifestUrl || "manifest.webmanifest");
       paintBrand();
       var blob = new Blob([JSON.stringify(next)], { type: "application/manifest+json" });
       var url = URL.createObjectURL(blob);
@@ -400,7 +424,8 @@
     brandManifest: brandManifest,
     onChange: onChange,
     applyChrome: applyChrome,
-    updateManifest: updateManifest
+    updateManifest: updateManifest,
+    absoluteManifest: absoluteManifest
   };
   root.t = t;
   root.tn = tn;

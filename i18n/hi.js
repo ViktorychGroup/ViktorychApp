@@ -5563,5 +5563,16 @@ SI18n.addPack("hi", {
   "liked your post": "ने आपकी पोस्ट पसंद की",
   "mentioned you": "ने आपका ज़िक्र किया",
   "replied to you": "ने आपको जवाब दिया",
-  "reposted your post": "ने आपकी पोस्ट रीपोस्ट की"
+  "reposted your post": "ने आपकी पोस्ट रीपोस्ट की",
+  "It looks like the app is already installed on this device. Open it from your apps or desktop.": "लगता है ऐप इस डिवाइस पर पहले से इंस्टॉल है। इसे अपने ऐप्स या डेस्कटॉप से खोलें।",
+  "Click the install icon at the right end of the address bar.": "एड्रेस बार के दाईं ओर इंस्टॉल आइकन पर क्लिक करें।",
+  "Or open the ⋮ menu, choose Cast, save, and share, then Install page as app.": "या ⋮ मेनू खोलें, \"कास्ट करें, सेव करें और शेयर करें\" चुनें, फिर \"पेज को ऐप के रूप में इंस्टॉल करें\" चुनें।",
+  "Or open the … menu, choose Apps, then Install this site as an app.": "या … मेनू खोलें, \"ऐप्स\" चुनें, फिर \"इस साइट को ऐप के रूप में इंस्टॉल करें\" चुनें।",
+  "Open the ⋮ menu.": "⋮ मेनू खोलें।",
+  "Choose Add to Home screen, then Install.": "\"होम स्क्रीन पर जोड़ें\" चुनें, फिर \"इंस्टॉल करें\"।",
+  "In the menu bar, choose File.": "मेनू बार में \"फ़ाइल\" चुनें।",
+  "Choose Add to Dock, then click Add.": "\"Dock में जोड़ें\" चुनें, फिर \"जोड़ें\" पर क्लिक करें।",
+  "Firefox can’t install web apps on computers. Open this page in Chrome or Edge to install it.": "Firefox कंप्यूटर पर वेब ऐप इंस्टॉल नहीं कर सकता। इसे इंस्टॉल करने के लिए यह पेज Chrome या Edge में खोलें।",
+  "Choose Add app to Home screen.": "\"ऐप को होम स्क्रीन पर जोड़ें\" चुनें।",
+  "Open your browser menu and look for Install or Add to Home Screen. If it isn’t there, open this page in Chrome or Edge.": "अपने ब्राउज़र का मेनू खोलें और \"इंस्टॉल करें\" या \"होम स्क्रीन पर जोड़ें\" ढूँढें। अगर यह नहीं है, तो यह पेज Chrome या Edge में खोलें।"
 });

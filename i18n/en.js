@@ -5574,5 +5574,16 @@ SI18n.addPack("en", {
   "liked your post": "liked your post",
   "mentioned you": "mentioned you",
   "replied to you": "replied to you",
-  "reposted your post": "reposted your post"
+  "reposted your post": "reposted your post",
+  "It looks like the app is already installed on this device. Open it from your apps or desktop.": "It looks like the app is already installed on this device. Open it from your apps or desktop.",
+  "Click the install icon at the right end of the address bar.": "Click the install icon at the right end of the address bar.",
+  "Or open the ⋮ menu, choose Cast, save, and share, then Install page as app.": "Or open the ⋮ menu, choose Cast, save, and share, then Install page as app.",
+  "Or open the … menu, choose Apps, then Install this site as an app.": "Or open the … menu, choose Apps, then Install this site as an app.",
+  "Open the ⋮ menu.": "Open the ⋮ menu.",
+  "Choose Add to Home screen, then Install.": "Choose Add to Home screen, then Install.",
+  "In the menu bar, choose File.": "In the menu bar, choose File.",
+  "Choose Add to Dock, then click Add.": "Choose Add to Dock, then click Add.",
+  "Firefox can’t install web apps on computers. Open this page in Chrome or Edge to install it.": "Firefox can’t install web apps on computers. Open this page in Chrome or Edge to install it.",
+  "Choose Add app to Home screen.": "Choose Add app to Home screen.",
+  "Open your browser menu and look for Install or Add to Home Screen. If it isn’t there, open this page in Chrome or Edge.": "Open your browser menu and look for Install or Add to Home Screen. If it isn’t there, open this page in Chrome or Edge."
 });

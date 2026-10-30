@@ -5,6 +5,24 @@
   <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="format-detection" content="telephone=no">
+  <script>
+    /* Chrome and Edge fire beforeinstallprompt once, often before the app's
+       deferred scripts run. Keep it here so Settings > Install app can use it. */
+    (function () {
+      try {
+        window.addEventListener("beforeinstallprompt", function (event) {
+          event.preventDefault();
+          window.__VIKTORYCH_INSTALL = event;
+          try { document.dispatchEvent(new CustomEvent("viktorych-install-ready")); } catch (err) { /* app.js reads the global */ }
+        });
+        window.addEventListener("appinstalled", function () {
+          window.__VIKTORYCH_INSTALL = null;
+          try { localStorage.setItem("viktorychapp-installed", String(Date.now())); } catch (err) { /* private mode */ }
+          try { document.dispatchEvent(new CustomEvent("viktorych-installed")); } catch (err) { /* app.js re-renders later */ }
+        });
+      } catch (err) { /* install stays available from the browser menu */ }
+    })();
+  </script>
   <script src="device-seal.js"></script>
   <script src="shared/ios.js"></script>
   <script src="shared/tv-boot.js"></script>

@@ -5577,5 +5577,16 @@ SI18n.addPack("es", {
   "liked your post": "indicó que le gusta tu post",
   "mentioned you": "te mencionó",
   "replied to you": "te respondió",
-  "reposted your post": "reposteó tu post"
+  "reposted your post": "reposteó tu post",
+  "It looks like the app is already installed on this device. Open it from your apps or desktop.": "Parece que la app ya está instalada en este dispositivo. Ábrela desde tus apps o el escritorio.",
+  "Click the install icon at the right end of the address bar.": "Haz clic en el icono de instalación al final de la barra de direcciones.",
+  "Or open the ⋮ menu, choose Cast, save, and share, then Install page as app.": "O abre el menú ⋮, elige Enviar, guardar y compartir y luego Instalar página como app.",
+  "Or open the … menu, choose Apps, then Install this site as an app.": "O abre el menú …, elige Aplicaciones y luego Instalar este sitio como aplicación.",
+  "Open the ⋮ menu.": "Abre el menú ⋮.",
+  "Choose Add to Home screen, then Install.": "Elige Añadir a pantalla de inicio y luego Instalar.",
+  "In the menu bar, choose File.": "En la barra de menús, elige Archivo.",
+  "Choose Add to Dock, then click Add.": "Elige Añadir al Dock y luego haz clic en Añadir.",
+  "Firefox can’t install web apps on computers. Open this page in Chrome or Edge to install it.": "Firefox no puede instalar apps web en ordenadores. Abre esta página en Chrome o Edge para instalarla.",
+  "Choose Add app to Home screen.": "Elige Añadir app a la pantalla de inicio.",
+  "Open your browser menu and look for Install or Add to Home Screen. If it isn’t there, open this page in Chrome or Edge.": "Abre el menú del navegador y busca Instalar o Añadir a pantalla de inicio. Si no aparece, abre esta página en Chrome o Edge."
 });
