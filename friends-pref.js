@@ -141,15 +141,20 @@
 
   /* ---------- Settings ---------- */
 
+  /* X-native settings rows: title, grey note, a square check or a round radio on the right. */
+  var CHECK_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.64 18.952l-5.55-4.861 1.317-1.504 3.951 3.459 8.459-10.948L19.4 6.32 9.64 18.952z"></path></svg>';
   function sw(act, on, label, note) {
-    return '<button class="tab-switch' + (on ? " on" : "") + '" type="button" role="switch" aria-checked="' + (on ? "true" : "false") + '" data-fp-act="' + act + '"' + (ui.busy ? " disabled" : "") + "><span>" + esc(label) + "</span><i></i></button>" +
-      (note ? '<p class="phandle set-desc">' + esc(note) + "</p>" : "");
+    return '<button class="set-row fp-row" type="button" role="checkbox" aria-checked="' + (on ? "true" : "false") + '" data-fp-act="' + act + '"' + (ui.busy ? " disabled" : "") + '><span class="set-copy"><b>' + esc(label) + "</b>" +
+      (note ? '<span class="set-sub">' + esc(note) + "</span>" : "") + '</span><span class="fp-check' + (on ? " on" : "") + '" aria-hidden="true">' + (on ? CHECK_SVG : "") + "</span></button>";
   }
   function seg(act, value, on, label) {
-    return '<button class="outline' + (on ? " on" : "") + '" type="button" data-fp-act="' + act + '" data-value="' + esc(value) + '" aria-pressed="' + (on ? "true" : "false") + '"' + (ui.busy ? " disabled" : "") + ">" + esc(label) + "</button>";
+    return '<button class="set-row fp-row" type="button" role="radio" aria-checked="' + (on ? "true" : "false") + '" data-fp-act="' + act + '" data-value="' + esc(value) + '"' + (ui.busy ? " disabled" : "") + '><span class="set-copy"><b>' + esc(label) + '</b></span><span class="fp-radio' + (on ? " on" : "") + '" aria-hidden="true"></span></button>';
   }
   function radio(group, value, on, label, sub) {
-    return '<button class="fp-choice' + (on ? " on" : "") + '" type="button" role="radio" aria-checked="' + (on ? "true" : "false") + '" data-fp-act="choose" data-group="' + group + '" data-value="' + value + '"><span class="fp-dot" aria-hidden="true"></span><span class="fp-choice-copy"><b>' + esc(label) + "</b>" + (sub ? "<span>" + esc(sub) + "</span>" : "") + "</span></button>";
+    return '<button class="set-row fp-row" type="button" role="radio" aria-checked="' + (on ? "true" : "false") + '" data-fp-act="choose" data-group="' + group + '" data-value="' + value + '"><span class="set-copy"><b>' + esc(label) + "</b>" + (sub ? '<span class="set-sub">' + esc(sub) + "</span>" : "") + '</span><span class="fp-radio' + (on ? " on" : "") + '" aria-hidden="true"></span></button>';
+  }
+  function section(title, body) {
+    return '<section class="fp-sec"><h2 class="fp-h">' + esc(title) + '</h2><div class="set-list" role="radiogroup" aria-label="' + esc(title) + '">' + body + "</div></section>";
   }
 
   function summary() {
@@ -160,53 +165,60 @@
     return tr("On");
   }
 
+  function modal(title, text, body, goLabel, goAct, danger) {
+    return '<div class="fp-mask" data-fp-act="cancel-off"></div><div class="fp-modal" role="alertdialog" aria-modal="true" aria-label="' + esc(title) + '">' +
+      '<h2 class="fp-modal-title">' + esc(title) + "</h2>" +
+      '<p class="fp-modal-text">' + esc(text) + "</p>" + body +
+      '<div class="fp-modal-actions"><button class="fp-pill ' + (danger ? "fp-pill-red" : "fp-pill-main") + '" type="button" data-fp-act="' + goAct + '"' + (ui.busy ? " disabled" : "") + ">" + esc(goLabel) + '</button><button class="fp-pill fp-pill-line" type="button" data-fp-act="cancel-off">' + esc(tr("Cancel")) + "</button></div></div>";
+  }
   function confirmHtml(p) {
     var pend = (p.held.incoming || 0) + (p.held.outgoing || 0);
     var n = p.held.friends || 0;
-    var go = ui.friends === "remove" && n > 0
-      ? tr("Turn off and remove {n} friends", { n: String(n) })
-      : tr("Turn off Friends");
-    return '<div class="fp-confirm" role="dialog" aria-label="' + esc(tr("Turn off Friends?")) + '">' +
-      "<h3>" + esc(tr("Turn off Friends?")) + "</h3>" +
-      '<p class="phandle">' + esc(tr("Nobody can send you friend requests, and friend features are hidden for you. Turn it back on any time.")) + "</p>" +
-      '<h4>' + esc(tr("Pending requests ({n})", { n: String(pend) })) + "</h4>" +
-      '<div class="fp-choices" role="radiogroup">' +
+    var removing = ui.friends === "remove" && n > 0;
+    var go = removing ? tr("Turn off and remove {n} friends", { n: String(n) }) : tr("Turn off Friends");
+    var body = '<h3 class="fp-modal-h">' + esc(tr("Pending requests ({n})", { n: String(pend) })) + '</h3><div class="fp-modal-list" role="radiogroup">' +
         radio("pending", "pause", ui.pending !== "decline", tr("Pause them"), tr("Kept for when you turn Friends back on.")) +
         radio("pending", "decline", ui.pending === "decline", tr("Decline all"), tr("Sent and received requests are removed.")) +
-      "</div>" +
-      '<h4>' + esc(tr("Your friends ({n})", { n: String(n) })) + "</h4>" +
-      '<div class="fp-choices" role="radiogroup">' +
+      '</div><h3 class="fp-modal-h">' + esc(tr("Your friends ({n})", { n: String(n) })) + '</h3><div class="fp-modal-list" role="radiogroup">' +
         radio("friends", "keep", ui.friends !== "remove", tr("Keep them, hidden"), tr("Nobody sees them while Friends is off.")) +
         radio("friends", "remove", ui.friends === "remove", tr("Remove all friends"), tr("This can’t be undone.")) +
-      "</div>" +
-      '<div class="fp-actions"><button class="primary' + (ui.friends === "remove" && n > 0 ? " danger" : "") + '" type="button" data-fp-act="confirm-off"' + (ui.busy ? " disabled" : "") + ">" + esc(go) + '</button><button class="outline" type="button" data-fp-act="cancel-off">' + esc(tr("Cancel")) + "</button></div>" +
       "</div>";
+    return modal(tr("Turn off Friends?"), tr("Nobody can send you friend requests, and friend features are hidden for you. Turn it back on any time."), body, go, "confirm-off", removing);
+  }
+  function armHtml(p) {
+    var pend = (p.held.incoming || 0) + (p.held.outgoing || 0);
+    var n = p.held.friends || 0;
+    if (ui.arm === "decline") return modal(tr("Decline paused requests"), tr("Sent and received requests are removed."), "", tr("Decline all") + " (" + pend + ")", "decline-all", true);
+    return modal(tr("Remove hidden friends"), tr("This can’t be undone."), "", tr("Remove all friends") + " (" + n + ")", "remove-all", true);
   }
 
   function pageHtml() {
-    if (!owner()) return '<p class="phandle">' + esc(tr("Sign in to choose your friends settings.")) + "</p>";
+    if (!owner()) return '<p class="fp-lead">' + esc(tr("Sign in to choose your friends settings.")) + "</p>";
     if (Date.now() - (state.at || 0) > 15000) load(false);
     var p = mine();
-    var out = sw("master", p.enabled && !ui.confirming, tr("Friends"), tr("Friend requests, friends lists, the Friends panel and friends’ online status."));
-    if (ui.confirming) out += confirmHtml(p);
-    else if (p.enabled) {
-      out += "<h3>" + esc(tr("Who can send you friend requests")) + '</h3><div class="theme-row" role="group" aria-label="' + esc(tr("Who can send you friend requests")) + '">' +
+    var out = '<div class="set-list">' + sw("master", p.enabled, tr("Friends"), tr("Friend requests, friends lists, the Friends panel and friends’ online status.")) + "</div>";
+    if (p.enabled) {
+      out += section(tr("Who can send you friend requests"),
         seg("who", "everyone", p.whoCanRequest === "everyone", tr("Everyone")) +
         seg("who", "fof", p.whoCanRequest === "fof", tr("Friends of friends")) +
-        seg("who", "nobody", p.whoCanRequest === "nobody", tr("Nobody")) + "</div>";
-      out += "<h3>" + esc(tr("Who can see your friends list")) + '</h3><div class="theme-row" role="group" aria-label="' + esc(tr("Who can see your friends list")) + '">' +
+        seg("who", "nobody", p.whoCanRequest === "nobody", tr("Nobody")));
+      out += section(tr("Who can see your friends list"),
         seg("list", "everyone", p.listAudience === "everyone", tr("Everyone")) +
         seg("list", "friends", p.listAudience === "friends", tr("Friends")) +
-        seg("list", "me", p.listAudience === "me", tr("Only me")) + "</div>";
-      out += sw("online", p.shareOnline, tr("Share online status with friends"), tr("Friends see when you’re online. Your Online settings still apply."));
+        seg("list", "me", p.listAudience === "me", tr("Only me")));
+      out += '<div class="set-list fp-sep">' + sw("online", p.shareOnline, tr("Share online status with friends"), tr("Friends see when you’re online. Your Online settings still apply.")) + "</div>";
     } else {
       var pend = (p.held.incoming || 0) + (p.held.outgoing || 0);
       var n = p.held.friends || 0;
-      out += '<p class="phandle fp-off-note">' + esc(tr("Friends is off. {a} paused requests and {b} hidden friends come back when you turn it on.", { a: String(pend), b: String(n) })) + "</p>";
-      if (pend > 0) out += '<button class="outline" type="button" data-fp-act="decline-all">' + esc(ui.arm === "decline" ? tr("Tap again to decline {n} requests", { n: String(pend) }) : tr("Decline paused requests")) + "</button>";
-      if (n > 0) out += '<button class="outline danger" type="button" data-fp-act="remove-all">' + esc(ui.arm === "remove" ? tr("Tap again to remove {n} friends", { n: String(n) }) : tr("Remove hidden friends")) + "</button>";
+      out += '<p class="fp-lead">' + esc(tr("Friends is off. {a} paused requests and {b} hidden friends come back when you turn it on.", { a: String(pend), b: String(n) })) + "</p>";
+      var rows = "";
+      if (pend > 0) rows += '<button class="set-row fp-row fp-red" type="button" data-fp-act="arm-decline"><span class="set-copy"><b>' + esc(tr("Decline paused requests")) + "</b></span></button>";
+      if (n > 0) rows += '<button class="set-row fp-row fp-red" type="button" data-fp-act="arm-remove"><span class="set-copy"><b>' + esc(tr("Remove hidden friends")) + "</b></span></button>";
+      if (rows) out += '<div class="set-list fp-sep">' + rows + "</div>";
     }
-    if (ui.error) out += '<p class="phandle fp-error" role="alert">' + esc(ui.error) + "</p>";
+    if (ui.error) out += '<p class="fp-lead fp-error" role="alert">' + esc(ui.error) + "</p>";
+    if (ui.confirming) out += confirmHtml(p);
+    else if (ui.arm) out += armHtml(p);
     return '<div class="fp-page">' + out + "</div>";
   }
 
@@ -242,7 +254,9 @@
       redraw();
       return;
     }
-    if (act === "cancel-off") { ui.confirming = false; redraw(); return; }
+    if (act === "cancel-off") { ui.confirming = false; ui.arm = ""; redraw(); return; }
+    if (act === "arm-decline") { ui.arm = "decline"; redraw(); return; }
+    if (act === "arm-remove") { ui.arm = "remove"; redraw(); return; }
     if (act === "confirm-off") {
       var patch = { enabled: false };
       if (ui.pending === "decline") patch.declineAll = true;
@@ -254,18 +268,15 @@
     if (act === "who" && WHO.indexOf(value) >= 0) { put({ whoCanRequest: value }); return; }
     if (act === "list" && LIST.indexOf(value) >= 0) { put({ listAudience: value }); return; }
     if (act === "online") { put({ shareOnline: !p.shareOnline }); return; }
-    if (act === "decline-all") {
-      if (ui.arm !== "decline") { ui.arm = "decline"; redraw(); return; }
-      ui.arm = ""; put({ declineAll: true }); return;
-    }
-    if (act === "remove-all") {
-      if (ui.arm !== "remove") { ui.arm = "remove"; redraw(); return; }
-      ui.arm = ""; put({ removeAll: true, confirm: "remove" }); return;
-    }
+    if (act === "decline-all") { ui.arm = ""; put({ declineAll: true }); return; }
+    if (act === "remove-all") { ui.arm = ""; put({ removeAll: true, confirm: "remove" }); return; }
   }
 
   if (root.document) {
     root.document.addEventListener("click", onClick);
+    root.document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && (ui.confirming || ui.arm)) { ui.confirming = false; ui.arm = ""; redraw(); }
+    });
     apply();
     root.addEventListener && root.addEventListener("storage", function (e) { if (e.key === KEY) { state = read(); redraw(); } });
   }
