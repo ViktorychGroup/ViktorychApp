@@ -7,7 +7,8 @@ import { tempDmGate } from "./temp-accounts.js";
 import { viewerDisplay } from "./name-rules.js";
 
 import { notLocked, isLockedFollow, lockedAccountSet } from "./locked-sql.js";
-import { grantOk, ownerSees } from "./locked-follows.js";
+import { grantOk, ownerSees, auditOwnerView } from "./locked-follows.js";
+import { resolveName } from "./usernames.js";
 
 export const SOCIAL_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS account_blocks (
@@ -87,6 +88,12 @@ function pageLimit(url) {
 function likeTerm(raw) {
   const text = String(raw || "").replace(/[%_\\]/g, "").trim().slice(0, 40).toLowerCase();
   return text ? "%" + text + "%" : "";
+}
+
+// People search keeps "_" (handles use it) by escaping LIKE wildcards; "@" is dropped.
+function peopleTerm(raw) {
+  const text = String(raw || "").trim().replace(/^@+/, "").slice(0, 40).toLowerCase();
+  return text ? { core: text, like: "%" + text.replace(/[%_\\]/g, (c) => "\\" + c) + "%" } : null;
 }
 
 function encodeCursor(at, id) {
@@ -521,23 +528,42 @@ async function relationList(env, request, viewer, kind, deps) {
 async function peopleSearch(env, request, url, viewer, deps) {
   const paced = await deps.rateHit(env, "people:" + viewer.public_id, 60, 10 * 60 * 1000);
   if (!paced.ok) return deps.json(429, { error: "rate_limited", message: "Too many requests. Wait a few minutes and try again." }, { "retry-after": String(paced.retry || 60) });
-  const term = likeTerm(url.searchParams.get("q") || "");
+  const term = peopleTerm(url.searchParams.get("q") || "");
   if (!term) return deps.json(200, { accounts: [] });
   const listed = await env.DB.prepare(
-    "SELECT public_id, handle, display_name FROM accounts WHERE profile_less = 0 AND public_id != ? AND (lower(handle) LIKE ? OR lower(display_name) LIKE ? OR public_id IN (SELECT public_id FROM display_names WHERE lower(name) LIKE ?)) ORDER BY handle ASC LIMIT 20"
-  ).bind(viewer.public_id, term, term, term).all();
-  const core = term.slice(1, -1);
+    "SELECT a.public_id AS public_id, a.handle AS handle, a.display_name AS display_name, COALESCE(sp.searchable, 1) AS searchable FROM accounts a LEFT JOIN search_prefs sp ON sp.public_id = a.public_id WHERE a.profile_less = 0 AND a.public_id != ?3 AND (lower(a.handle) LIKE ?1 ESCAPE '\\' OR lower(a.display_name) LIKE ?1 ESCAPE '\\' OR a.public_id IN (SELECT public_id FROM display_names WHERE lower(name) LIKE ?1 ESCAPE '\\')) ORDER BY (lower(a.handle) = ?2) DESC, a.handle ASC LIMIT 40"
+  ).bind(term.like, term.core, String(viewer.public_id)).all();
+  const core = term.core;
+  // An exact username (any of the account's usernames, by its audience) comes first.
+  const rows = ((listed && listed.results) || []).slice();
+  let exactId = "";
+  try {
+    const exact = await resolveName(env, core, viewer.public_id);
+    exactId = exact && exact.publicId && String(exact.publicId) !== String(viewer.public_id) ? String(exact.publicId) : "";
+  } catch (err) { exactId = ""; }
+  if (exactId) {
+    const at = rows.findIndex((row) => String(row.public_id) === exactId);
+    const hit = at >= 0 ? rows.splice(at, 1)[0] : await env.DB.prepare("SELECT a.public_id AS public_id, a.handle AS handle, a.display_name AS display_name, COALESCE(sp.searchable, 1) AS searchable FROM accounts a LEFT JOIN search_prefs sp ON sp.public_id = a.public_id WHERE a.public_id = ? AND a.profile_less = 0").bind(exactId).first();
+    if (hit) rows.unshift(Object.assign({}, hit, { exact: true }));
+  }
+  // "Let others find me in search" (default on). Accounts that turned it off stay
+  // out for everyone but the site owner, whose sight of them is audit-logged.
   const ids = [];
   const lockedIds = await lockedAccountSet(env, viewer.public_id);
-  for (const row of (listed && listed.results) || []) {
+  for (const row of rows) {
     if (lockedIds.has(String(row.public_id))) continue;
     // A name match counts only for the one display name this viewer sees.
-    if (String(row.handle || "").toLowerCase().indexOf(core) < 0) {
+    if (!row.exact && String(row.handle || "").toLowerCase().indexOf(core) < 0) {
       const shown = await viewerDisplay(env, request, row.public_id, viewer.public_id, row.display_name || "");
       if (shown.hidden || String(shown.name || "").toLowerCase().indexOf(core) < 0) continue;
     }
     if (await blocksEither(env, viewer.public_id, row.public_id)) continue;
+    if (Number(row.searchable) === 0) {
+      if (!ownerSees(viewer, row.public_id)) continue;
+      await auditOwnerView(env, viewer.public_id, row.public_id, "search");
+    }
     ids.push(row.public_id);
+    if (ids.length >= 20) break;
   }
   return deps.json(200, { accounts: await deps.cards(env, request, ids) });
 }

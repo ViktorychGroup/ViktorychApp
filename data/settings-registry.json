@@ -1358,6 +1358,21 @@
    "signedIn": true
   },
   {
+   "id": "searchable",
+   "label": "Let others find me in search",
+   "desc": "Show your account in People search. When off, only the site owner can find it there.",
+   "type": "bool",
+   "def": true,
+   "store": "pymk",
+   "key": "searchable",
+   "page": "#/settings/privacy",
+   "cat": "privacy",
+   "risk": "privacy",
+   "private": false,
+   "sync": "server",
+   "signedIn": true
+  },
+  {
    "id": "onlineStatus",
    "label": "Who sees when you're online",
    "desc": "Who can see your online status.",

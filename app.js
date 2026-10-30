@@ -14692,7 +14692,81 @@ const here = parseRoute();
     return (Number(stats.likes) || 0) + (Number(stats.reposts) || 0) + (Number(stats.replies) || 0);
   }
 
+  /* People search on the server: accounts made in this app are found by their
+     username or the name the viewer sees, even before this device has seen them.
+     Accounts that turned off "Let others find me in search" are left out by the
+     server (the site owner still finds them, audit-logged there). */
+  const PEOPLE_FOUND = {};
+  const PEOPLE_TTL = 60 * 1000;
+  let peopleTimer = 0;
+  let peopleWant = "";
+  function peopleKey(q) {
+    return String(q || "").trim().replace(/^@+/, "").toLowerCase().slice(0, 40);
+  }
+  function serverPeople(q) {
+    const key = peopleKey(q);
+    if (key.length < 2) return [];
+    const hit = PEOPLE_FOUND[key];
+    if (hit && Date.now() - hit.at < PEOPLE_TTL) return hit.accounts;
+    askServerPeople(key);
+    return hit ? hit.accounts : [];
+  }
+  function askServerPeople(key) {
+    const acc = window.ViktorychAccounts;
+    const token = accountToken();
+    if (!acc || !acc.call || !token) return;
+    if (peopleWant === key && peopleTimer) return;
+    peopleWant = key;
+    clearTimeout(peopleTimer);
+    peopleTimer = setTimeout(() => {
+      peopleTimer = 0;
+      const prev = PEOPLE_FOUND[key];
+      PEOPLE_FOUND[key] = { at: Date.now(), accounts: prev ? prev.accounts : [] };
+      acc.call("/v1/people?q=" + encodeURIComponent(key), { token: token }).then((res) => {
+        if (!res || res.status !== 200) { delete PEOPLE_FOUND[key]; return; }
+        const list = (Array.isArray(res.accounts) ? res.accounts : []).filter((item) => item && item.handle).map((item) => ({
+          id: String(item.id || ("app:@" + item.handle)),
+          kind: "account",
+          platform: "app",
+          appAccount: true,
+          handle: String(item.handle),
+          name: String(item.name || item.handle),
+          avatar: String(item.avatar || ""),
+          avatarFace: item.avatarFace || "",
+          bio: String(item.bio || "")
+        }));
+        const keys = Object.keys(PEOPLE_FOUND);
+        if (keys.length > 40) delete PEOPLE_FOUND[keys[0]];
+        PEOPLE_FOUND[key] = { at: Date.now(), accounts: list };
+        if (!list.length && !(prev && prev.accounts.length)) return;
+        const route = parseRoute();
+        const input = document.getElementById("explore-q");
+        if (input && peopleKey(input.value) === key && document.activeElement === input) syncExploreSuggest(input);
+        else if (route.name === "explore" && peopleKey(route.query.get("q") || "") === key) render();
+      }, () => { delete PEOPLE_FOUND[key]; });
+    }, 250);
+  }
+  function withServerPeople(q, hits) {
+    const found = serverPeople(q);
+    if (!found.length) return hits;
+    const seen = {};
+    (hits.accounts || []).forEach((f) => {
+      seen[String(f.id || "")] = 1;
+      if (String(f.id || "").indexOf("app:") === 0 || f.platform === "app") seen["app:@" + String(f.handle || "").toLowerCase()] = 1;
+    });
+    const extra = found.filter((f) => !seen[f.id] && !seen["app:@" + f.handle.toLowerCase()] && !matchesMute(STATE.settings.mutedAccounts, f.handle, "app", f.id));
+    if (!extra.length) return hits;
+    const key = peopleKey(q);
+    const exact = extra.filter((f) => f.handle.toLowerCase() === key);
+    const rest = extra.filter((f) => f.handle.toLowerCase() !== key);
+    return Object.assign({}, hits, { accounts: exact.concat(hits.accounts || [], rest) });
+  }
+
   function exploreHits(q) {
+    return withServerPeople(q, exploreLocalHits(q));
+  }
+
+  function exploreLocalHits(q) {
     const dev = window.ViktorychDevice;
     const idx = window.ViktorychDeviceSearch;
     if (dev && idx && dev.featureOn(dev.read(), "search", dev.signals()) && !dev.cooling("search")) {
@@ -30092,6 +30166,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     if (row.store === "pymk") {
       const P = window.ViktorychPYMK;
+      if (row.key === "searchable") return P && P.searchable ? P.searchable() !== false : undefined;
       return P && P.discoverable ? P.discoverable() !== false : undefined;
     }
     if (row.store === "presence") {

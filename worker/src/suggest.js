@@ -44,6 +44,7 @@ export const SUGGEST_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS account_kind (public_id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'person', owner_kind TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS suggest_prefs (public_id TEXT PRIMARY KEY, discoverable INTEGER NOT NULL DEFAULT 1, temp_opt_in INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS suggest_dismiss (public_id TEXT NOT NULL, target_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (public_id, target_id))",
+  "CREATE TABLE IF NOT EXISTS search_prefs (public_id TEXT PRIMARY KEY, searchable INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS suggest_cache (public_id TEXT PRIMARY KEY, body TEXT NOT NULL, created_at INTEGER NOT NULL)"
 ];
 
@@ -245,8 +246,12 @@ async function targetFrom(env, raw, viewerId) {
 async function readPrefs(env, publicId) {
   const row = await first(env, "SELECT discoverable, temp_opt_in FROM suggest_prefs WHERE public_id = ?", publicId);
   const kind = await first(env, "SELECT kind, owner_kind FROM account_kind WHERE public_id = ?", publicId);
+  let search = null;
+  try { search = await first(env, "SELECT searchable FROM search_prefs WHERE public_id = ?", publicId); }
+  catch (err) { /* no table yet: visible */ }
   return {
     discoverable: row ? Number(row.discoverable) === 1 : true,
+    searchable: search ? Number(search.searchable) === 1 : true,
     tempOptIn: row ? Number(row.temp_opt_in) === 1 : false,
     kind: kind ? (cleanKind(kind.kind) || "person") : "person",
     ownerKind: kind ? cleanKind(kind.owner_kind) : ""
@@ -256,8 +261,8 @@ async function readPrefs(env, publicId) {
 /* Routes:
    GET    /v1/suggestions               the viewer's typed suggestions
    POST   /v1/suggestions/dismiss       { id } "Not interested in this person" ({ community } for a community)
-   GET    /v1/suggestions/prefs         { discoverable, tempOptIn, kind, ownerKind }
-   PUT    /v1/suggestions/prefs         { discoverable?, tempOptIn?, kind? }
+   GET    /v1/suggestions/prefs         { discoverable, searchable, tempOptIn, kind, ownerKind }
+   PUT    /v1/suggestions/prefs         { discoverable?, searchable?, tempOptIn?, kind? }
    PUT    /v1/owner/account-kind        { id, kind } owner override ("" clears) */
 export async function handleSuggestRoutes(request, env, path, url, deps) {
   if (path !== "/v1/suggestions" && path.indexOf("/v1/suggestions/") !== 0 && path !== "/v1/owner/account-kind") return null;
@@ -314,6 +319,12 @@ export async function handleSuggestRoutes(request, env, path, url, deps) {
     const tempOptIn = typeof body.tempOptIn === "boolean" ? body.tempOptIn : prev.tempOptIn;
     await env.DB.prepare("INSERT INTO suggest_prefs (public_id, discoverable, temp_opt_in, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(public_id) DO UPDATE SET discoverable = excluded.discoverable, temp_opt_in = excluded.temp_opt_in, updated_at = excluded.updated_at")
       .bind(me, discoverable ? 1 : 0, tempOptIn ? 1 : 0, now).run();
+    if (typeof body.searchable === "boolean") {
+      // "Let others find me in search": off keeps the account out of People search
+      // for everyone except the site owner (audit-logged there).
+      await env.DB.prepare("INSERT INTO search_prefs (public_id, searchable, updated_at) VALUES (?, ?, ?) ON CONFLICT(public_id) DO UPDATE SET searchable = excluded.searchable, updated_at = excluded.updated_at")
+        .bind(me, body.searchable ? 1 : 0, now).run();
+    }
     if (body.kind !== undefined) {
       const kind = cleanKind(body.kind);
       if (!kind) return deps.json(400, { error: "bad_kind" });

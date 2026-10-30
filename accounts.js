@@ -6848,8 +6848,10 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
   function aiSetting(key, value) {
     var session = readSession();
     if (!session || !hasApi()) return Promise.resolve(false);
-    if (key === "discoverable") {
-      return api("/v1/suggestions/prefs", { method: "PUT", token: session.token, body: { discoverable: !!value } }).then(function (res) { return !!res && res.status === 200; }, function () { return false; });
+    if (key === "discoverable" || key === "searchable") {
+      var prefBody = {};
+      prefBody[key] = !!value;
+      return api("/v1/suggestions/prefs", { method: "PUT", token: session.token, body: prefBody }).then(function (res) { return !!res && res.status === 200; }, function () { return false; });
     }
     if (!AI_PROFILE_KEYS[key]) return Promise.resolve(false);
     var body = {};
