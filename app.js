@@ -14077,6 +14077,10 @@ const here = parseRoute();
       const lockId = followedLockId || (fallbackLockId && String(baseLockId).indexOf("person:") === 0 ? fallbackLockId : baseLockId);
       if (!target.own && lockId && signed && window.ViktorychLocked && (followedLockId || accountFollowed(baseLockId))) rows.push(profileSheetRow("profile-lock-follow", tr("Lock follow"), `data-id="${esc(lockId)}" data-name="${esc(target.name || "")}" data-handle="${esc(target.handle || "")}"`));
       if (target.feedId) rows.push(profileSheetRow("profile-lists", tr("Add or remove from lists")));
+      // A friend's profile: who can see that the two of you are friends.
+      if (!target.own && signed && target.platform === "app" && target.handle && window.ViktorychFriendPrivacy && window.ViktorychFriendPrivacy.isFriend(target.handle)) {
+        rows.push(`<a class="bell-choice" href="#/settings/friendship/${encodeURIComponent(String(target.handle).toLowerCase())}" data-act="close-profile-menu"><span class="bell-choice-label">${esc(tr("Who can see my friendship with {name}", { name: target.name || "@" + target.handle }))}</span></a>`);
+      }
       if (target.feedId || target.handle) rows.push(profileSheetRow("profile-cm-tab", tr("Add to Communities tab"), `data-id="${esc(target.feedId || (target.platform + ":" + target.handle))}" data-name="${esc(target.name || target.handle || "")}"`));
     }
     if (menu === "lists") {
@@ -17674,7 +17678,14 @@ const here = parseRoute();
       return settingsHead(tr("Usernames"), "#/settings/privacy") + `<div class="set-block">${body}</div>`;
     }
     if (section === "locked-follows") return settingsHead(tr("Locked follows"), "#/settings/privacy") + `<div class="set-block">${window.ViktorychLocked ? window.ViktorychLocked.settingsHtml() : ""}</div>`;
-    if (section === "friends") return settingsHead(tr("Friends"), "#/settings/privacy") + `<div class="set-block">${window.ViktorychFriendsPref ? window.ViktorychFriendsPref.pageHtml() : ""}</div>`;
+    if (section === "friends") {
+      const each = window.ViktorychFriendPrivacy && window.ViktorychFriendsPref && !window.ViktorychFriendsPref.isOff() ? `<div class="set-list">${window.ViktorychFriendPrivacy.entryHtml()}</div>` : "";
+      return settingsHead(tr("Friends"), "#/settings/privacy") + `<div class="set-block">${window.ViktorychFriendsPref ? window.ViktorychFriendsPref.pageHtml() : ""}${each}</div>`;
+    }
+    if (section === "friendship") {
+      const title = route.sub ? tr("Friendship") : tr("Who can see each friendship");
+      return settingsHead(title, route.sub ? "#/settings/friendship" : "#/settings/friends") + `<div class="set-block">${window.ViktorychFriendPrivacy ? window.ViktorychFriendPrivacy.pageHtml(route.sub || "") : ""}</div>`;
+    }
     if (section === "muted") return settingsHead(tr("Muted & blocked"), "#/settings/privacy") + `<div class="set-block">${mutedSettingsHtml()}</div>`;
     if (section === "privacy") {
       const acct = window.ViktorychAccounts && window.ViktorychAccounts.account && window.ViktorychAccounts.account();
@@ -23147,7 +23158,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (box) box.focus();
       return;
     }
-    if (act === "close-profile-menu") { STATE.profileMenu = null; render(); return; }
+    if (act === "close-profile-menu") { STATE.profileMenu = null; if (el.tagName !== "A") render(); return; }
     if (act === "profile-lists") { STATE.profileMenu = "lists"; render(); return; }
     if (act === "profile-cm-tab") {
       const id = String(el.dataset.id || "");

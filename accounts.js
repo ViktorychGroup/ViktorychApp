@@ -4445,6 +4445,7 @@ function signupPayload() {
     return '<button class="friend-btn friend-add" type="button" data-friend-act="request" data-friend-id="' + esc(pid) + '" data-handle="' + esc(handle) + '"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span>' + esc(tr("Add Friend")) + '</span></button>';
   }
 
+  var friendsOwnerView = {};
   function ensureFriends(targetId) {
     var session = readSession();
     var key = String(targetId || "");
@@ -4459,6 +4460,8 @@ function signupPayload() {
       friendsLoads[key] = false;
       if (!res || res.status !== 200) { friendsFailedAt[key] = Date.now(); return; }
       friendsCache[key] = Array.isArray(res.friends) ? res.friends : [];
+      // Owner view: the server shows the app owner every friendship and logs it.
+      friendsOwnerView[key] = res.ownerView === true;
       var id = key;
       graphCounts[id] = graphCounts[id] || {};
       if (res.friendsCount != null) graphCounts[id].friends = res.friendsCount;
@@ -4693,6 +4696,7 @@ function signupPayload() {
               '<a class="friend-card-name" href="#/@' + encodeURIComponent(fr.handle) + '">' + esc(fr.name || fr.displayName || fr.handle) + (fr.owner ? badge() : "") + '</a>' +
               '<div class="friend-card-handle">@' + esc(fr.handle) + '</div>' +
               mutual +
+              (fr.ownerOnly ? '<div class="friend-card-owneronly">' + esc(tr("Hidden from others · owner view")) + '</div>' : '') +
             '</div>' +
             '<div class="friend-card-actions">' + btn + '</div>' +
           '</div>';
@@ -4709,7 +4713,8 @@ function signupPayload() {
       '<div class="friends-header-right">' + headerRight + '</div>' +
     '</div>';
 
-    return '<div class="friends-section">' + headingHtml + pills + cardsHtml + '</div>';
+    var ownerBanner = !mine && friendsOwnerView[pid] ? '<div class="friends-owner-view" role="note"><b>' + esc(tr("Owner view")) + '</b><span>' + esc(tr("You see every friendship here, including ones hidden from others. Each view is logged.")) + '</span></div>' : '';
+    return '<div class="friends-section">' + headingHtml + ownerBanner + pills + cardsHtml + '</div>';
   }
 
     var linkIdentityForm = {
