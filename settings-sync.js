@@ -22,6 +22,9 @@
       ["translateAuto", "Automatically translate posts"], ["translateNever", "Never translate"],
       ["peopleLinks", "Merged profiles"], ["busyPrefs", "Posting volume"]
     ] },
+    { id: "tabs", label: "Tabs", keys: [
+      ["feedTabs", "Custom tabs"], ["noteTabs", "Notification tabs"], ["communityTabs", "Community tabs"], ["tabViews", "Tab views"]
+    ] },
     { id: "notifications", label: "Notifications", keys: [["notify", "Notifications"], ["bells", "Account alerts"], ["notifPrivacy", "Notification privacy"]] },
     { id: "privacy", label: "Privacy and mentions", keys: [
       ["mutedWords", "Muted words"], ["mutedAccounts", "Muted accounts"], ["blocks", "Muted & blocked"], ["privacyEmbedShield", "Third-party embed shield"],
@@ -40,7 +43,7 @@
   var CAT_OF = {};
   CATS.forEach(function (cat) { cat.keys.forEach(function (row) { CAT_OF[row[0]] = cat.id; }); });
   // Companion keys travel with their setting.
-  var COMPANIONS = { navCustom: ["navCustomAt"], bottomNav: ["bottomNavCustom"] };
+  var COMPANIONS = { navCustom: ["navCustomAt"], bottomNav: ["bottomNavCustom"], noteTabs: ["lastNoteTab"] };
 
   function store() { try { return root.localStorage; } catch (err) { return null; } }
   function readJson(key) {
