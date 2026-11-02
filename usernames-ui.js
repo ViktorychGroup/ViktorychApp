@@ -374,9 +374,14 @@
     var box = scroller();
     var want = scrollMem[viewKey()] || 0;
     if (box && box.scrollTop !== want) box.scrollTop = want;
+    /* An autosave repaint keeps the typed search and its suggestions. */
+    var x = XS();
     Object.keys(chipDraft).forEach(function (key) {
       var input = page.querySelector('[data-xs-chip-input="' + key + '"]');
-      if (input && chipDraft[key] && !input.value) input.value = chipDraft[key];
+      if (!input || !chipDraft[key]) return;
+      if (!input.value) input.value = chipDraft[key];
+      var list = page.querySelector('[data-xs-suggest="' + key + '"]');
+      if (x && list && list.hidden && key !== "pv") x.suggest(key, input.value, known, chipHandles(key));
     });
     var again = focusKey || activeChip;
     focusKey = "";
