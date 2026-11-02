@@ -4118,9 +4118,6 @@ html.tv-on #new-posts { display: none; }
 .notes-top .tab .tab-bell svg { width: 16px; height: 16px; fill: currentColor; }
 .notes-top .note-gear { border: 0; background: transparent; color: var(--text); }
 a.bell-choice { text-decoration: none; color: inherit; }
-@media (min-width: 500px) {
-  .notes-bar .m-ava { display: none; }
-}
 @media (max-width: 499px) {
   .bell-sheet { background: rgba(91, 112, 131, 0.4); }
   .menu.bell-menu {
