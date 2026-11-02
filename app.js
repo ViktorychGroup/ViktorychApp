@@ -25092,6 +25092,20 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }, 200);
     }
   });
+  /* The card lives on hover only. A route change or a scroll removes or
+     moves the anchor without a mouseout, so an open card would stay parked
+     on the page and block what sits under it (it can end up over the
+     top-left menu button). Drop it there too. */
+  window.addEventListener("hashchange", () => {
+    clearTimeout(hoverTimer);
+    const box = document.getElementById("hover");
+    if (box) box.innerHTML = "";
+  });
+  window.addEventListener("scroll", () => {
+    clearTimeout(hoverTimer);
+    const box = document.getElementById("hover");
+    if (box && box.childElementCount) box.innerHTML = "";
+  }, { passive: true });
 
   function presenceIdOf(profile) {
     const raw = String((profile && profile.publicId) || "");
@@ -25106,6 +25120,13 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const rect = el.getBoundingClientRect();
     const box = document.getElementById("hover");
     if (!box || !profile) return;
+    /* The anchor can be gone from the screen (a row that collapsed or
+       scrolled away between the hover and the paint): an off-screen anchor
+       would clamp the card into the top-left corner, over the menu. */
+    if (rect.width < 4 || rect.height < 4 || rect.bottom < 4 || rect.top > window.innerHeight - 4) {
+      box.innerHTML = "";
+      return;
+    }
     const handle = profile.displayHandle || (profile.platform === "youtube" ? "" : profile.handle);
     const id = liveFollowId(profile);
     const bannerFace = faceChoice("banner", profile.banner, profile.bannerFace);
