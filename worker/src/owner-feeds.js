@@ -932,11 +932,40 @@ export { handleOwnerFeeds, sweepOwnerFeeds, CATALOG_KEY, probeAccount };
 
 /* Adds one account to the owner catalog. The owner POST route and an
    allowed source request both land here, so a ban is checked once. */
-export async function addToCatalog(env, input, deps) {
+/* A live probe with a time limit. A request the owner approves is saved
+   even when the public bridges are slow, blocked or down right now: the sync
+   fetches it later through the regular fetchers and backups. */
+export async function probeWithin(spec, ms, fetchImpl) {
+  let timer = null;
+  const late = new Promise((resolve) => { timer = setTimeout(() => resolve({ error: "down", late: true }), ms); });
+  try {
+    return await Promise.race([probeAccount(spec, fetchImpl).catch(() => ({ error: "down" })), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* What the catalog stores when the probe could not reach the source. */
+export function unverifiedProbe(spec, probed) {
+  const code = probed && probed.error === "rate" ? "rate" : "";
+  return {
+    profile: { handle: spec.handle, name: spec.handle, avatar: "", url: spec.url || "" },
+    posts: [],
+    status: "slow",
+    code,
+    retryAfter: Number(probed && probed.retryAfter) || 0,
+    channelId: spec.channelId || "",
+    unverified: true
+  };
+}
+
+export async function addToCatalog(env, input, deps, opts) {
+  const options = opts || {};
   const spec = detectInput(input || "");
   if (!spec.ok) return { status: 400, body: { error: spec.error, message: spec.message } };
   if (await bannedSpec(env, spec)) return { status: 403, body: { error: "banned" } };
-  const probed = await probeAccount(spec);
+  let probed = options.unverified ? await probeWithin(spec, options.probeMs || 6000) : await probeAccount(spec);
+  if (probed.error && options.unverified && probed.error !== "private_host" && probed.error !== "bad_feed") probed = unverifiedProbe(spec, probed);
   if (probed.error) return probeResult(probed);
   const doc = await readCatalog(env);
   const id = accountId(Object.assign({}, spec, { channelId: probed.channelId || spec.channelId || "", handle: probed.profile.handle || spec.handle }));
@@ -987,7 +1016,7 @@ export async function addToCatalog(env, input, deps) {
   let dispatched = false;
   try { dispatched = await deps.dispatchWorkflows(env, ["sync.yml"]); }
   catch (err) { dispatched = false; }
-  return { status: 200, body: { account: publicAccount(row), dispatched } };
+  return { status: 200, body: { account: publicAccount(row), dispatched, unverified: !!probed.unverified } };
 }
 
 /* A banned source stops being fetched: its catalog row is paused and the

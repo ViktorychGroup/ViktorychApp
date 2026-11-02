@@ -1028,13 +1028,28 @@
     var p = state.prefs;
     if (!p) return "";
     var q = p.quiet || { on: false, from: 22, to: 7 };
+    var x = window.XSettings;
+    var hours = q.on ? (x
+      ? '<div class="xs-page gs-xs">' + x.row({ title: tr("From"), value: hourLabel(q.from), attrs: 'data-gs-quiet-open="from"' }) + x.row({ title: tr("To"), value: hourLabel(q.to), attrs: 'data-gs-quiet-open="to"' }) + "</div>"
+      : '<div class="gs-row gs-quiet"><label>' + esc(tr("From")) + ' <select data-gs-quiet="from">' + hourOptions(q.from) + "</select></label><label>" + esc(tr("To")) + ' <select data-gs-quiet="to">' + hourOptions(q.to) + "</select></label></div>") : "";
     return switchHtml(!!p.streakReminder, "data-gs-pref=\"streak\"", tr("Streak reminder"), tr("A nudge the evening before your ReGone streak would break. Off by default.")) +
-      switchHtml(!!q.on, "data-gs-pref=\"quiet\"", tr("Quiet hours for game invites"), tr("Invites wait in the Games page and arrive without a push.")) +
-      (q.on ? '<div class="gs-row gs-quiet"><label>' + esc(tr("From")) + ' <select data-gs-quiet="from">' + hourOptions(q.from) + "</select></label><label>" + esc(tr("To")) + ' <select data-gs-quiet="to">' + hourOptions(q.to) + "</select></label></div>" : "");
+      switchHtml(!!q.on, "data-gs-pref=\"quiet\"", tr("Quiet hours for game invites"), tr("Invites wait in the Games page and arrive without a push.")) + hours;
+  }
+  function hourLabel(h) { h = Number(h) || 0; return (h < 10 ? "0" : "") + h + ":00"; }
+  function quietSheet(which) {
+    var x = window.XSettings;
+    var q = Object.assign({}, state.prefs && state.prefs.quiet || { on: true, from: 22, to: 7 });
+    var opts = [];
+    for (var h = 0; h < 24; h++) opts.push({ value: String(h), label: hourLabel(h) });
+    x.sheet.radio({ title: which === "from" ? tr("From") : tr("To"), sub: tr("Quiet hours for game invites"), options: opts, current: String(Number(q[which]) || 0), onPick: function (v) {
+      q[which] = Number(v);
+      savePrefs({ quiet: q, tz: tzMin() });
+    } });
   }
   var AUD_LABEL = function (v) {
     return { public: tr("Everyone"), followers: tr("Followers"), friends: tr("Mutuals"), only: tr("Only me"), list: tr("Custom") }[v] || v;
   };
+  var AUD_KINDS = {};
   function privacyHtml() {
     if (!token()) return "";
     loadPrefs(false);
@@ -1045,11 +1060,25 @@
     var cur = p.audiences && p.audiences[kind] || "only";
     var lists = state.lists || [];
     var sel = p.lists && p.lists[kind] || { include: [], exclude: [] };
+    var x = window.XSettings;
+    AUD_KINDS[kind] = label;
+    if (x) {
+      var checks = function (which, picked) {
+        if (!lists.length) return x.desc(tr("Create an audience list in Privacy and safety."));
+        return lists.map(function (l) {
+          return x.check({ title: l.name, on: picked.indexOf(l.id) >= 0, attrs: 'data-gs-list="' + kind + '" data-which="' + which + '" data-id="' + esc(l.id) + '"' });
+        }).join("");
+      };
+      var excluded = (sel.exclude || []).length;
+      return '<div class="gs-xs-block">' + x.row({ title: label, sub: AUD_LABEL(cur), cls: "gs-xs-aud", attrs: 'data-gs-aud-open="' + kind + '"' }) + x.desc(desc, "gs-xs-desc") +
+        (cur === "list" ? '<p class="xs-label">' + esc(tr("Include")) + "</p>" + checks("include", sel.include || []) : "") +
+        (cur !== "only" ? '<details class="xs-details gs-exclude"><summary class="xs-row"><span class="xs-copy"><span class="xs-title">' + esc(tr("Exclude lists")) + "</span>" + (excluded ? '<span class="xs-sub">' + esc(tr("{count} hidden", { count: excluded })) + "</span>" : "") + '</span><span class="xs-chev">' + x.icon("chev") + "</span></summary>" + checks("exclude", sel.exclude || []) + "</details>" : "") + "</div>";
+    }
     var btns = ["public", "followers", "friends", "only", "list"].map(function (v) {
       var on = cur === v;
       return '<button type="button" class="outline' + (on ? " on" : "") + '" aria-pressed="' + (on ? "true" : "false") + '" data-gs-aud="' + kind + '" data-value="' + v + '">' + esc(AUD_LABEL(v)) + "</button>";
     }).join("");
-    var checks = function (which, picked) {
+    var plain = function (which, picked) {
       if (!lists.length) return '<p class="phandle">' + esc(tr("Create an audience list in Privacy and safety.")) + "</p>";
       return '<div class="aud-checks">' + lists.map(function (l) {
         var on = picked.indexOf(l.id) >= 0;
@@ -1057,15 +1086,28 @@
       }).join("") + "</div>";
     };
     return "<h3>" + esc(label) + '</h3><p class="phandle set-desc">' + esc(desc) + '</p><div class="theme-row gs-aud" role="group" aria-label="' + esc(label) + '">' + btns + "</div>" +
-      (cur === "list" ? '<p class="phandle">' + esc(tr("Include")) + "</p>" + checks("include", sel.include || []) : "") +
-      (cur !== "only" ? '<details class="gs-exclude"><summary>' + esc(tr("Exclude lists")) + "</summary>" + checks("exclude", sel.exclude || []) + "</details>" : "");
+      (cur === "list" ? '<p class="phandle">' + esc(tr("Include")) + "</p>" + plain("include", sel.include || []) : "") +
+      (cur !== "only" ? '<details class="gs-exclude"><summary>' + esc(tr("Exclude lists")) + "</summary>" + plain("exclude", sel.exclude || []) + "</details>" : "");
+  }
+  function audSheet(kind) {
+    var p = state.prefs || {};
+    var cur = p.audiences && p.audiences[kind] || "only";
+    window.XSettings.sheet.radio({ title: AUD_KINDS[kind] || tr("Games"), options: ["public", "followers", "friends", "only", "list"].map(function (v) { return { value: v, label: AUD_LABEL(v) }; }), current: cur, onPick: function (v) {
+      if (v === cur) return;
+      var aud = {};
+      aud[kind] = v;
+      savePrefs({ audiences: aud });
+    } });
   }
   function privacyInner() {
-    if (!state.prefs) return "<h2>" + esc(tr("Games")) + '</h2><p class="phandle">' + esc(tr("Loading")) + "</p>";
-    return "<h2>" + esc(tr("Games")) + "</h2>" +
-      audBlock("together", tr("Who I play with"), tr("Shown only when both players allow the viewer. Never shown to people you block or mute.")) +
+    var x = window.XSettings;
+    if (!state.prefs) return (x ? '<div class="xs-page gs-xs">' + x.section(tr("Games")) + x.desc(tr("Loading")) + "</div>" : "<h2>" + esc(tr("Games")) + '</h2><p class="phandle">' + esc(tr("Loading")) + "</p>");
+    var blocks = audBlock("together", tr("Who I play with"), tr("Shown only when both players allow the viewer. Never shown to people you block or mute.")) +
       audBlock("room", tr("Room and Playing now"), tr("Who sees that you're playing and which room you set.")) +
-      audBlock("stats", tr("Achievements and play time"), tr("Also covers your claimed ReGone name, rank and NZlay stats.")) +
+      audBlock("stats", tr("Achievements and play time"), tr("Also covers your claimed ReGone name, rank and NZlay stats."));
+    if (x) return '<div class="xs-page gs-xs">' + x.section(tr("Games")) + blocks + x.desc(tr("Play privately is in the invite and party sheets: that session is never saved.")) +
+      x.row({ title: tr("Clear play-together history"), danger: true, trail: "none", attrs: "data-gs-clear-together" }) + "</div>";
+    return "<h2>" + esc(tr("Games")) + "</h2>" + blocks +
       '<p class="phandle">' + esc(tr("Play privately is in the invite and party sheets: that session is never saved.")) + "</p>" +
       '<button type="button" class="outline gs-danger" data-gs-clear-together>' + esc(tr("Clear play-together history")) + "</button>";
   }
@@ -1169,6 +1211,8 @@
     }
     if ((el = t.closest("[data-gs-link-name]"))) { event.preventDefault(); linkName(); return; }
     if ((el = t.closest("[data-gs-unlink]"))) { event.preventDefault(); unlinkName(); return; }
+    if ((el = t.closest("[data-gs-aud-open]")) && window.XSettings) { event.preventDefault(); audSheet(el.getAttribute("data-gs-aud-open")); return; }
+    if ((el = t.closest("[data-gs-quiet-open]")) && window.XSettings) { event.preventDefault(); quietSheet(el.getAttribute("data-gs-quiet-open")); return; }
     if ((el = t.closest("[data-gs-aud]"))) {
       event.preventDefault();
       var aud = {};

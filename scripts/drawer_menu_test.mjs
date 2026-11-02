@@ -235,6 +235,8 @@ async function main() {
     if (desk.status !== 0) fail("desktop app check failed");
     const lai = spawnSync(process.execPath, [path.join(root, "scripts", "local_ai_page_test.mjs")], { stdio: "inherit", env: process.env });
     if (lai.status !== 0) fail("local ai page check failed");
+    const laiSetup = spawnSync(process.execPath, [path.join(root, "scripts", "local_ai_setup_test.mjs")], { stdio: "inherit", env: process.env });
+    if (laiSetup.status !== 0) fail("local ai setup check failed");
   } finally {
     await browser.close();
     server.close();

@@ -274,6 +274,14 @@
     data.feeds = (data.feeds || []).filter(function (feed) { return !feed || feed.platform !== "tiktok"; });
   }
 
+  function lockedFollowHides(id, handle) {
+    var lf = typeof window !== "undefined" && window.ViktorychLocked;
+    if (!lf || !lf.hidesId) return false;
+    if (id && lf.hidesId(id)) return true;
+    var h = String(handle || "").replace(/^@/, "");
+    return !!(h && lf.hidesId("tiktok:" + h));
+  }
+
   function absorb(doc) {
     if (!visible() || !doc) return;
     cached = doc;
@@ -284,11 +292,13 @@
     (doc.feeds || []).forEach(function (feed) {
       if (!feed || !feed.id) return;
       if (isLocked() && !isUnlocked(feed.handle)) return;
+      if (lockedFollowHides(feed.id, feed.handle)) return;
       if (!feeds.some(function (row) { return row && row.id === feed.id; })) feeds.push(feed);
     });
     (doc.posts || []).forEach(function (post) {
       if (!post || !post.id) return;
       if (isLocked() && !isUnlocked(post.handle)) return;
+      if (lockedFollowHides(post.feedId, post.handle)) return;
       if (!posts.some(function (row) { return row && row.id === post.id; })) posts.push(post);
     });
     data.feeds = feeds;
@@ -300,6 +310,7 @@
     (doc.feeds || []).forEach(function (feed) {
       if (!feed || !feed.id) return;
       if (isLocked() && !isUnlocked(feed.handle)) return;
+      if (lockedFollowHides(feed.id, feed.handle)) return;
       if (settings.follows.indexOf(feed.id) < 0) {
         settings.follows.push(feed.id);
         changed = true;
@@ -333,6 +344,7 @@
       if (!short) return false;
       var hasMedia = (post.media || []).some(function (item) { return item && (item.type === "video" || item.poster || item.url); });
       if (!hasMedia) return false;
+      if (lockedFollowHides(post.feedId, post.handle)) return false;
       if (isLocked()) {
         return isUnlocked(post.handle);
       }

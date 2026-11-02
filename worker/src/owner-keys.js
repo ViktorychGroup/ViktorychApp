@@ -511,27 +511,29 @@ function materialBody(spec, row, value) {
   return packed;
 }
 
+/* The old single-slot table is copied once into owner_key_items. This runs
+   on every isolate start, so it no longer asks sqlite_master (that read every
+   schema row, about 420, on each cold start); the copy itself answers
+   "no such table" when the old table is gone. */
 export async function migrateOwnerKeys(env) {
   if (!env || !env.DB) return;
-  let old = null;
   try {
-    old = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'owner_keys'").first();
+    await env.DB.prepare(
+      `INSERT INTO owner_key_items (
+        owner_id, key_id, slot, label, position, kind, ciphertext, iv, mask, status, last_used, last_error, expires_at, updated_at, tested_at
+      )
+      SELECT
+        owner_id, 'legacy-' || slot, slot, '', 0, kind, ciphertext, iv, mask, status, last_used, last_error, expires_at, updated_at, tested_at
+      FROM owner_keys
+      WHERE NOT EXISTS (
+        SELECT 1 FROM owner_key_items AS items
+        WHERE items.owner_id = owner_keys.owner_id AND items.slot = owner_keys.slot
+      )`
+    ).run();
   } catch (err) {
-    return;
+    if (/no such table/i.test(String(err && err.message || err))) return;
+    throw err;
   }
-  if (!old) return;
-  await env.DB.prepare(
-    `INSERT INTO owner_key_items (
-      owner_id, key_id, slot, label, position, kind, ciphertext, iv, mask, status, last_used, last_error, expires_at, updated_at, tested_at
-    )
-    SELECT
-      owner_id, 'legacy-' || slot, slot, '', 0, kind, ciphertext, iv, mask, status, last_used, last_error, expires_at, updated_at, tested_at
-    FROM owner_keys
-    WHERE NOT EXISTS (
-      SELECT 1 FROM owner_key_items AS items
-      WHERE items.owner_id = owner_keys.owner_id AND items.slot = owner_keys.slot
-    )`
-  ).run();
 }
 
 export async function handleOwnerKeys(request, env, path, deps) {

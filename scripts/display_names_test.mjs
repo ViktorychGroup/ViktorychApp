@@ -2,7 +2,8 @@
    sits next to Usernames, the subpage lists every name with who sees it,
    edits an audience with show-to and hide-from rules, adds a name, makes
    one the main name, previews as an audience and as one person, and goes
-   back to the same form. Placeholder accounts only. SHOTS=<dir> also saves
+   back to the same form, all in X's native settings look (rows, sheets,
+   chips, autosave with undo). Placeholder accounts only. SHOTS=<dir> also saves
    screenshots. */
 import http from "node:http";
 import fs from "node:fs";
@@ -83,7 +84,9 @@ function mock(page, log) {
       state = Object.assign({}, state, { names: state.names.concat([{ id: "dn03", name: body.name, primary: false, audience: aud }]) });
       return reply(route, 201, state);
     }
+    if (url.pathname === "/v1/audience-lists/people") return reply(route, 200, { people: [{ handle: "birchway", name: "Birch Way" }, { handle: "oakridge", name: "Oak Ridge" }] });
     if (url.pathname === "/v1/display-names" && method === "PATCH") {
+      await page.evaluate(() => { window.__dnPatches = (window.__dnPatches || 0) + 1; }).catch(() => {});
       state = Object.assign({}, state, { names: state.names.map((n) => n.id === body.id ? Object.assign({}, n, { audience: Object.assign(OFF(), body.audience), name: body.name || n.name }) : n) });
       return reply(route, 200, state);
     }
@@ -121,12 +124,12 @@ async function shot(page, name) {
 
 async function check(browser, port, size, lang) {
   const label = lang + "@" + size.name;
+  const S = ".xs-sheet-back:not(.xs-leaving)";
   const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile, serviceWorkers: "block" });
   const page = await context.newPage();
   const log = [];
   const errors = [];
   page.on("pageerror", (err) => errors.push(String(err)));
-  page.on("dialog", (d) => d.accept());
   await mock(page, log);
   await page.addInitScript(session(lang));
   await page.goto("http://127.0.0.1:" + port + "/index.html#/@cedarhill", { waitUntil: "domcontentloaded" });
@@ -139,66 +142,110 @@ async function check(browser, port, size, lang) {
   const want = { en: ["Display names", "Usernames"], es: ["Nombres", "Nombres de usuario"] }[lang];
   if (rows[0] !== "displaynames:" + want[0]) fail(label + ": rows " + rows);
   if ((rows[1] || "").indexOf("usernames:") !== 0) fail(label + ": usernames row moved " + rows);
-  await page.fill("#acct-displayName", "Cedar Hill");
   await shot(page, lang + "-" + size.name + "-1-edit-profile");
 
+  /* The list: one row per name with its audience in plain words, no raw controls. */
   await page.click('.ep [data-acct="edit-sub"][data-sub="displaynames"]');
-  await page.waitForSelector(".ep .dn-settings .dn-card", { timeout: 8000 }).catch(() => fail(label + ": display names subpage did not load"));
-  const title = await page.textContent(".ep .acct-edit-head h1");
-  if (title !== want[0]) fail(label + ": title " + title);
+  await page.waitForSelector('.ep .dn-in-edit [data-dn="open-name"]', { timeout: 8000 }).catch(() => fail(label + ": display names list did not load"));
+  await page.waitForFunction(() => (document.querySelector(".ep .xs-head-title") || {}).textContent, null, { timeout: 3000 }).catch(() => fail(label + ": no X header"));
+  if ((await page.textContent(".ep .xs-head-title")) !== want[0]) fail(label + ": title");
   const shown = await page.$$eval(".ep .dn-shown", (els) => els.map((el) => el.textContent));
   if (shown.join() !== "Cedar Hill,Cedar Close,Cedar Crew") fail(label + ": names " + shown);
-  const who = await page.$$eval(".ep .dn-card .un-who", (els) => els.map((el) => el.textContent));
+  const who = await page.$$eval('.ep [data-dn="open-name"] .xs-sub', (els) => els.map((el) => el.textContent));
+  const plain = { en: ["Everyone", "Friends only · hidden from 1 person", "Crew list"], es: null }[lang];
+  if (plain && who.join("|") !== plain.join("|")) fail(label + ": plain words " + who);
   if (who[2].indexOf("Crew") < 0) fail(label + ": list audience " + who);
-  if (who[1].indexOf(lang === "es" ? "excepciones" : "exceptions") < 0) fail(label + ": hide-from summary " + who);
+  const raw = await page.$$eval(".ep .dn-in-edit select, .ep .dn-in-edit input:not(.xs-checkbox):not(.xs-search-input):not(.xs-input), .ep .dn-in-edit button:not([class*='xs-'])", (els) => els.length);
+  if (raw) fail(label + ": " + raw + " raw controls on the list");
   const over = await page.evaluate(() => Array.from(document.querySelectorAll(".ep *")).filter((el) => { const b = el.getBoundingClientRect(); return b.width && b.right > window.innerWidth + 1; }).length);
   if (over) fail(label + ": " + over + " elements overflow");
   await shot(page, lang + "-" + size.name + "-2-display-names");
 
-  /* Open "Cedar Close": show to followers too, hide from one more person. */
-  await page.click('.ep [data-dn="toggle"][data-id="dn01"]');
-  await page.waitForSelector('.ep .dn-edit[data-dn-id="dn01"]');
-  const hide = await page.inputValue('.ep .dn-edit [data-dn-side="exc"]');
-  if (hide !== "@oakridge") fail(label + ": hide-from " + hide);
-  await page.check('.ep .dn-edit [data-dn-inc="followers"]');
-  await page.fill('.ep .dn-edit [data-dn-side="exc"]', "@oakridge, @elmstreet");
+  /* Detail screen: live sentence, preset sheet with undo, chips, hide from. */
+  await page.click('.ep [data-dn="open-name"][data-id="dn01"]');
+  await page.waitForSelector('.ep .dn-in-edit[data-dn-view="name"]', { timeout: 3000 }).catch(() => fail(label + ": detail did not open"));
+  if ((await page.textContent(".ep .xs-head-title")) !== "Cedar Close") fail(label + ": detail title");
+  const sentence0 = await page.textContent(".ep .xs-summary");
+  if (sentence0.indexOf("Cedar Close") < 0) fail(label + ": summary " + sentence0);
+  await shot(page, lang + "-" + size.name + "-3a-detail");
+  await page.click('.ep [data-dn="aud-sheet"]');
+  await page.click(S + ' [data-xs-opt="followers"]');
+  await page.waitForSelector(".xs-toast [data-xs-undo]", { timeout: 3000 }).catch(() => fail(label + ": no undo toast"));
+  await page.waitForFunction(() => document.querySelector('.ep [data-dn-aud="inc:followers"]').checked && !document.querySelector('.ep [data-dn-aud="inc:friends"]').checked, null, { timeout: 3000 }).catch(() => fail(label + ": preset not applied"));
+  await page.click(".xs-toast [data-xs-undo]");
+  await page.waitForFunction(() => document.querySelector('.ep [data-dn-aud="inc:friends"]').checked && !document.querySelector('.ep [data-dn-aud="inc:followers"]').checked, null, { timeout: 3000 }).catch(() => fail(label + ": undo did not restore"));
+  await page.locator('.ep .xs-checkrow:has([data-dn-aud="inc:followers"])').click();
+  await page.fill('.ep [data-xs-chip-input="inc"]', "bir");
+  await page.waitForSelector('.ep [data-xs-suggest="inc"]:not([hidden]) [data-xs-pick="inc"][data-value="birchway"]', { timeout: 3000 }).catch(() => fail(label + ": no people search"));
+  /* The Followers autosave repaints the screen; the search and its suggestions stay. */
+  await page.waitForFunction(() => window.__dnPatches >= 1, null, { timeout: 4000 }).catch(() => fail(label + ": no autosave"));
+  await page.waitForTimeout(150);
+  await page.waitForSelector('.ep [data-xs-suggest="inc"]:not([hidden]) [data-xs-pick="inc"][data-value="birchway"]', { timeout: 3000 }).catch(() => fail(label + ": suggestions lost on autosave"));
+  await page.click('.ep [data-xs-pick="inc"][data-value="birchway"]');
+  await page.waitForSelector('.ep [data-xs-chips="inc"] .xs-chip', { timeout: 3000 }).catch(() => fail(label + ": no chip"));
+  await page.click('.ep [data-dn="toggle-hide"]');
+  await page.fill('.ep [data-xs-chip-input="exc"]', "@elmstreet");
+  await page.press('.ep [data-xs-chip-input="exc"]', "Enter");
+  await page.waitForFunction(() => document.querySelectorAll('.ep [data-xs-chips="exc"] .xs-chip').length === 2, null, { timeout: 3000 }).catch(() => fail(label + ": hide-from chip"));
+  await page.waitForFunction(() => window.__dnPatches >= 1, null, { timeout: 4000 }).catch(() => fail(label + ": no autosave"));
+  await page.waitForTimeout(700);
+  const patches = log.filter((line) => line.indexOf("PATCH /v1/display-names ") === 0);
+  const sent = JSON.parse(patches[patches.length - 1].slice(patches[patches.length - 1].indexOf("{")));
+  if (sent.id !== "dn01" || !sent.audience.include.friends || !sent.audience.include.followers || sent.audience.include.public || sent.audience.include.people.join() !== "birchway" || sent.audience.exclude.people.join() !== "oakridge,elmstreet" || sent.name !== "Cedar Close") fail(label + ": sent " + JSON.stringify(sent));
+  const sentence1 = await page.textContent(".ep .xs-summary");
+  if (lang === "en" && sentence1 !== "Followers, Friends, Birch Way see “Cedar Close”. Never shown to Oak Ridge, @elmstreet.") fail(label + ": live sentence " + sentence1);
   await shot(page, lang + "-" + size.name + "-3-audience");
-  await page.click('.ep [data-dn="save"][data-id="dn01"]');
-  await page.waitForFunction(() => document.querySelectorAll(".ep .dn-card .un-who")[1].textContent.length > 0);
-  const patch = log.find((line) => line.indexOf("PATCH /v1/display-names ") === 0);
-  if (!patch) fail(label + ": no PATCH");
-  const sent = JSON.parse(patch.slice(patch.indexOf("{")));
-  if (sent.id !== "dn01" || !sent.audience.include.friends || !sent.audience.include.followers || sent.audience.include.public || sent.audience.exclude.people.join() !== "oakridge,elmstreet" || sent.name !== "Cedar Close") fail(label + ": sent " + patch);
 
-  /* Add a name. */
-  await page.fill(".ep [data-dn-new]", "Cedar Grove");
-  await page.click('.ep [data-dn="add"]');
-  await page.waitForFunction(() => Array.from(document.querySelectorAll(".ep .dn-shown")).some((el) => el.textContent === "Cedar Grove"), null, { timeout: 4000 }).catch(() => fail(label + ": add did not show"));
-  const post = log.find((line) => line.indexOf("POST /v1/display-names ") === 0);
-  if (!post || post.indexOf('"friends":true') < 0) fail(label + ": add sent " + post);
-
-  /* Preview as an audience and as one person. */
-  await page.selectOption(".ep [data-dn-preview-tier]", "friends");
-  await page.click('.ep [data-dn="preview-tier"]');
-  await page.waitForSelector(".ep .un-preview-out");
-  if ((await page.textContent(".ep .un-preview-out")).indexOf("Cedar Close") < 0) fail(label + ": tier preview");
-  await page.fill(".ep [data-dn-preview-person]", "@oakridge");
-  await page.click('.ep [data-dn="preview-person"]');
-  await page.waitForFunction(() => (document.querySelector(".ep .un-preview-out") || {}).textContent.indexOf("Cedar Hill") >= 0, null, { timeout: 4000 }).catch(() => fail(label + ": person preview"));
-  if (log.length && !(await page.$(".ep .un-preview-out"))) fail(label + ": no preview");
+  /* Inline Preview as one person. */
+  await page.fill('.ep [data-xs-chip-input="pv"]', "@oakridge");
+  await page.press('.ep [data-xs-chip-input="pv"]', "Enter");
+  await page.waitForSelector(".ep .un-preview-out", { timeout: 4000 }).catch(() => fail(label + ": no inline preview"));
+  if ((await page.textContent(".ep .un-preview-out")).indexOf("Cedar Hill") < 0) fail(label + ": person preview");
   await page.evaluate(() => { const el = document.querySelector(".ep .un-preview-out"); if (el) el.scrollIntoView({ block: "center" }); });
   await shot(page, lang + "-" + size.name + "-4-preview-person");
 
-  /* Make "Cedar Crew" the main name: the form's Name follows. */
-  await page.click('.ep [data-dn="toggle"][data-id="dn02"]');
-  await page.click('.ep [data-dn="primary"][data-id="dn02"]');
+  /* Copy the audience from another name, then undo. */
+  await page.click('.ep [data-dn="copy-from"]');
+  await page.click(S + ' [data-xs-opt="dn02"]');
+  await page.waitForFunction(() => document.querySelector('.ep [data-dn-aud="inc:list:l1"]') && document.querySelector('.ep [data-dn-aud="inc:list:l1"]').checked, null, { timeout: 3000 }).catch(() => fail(label + ": copy did not apply"));
+  await page.click(".xs-toast [data-xs-undo]");
+  await page.waitForFunction(() => document.querySelector('.ep [data-dn-aud="inc:friends"]').checked, null, { timeout: 3000 }).catch(() => fail(label + ": copy undo"));
+
+  /* Back to the list, add a name in a sheet, preview by audience. */
+  await page.click('.ep [data-acct="edit-back"]');
+  await page.waitForSelector('.ep .dn-in-edit[data-dn-view="main"]', { timeout: 3000 }).catch(() => fail(label + ": back did not return to the list"));
+  await page.click('.ep [data-dn="add-sheet"]');
+  await page.fill(S + " [data-dn-new]", "Cedar Grove");
+  await shot(page, lang + "-" + size.name + "-5-add-sheet");
+  await page.click(S + " [data-xs-add]");
+  await page.waitForSelector('.ep .dn-in-edit[data-dn-view="name"]', { timeout: 4000 }).catch(() => fail(label + ": add did not open the new name"));
+  if ((await page.textContent(".ep .xs-head-title")) !== "Cedar Grove") fail(label + ": new name title");
+  const post = log.find((line) => line.indexOf("POST /v1/display-names ") === 0);
+  if (!post || post.indexOf('"friends":true') < 0) fail(label + ": add sent " + post);
+  await page.click('.ep [data-acct="edit-back"]');
+  await page.click('.ep [data-dn="preview-sheet"]');
+  await page.click(S + ' [data-xs-opt="friends"]');
+  await page.waitForSelector(S + " .un-preview-out", { timeout: 4000 }).catch(() => fail(label + ": no audience preview"));
+  if ((await page.textContent(S + " .un-preview-out")).indexOf("Cedar Close") < 0) fail(label + ": tier preview");
+  await shot(page, lang + "-" + size.name + "-6-preview-sheet");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.querySelector(".xs-sheet-back:not(.xs-leaving)") && document.querySelector(".ep"), null, { timeout: 3000 }).catch(() => fail(label + ": Escape did not close only the sheet"));
+
+  /* Remove with undo, then make "Cedar Crew" the main name from the ⋯ menu. */
+  await page.click('.ep [data-dn="name-menu"][data-id="dn03"]');
+  await page.locator(S + " .xs-menuitem.is-danger").click();
+  await page.waitForSelector(".xs-toast [data-xs-undo]", { timeout: 3000 }).catch(() => fail(label + ": no remove undo"));
+  if (await page.$('.ep [data-dn="open-name"][data-id="dn03"]')) fail(label + ": removed row still shown");
+  await page.click(".xs-toast [data-xs-undo]");
+  await page.waitForSelector('.ep [data-dn="open-name"][data-id="dn03"]', { timeout: 3000 }).catch(() => fail(label + ": undo did not bring it back"));
+  if (log.some((line) => line.indexOf("DELETE /v1/display-names") === 0)) fail(label + ": deleted despite undo");
+  await page.click('.ep [data-dn="name-menu"][data-id="dn02"]');
+  await page.locator(S + ' .xs-menuitem:has(.xs-title)').nth(1).click();
   await page.waitForFunction(() => (document.querySelector(".ep .dn-shown") || {}).textContent === "Cedar Crew", null, { timeout: 4000 }).catch(() => fail(label + ": main did not change"));
   await page.click('.ep [data-acct="edit-back"]');
   await page.waitForSelector(".ep #acct-displayName", { timeout: 3000 }).catch(() => fail(label + ": back did not return to the form"));
   const nameNow = await page.inputValue("#acct-displayName");
   if (nameNow !== "Cedar Crew") fail(label + ": Name field " + nameNow);
-  const sub = await page.textContent('.ep [data-sub="displaynames"] .ep-row-copy span');
-  if (sub.indexOf("Cedar Crew") < 0) fail(label + ": row summary " + sub);
   if (errors.length) fail(label + ": page errors " + errors.slice(0, 2));
   await context.close();
   console.log("display names ok " + label);

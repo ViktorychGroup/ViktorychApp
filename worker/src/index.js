@@ -12,7 +12,8 @@ import { handleDrive, DRIVE_SCHEMA } from "./drive.js";
 import { handleCommunityRoute, COMMUNITY_SCHEMA } from "./communities.js";
 import { handleFederationRoute, FEDERATION_SCHEMA, isPublicFederationRoute } from "./federation.js";
 import { usageReport } from "./usage.js";
-import { quotaPct, refreshQuota } from "./quota.js";
+import { quotaPct, refreshQuota, d1ReadPct } from "./quota.js";
+import { withD1Saver } from "./d1-saver.js";
 import { guardClass, guardKey, takeToken, noteGuardTier, tokenGuardKey, publishPulse, pulseResponse } from "./guard.js";
 import { handleNostr } from "./nostr.js";
 import { handleIdentitiesRoute, IDENTITY_SCHEMA, listAccountIdentities, visibleIdentities, mergedMap, ownView } from "./identities.js";
@@ -70,6 +71,7 @@ import { GUARD_SCHEMA, issueChallenge, verifySignupGuard } from "./signup-guard.
 import { RECOVERY_SCHEMA, issueRecoveryCodes, handleRecoveryRestore, handleRecoveryRegenerate } from "./recovery.js";
 import { SUGGEST_SCHEMA, handleSuggestRoutes } from "./suggest.js";
 import { friendPrefs, friendsOffAmong, friendOnSql, friendFilterReady, handleFriendPrefs } from "./friends-pref.js";
+import { dropFriendshipRules, filterFriends, flushBypass, handleFriendPrivacy, hiddenWithoutBypass, resetFriendPrivacyGate, viewerContext, visibleFriendCount, visibleMutualCount } from "./friend-privacy.js";
 import { POST_SCHEMA, ensurePostColumns, handlePosts, publishDuePosts } from "./posts.js";
 import { syncVk, vkDue } from "./vk.js";
 import { handlePackagesRoute, pollPackages, packageNotifier } from "./packages.js";
@@ -244,7 +246,7 @@ function withCors(request, env, response) {
   headers.set("access-control-allow-origin", origin);
   headers.set("vary", "Origin");
   headers.set("access-control-allow-headers", "Content-Type, Authorization, Range, X-Feed-Refresh, If-None-Match, X-Viktorych-Intent, X-Block, X-Locked-Grant");
-  headers.set("access-control-expose-headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Retry-After, X-Limit-Scope, X-Quota-Pct, X-Block-Removed");
+  headers.set("access-control-expose-headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type, ETag, Retry-After, X-Limit-Scope, X-Quota-Pct, X-Block-Removed, X-D1-Saver");
   const quota = quotaPct(Date.now());
   if (quota >= 0) headers.set("x-quota-pct", String(quota));
   headers.set("access-control-allow-methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS");
@@ -344,6 +346,8 @@ function ensureSchema(env) {
       env.DB.prepare("CREATE INDEX IF NOT EXISTS account_reposts_recent ON account_reposts(public_id, created_at DESC)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS account_follows (follower_id TEXT NOT NULL, target_id TEXT NOT NULL, snapshot TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, PRIMARY KEY (follower_id, target_id))"),
       env.DB.prepare("CREATE INDEX IF NOT EXISTS account_follows_target ON account_follows(target_id, created_at DESC)"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS owner_follow_drops (follower_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL)"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS owner_follow_backfills (ran_at INTEGER NOT NULL, added INTEGER NOT NULL)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS account_friend_requests (sender_id TEXT NOT NULL, receiver_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (sender_id, receiver_id))"),
       env.DB.prepare("CREATE INDEX IF NOT EXISTS account_friend_requests_recv ON account_friend_requests(receiver_id, created_at DESC)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS account_friends (user_id TEXT NOT NULL, friend_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (user_id, friend_id))"),
@@ -784,6 +788,13 @@ async function createAccount(env, request, fields) {
     if (/UNIQUE/i.test(message)) return { error: fields.owner ? "handle_taken" : "handle_taken" };
     throw err;
   }
+  // Every sign-up path (number, temporary, profile-less, passkey) makes
+  // its account here, so the owner follow lives here too. It is a direct
+  // write: the owner's follow requests, locks and audiences never hold it.
+  if (!fields.owner) {
+    try { await followOwnerAccounts(env, publicId); }
+    catch (err) { /* the account still exists without starter follows */ }
+  }
   const row = await env.DB.prepare("SELECT " + ACCOUNT_COLS + " FROM accounts WHERE public_id = ?").bind(publicId).first();
   const token = await mintSession(env, publicId);
   return { token, accountNumber: number, account: await presentAccount(env, request, row, true) };
@@ -896,13 +907,7 @@ async function handleSignup(request, env) {
       return json(503, { error: "unavailable" });
     }
     created.account.temporary = { expiresAt: tempUntil };
-    try { await followOwnerAccounts(env, created.account.publicId); }
-    catch (err) { /* the account still exists without starter follows */ }
     return json(201, { token: created.token, accountNumber: created.accountNumber, recoveryCodes: [], account: created.account, temporary: { expiresAt: tempUntil } });
-  }
-  if (!checked.owner) {
-    try { await followOwnerAccounts(env, created.account.publicId); }
-    catch (err) { /* the account still exists without starter follows */ }
   }
   const recoveryCodes = await issueRecoveryCodes(env, created.account.publicId, recoveryDeps());
   return json(201, {
@@ -954,15 +959,33 @@ async function followOwnerAccounts(env, publicId) {
   const owner = await env.DB.prepare("SELECT public_id FROM accounts WHERE owner = 1 AND profile_less = 0").first();
   if (!owner || !owner.public_id || owner.public_id === publicId) return [];
   const ids = ["app:" + owner.public_id];
-  const identities = await listAccountIdentities(env, owner.public_id);
+  let identities = [];
+  try { identities = await listAccountIdentities(env, owner.public_id) || []; }
+  catch (err) { identities = []; }
   identities.forEach((row) => {
     if (!row || row.verified === false || row.hidden || (row.audience && row.audience !== "public")) return;
     const id = cleanFollowId(String(row.platform || "") + ":" + String(row.handle || "").replace(/^@/, ""));
     if (id && ids.indexOf(id) < 0) ids.push(id);
   });
   const now = Date.now();
-  await env.DB.batch(ids.map((id) => env.DB.prepare("INSERT INTO account_follows (follower_id, target_id, snapshot, created_at) VALUES (?, ?, '', ?) ON CONFLICT(follower_id, target_id) DO NOTHING").bind(publicId, id, now)));
+  // The owner's app account first and on its own, so a bad linked identity
+  // can never cost the new account its owner follow.
+  await env.DB.prepare("INSERT INTO account_follows (follower_id, target_id, snapshot, created_at) VALUES (?, ?, '', ?) ON CONFLICT(follower_id, target_id) DO NOTHING").bind(publicId, ids[0], now).run();
+  const rest = ids.slice(1);
+  if (rest.length) {
+    try { await env.DB.batch(rest.map((id) => env.DB.prepare("INSERT INTO account_follows (follower_id, target_id, snapshot, created_at) VALUES (?, ?, '', ?) ON CONFLICT(follower_id, target_id) DO NOTHING").bind(publicId, id, now))); }
+    catch (err) { /* the owner follow is already saved */ }
+  }
   return ids;
+}
+
+/* Someone dropped the owner follow on purpose: remember it so a later
+   owner-follow backfill never adds it back. */
+async function noteOwnerFollowDrop(env, followerId, targetId) {
+  if (String(targetId || "").indexOf("app:") !== 0) return;
+  const owner = await env.DB.prepare("SELECT public_id FROM accounts WHERE owner = 1").first();
+  if (!owner || "app:" + owner.public_id !== targetId) return;
+  await env.DB.prepare("INSERT INTO owner_follow_drops (follower_id, created_at) VALUES (?, ?) ON CONFLICT(follower_id) DO NOTHING").bind(followerId, Date.now()).run();
 }
 
 /* Member cards for native servers: name, handle and the avatar this viewer
@@ -1148,9 +1171,14 @@ async function liveProfileCounts(env, row, account, viewer) {
   } else account.followingCount = await followCount(env, FOLLOWING_COUNT_SQL, row.public_id);
   account.followersCount = await followCount(env, "SELECT COUNT(*) AS n FROM account_follows WHERE target_id = ?", "app:" + row.public_id);
   account.viewerFollows = !!(viewer && viewer.public_id !== row.public_id && await followExists(env, viewer.public_id, "app:" + row.public_id) && !(await isLockedFollow(env, viewer.public_id, "app:" + row.public_id)));
-  account.friendsCount = await friendCount(env, row.public_id);
+  // Friend counts are per viewer: each friendship counts only when both
+  // friends' privacy rules let this viewer see it (friend-privacy.js).
+  const fctx = viewerContext(env, viewer);
+  account.friendsCount = await visibleFriendCount(fctx, row.public_id);
   account.viewerFriendStatus = viewer ? await getFriendStatus(env, viewer.public_id, row.public_id) : "none";
-  account.mutualFriendsCount = (viewer && viewer.public_id !== row.public_id) ? await mutualFriendCount(env, viewer.public_id, row.public_id) : 0;
+  account.mutualFriendsCount = (viewer && viewer.public_id !== row.public_id) ? await visibleMutualCount(fctx, row.public_id) : 0;
+  if (fctx.bypassed.size) account.ownerView = true;
+  await flushBypass(fctx, "friendship_bypass");
   const prefs = await friendPrefs(env, row.public_id);
   if (!prefs.enabled) {
     account.friendsOff = true;
@@ -2679,7 +2707,7 @@ async function handleOwnerMedia(request, env, url) {
   });
 }
 
-const PUBLIC_MEDIA_HOST = /(?:^|\.)(?:pbs\.twimg\.com|video\.twimg\.com|twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|i\.ytimg\.com|ytimg\.com|yt3\.ggpht\.com|redd\.it|tiktokcdn(?:-us|-eu)?\.com|bytefcdn(?:-oversea)?\.com|ibytedtos\.com)$/i;
+const PUBLIC_MEDIA_HOST = /(?:^|\.)(?:pbs\.twimg\.com|video\.twimg\.com|twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|i\.ytimg\.com|ytimg\.com|yt3\.ggpht\.com|googleusercontent\.com|redd\.it|tiktokcdn(?:-us|-eu)?\.com|bytefcdn(?:-oversea)?\.com|ibytedtos\.com)$/i;
 
 function publicMediaHostOk(hostname) {
   return PUBLIC_MEDIA_HOST.test(String(hostname || ""));
@@ -4200,6 +4228,11 @@ async function handleTikTokAccounts(request, env) {
       }
     }
     await writeTikTokAccounts(env, doc);
+    if (env.DB && gate.row && gate.row.public_id && handle) {
+      const followId = "tiktok:" + handle;
+      const snap = cleanFollowSnapshot(followId, { handle, name: row.name || handle, avatar: row.avatar || "", platform: "tiktok" });
+      await env.DB.prepare("INSERT INTO account_follows (follower_id, target_id, snapshot, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(follower_id, target_id) DO UPDATE SET snapshot = CASE WHEN excluded.snapshot <> '' THEN excluded.snapshot ELSE account_follows.snapshot END").bind(gate.row.public_id, followId, snap, Date.now()).run();
+    }
     let dispatched = false;
     try { dispatched = await dispatchAddedAccounts(env); }
     catch (err) { dispatched = false; }
@@ -4888,6 +4921,11 @@ async function handleAddedAccounts(request, env, url) {
       }
     }
     await writeAddedAccounts(env, doc);
+    if (env.DB && gate.row && gate.row.public_id && handle) {
+      const followId = "x:" + handle;
+      const snap = cleanFollowSnapshot(followId, { handle, name: row.name || handle, avatar: row.avatar || "", bio: row.bio || "", platform: "x" });
+      await env.DB.prepare("INSERT INTO account_follows (follower_id, target_id, snapshot, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(follower_id, target_id) DO UPDATE SET snapshot = CASE WHEN excluded.snapshot <> '' THEN excluded.snapshot ELSE account_follows.snapshot END").bind(gate.row.public_id, followId, snap, Date.now()).run();
+    }
     let dispatched = false;
     try { dispatched = await dispatchWorkflows(env, ["sync.yml", "media-extract.yml"]); }
     catch (err) { dispatched = false; }
@@ -5033,15 +5071,23 @@ function followFeedCard(targetId, snapshot) {
   try { snap = snapshot ? JSON.parse(snapshot) : {}; }
   catch (err) { snap = {}; }
   if (!snap || typeof snap !== "object") snap = {};
+  const raw = String(targetId || "");
+  const cut = raw.indexOf(":");
+  const derivedPlatform = cut > 0 ? raw.slice(0, cut).toLowerCase() : "";
+  const derivedHandle = cut > 0 ? raw.slice(cut + 1).replace(/^@/, "") : "";
+  const handle = typeof snap.handle === "string" && snap.handle ? snap.handle : derivedHandle;
+  const displayName = typeof snap.displayName === "string" ? snap.displayName : "";
+  const name = typeof snap.name === "string" && snap.name ? snap.name : (displayName || handle);
+  const platform = typeof snap.platform === "string" && snap.platform ? snap.platform : (derivedPlatform && derivedPlatform !== "app" ? derivedPlatform : "");
   return {
     id: targetId,
     kind: "feed",
-    handle: typeof snap.handle === "string" ? snap.handle : "",
-    name: typeof snap.name === "string" && snap.name ? snap.name : (typeof snap.displayName === "string" ? snap.displayName : ""),
-    displayName: typeof snap.displayName === "string" ? snap.displayName : "",
+    handle,
+    name,
+    displayName,
     avatar: typeof snap.avatar === "string" ? snap.avatar : "",
     bio: typeof snap.bio === "string" ? snap.bio : "",
-    platform: typeof snap.platform === "string" ? snap.platform : ""
+    platform
   };
 }
 
@@ -5150,6 +5196,8 @@ async function handleFollowDelete(request, env) {
     await deleteOutgoingRequest(env, gate.row.public_id, account.public_id);
   }
   await env.DB.prepare("DELETE FROM account_follows WHERE follower_id = ? AND target_id = ?").bind(gate.row.public_id, id).run();
+  try { await noteOwnerFollowDrop(env, gate.row.public_id, id); }
+  catch (err) { /* the unfollow is saved */ }
   try { await env.DB.prepare("DELETE FROM locked_follows WHERE owner_id = ? AND target_id = ?").bind(gate.row.public_id, id).run(); }
   catch (err) { /* no lock table yet */ }
   if (id.indexOf("app:") === 0 && /^\d{12}$/.test(id.slice(4))) {
@@ -5157,6 +5205,19 @@ async function handleFollowDelete(request, env) {
     catch (err) { /* the unfollow is saved */ }
   }
   return followWriteResult(env, gate.row.public_id, id, shown, false);
+}
+
+/* New accounts follow only the owner (#280, merged 2026-10-28 18:04:30
+   UTC). Accounts made from then on never bulk-import follows. */
+const FOLLOW_IMPORT_CUTOFF = Date.UTC(2026, 9, 28, 18, 4, 30);
+
+async function importAllowedFor(env, row) {
+  let created = Number(row && row.created_at);
+  if (!created) {
+    const fresh = await env.DB.prepare("SELECT created_at FROM accounts WHERE public_id = ?").bind(row.public_id).first();
+    created = Number(fresh && fresh.created_at) || Date.now();
+  }
+  return created < FOLLOW_IMPORT_CUTOFF;
 }
 
 async function handleFollowImport(request, env) {
@@ -5168,6 +5229,15 @@ async function handleFollowImport(request, env) {
   if (body.error) return json(400, { error: body.error });
   const incoming = Array.isArray(body.ids) ? body.ids : null;
   if (!incoming) return json(400, { error: "bad_follow" });
+  // Accounts made since new accounts started out following only the owner
+  // never take a bulk import: a device's guest follows (default feeds and
+  // anything another account left there) stay on the device, and every
+  // other follow is a tap. The answer still looks done, so an old client
+  // stops retrying.
+  if (!(await importAllowedFor(env, gate.row))) {
+    const followingCount = await followCount(env, "SELECT COUNT(*) AS n FROM account_follows WHERE follower_id = ?", gate.row.public_id);
+    return json(200, { ok: true, imported: 0, followingCount });
+  }
   const ids = [];
   for (let i = 0; i < incoming.length && ids.length < 5000; i++) {
     let id = cleanFollowId(incoming[i]);
@@ -5366,12 +5436,13 @@ async function handleFriendsGet(request, env, url) {
     const incomingRows = await env.DB.prepare("SELECT sender_id, created_at FROM account_friend_requests WHERE receiver_id = ? ORDER BY created_at DESC LIMIT 100").bind(viewer.public_id).all();
     const outgoingRows = await env.DB.prepare("SELECT receiver_id, created_at FROM account_friend_requests WHERE sender_id = ? ORDER BY created_at DESC LIMIT 100").bind(viewer.public_id).all();
 
+    const rctx = viewerContext(env, viewer);
     const pausedIds = await friendsOffAmong(env, ((incomingRows && incomingRows.results) || []).map((r) => r.sender_id).concat(((outgoingRows && outgoingRows.results) || []).map((r) => r.receiver_id)));
     const incomingCards = await followCards(env, request, ((incomingRows && incomingRows.results) || []).map((r) => r.sender_id).filter((x) => !pausedIds.has(String(x))));
     for (let i = 0; i < incomingCards.length; i++) {
       const card = incomingCards[i];
       const sId = await cleanFriendTargetId(env, card.handle || card.id);
-      card.mutualFriendsCount = await mutualFriendCount(env, viewer.public_id, sId);
+      card.mutualFriendsCount = await visibleMutualCount(rctx, sId);
       card.friendStatus = "received";
     }
 
@@ -5379,10 +5450,11 @@ async function handleFriendsGet(request, env, url) {
     for (let i = 0; i < outgoingCards.length; i++) {
       const card = outgoingCards[i];
       const rId = await cleanFriendTargetId(env, card.handle || card.id);
-      card.mutualFriendsCount = await mutualFriendCount(env, viewer.public_id, rId);
+      card.mutualFriendsCount = await visibleMutualCount(rctx, rId);
       card.friendStatus = "sent";
     }
 
+    await flushBypass(rctx, "friendship_bypass");
     return json(200, redactPublicIds({
       incoming: incomingCards,
       outgoing: outgoingCards,
@@ -5408,44 +5480,54 @@ async function handleFriendsGet(request, env, url) {
   }
   const viewerPrefs = isOwner ? prefs : await friendPrefs(env, viewer.public_id);
 
-  const friendsCount = await friendCount(env, targetId);
+  // Every number and every row below is what THIS viewer may see: a
+  // friendship shows only when both friends' rules allow it
+  // (friend-privacy.js). Nothing says how many were left out.
+  const fctx = viewerContext(env, viewer);
+  const bypassView = !isOwner && fctx.bypass;
+  const friendsCount = await visibleFriendCount(fctx, targetId);
   const status = await getFriendStatus(env, viewer.public_id, targetId);
-  const mutualCount = await mutualFriendCount(env, viewer.public_id, targetId);
+  const mutualCount = await visibleMutualCount(fctx, targetId);
   const canRequest = !isOwner && viewerPrefs.enabled && await canSendFriendRequest(env, viewer.public_id, targetId, prefs);
   if (!isOwner && (prefs.listAudience === "me" || (prefs.listAudience === "friends" && status !== "friends"))) isPrivate = true;
   else if (!isOwner && prefs.listAudience === "friends" && status === "friends") isPrivate = false;
+  const finish = async (body) => {
+    if (fctx.bypassed.size) body.ownerView = true;
+    await flushBypass(fctx, "friendship_bypass");
+    return json(200, redactPublicIds(body));
+  };
 
   if (tab === "friends") {
     const shown = targetAccount.handle ? "app:@" + targetAccount.handle : "";
-    if (!isOwner && targetAccount.protected_account === 1 && status !== "friends") {
+    if (!isOwner && !bypassView && targetAccount.protected_account === 1 && status !== "friends") {
       const state = await pairState(env, viewer.public_id, targetId);
       if (!state.following && !state.friends) {
-        return json(200, redactPublicIds({ id: shown, friendsCount, status, mutualCount, locked: true, friends: [] }));
+        return finish({ id: shown, friendsCount, status, mutualCount, locked: true, friends: [] });
       }
     }
-    const onlyMe = !isOwner && prefs.listAudience === "me";
-    if (onlyMe || (!isOwner && isPrivate && status !== "friends")) {
-      return json(200, redactPublicIds({
-        id: shown,
-        friendsCount,
-        status,
-        mutualCount,
-        canRequest,
-        isPrivate: true,
-        friends: []
-      }));
+    // Private follow lists (an account-wide choice) stay closed to non-friends.
+    if (!isOwner && !bypassView && targetAccount.private_follows === 1 && status !== "friends") {
+      return finish({ id: shown, friendsCount, status, mutualCount, canRequest, isPrivate: true, friends: [] });
     }
     const listOn = await friendFilterReady(env);
     const friendRows = await env.DB.prepare("SELECT f.friend_id, f.created_at FROM account_friends f WHERE f.user_id = ?" + (listOn ? friendOnSql("f.friend_id") : "") + notLockedFriend("f.user_id", "f.friend_id") + " ORDER BY f.created_at DESC LIMIT 300").bind(targetId).all();
-    const ids = ((friendRows && friendRows.results) || []).map((r) => r.friend_id);
+    const allIds = ((friendRows && friendRows.results) || []).map((r) => String(r.friend_id));
+    const ids = await filterFriends(fctx, targetId, allIds);
+    // The whole list reads "private" only when nothing is visible and the
+    // list-wide choice is what keeps it closed.
+    if (!ids.length && isPrivate) {
+      return finish({ id: shown, friendsCount, status, mutualCount, canRequest, isPrivate: true, friends: [] });
+    }
+    const ownerHidden = bypassView ? await hiddenWithoutBypass(viewerContext(env, viewer, { noBypass: true }), targetId, ids) : new Set();
     const cards = await followCards(env, request, ids);
     for (let i = 0; i < cards.length; i++) {
       const card = cards[i];
       const fId = await cleanFriendTargetId(env, card.handle || card.id);
-      card.mutualFriendsCount = await mutualFriendCount(env, viewer.public_id, fId);
+      card.mutualFriendsCount = await visibleMutualCount(fctx, fId);
       card.friendStatus = await getFriendStatus(env, viewer.public_id, fId);
+      if (bypassView && ownerHidden.has(String(fId))) card.ownerOnly = true;
     }
-    return json(200, redactPublicIds({
+    return finish({
       id: shown,
       friendsCount,
       status,
@@ -5453,16 +5535,16 @@ async function handleFriendsGet(request, env, url) {
       canRequest,
       isPrivate: false,
       friends: cards
-    }));
+    });
   }
 
-  return json(200, redactPublicIds({
+  return finish({
     id: targetAccount.handle ? "app:@" + targetAccount.handle : "",
     friendsCount,
     status,
     mutualCount,
     canRequest
-  }));
+  });
 }
 
 /* Whether `viewerId` may send `targetId` a friend request under the target's
@@ -5571,6 +5653,7 @@ async function friendAction(request, env, action) {
 
   if (action === "remove") {
     await env.DB.prepare("DELETE FROM account_friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)").bind(viewer.public_id, targetId, targetId, viewer.public_id).run();
+    await dropFriendshipRules(env, viewer.public_id, targetId);
     return friendDone(json(200, { ok: true, status: "none", friendsCount: await friendCount(env, viewer.public_id) }), viewer, targetId, "");
   }
 
@@ -5868,7 +5951,11 @@ async function route(request, env, ctx) {
   if (path === "/v1/friends/presence" && request.method === "GET") {
     return handleFriendPresence(request, env, { json, readJson, rateHit, limited, sessionAccount });
   }
+  if (path === "/v1/friends/privacy" || path === "/v1/friends/privacy/preview") {
+    return handleFriendPrivacy(request, env, path, { json, readJson, rateHit, limited, sessionAccount, signal: async (e, ids) => { const notes = await import("./notifications.js"); await notes.signalFriends(e, ids); } });
+  }
   if (path === "/v1/friends/settings") {
+    if (request.method !== "GET") resetFriendPrivacyGate();
     return handleFriendPrefs(request, env, { json, readJson, rateHit, limited, sessionAccount, signal: async (e, ids) => { const notes = await import("./notifications.js"); await notes.signalFriends(e, ids); } });
   }
   if (path === "/v1/friends" && request.method === "GET") return handleFriendsGet(request, env, url);
@@ -6102,6 +6189,16 @@ export async function runBackgroundJobs(env, at, only) {
   return { ran: names, failed };
 }
 
+/* Signed-out GET reads keep a cached copy for when D1 rows read run low. */
+function saverDeps(ctx) {
+  return {
+    cache: typeof caches !== "undefined" && caches.default ? caches.default : null,
+    pct: () => d1ReadPct(Date.now()),
+    now: Date.now(),
+    waitUntil: ctx && ctx.waitUntil ? (p) => ctx.waitUntil(p) : null
+  };
+}
+
 export default {
   async fetch(request, env, ctx) {
     let path = "";
@@ -6119,7 +6216,7 @@ export default {
         const take = takeToken(guardKey(request), kind, Date.now());
         if (!take.ok) return withCors(request, env, json(429, { error: "rate_limited", scope: "device" }, { "retry-after": String(take.retry), "x-limit-scope": "device" }));
       }
-      const response = scopeLimit(await withEtag(request, await withBlocks(request, await withDisplayNames(request, env, await route(request, env, ctx), displayNameDeps(env)))));
+      const response = scopeLimit(await withEtag(request, await withBlocks(request, await withDisplayNames(request, env, await withD1Saver(request, () => route(request, env, ctx), saverDeps(ctx)), displayNameDeps(env)))));
       return withCors(request, env, response);
     } catch (err) {
       logError(areaFor(path, request.method), err);

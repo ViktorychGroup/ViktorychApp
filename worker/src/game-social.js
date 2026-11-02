@@ -16,6 +16,7 @@
    muted people never see any of it, and a pair is shown only when both
    people allow the viewer. */
 
+import { friendshipLive, liveFriendIds } from "./friends-pref.js";
 import { emitNotification, readPrefs as readNotePrefs } from "./notifications.js";
 import { publishToAccount } from "./channel.js";
 import { readFlags } from "./feature-flags.js";
@@ -83,12 +84,12 @@ async function people(env, ids) {
 }
 async function areFriends(env, a, b) {
   const row = await env.DB.prepare("SELECT 1 AS ok FROM account_friends WHERE user_id = ? AND friend_id = ?").bind(a, b).first();
-  return !!row;
+  return !!row && await friendshipLive(env, a, b);
 }
 async function friendIds(env, id) {
   try {
     const got = await env.DB.prepare("SELECT friend_id FROM account_friends WHERE user_id = ? ORDER BY created_at DESC LIMIT 200").bind(id).all();
-    return rows(got).map((row) => String(row.friend_id)).filter((x) => ID.test(x));
+    return await liveFriendIds(env, id, rows(got).map((row) => String(row.friend_id)).filter((x) => ID.test(x)));
   } catch (err) { return []; }
 }
 /* Either side blocked or muted the other. */

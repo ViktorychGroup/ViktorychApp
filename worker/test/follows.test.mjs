@@ -204,6 +204,9 @@ test("follows persist for the signed-in account and stay private", async () => {
   assert.equal(after.body.account.followersCount, 0);
   assert.equal(after.body.account.viewerFollows, false);
 
+  // Only accounts older than the owner-only start (#280) bulk-import follows.
+  const legacyDb = await mf.getD1Database("DB");
+  await legacyDb.prepare("UPDATE accounts SET created_at = ? WHERE public_id = ?").bind(Date.UTC(2026, 9, 28, 18, 4, 30) - 86400000, bea.account.publicId).run();
   const imported = await call("/v1/follows/import", {
     method: "POST",
     ip: "203.0.113.227",
