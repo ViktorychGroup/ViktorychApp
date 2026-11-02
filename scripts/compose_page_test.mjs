@@ -177,7 +177,7 @@ async function main() {
     const child = spawn(process.execPath, [path.join(root, "scripts", name)], { stdio: "inherit", env: process.env });
     child.on("close", (code) => resolve(code));
   });
-  const riderNames = ["community_home_test.mjs", "communities_hub_test.mjs", "own_post_test.mjs", "post_page_test.mjs", "music_dock_test.mjs", "video_fallback_test.mjs", "device_guard_test.mjs", "usernames_settings_test.mjs", "display_names_test.mjs", "settings_assistant_test.mjs", "nostr_settings_test.mjs", "games_mobile_test.mjs", "live_translate_test.mjs", "friend_p2p_test.mjs", "communities_instant_test.mjs", "routes_instant_test.mjs", "profile_by_name_test.mjs"];
+  const riderNames = ["community_home_test.mjs", "communities_hub_test.mjs", "own_post_test.mjs", "post_page_test.mjs", "music_dock_test.mjs", "video_fallback_test.mjs", "device_guard_test.mjs", "usernames_settings_test.mjs", "display_names_test.mjs", "settings_assistant_test.mjs", "nostr_settings_test.mjs", "games_mobile_test.mjs", "live_translate_test.mjs", "friend_p2p_test.mjs", "communities_instant_test.mjs", "routes_instant_test.mjs", "profile_by_name_test.mjs", "communities_rows_test.mjs", "friend_privacy_test.mjs", "foryou_communities_test.mjs"];
   const riderCap = 5;
   const riders = (async () => {
     const results = new Array(riderNames.length);
@@ -192,16 +192,13 @@ async function main() {
     await Promise.all(Array.from({ length: Math.min(riderCap, riderNames.length) }, () => worker()));
     return results;
   })();
-  const cmRows = ride("communities_rows_test.mjs");
-  const friendPrivacy = ride("friend_privacy_test.mjs");
-  const fyCommunities = ride("foryou_communities_test.mjs");
   try {
     for (const vp of widths) {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await exercise(page, vp, origin);
     }
     console.log("composer page ok");
-    const [home, hub, own, single, dock, vfall, guard, names, dnames, setai, nostr, games, livetr, friendp2p, cinstant, rinstant] = await riders;
+    const [home, hub, own, single, dock, vfall, guard, names, dnames, setai, nostr, games, livetr, friendp2p, cinstant, rinstant, , cmRows, friendPrivacy, fycomm] = await riders;
     if (home !== 0) fail("community home check failed");
     if (hub !== 0) fail("communities hub check failed");
     if (own !== 0) fail("own post check failed");
@@ -218,10 +215,9 @@ async function main() {
     if (friendp2p !== 0) fail("friend p2p check failed");
     if (cinstant !== 0) fail("communities local-first check failed");
     if (rinstant !== 0) fail("routes local-first check failed");
-    const fycomm = await fyCommunities;
     if (fycomm !== 0) fail("for you communities check failed");
-    if ((await cmRows) !== 0) fail("communities rows check failed");
-    if ((await friendPrivacy) !== 0) fail("friend privacy check failed");
+    if (cmRows !== 0) fail("communities rows check failed");
+    if (friendPrivacy !== 0) fail("friend privacy check failed");
   } finally {
     await browser.close();
     server.close();
