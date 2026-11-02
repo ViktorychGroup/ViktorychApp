@@ -5777,5 +5777,8 @@ SI18n.addPack("hi", {
   "Viktorych / X Profile": "Viktorych / X प्रोफ़ाइल",
   "Default dialer, phone calls & offline contacts on Android.": "Android पर डिफ़ॉल्ट डायलर, फोन कॉल और ऑफ़लाइन संपर्क।",
   "Refresh native Android dialer, protocol handlers and shortcuts.": "मूल Android डायलर, प्रोटोकॉल हैंडलर और शॉर्टकट रीफ़्रेश करें।",
-  "To upgrade system integration, reinstall from browser menu or allow Android WebAPK background update.": "सिस्टम एकीकरण अपग्रेड करने के लिए, ब्राउज़र मेनू से फिर से इंस्टॉल करें या Android WebAPK पृष्ठभूमि अपडेट की प्रतीक्षा करें।"
+  "To upgrade system integration, reinstall from browser menu or allow Android WebAPK background update.": "सिस्टम एकीकरण अपग्रेड करने के लिए, ब्राउज़र मेनू से फिर से इंस्टॉल करें या Android WebAPK पृष्ठभूमि अपडेट की प्रतीक्षा करें।",
+  "Tabs": "टैब",
+  "Sync these tabs across devices": "इन टैब को डिवाइसों में सिंक करें",
+  "Off keeps this device's tabs on this device only.": "बंद रहने पर इस डिवाइस के टैब सिर्फ यहीं रहते हैं।"
 });
