@@ -509,6 +509,8 @@
       }
       function recover() {
         if (shown) return;
+        var appEl = document.getElementById("app");
+        if (window.__VIKTORYCH_CLICK || (appEl && !appEl.querySelector("[data-boot-card]") && (appEl.innerText || "").trim().length > 8)) return;
         if (tried()) { showScreen(); return; }
         markTried();
         dropWorkers().then(function () { location.reload(); });
@@ -516,9 +518,17 @@
       window.addEventListener("error", function (event) {
         var target = event && event.target;
         if (target && target !== window && target.nodeType === 1) return;
+        var msg = String((event && event.message) || "");
+        if (/ResizeObserver|Script error/i.test(msg)) return;
         recover();
       });
-      window.addEventListener("unhandledrejection", function () { recover(); });
+      window.addEventListener("unhandledrejection", function (event) {
+        var r = event && event.reason;
+        var name = String((r && r.name) || "");
+        var msg = String((r && r.message) || r || "");
+        if (name === "AbortError" || name === "NotAllowedError" || /ResizeObserver|abort|interrupted by a call to pause|The play\(\) request/i.test(msg)) return;
+        recover();
+      });
       window.addEventListener("load", function () {
         setTimeout(function () {
           if (shown) return;
