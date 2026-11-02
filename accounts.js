@@ -834,10 +834,15 @@
   var HEDGE_MS = 3000;
   var trouble = { all: 0, at: 0 };
   function troubleNote(ok) {
-    var was = trouble.all >= 2;
+    var was = trouble.all >= 4;
+    var nowTime = Date.now();
     if (ok) trouble.all = 0;
-    else { trouble.all += 1; trouble.at = Date.now(); }
-    var now = trouble.all >= 2;
+    else {
+      if (trouble.at && (nowTime - trouble.at) > 60000) trouble.all = 1;
+      else trouble.all += 1;
+      trouble.at = nowTime;
+    }
+    var now = trouble.all >= 4;
     if (was !== now) {
       try { window.dispatchEvent(new CustomEvent("viktorych-api-trouble", { detail: { on: now } })); } catch (err) { /* old browser */ }
     }
@@ -1642,7 +1647,7 @@ var numberNote = form.passkey
     var faces = window.ViktorychFaces;
     var pick = faces && (kind === "banner" ? faces.banner : faces.picture);
     if (pick) return pick(src, accountFace);
-    if (accountFace === "none" || accountFace === "default") return accountFace;
+    if (accountFace === "none") return "none";
     return src ? "photo" : "default";
   }
   function presenceWrap(id, html, opener) {
@@ -1653,9 +1658,9 @@ var numberNote = form.passkey
   function publicAvatar(src, accountFace, cls, initials) {
     var mode = faceOf("picture", src, accountFace);
     if (mode === "none") return '<span class="ava-none"></span>';
-    var classes = "ava" + (cls ? " " + cls : "") + (mode === "default" ? " silhouette" : "");
+    var classes = "ava" + (cls ? " " + cls : "") + (mode === "default" && !src ? " silhouette" : "");
     var letter = String(initials || "?").trim().charAt(0).toUpperCase() || "?";
-    if (mode === "photo") return photoHtml(src, classes, letter);
+    if (src || mode === "photo") return photoHtml(src, classes, letter);
     return '<span class="' + classes + '" aria-hidden="true">' + PERSON + "</span>";
   }
   function publicBanner(src, accountFace) {
@@ -2481,7 +2486,7 @@ var numberNote = form.passkey
     if (!reg) return [];
     return reg.localKeys({ allOff: !!settings && settings.syncUi === false, lookOwn: deviceOwnUi() });
   }
-  var EXTRA_PREFS = ["privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "translateAuto", "translateNever", "bells", "livePreview", "notifPrivacy", "accent", "fontSize", "density", "reduceMotion", "peopleLinks", "avatarShape", "haptics", "keyboard", "busyPrefs", "inboxLayout", "aiFab", "friendsRail", "brandLogo"];
+  var EXTRA_PREFS = ["privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "translateAuto", "translateNever", "bells", "livePreview", "notifPrivacy", "accent", "fontSize", "density", "reduceMotion", "peopleLinks", "avatarShape", "haptics", "keyboard", "busyPrefs", "inboxLayout", "aiFab", "aiSetup", "friendsRail", "brandLogo"];
   function pickPrefs(local, remote) {
     // Home pills and Stories: each key keeps the newer choice.
     var out = {};
@@ -3350,8 +3355,14 @@ function signupPayload() {
         return;
       }
       form.passkey = true;
+      /* Same as a number sign-up: the server already follows the owner, and
+         this device's guest follows are never imported into the account. */
+      if (res.account && res.account.publicId) writeStored("follows-imported-v2-" + res.account.publicId, "1");
       if (saveDataWanted() && window.ViktorychDataSaver) {
         try { window.ViktorychDataSaver.apply(true); } catch (err) { /* the account still opens */ }
+      }
+      if (typeof window.ViktorychAccounts.onSignup === "function") {
+        try { window.ViktorychAccounts.onSignup(res.account || {}); } catch (err) { /* the session still opens */ }
       }
       writePending({ token: res.token, accountNumber: res.accountNumber, recoveryCodes: res.recoveryCodes || [], account: res.account });
       markSetupPost(res.account);
@@ -4311,6 +4322,7 @@ function signupPayload() {
     }
     return "";
   }
+  var FOLLOW_IMPORT_CUTOFF = Date.UTC(2026, 9, 28, 18, 4, 30);
   function syncFollows() {
     var session = readSession();
     if (!session || !hasApi() || !session.account) return Promise.resolve();
@@ -4321,7 +4333,10 @@ function signupPayload() {
     syncingFollows = true;
     var epoch = followEpoch;
     var key = "follows-imported-v2-" + session.account.publicId;
-    var imported = readStored(key) === "1";
+    /* Accounts made since new accounts started out following only the owner
+       never import this device's follows; only older accounts move theirs. */
+    var made = Number(session.account.createdAt) || 0;
+    var imported = readStored(key) === "1" || !made || made >= FOLLOW_IMPORT_CUTOFF;
     var local = localFeedFollows().concat(localAppFollows()).filter(function (id, index, all) {
       return id && all.indexOf(id) === index;
     });
@@ -4430,6 +4445,7 @@ function signupPayload() {
     return '<button class="friend-btn friend-add" type="button" data-friend-act="request" data-friend-id="' + esc(pid) + '" data-handle="' + esc(handle) + '"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span>' + esc(tr("Add Friend")) + '</span></button>';
   }
 
+  var friendsOwnerView = {};
   function ensureFriends(targetId) {
     var session = readSession();
     var key = String(targetId || "");
@@ -4444,6 +4460,8 @@ function signupPayload() {
       friendsLoads[key] = false;
       if (!res || res.status !== 200) { friendsFailedAt[key] = Date.now(); return; }
       friendsCache[key] = Array.isArray(res.friends) ? res.friends : [];
+      // Owner view: the server shows the app owner every friendship and logs it.
+      friendsOwnerView[key] = res.ownerView === true;
       var id = key;
       graphCounts[id] = graphCounts[id] || {};
       if (res.friendsCount != null) graphCounts[id].friends = res.friendsCount;
@@ -4678,6 +4696,7 @@ function signupPayload() {
               '<a class="friend-card-name" href="#/@' + encodeURIComponent(fr.handle) + '">' + esc(fr.name || fr.displayName || fr.handle) + (fr.owner ? badge() : "") + '</a>' +
               '<div class="friend-card-handle">@' + esc(fr.handle) + '</div>' +
               mutual +
+              (fr.ownerOnly ? '<div class="friend-card-owneronly">' + esc(tr("Hidden from others · owner view")) + '</div>' : '') +
             '</div>' +
             '<div class="friend-card-actions">' + btn + '</div>' +
           '</div>';
@@ -4694,7 +4713,8 @@ function signupPayload() {
       '<div class="friends-header-right">' + headerRight + '</div>' +
     '</div>';
 
-    return '<div class="friends-section">' + headingHtml + pills + cardsHtml + '</div>';
+    var ownerBanner = !mine && friendsOwnerView[pid] ? '<div class="friends-owner-view" role="note"><b>' + esc(tr("Owner view")) + '</b><span>' + esc(tr("You see every friendship here, including ones hidden from others. Each view is logged.")) + '</span></div>' : '';
+    return '<div class="friends-section">' + headingHtml + ownerBanner + pills + cardsHtml + '</div>';
   }
 
     var linkIdentityForm = {
@@ -4961,7 +4981,10 @@ function signupPayload() {
       var badge = item.followsYou ? '<span class="pill-badge">' + esc(tr("Follows you")) + '</span>' : "";
       var remove = mine && tab === "followers" && item.removable ? '<button class="outline" type="button" data-act="remove-follower" data-id="' + esc(person.id) + '">' + esc(tr("Remove follower")) + '</button>' : "";
       var accept = mine && tab === "requests" ? '<button class="friend-btn friend-accept" type="button" data-act="accept-follow" data-id="' + esc(person.id) + '">' + esc(tr("Accept")) + '</button><button class="friend-btn friend-decline" type="button" data-act="decline-follow" data-id="' + esc(person.id) + '">' + esc(tr("Decline")) + '</button>' : "";
-      var href = person.handle ? "#/@" + encodeURIComponent(person.handle) : (person.id ? "#/p/" + encodeURIComponent(String(person.id).replace(/^app:/, "")) : "#/");
+      var pid = String(person.id || "");
+      var cut = pid.indexOf(":");
+      var pPlat = String(item.platform || (cut > 0 ? pid.slice(0, cut) : "app")).toLowerCase();
+      var href = person.handle ? (pPlat && pPlat !== "app" && pPlat !== "x" ? "#/" + encodeURIComponent(pPlat) + "/" + encodeURIComponent(person.handle) : "#/@" + encodeURIComponent(person.handle)) : (pid ? "#/p/" + encodeURIComponent(pid.replace(/^app:/, "")) : "#/");
       var letter = String(person.name || person.handle || "?").trim().charAt(0).toUpperCase() || "?";
       var face = publicAvatar(person.avatar, person.avatarFace, "", letter);
       // Your own Following list: ⋯ or a long press locks the follow. The
@@ -6852,8 +6875,10 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
   function aiSetting(key, value) {
     var session = readSession();
     if (!session || !hasApi()) return Promise.resolve(false);
-    if (key === "discoverable") {
-      return api("/v1/suggestions/prefs", { method: "PUT", token: session.token, body: { discoverable: !!value } }).then(function (res) { return !!res && res.status === 200; }, function () { return false; });
+    if (key === "discoverable" || key === "searchable") {
+      var prefBody = {};
+      prefBody[key] = !!value;
+      return api("/v1/suggestions/prefs", { method: "PUT", token: session.token, body: prefBody }).then(function (res) { return !!res && res.status === 200; }, function () { return false; });
     }
     if (!AI_PROFILE_KEYS[key]) return Promise.resolve(false);
     var body = {};

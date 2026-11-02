@@ -5,6 +5,24 @@
   <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="format-detection" content="telephone=no">
+  <script>
+    /* Chrome and Edge fire beforeinstallprompt once, often before the app's
+       deferred scripts run. Keep it here so Settings > Install app can use it. */
+    (function () {
+      try {
+        window.addEventListener("beforeinstallprompt", function (event) {
+          event.preventDefault();
+          window.__VIKTORYCH_INSTALL = event;
+          try { document.dispatchEvent(new CustomEvent("viktorych-install-ready")); } catch (err) { /* app.js reads the global */ }
+        });
+        window.addEventListener("appinstalled", function () {
+          window.__VIKTORYCH_INSTALL = null;
+          try { localStorage.setItem("viktorychapp-installed", String(Date.now())); } catch (err) { /* private mode */ }
+          try { document.dispatchEvent(new CustomEvent("viktorych-installed")); } catch (err) { /* app.js re-renders later */ }
+        });
+      } catch (err) { /* install stays available from the browser menu */ }
+    })();
+  </script>
   <script src="device-seal.js"></script>
   <script src="shared/ios.js"></script>
   <script src="shared/tv-boot.js"></script>
@@ -491,6 +509,8 @@
       }
       function recover() {
         if (shown) return;
+        var appEl = document.getElementById("app");
+        if (window.__VIKTORYCH_CLICK || (appEl && !appEl.querySelector("[data-boot-card]") && (appEl.innerText || "").trim().length > 8)) return;
         if (tried()) { showScreen(); return; }
         markTried();
         dropWorkers().then(function () { location.reload(); });
@@ -498,9 +518,17 @@
       window.addEventListener("error", function (event) {
         var target = event && event.target;
         if (target && target !== window && target.nodeType === 1) return;
+        var msg = String((event && event.message) || "");
+        if (/ResizeObserver|Script error/i.test(msg)) return;
         recover();
       });
-      window.addEventListener("unhandledrejection", function () { recover(); });
+      window.addEventListener("unhandledrejection", function (event) {
+        var r = event && event.reason;
+        var name = String((r && r.name) || "");
+        var msg = String((r && r.message) || r || "");
+        if (name === "AbortError" || name === "NotAllowedError" || /ResizeObserver|abort|interrupted by a call to pause|The play\(\) request/i.test(msg)) return;
+        recover();
+      });
       window.addEventListener("load", function () {
         setTimeout(function () {
           if (shown) return;
@@ -641,11 +669,13 @@
     <link rel="stylesheet" href="live-translate.css">
     <link rel="stylesheet" href="people.css">
     <link rel="stylesheet" href="pymk.css">
+    <link rel="stylesheet" href="friend-privacy.css">
     <link rel="stylesheet" href="tv.css">
     <link rel="stylesheet" href="discord-ui.css">
     <link rel="stylesheet" href="discord-local.css">
     <link rel="stylesheet" href="discord-key-helper.css">
     <link rel="stylesheet" href="spaces.css">
+    <link rel="stylesheet" href="x-settings.css">
     <link rel="stylesheet" href="stories.css">
     <link rel="stylesheet" href="music.css">
     <link rel="stylesheet" href="accounts.css">
@@ -679,6 +709,7 @@
     <script src="people.js" defer></script>
     <script src="pymk.js" defer></script>
     <script src="friends-pref.js" defer></script>
+    <script src="friend-privacy-ui.js" defer></script>
     <script src="tv.js" defer></script>
     <script src="split.js" defer></script>
     <script src="inbox.js" defer></script>
@@ -698,6 +729,7 @@
     <script src="spaces.js" defer></script>
     <script src="stories.js" defer></script>
     <script src="highlights.js" defer></script>
+    <script src="x-settings.js" defer></script>
     <script src="audience-ui.js" defer></script>
     <script src="usernames-ui.js" defer></script>
     <script src="display-names-ui.js" defer></script>

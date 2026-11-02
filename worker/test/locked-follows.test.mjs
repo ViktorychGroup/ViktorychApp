@@ -319,4 +319,21 @@ test("Locked follows: the app owner sees the real list and counts, audited, neve
   // Nobody else gets the owner reads.
   assert.equal((await call("/v1/owner/locked-follows?id=" + encodeURIComponent("app:@lf_gil"), { ip: "198.51.100.90", token: T(ike) })).status, 403);
   assert.equal((await call("/v1/owner/locked-follows/audit", { ip: "198.51.100.90", token: T(gil) })).status, 403);
+
+  // Owner can lock and unlock a TikTok follow (even when added locally or with mixed case).
+  assert.equal((await lf(owner, "code", { method: "POST", ip: "198.51.100.91", body: { code: "owner-tok-1" } })).status, 200);
+  const lockTok = await lf(owner, "lock", { method: "POST", ip: "198.51.100.91", body: { id: "tiktok:SampleTok" } });
+  assert.equal(lockTok.status, 200, lockTok.text);
+  const openOwner = await lf(owner, "unlock", { method: "POST", ip: "198.51.100.91", body: { code: "owner-tok-1" } });
+  assert.equal(openOwner.status, 200, openOwner.text);
+  const ownerList = await lf(owner, "list", { ip: "198.51.100.91", headers: { "X-Locked-Grant": openOwner.body.grant } });
+  assert.equal(ownerList.status, 200, ownerList.text);
+  const tokCard = (ownerList.body.accounts || []).find((a) => String(a.id || "").toLowerCase() === "tiktok:sampletok");
+  assert.ok(tokCard, ownerList.text);
+  assert.equal(tokCard.platform, "tiktok");
+  assert.equal(tokCard.handle, "SampleTok");
+  const unlockTok = await lf(owner, "unlock-follow", { method: "POST", ip: "198.51.100.91", headers: { "X-Locked-Grant": openOwner.body.grant }, body: { id: "tiktok:sampletok" } });
+  assert.equal(unlockTok.status, 200, unlockTok.text);
+  const ownerFollowsAfter = await call("/v1/follows", { ip: "198.51.100.91", token: T(owner) });
+  assert.equal(ownerFollowsAfter.text.toLowerCase().includes("tiktok:sampletok"), true);
 });

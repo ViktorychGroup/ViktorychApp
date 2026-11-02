@@ -83,6 +83,34 @@ export async function friendsOffAmong(env, ids, noOnline) {
   return set;
 }
 
+/* A friendship only counts while both people have Friends on. Hidden
+   friendships stay stored, so turning Friends back on restores them, but
+   every audience, birthday, game and suggestion check reads them as absent. */
+export async function friendshipLive(env, a, b) {
+  if (!a || !b) return false;
+  return (await friendsOffAmong(env, [a, b])).size === 0;
+}
+
+/* `ids` minus anyone whose friendship with `ownerId` is hidden. Empty when
+   the owner of the list has Friends off. */
+export async function liveFriendIds(env, ownerId, ids) {
+  const list = (ids || []).map(String).filter(Boolean);
+  if (!list.length) return [];
+  const off = await friendsOffAmong(env, [String(ownerId)].concat(list));
+  if (off.has(String(ownerId))) return [];
+  return list.filter((id) => !off.has(id));
+}
+
+/* The site owner (accounts.owner = 1) keeps reading through hidden
+   friendships, the same bypass the owner tools use. */
+export async function siteOwnerId(env, publicId) {
+  if (!publicId) return false;
+  try {
+    const row = await env.DB.prepare("SELECT owner FROM accounts WHERE public_id = ?").bind(publicId).first();
+    return !!(row && Number(row.owner) === 1);
+  } catch (err) { return false; }
+}
+
 /* SQL piece that keeps only friends whose Friends switch is on. `col` is the
    column holding the friend's id. Safe before the table exists only after
    ensureFriendPrefs ran, so callers await it first. */
@@ -121,6 +149,7 @@ export async function handleFriendPrefs(request, env, deps) {
   const body = await deps.readJson(request, 1024);
   if (!body || body.error) return deps.json(400, { error: "bad_json" });
   const next = await friendPrefs(env, id);
+  const wasOn = next.enabled;
   if (typeof body.enabled === "boolean") next.enabled = body.enabled;
   if (body.whoCanRequest != null) {
     if (!WHO_CAN_REQUEST.includes(body.whoCanRequest)) return deps.json(400, { error: "bad_who" });
@@ -136,6 +165,11 @@ export async function handleFriendPrefs(request, env, deps) {
     "INSERT INTO account_friend_prefs (public_id, enabled, who_can_request, list_audience, share_online, updated_at) VALUES (?, ?, ?, ?, ?, ?) " +
     "ON CONFLICT(public_id) DO UPDATE SET enabled = excluded.enabled, who_can_request = excluded.who_can_request, list_audience = excluded.list_audience, share_online = excluded.share_online, updated_at = excluded.updated_at"
   ).bind(id, next.enabled ? 1 : 0, next.whoCanRequest, next.listAudience, next.shareOnline ? 1 : 0, Date.now()).run();
+  // Other people's cached People you may know can still list this account;
+  // the cache is only a speed-up, so drop it everywhere on a switch flip.
+  if (wasOn !== next.enabled) {
+    try { await env.DB.prepare("DELETE FROM suggest_cache").run(); } catch (err) { /* cache only */ }
+  }
   const touched = new Set();
   if (body.declineAll === true) {
     const reqs = await env.DB.prepare("SELECT sender_id AS a, receiver_id AS b FROM account_friend_requests WHERE receiver_id = ? OR sender_id = ? LIMIT 500").bind(id, id).all();

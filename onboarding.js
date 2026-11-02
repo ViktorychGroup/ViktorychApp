@@ -129,6 +129,7 @@
       discover: "Suggest me to others",
       online: "Show when I'm online",
       friendsSwitch: "Friends and friend requests",
+      friendsSwitchSub: "Friend requests, friends lists and friends’ online status. You can change this later in Settings.",
       saveFail: "Couldn't save. Try again.",
       lookTitle: "Make it yours",
       lookSub: "Pick a color and text size.",
@@ -250,6 +251,7 @@
       discover: "Sugerirme a otras personas",
       online: "Mostrar cuándo estoy en línea",
       friendsSwitch: "Amigos y solicitudes de amistad",
+      friendsSwitchSub: "Solicitudes de amistad, listas de amigos y el estado en línea de tus amigos. Puedes cambiarlo más tarde en Configuración.",
       saveFail: "No se pudo guardar. Inténtalo de nuevo.",
       lookTitle: "Hazlo tuyo",
       lookSub: "Elige un color y el tamaño del texto.",
@@ -371,6 +373,7 @@
       discover: "दूसरों को मेरा सुझाव दें",
       online: "दिखाएँ कि मैं कब ऑनलाइन हूँ",
       friendsSwitch: "दोस्त और फ़्रेंड रिक्वेस्ट",
+      friendsSwitchSub: "फ़्रेंड रिक्वेस्ट, दोस्तों की सूची और दोस्तों का ऑनलाइन स्टेटस। आप इसे बाद में सेटिंग्स में बदल सकते हैं।",
       saveFail: "सहेजा नहीं जा सका। फिर से कोशिश करें।",
       lookTitle: "इसे अपना बनाएँ",
       lookSub: "रंग और टेक्स्ट का आकार चुनें।",
@@ -492,6 +495,7 @@
       discover: "Предлагать меня другим",
       online: "Показывать, когда я в сети",
       friendsSwitch: "Друзья и запросы в друзья",
+      friendsSwitchSub: "Запросы в друзья, списки друзей и статус друзей в сети. Это можно изменить позже в настройках.",
       saveFail: "Не удалось сохранить. Попробуйте ещё раз.",
       lookTitle: "Под себя",
       lookSub: "Выберите цвет и размер текста.",
@@ -1103,7 +1107,12 @@
   }
   function friendsRow() {
     var F = window.ViktorychFriendsPref;
-    return F && F.available && F.available() && F.setEnabled ? toggleRow("friends", t("friendsSwitch")) : "";
+    if (!(F && F.available && F.available() && F.setEnabled)) return "";
+    // X-native settings row: title, muted description, X check box.
+    var on = !!prefNow("friends");
+    return '<button class="oobe-toggle oobe-xrow' + (on ? " on" : "") + '" type="button" role="checkbox" aria-checked="' + (on ? "true" : "false") + '" data-onb="pref" data-id="friends">' +
+      '<span class="oobe-xcopy"><b>' + esc(t("friendsSwitch")) + '</b><small>' + esc(t("friendsSwitchSub")) + '</small></span>' +
+      '<span class="oobe-xcheck' + (on ? " on" : "") + '" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9.64 18.952l-5.55-4.861 1.317-1.504 3.951 3.459 8.459-10.948L19.4 6.32 9.64 18.952z"/></svg></span></button>';
   }
   function privacyHtml() {
     return shell({

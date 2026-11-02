@@ -14,9 +14,9 @@ with tempfile.TemporaryDirectory() as d:
     names = sorted(p.name for p in (site / "sealed").iterdir())
     assert names == ["feeds.json", "index.json", "people.json"], names
     out = subprocess.run(["node", "--input-type=module", "-e", f"""
-import {{ openSealed, sealKeyBytes }} from '{os.getcwd()}/worker/src/data-seal.js';
+import {{ openSealed, sealKeyBytes }} from '{Path.cwd().as_uri()}/worker/src/data-seal.js';
 import fs from 'node:fs';
-const doc = JSON.parse(fs.readFileSync('{site}/sealed/feeds.json','utf8'));
+const doc = JSON.parse(fs.readFileSync('{site.as_posix()}/sealed/feeds.json','utf8'));
 console.log(await openSealed(await sealKeyBytes('p1', doc.day), 'feeds.json', doc));
 """], capture_output=True, text=True)
     assert json.loads(out.stdout)["posts"] == [{"id": 1}], out
