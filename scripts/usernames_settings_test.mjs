@@ -81,6 +81,7 @@ function mock(page, log) {
       return reply(route, 200, state);
     }
     if (url.pathname === "/v1/usernames/preview") return reply(route, 200, { as: url.searchParams.get("as"), handle: "user_a_close_friends_long", hidden: false });
+    if (url.pathname === "/v1/audience-lists/people") return reply(route, 200, { people: [{ handle: "birchway", name: "Birch Way" }, { handle: "user_x", name: "User X" }] });
     if (url.pathname === "/v1/audience-lists") return reply(route, 200, { lists: [{ id: "l1", name: "Close", icon: "", members: [] }, { id: "l2", name: "Work", icon: "", members: [] }] });
     if (url.pathname === "/v1/usernames/mentions" && method === "GET") return reply(route, 200, { public: "anyone", followers: "", friends: "", lists: {}, allow: [], block: [] });
     if (url.pathname === "/v1/usernames/mentions") return reply(route, 200, Object.assign({ allow: [], block: [] }, body));
@@ -137,6 +138,18 @@ async function check(browser, port, size, lang) {
   await page.click(".xs-sheet-back:not(.xs-leaving) [data-xs-add]");
   await page.waitForSelector('.ep .un-in-edit[data-un-view="name"]', { timeout: 5000 }).catch(() => fail(label + ": add did not open the new name"));
   if (await page.$(".xs-sheet-back:not(.xs-leaving)")) fail(label + ": add sheet stayed open");
+
+  /* People search keeps its suggestions through an autosave repaint. */
+  const before = log.filter((line) => line.indexOf("PATCH /v1/usernames ") === 0).length;
+  await page.locator('.ep .xs-checkrow:has([data-un-aud="inc:friends"])').click();
+  await page.fill('.ep [data-xs-chip-input="inc"]', "bir");
+  await page.waitForSelector('.ep [data-xs-suggest="inc"]:not([hidden]) [data-xs-pick="inc"][data-value="birchway"]', { timeout: 3000 }).catch(() => fail(label + ": no people search"));
+  for (let i = 0; i < 40 && log.filter((line) => line.indexOf("PATCH /v1/usernames ") === 0).length <= before; i++) await page.waitForTimeout(100);
+  if (log.filter((line) => line.indexOf("PATCH /v1/usernames ") === 0).length <= before) fail(label + ": no autosave for friends");
+  await page.waitForTimeout(150);
+  await page.waitForSelector('.ep [data-xs-suggest="inc"]:not([hidden]) [data-xs-pick="inc"][data-value="birchway"]', { timeout: 3000 }).catch(() => fail(label + ": suggestions lost on autosave"));
+  await page.fill('.ep [data-xs-chip-input="inc"]', "");
+  await page.locator('.ep .xs-checkrow:has([data-un-aud="inc:friends"])').click();
 
   /* Detail: hide from a list and two people; it saves on its own. */
   await page.click('.ep [data-un="toggle-hide"]');
