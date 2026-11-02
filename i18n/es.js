@@ -5872,5 +5872,4 @@ SI18n.addPack("es", {
   "Accounts on other networks": "Cuentas de otras redes",
   "Set a custom name from any profile's menu.": "Pon un nombre desde el menú de cualquier perfil.",
   "Network": "Red",
-  "That account name isn't valid.": "Ese nombre de cuenta no es válido.",
-});
+  "That account name isn't valid.": "Ese nombre de cuenta no es válido."});

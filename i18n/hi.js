@@ -5859,5 +5859,4 @@ SI18n.addPack("hi", {
   "Accounts on other networks": "दूसरे नेटवर्क के अकाउंट",
   "Set a custom name from any profile's menu.": "किसी भी प्रोफ़ाइल के मेन्यू से नाम रखें।",
   "Network": "नेटवर्क",
-  "That account name isn't valid.": "यह अकाउंट नाम सही नहीं है।",
-});
+  "That account name isn't valid.": "यह अकाउंट नाम सही नहीं है।"});

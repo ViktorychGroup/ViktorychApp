@@ -5871,5 +5871,4 @@ SI18n.addPack("ru", {
   "Accounts on other networks": "Аккаунты в других сетях",
   "Set a custom name from any profile's menu.": "Задайте имя в меню любого профиля.",
   "Network": "Сеть",
-  "That account name isn't valid.": "Неверное имя аккаунта.",
-});
+  "That account name isn't valid.": "Неверное имя аккаунта."});

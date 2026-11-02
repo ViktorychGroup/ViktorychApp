@@ -5869,5 +5869,4 @@ SI18n.addPack("en", {
   "Accounts on other networks": "Accounts on other networks",
   "Set a custom name from any profile's menu.": "Set a custom name from any profile's menu.",
   "Network": "Network",
-  "That account name isn't valid.": "That account name isn't valid.",
-});
+  "That account name isn't valid.": "That account name isn't valid."});
