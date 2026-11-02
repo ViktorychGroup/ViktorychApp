@@ -1,0 +1,44 @@
+# Page smoke job budget: 20 -> 35 minutes
+
+Apply with:
+
+```sh
+git apply docs/owner-patches/page-smoke-timeout.patch
+```
+
+## Why
+
+The `smoke` job runs every browser suite one after another in a single job
+with a 20-minute budget. When other browser suites run at the same time
+(Navigation on main, or PR checks), the pool is busy and the job needs
+longer than 20 minutes even when every check inside it is healthy.
+
+Seen on 2026-11-02: the Page smoke run for main commit `a210530b` was
+killed by this ceiling at 20m14s (attempt 2) while it was still making
+healthy progress - `ios webkit ok` and `live page ok` logged immediately
+before the cancel, no failing step. Its attempt 1 had failed on the
+Local AI page's 10-second selector wait, a symptom of the same runner
+contention; the same content passed on the previous main commit minutes
+earlier in a quiet window. Under load the job has flaked before: on
+2026-10-30 the same job failed at 13:49, 14:10, 14:27, 15:06 and 15:18
+with passes between, on content that did not change.
+
+The timeout is a cap, not a delay: a quiet-window job that finishes in
+about 10 minutes still frees its runner at completion. The higher cap
+only matters when the pool is busy, which is exactly when a false
+timeout is most disruptive (it turns green checks into a red main).
+
+## Diff
+
+diff --git a/.github/workflows/smoke.yml b/.github/workflows/smoke.yml
+--- a/.github/workflows/smoke.yml
++++ b/.github/workflows/smoke.yml
+@@ -23,7 +23,7 @@ jobs:
+ jobs:
+   smoke:
+     runs-on: ubuntu-latest
+-    timeout-minutes: 20
++    timeout-minutes: 35
+     steps:
+       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+         with:
