@@ -417,7 +417,7 @@
     mem.prefsLoading = true;
     a.call("/v1/suggestions/prefs", { token: token() }).then(function (res) {
       mem.prefsLoading = false;
-      if (res && res.status === 200) { mem.serverPrefs = { discoverable: res.discoverable !== false, tempOptIn: !!res.tempOptIn, kind: res.kind || "person", ownerKind: res.ownerKind || "" }; redraw(); }
+      if (res && res.status === 200) { mem.serverPrefs = { discoverable: res.discoverable !== false, searchable: res.searchable !== false, tempOptIn: !!res.tempOptIn, kind: res.kind || "person", ownerKind: res.ownerKind || "" }; redraw(); }
     }).catch(function () { mem.prefsLoading = false; });
   }
 
@@ -486,7 +486,8 @@
     var sp = mem.serverPrefs || { discoverable: true, tempOptIn: false };
     var who = me();
     var html = "<h2>" + esc(tr("Discoverability")) + "</h2>" +
-      switchHtml("pymk-discoverable", sp.discoverable !== false, tr("Let others see me in People you may know"), tr("When this is off, your account is never suggested to anyone. Suggestions never show who you follow if your follows are private."));
+      switchHtml("pymk-discoverable", sp.discoverable !== false, tr("Let others see me in People you may know"), tr("When this is off, your account is never suggested to anyone. Suggestions never show who you follow if your follows are private.")) +
+      switchHtml("pymk-searchable", sp.searchable !== false, tr("Let others find me in search"), tr("When this is off, people can't find your account in Search, even by its exact username. They can still open your profile from a link."));
     if (who && who.temporary) html += switchHtml("pymk-temp-opt", !!sp.tempOptIn, tr("Suggest my temporary account too"), tr("Temporary accounts are left out of suggestions unless you turn this on."));
     return html;
   }
@@ -531,6 +532,7 @@
     }
     if (name === "pymk-toggle-carousel") { p.carousel = !p.carousel; savePrefs(); redraw(); return true; }
     if (name === "pymk-reset") { p.fewer = 0; p.hidden = []; savePrefs(); refresh(true); redraw(); return true; }
+    if (name === "pymk-searchable") { putServerPrefs({ searchable: !(mem.serverPrefs ? mem.serverPrefs.searchable !== false : true) }); return true; }
     if (name === "pymk-discoverable") { putServerPrefs({ discoverable: !(mem.serverPrefs ? mem.serverPrefs.discoverable !== false : true) }); return true; }
     if (name === "pymk-temp-opt") { putServerPrefs({ tempOptIn: !(mem.serverPrefs && mem.serverPrefs.tempOptIn) }); return true; }
     return false;
@@ -606,6 +608,7 @@
     privacyHtml: privacyHtml,
     act: act,
     discoverable: function () { return mem.serverPrefs ? mem.serverPrefs.discoverable !== false : true; },
+    searchable: function () { return mem.serverPrefs ? mem.serverPrefs.searchable !== false : true; },
     /* First-time setup sets the switch directly; resolves true once saved. */
     setDiscoverable: function (on) {
       var a = api();

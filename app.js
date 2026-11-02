@@ -417,13 +417,30 @@
     return "(" + (count > 20 ? "20+" : String(count)) + ") " + base;
   }
 
+  // feeds() runs for every card on every paint, so the filtered list is
+  // remembered per (source list, shorts lock, locked-follows filter) and the
+  // locked-follows pass is skipped when nothing is locked.
+  const FEEDS_MEMO = { src: null, key: "", out: null, live: false };
   function feeds() {
-    let list = (STATE.data && STATE.data.feeds) || [];
-    if (isShortsLocked()) {
+    const src = (STATE.data && STATE.data.feeds) || [];
+    const shorts = isShortsLocked();
+    const locked = window.ViktorychLocked;
+    const lockOn = !!(locked && locked.hidesId && (!locked.active || locked.active()));
+    const key = src.length + (shorts ? "s" : "") + "|" + (lockOn ? (locked.version ? locked.version() : "") : "-");
+    // TikTok unlocks can change between tasks, so with shorts locked the
+    // answer is only kept until the current task ends.
+    if (FEEDS_MEMO.src === src && FEEDS_MEMO.key === key && (!lockOn || locked.version) && (!shorts || FEEDS_MEMO.live)) return FEEDS_MEMO.out;
+    let list = src;
+    if (shorts) {
       list = list.filter((feed) => !isLockedTiktok(feed));
     }
-    const locked = window.ViktorychLocked;
-    if (locked && locked.hidesId && list.some((feed) => feed && locked.hidesId(feed.id))) list = list.filter((feed) => !(feed && locked.hidesId(feed.id)));
+    if (lockOn && list.some((feed) => feed && locked.hidesId(feed.id))) list = list.filter((feed) => !(feed && locked.hidesId(feed.id)));
+    FEEDS_MEMO.src = src; FEEDS_MEMO.key = key; FEEDS_MEMO.out = list;
+    if (shorts && !FEEDS_MEMO.live) {
+      FEEDS_MEMO.live = true;
+      const drop = () => { FEEDS_MEMO.live = false; };
+      if (typeof queueMicrotask === "function") queueMicrotask(drop); else Promise.resolve().then(drop);
+    }
     return list;
   }
 
@@ -594,6 +611,7 @@
   const IA_WAIT_MS = 2500;
   function useArchiveMedia(img) {
     if (!img || img.tagName !== "IMG") return false;
+    if (img.dataset.fallback === "avatar") return false;
     if (!IA.ready) {
       if (img.dataset.iaSkip === "1") return false;
       img.dataset.iaWait = "1";
@@ -669,14 +687,14 @@
     if (tryDeviceRelay(img)) return;
     if (tryRuProxyFallback(img)) return;
     if (img.dataset.fallback === "avatar") {
-      /* Like X: a picture that cannot load shows the default silhouette. */
+      const letter = img.dataset.initials || "?";
       const span = document.createElement("span");
-      const cls = String(img.className || "").split(/\s+/).filter((name) => name && name !== "initials");
+      const cls = String(img.className || "").split(/\s+/).filter((name) => name && name !== "silhouette");
       if (cls.indexOf("ava") < 0) cls.unshift("ava");
-      cls.push("silhouette");
+      if (cls.indexOf("initials") < 0) cls.push("initials");
       span.className = cls.join(" ");
       span.setAttribute("aria-hidden", "true");
-      span.innerHTML = SILHOUETTE_SVG;
+      span.textContent = letter;
       img.replaceWith(span);
       return;
     }
@@ -717,6 +735,7 @@
     sweepTimer = setTimeout(() => sweepBrokenImages(), ms == null ? 1500 : ms);
   }
   window.ViktorychMediaFallback = { sweep: sweepBrokenImages };
+  window.ruSafeImageUrl = ruSafeImageUrl;
 
   /* Tell the service worker to forget a stored copy of a picture that did not
      load, so a cached failure never sticks to this device. */
@@ -1355,7 +1374,7 @@ const fresh = () => ({ version: 1, initialized: true, follows: configured.slice(
       parsed.privacyZeroTrace = parsed.privacyZeroTrace === true;
       parsed.privacyAntiFingerprint = parsed.privacyAntiFingerprint !== false;
       if (!parsed.appearance) parsed.appearance = "lightsout";
-      if (parsed.showPictures !== "default" && parsed.showPictures !== "none") parsed.showPictures = "show";
+      if (parsed.showPictures !== "none") parsed.showPictures = "show";
       if (parsed.showBanners !== "default" && parsed.showBanners !== "none") parsed.showBanners = "show";
       if (parsed.notify !== true) parsed.notify = false;
       if (parsed.autoplay !== "wifi" && parsed.autoplay !== "never") parsed.autoplay = "all";
@@ -1516,6 +1535,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return String(left || "").toLowerCase() === String(right || "").toLowerCase();
   }
   function isFollowed(id) {
+    if (id && window.ViktorychLocked && window.ViktorychLocked.hidesId && window.ViktorychLocked.hidesId(id)) return false;
     const list = String(id || "").indexOf("app:") === 0 ? (STATE.settings.accountFollows || []) : (STATE.settings.follows || []);
     return list.some((item) => sameFollowId(item, id));
   }
@@ -1791,7 +1811,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -1857,6 +1877,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     loadOwnerFeatures();
     const off = (ownerFeatureState && ownerFeatureState.off) || serverOffList();
     const labels = {
+      contacts: [tr("Contacts"), tr("The Contacts address book on this device, with dialer protocol handling and contact sync.")],
       shorts: [tr("Shorts"), tr("Shorts pages, TikTok live watching and its cron work.")],
       stories: [tr("Stories"), tr("Story uploads, the story bar and expiry sweeps.")],
       lives: [tr("Lives"), tr("Going live, the live row and live sweeps.")],
@@ -1874,7 +1895,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       bitchat: [tr("Nearby chat (Bitchat)"), tr("The backup chat offered when nothing else loads: Bluetooth on the TV app, public Nostr area chat in browsers.")],
       feed_requests: [tr("Source requests"), tr("Only you add accounts and feeds. Others press the same buttons to send you a request you allow, block or ban.")],
       friends_off: [tr("Friends switch"), tr("Lets each person turn Friends off: no friend requests, no friends lists, counts or online status.")],
-      local_ai: [tr("Local AI"), tr("The Local AI page that changes settings from plain words. Models run on each person's device; nothing is sent to us.")]
+      local_ai: [tr("Local AI"), tr("The Local AI page that changes settings from plain words. Models run on each person's device; nothing is sent to us.")],
+      local_ai_setup: [tr("Local AI setup"), tr("Everyone sets up Local AI once before the chat opens: device check, model download, a quick test and preferences. Off opens the chat straight away.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -2420,8 +2442,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
 
   function faceChoice(kind, src, accountFace) {
     const viewer = faceSetting(kind === "banner" ? "showBanners" : "showPictures");
-    if (viewer === "none" || viewer === "default") return viewer;
-    if (accountFace === "none" || accountFace === "default") return accountFace;
+    if (viewer === "none") return "none";
+    if (accountFace === "none") return "none";
     return src ? "photo" : "default";
   }
 
@@ -2429,16 +2451,19 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<span class="ava silhouette${extra}" aria-hidden="true">${SILHOUETTE_SVG}</span>`;
   }
 
-  function avatar(src, name, cls, accountFace) {
+  function avatar(src, name, cls, accountFace, eager) {
     const extra = cls ? " " + cls : "";
     const face = faceChoice("picture", src, accountFace);
     if (face === "none") return `<span class="ava-none"></span>`;
-    if (face === "default") return silhouette(extra);
+    if (face === "default" && !src) return silhouette(extra);
     const letter = initials(name);
     const lib = window.ViktorychComments;
     const sized = lib && lib.smallAvatar && linkImagesBlocked() ? lib.smallAvatar(src, true) : src;
-    const safeSrc = ruSafeImageUrl(sized);
-    return `<img decoding="async" class="ava${extra}" src="${esc(safeSrc)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-fallback="avatar" data-initials="${letter}">`;
+    const safeSrc = ruSafeImageUrl(sized || src);
+    if (!safeSrc) return silhouette(extra);
+    const loadAttr = eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
+    const onError = `this.onerror=null;var s=document.createElement('span');s.className='ava initials${extra}';s.setAttribute('aria-hidden','true');s.textContent='${letter}';this.replaceWith(s);`;
+    return `<img decoding="async" class="ava${extra}" src="${esc(safeSrc)}" alt="" ${loadAttr} referrerpolicy="no-referrer" data-fallback="avatar" data-initials="${letter}" onerror="${onError}">`;
   }
 
   function affSlot(source) {
@@ -4047,9 +4072,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   // Hosts that are blocked or throttled for many readers in Russia or India.
   // Only hosts the Worker's /v1/media relay allows are listed. The relay
   // passes the original bytes through; nothing is re-encoded.
-  const BLOCKED_IN_RU = /(?:^|\.)(?:pbs\.twimg\.com|video\.twimg\.com|twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|i\.ytimg\.com|ytimg\.com|yt3\.ggpht\.com)$/i;
+  const BLOCKED_IN_RU = /(?:^|\.)(?:pbs\.twimg\.com|video\.twimg\.com|twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|i\.ytimg\.com|ytimg\.com|yt3\.ggpht\.com|googleusercontent\.com)$/i;
   const BLOCKED_IN_IN = /(?:^|\.)(?:tiktokcdn(?:-us|-eu)?\.com|bytefcdn(?:-oversea)?\.com|ibytedtos\.com)$/i;
-  const RELAYABLE = /(?:^|\.)(?:twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|ytimg\.com|yt3\.ggpht\.com|redd\.it|tiktokcdn(?:-us|-eu)?\.com|bytefcdn(?:-oversea)?\.com|ibytedtos\.com)$/i;
+  const RELAYABLE = /(?:^|\.)(?:twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|ytimg\.com|yt3\.ggpht\.com|googleusercontent\.com|redd\.it|tiktokcdn(?:-us|-eu)?\.com|bytefcdn(?:-oversea)?\.com|ibytedtos\.com)$/i;
 
   function isRuVisitor() {
     const mode = (STATE.settings && STATE.settings.networkMode) || localStorage.getItem("viktorychapp-network-mode") || "auto";
@@ -6278,7 +6303,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       <button class="action ${cls}${cls === "like" && liked ? " on" : ""}${cls === "bookmark" && booked ? " on" : ""}${cls === "repost" && reposted ? " on" : ""}" data-act="${act}" data-id="${esc(id)}" aria-label="${esc(label)}" data-tooltip="${esc(tip || label)}">
         <span class="ic">${icon(path)}</span>${count ? `<span class="count">${esc(count)}</span>` : ""}
       </button>`;
-    const replyCount = shownCount(stats.replies, 0);
+    const replyCount = shownCount(stats.replies, detail ? appRepliesFor(post).length : 0);
     const replyOnX = (post.platform || "x") === "x";
     const replyLink = post.appPost
       ? `<button class="action reply" type="button" data-act="public-reply" data-id="${esc(id)}" aria-label="${tr("Reply")}" data-tooltip="${tr("Reply")}"><span class="ic">${icon("reply")}</span>${replyCount ? `<span class="count">${esc(replyCount)}</span>` : ""}</button>`
@@ -6289,6 +6314,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const quoteOnX = replyOnX ? `<button type="button" data-act="xc-quote" data-id="${esc(id)}">${tr("Quote on X")}</button>` : "";
     const repostMenu = menuOpen ? `<div class="menu repost-menu" data-act="stop" role="menu" aria-label="${esc(tr("Repost"))}"><button type="button" data-act="repost-do" data-id="${esc(id)}">${reposted ? tr("Undo repost") : tr("Repost")}</button><button type="button" data-act="quote-open" data-id="${esc(id)}">${tr("Quote")}</button>${quoteOnX}</div>` : "";
     const repostBtn = `<span class="repost-wrap">${btn("repost", "repost", "repost", tr("Repost"), shownCount(stats.reposts, reposted ? 1 : 0), tr("Repost"))}${repostMenu}</span>`;
+    const laiBtn = localAiOn() ? btn("lai-action", "lai-post", "spark", tr("Explain this post"), "", tr("Explain this post")) : "";
     if (detail) {
       return `<div class="actions status-actions">
       <div class="action-stats">
@@ -6310,6 +6336,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         ${btn("views", "open-status", "views", tr("Views"), shownCount(stats.views, 0), tr("Views"))}
       </div>
       <div class="action-more">
+        ${laiBtn}
         ${btn("bookmark", "bookmark", booked ? "bookmarkOn" : "bookmark", tr("Bookmark"), "", tr("Bookmark"))}
         ${btn("share", "share", "share", tr("Share"), "", tr("Share"))}
       </div>
@@ -6343,6 +6370,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }).catch(() => {});
   }
 
+  /* The post being quoted, embedded under the comment in the Quote sheet. */
+  function quoteSheetCard(post) {
+    if (!post) return "";
+    try { return `<div class="quote-sheet-embed" data-act="stop">${quoteCard(Object.assign({}, post, { quoted: null })).replace(/^<div class="quote" data-(?:open|href)="[^"]*">/, '<div class="quote">')}</div>`; }
+    catch (err) { return ""; }
+  }
+
   function quoteCard(quoted) {
     if (!quoted) return "";
     if (quoteHidden(quoted) && !(STATE.revealedHidden && STATE.revealedHidden["q:" + String(quoted.statusId || quoted.id || "")])) {
@@ -6360,7 +6394,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const quotedHandle = internalPostHandle(quoted.handle || "", quoted);
     return `<div class="quote"${open}>
       <div class="quote-head">
-        ${avatar(quoted.avatar, quoted.author || quoted.handle)}
+        ${avatar(quoted.avatar, quoted.author || quoted.handle, isOrgVerified(asQuoted, quoted) ? "sq" : "")}
         <span class="name">${esc(quoted.author || quoted.handle || tr("Post noun"))}${badge(quoted.verifiedType)}</span>
         ${quotedHandle ? `<span class="handle">@${esc(quotedHandle)}</span>` : ""}
         ${quoted.date ? `<span class="dot">·</span><span class="time">${esc(relTime(quoted.date))}</span>` : ""}
@@ -8201,13 +8235,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!id || CMT_PREFETCHED[id] || !commentPrefetchable(post)) return;
     if (linkImagesBlocked() || !CMT_LIB.canPrefetch({ saveData: !!connectionInfo().saveData })) return;
     const now = Date.now();
-    if (now - cmtPrefetchAt < 3000 || cmtPrefetchCount >= 12) return;
+    if (now - cmtPrefetchAt < 1500 || cmtPrefetchCount >= 36) return;
     cmtPrefetchAt = now;
     cmtPrefetchCount += 1;
     CMT_PREFETCHED[id] = true;
     CMT_LIB.idle(() => {
       commentsGet(post, "top", { scope: "prefetch" }).catch(() => {});
-    }, 3000);
+    }, 2000);
   }
 
   let CMT_DWELL_OBS = null;
@@ -8231,7 +8265,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
               const key = el.getAttribute("data-post") || "";
               const post = findAnyPost(key);
               if (post) prefetchComments(post);
-            }, 1200));
+            }, 600));
           } else if (timer) {
             clearTimeout(timer);
             CMT_DWELL.delete(el);
@@ -9385,6 +9419,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const items = follow
       + `<button type="button" data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button>`
       + `<button type="button" data-gift="reply" data-parent="${esc(post.id || "")}" data-handle="${esc(post.handle || "")}">${tr("Send a gift")}</button>`
+      + (localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("spark")} ${tr("Explain this post")}</button>` : "")
       + `<button type="button" class="odai-btn" data-act="odai-thread" data-id="${esc(postKey(post))}" data-scope="post">${tr("Summarize thread")}</button>`
       + (post.appPost ? appMenuItems(post) : (post.url ? `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url)}">${tr("View on {platform}", { platform: PLATFORM[post.platform] || tr("Web") })}</a>` : ""))
       + blockMenuItems(post, "status")
@@ -9392,12 +9427,32 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<span class="status-menu-wrap">${btn}<div class="menu status-menu" data-act="stop" role="menu">${items}</div></span>`;
   }
 
+  /* Replies written in this app to a feed post (X, YouTube, …) are app posts
+     with extParent. They never come back from the source, so the post page
+     lists them first, like X shows your reply right under the post. */
+  function appRepliesFor(post) {
+    if (!post || post.appPost || (post.platform || "x") === "app") return [];
+    const plat = post.platform || "x";
+    const ids = [String(post.statusId || ""), String(post.id || "")].filter(Boolean);
+    const seen = {};
+    return publicPosts.filter((item) => {
+      const ext = item && item.extParent;
+      if (!ext || seen[item.id] || !notGone(item)) return false;
+      if ((ext.platform || "x") !== plat) return false;
+      if (ids.indexOf(String(ext.statusId || ext.id || "")) < 0) return false;
+      seen[item.id] = true;
+      return true;
+    }).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)).map(appCardPost);
+  }
+
   function replyList(post) {
     const tools = "";
+    const mine = appRepliesFor(post).map((item) => card(item, "reply", { focus: post })).join("");
     const slice = replySlice(post);
-    if (slice.loading) return tools + replySkeleton(3);
-    if (slice.error) return tools + replyError(postKey(post));
+    if (slice.loading) return tools + mine + replySkeleton(3);
+    if (slice.error) return tools + mine + replyError(postKey(post));
     if (!slice.shown.length && !slice.more && !slice.spam) {
+      if (mine) return tools + mine;
       return tools + `<div class="reply-empty">${slice.missing ? tr("Replies aren’t available for this post.") : tr("No replies yet.")}</div>`;
     }
     const id = postKey(post);
@@ -9434,7 +9489,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const more = bucketNow.loadingMore ? replySkeleton(2)
       : moreRows ? `<div class="reply-more-sentinel" data-id="${esc(id)}"></div><button class="more-replies" type="button" data-act="more-replies" data-id="${esc(id)}">${tr("Show more replies")}</button>` : "";
     const spam = slice.spam ? `<button class="more-replies spam" type="button" data-act="spam-replies" data-id="${esc(id)}">${tr("Show probable spam")}</button>` : "";
-    return tools + html + more + spam;
+    return tools + mine + html + more + spam;
   }
 
   function composer(bridge, post) {
@@ -9458,7 +9513,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const tombHandle = internalPostHandle(post.handle || "", post);
     return `<article class="post tombstone">
       <div class="post-row">
-        ${avatar(face.avatar, post.author || post.handle)}
+        ${avatar(face.avatar, post.author || post.handle, isOrgVerified(post, face) ? "sq" : "")}
         <div class="post-main">
           <div class="byline">
             <a class="name" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}">${esc(post.author || post.handle || tr("Post noun"))}${badge(face.verified)}</a>${affSlot(post)}
@@ -9854,7 +9909,7 @@ const here = parseRoute();
     const busyItem = busyKey ? `<button data-act="busy-menu" data-key="${esc(busyKey)}" data-name="${esc(post.author || post.name || "")}" data-handle="${esc(post.handle || "")}" data-platform="${esc(post.platform || "x")}">${tr("Posting volume")}</button>` : "";
     const giftItem = `<button type="button" data-gift="reply" data-parent="${esc(post.id || "")}" data-handle="${esc(post.handle || "")}">${tr("Send a gift")}</button>`;
     const blockItems = STATE.menu === post.id ? blockMenuItems(post, mode) : "";
-    const menu = STATE.menu === post.id ? `<div class="menu" data-act="stop"><button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
+    const menu = STATE.menu === post.id ? `<div class="menu" data-act="stop">${localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("spark")} ${tr("Explain this post")}</button>` : ""}<button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
     const continues = !!opts.continues;
     const face = authorFace(post);
     const creator = isRepost(post) ? creatorOf(post) : null;
@@ -9868,7 +9923,7 @@ const here = parseRoute();
     // Community mirror authors have no profile here: their links open the community.
     const whoHref = post.cmMirror ? "#/communities/" + encodeURIComponent(post.community.name) : accountHash(post.platform, who);
     const whoCard = post.cmMirror ? "" : ` data-card="${esc(post.platform + ":" + who)}"`;
-    const avaLink = `<a href="${esc(whoHref)}"${whoCard} aria-label="${esc(displayName || tr("Profile"))}">${avatar(face.avatar, displayName)}</a>`;
+    const avaLink = `<a href="${esc(whoHref)}"${whoCard} aria-label="${esc(displayName || tr("Profile"))}">${avatar(face.avatar, displayName, isOrgVerified(post, face) ? "sq" : "", null, eager)}</a>`;
     const avaCol = continues ? `<div class="ava-col">${avaLink}<div class="thread-line"></div></div>` : avaLink;
     const open = ` data-open="${esc(dest)}"`;
     const nestedDiscord = post.platform === "discord" && Array.isArray(post.replies) && post.replies.length;
@@ -9895,7 +9950,7 @@ const here = parseRoute();
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
             ${postSourceBadges(post)}
-            ${shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}
+            ${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}
             <button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}">${icon("more")}</button>
           </div>
           ${reply}
@@ -10011,6 +10066,7 @@ const here = parseRoute();
       }
       return { name: "drive", section: "files", trash: false, folder: "", view: "", album: "", query };
     }
+    if (parts[0] === "contacts") return { name: "contacts", sub: parts[1] || "", query };
     if (parts[0] === "vault") return { name: "vault", tab: parts[1] || "my", query };
     if (parts[0] === "packages") return { name: "packages", tab: parts[1] || "active", query };
     if (parts[0] === "communitynotes") return { name: "communitynotes", tab: parts[1] || "", query };
@@ -10193,6 +10249,8 @@ const here = parseRoute();
         return { id: "history", href: "#/history", icon: "clock", label: tr("History"), active: (r) => r.name === "history" };
       case "music":
         return { id: "music", href: "#/music", icon: "muNote", label: tr("Music"), active: (r) => false };
+      case "contacts":
+        return { id: "contacts", href: "#/contacts", icon: "phone", label: tr("Contacts"), active: (r) => r.name === "contacts", visible: () => featureOn("contacts") };
       case "shorts":
         return { id: "shorts", href: "#/shorts", icon: "shorts", label: tr("Shorts"), active: (r) => r.name === "shorts", visible: () => !!(window.ViktorychShorts && window.ViktorychShorts.visible()) };
       case "games":
@@ -11037,7 +11095,7 @@ const here = parseRoute();
     return `<div class="topbar tall">
       <h1 class="vh">${tr("Home")}</h1>
       <div class="mhead">
-        <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}"><span class="ava initials">Y</span></button>
+        <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}">${viewerFace()}</button>
         ${mobileLogo()}
         <a class="m-icon" href="#/settings" aria-label="${tr("Settings")}">${icon("spark")}</a>
       </div>
@@ -12555,7 +12613,7 @@ const here = parseRoute();
       : "";
     const tabLoading = !list.length && tabStillLoading(tab);
     if (tabLoading && !tabFlights[tab] && !(tabRetries[tab] && tabRetries[tab].timer)) setTimeout(() => refreshHomeTabs([tab]), 0);
-    const body = tabLoading ? `<div class="tab-loading" role="progressbar" aria-label="${esc(tr("Loading"))}">` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("") + `</div>` : (list.length ? withSuggestions(groupThreads(list).map((p, i) => p && p.busyGroup ? busyRow(p) : card(p, null, { eager: i === 0 })), tab) : emptyBlock(
+    const body = tabLoading ? `<div class="tab-loading" role="progressbar" aria-label="${esc(tr("Loading"))}">` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("") + `</div>` : (list.length ? withSuggestions(groupThreads(list).map((p, i) => p && p.busyGroup ? busyRow(p) : card(p, null, { eager: i < 4 })), tab) : emptyBlock(
       repostsOnly ? tr("No reposts yet") : tab === "following" ? tr("Nothing to see here — yet") : catTab ? tr("No posts in this tab") : tab.startsWith("list:") ? tr("No posts in this List") : tr("No posts yet"),
       repostsOnly ? tr("Reposts and forwards on this tab show up here.") : tab === "following" ? tr("When you follow accounts, their posts show up here.") : catTab ? tr("Posts from accounts in this tab show up here.") : tab.startsWith("list:") ? tr("Posts from members of this List will show up here.") : tr("Posts from your feeds will show up here.")
     ) + findAccounts);
@@ -12579,7 +12637,7 @@ const here = parseRoute();
 
   function pageHead(title, extra, back, action) {
     return `<div class="topbar tall"><div class="mhead">
-        <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}"><span class="ava initials">Y</span></button>
+        <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}">${viewerFace()}</button>
         ${mobileLogo()}
         <a class="m-icon" href="#/settings" aria-label="${tr("Settings")}">${icon("spark")}</a>
       </div>
@@ -14011,8 +14069,13 @@ const here = parseRoute();
       if (!target.own && (target.feedId || target.handle) && target.platform !== "app") rows.push(profileSheetRow("busy-menu", tr("Posting volume"), `data-key="${esc(target.feedId || ((target.platform || "x") + ":" + String(target.handle || "").toLowerCase()))}" data-name="${esc(target.name || "")}" data-handle="${esc(target.handle || "")}" data-platform="${esc(target.platform || "x")}"`));
       const signed = window.ViktorychAccounts && window.ViktorychAccounts.token && window.ViktorychAccounts.token();
       if (!target.own && target.feedId.indexOf("app:") === 0 && signed) rows.push(profileSheetRow("profile-block", tr("Block"), `data-id="${esc(target.feedId)}"`));
-      const lockId = target.feedId || (target.platform === "app" && target.handle ? "app:@" + String(target.handle).replace(/^@/, "") : "");
-      if (!target.own && lockId && signed && window.ViktorychLocked && isFollowed(lockId)) rows.push(profileSheetRow("profile-lock-follow", tr("Lock follow"), `data-id="${esc(lockId)}" data-name="${esc(target.name || "")}" data-handle="${esc(target.handle || "")}"`));
+      const rawHandle = String(target.handle || "").replace(/^@/, "");
+      const fallbackLockId = target.platform && rawHandle ? (target.platform === "app" ? "app:@" + rawHandle : target.platform + ":" + rawHandle) : "";
+      const baseLockId = target.feedId || fallbackLockId;
+      const lockCandidates = (window.FeedsPeople && window.FeedsPeople.followIds && baseLockId ? window.FeedsPeople.followIds(baseLockId) : []).concat([target.feedId, fallbackLockId]).filter(Boolean);
+      const followedLockId = lockCandidates.find((id) => isFollowed(id));
+      const lockId = followedLockId || (fallbackLockId && String(baseLockId).indexOf("person:") === 0 ? fallbackLockId : baseLockId);
+      if (!target.own && lockId && signed && window.ViktorychLocked && (followedLockId || accountFollowed(baseLockId))) rows.push(profileSheetRow("profile-lock-follow", tr("Lock follow"), `data-id="${esc(lockId)}" data-name="${esc(target.name || "")}" data-handle="${esc(target.handle || "")}"`));
       if (target.feedId) rows.push(profileSheetRow("profile-lists", tr("Add or remove from lists")));
       // A friend's profile: who can see that the two of you are friends.
       if (!target.own && signed && target.platform === "app" && target.handle && window.ViktorychFriendPrivacy && window.ViktorychFriendPrivacy.isFriend(target.handle)) {
@@ -14099,7 +14162,7 @@ const here = parseRoute();
     }, banner)}
     <div class="pinfo" data-live-error="${esc(row.errorDetail || row.error || "")}">
       <div class="pava-row">
-        ${window.Spaces && window.Spaces.avatar ? window.Spaces.avatar(avatar(profile.avatar, profile.name, "pava"), profile.platform, profile.handle) : avatar(profile.avatar, profile.name, "pava")}
+        ${window.Spaces && window.Spaces.avatar ? window.Spaces.avatar(avatar(profile.avatar, profile.name, isOrgVerified(null, profile) ? "pava sq" : "pava"), profile.platform, profile.handle) : avatar(profile.avatar, profile.name, isOrgVerified(null, profile) ? "pava sq" : "pava")}
         <div class="pactions">
           <button class="icon-btn" type="button" data-act="share" data-kind="profile" data-id="${esc(profile.id || (profile.platform + ":" + profile.handle))}" aria-label="${tr("Share")}">${icon("share")}</button>
           ${bellButton(liveFollowId(profile), profile.handle)}
@@ -14510,7 +14573,7 @@ const here = parseRoute();
     }, banner)}
     <div class="pinfo">
       <div class="pava-row">
-        ${window.Spaces && window.Spaces.avatar ? window.Spaces.avatar(avatar(feed.avatar, feed.name, "pava"), feed.platform, feed.handle) : avatar(feed.avatar, feed.name, "pava")}
+        ${window.Spaces && window.Spaces.avatar ? window.Spaces.avatar(avatar(feed.avatar, feed.name, isOrgVerified(null, feed) ? "pava sq" : "pava"), feed.platform, feed.handle) : avatar(feed.avatar, feed.name, isOrgVerified(null, feed) ? "pava sq" : "pava")}
         <div class="pactions">
           <button class="icon-btn" type="button" data-act="share" data-kind="profile" data-id="${esc(feed.id)}" aria-label="${tr("Share")}">${icon("share")}</button>
           ${bellButton(feed.id, feed.handle)}
@@ -14625,11 +14688,11 @@ const here = parseRoute();
             <a class="name" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(post.author || "")}${badge(face.verified)}</a>${affSlot(post)}
             <a class="handle" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">@${esc(statusHandle)}</a>
           </div>
-          <span class="status-end">${postSourceBadges(post)}${statusMenu(post)}</span>`;
+          <span class="status-end">${postSourceBadges(post)}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}${statusMenu(post)}</span>`;
     const parented = chain.nodes.length > 0 ? " has-parent" : "";
     const article = threaded
-      ? `<article class="status has-thread${parented}"><div class="status-thread"><div class="ava-col"><a data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author)}</a><div class="thread-line"></div></div><div class="status-main"><div class="status-author">${names}</div>${body}</div></div></article>`
-      : `<article class="status${parented}"><div class="status-author"><a data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author)}</a>${names}</div>${body}</article>`;
+      ? `<article class="status has-thread${parented}"><div class="status-thread"><div class="ava-col"><a data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author, isOrgVerified(post, face) ? "sq" : "")}</a><div class="thread-line"></div></div><div class="status-main"><div class="status-author">${names}</div>${body}</div></div></article>`
+      : `<article class="status${parented}"><div class="status-author"><a data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author, isOrgVerified(post, face) ? "sq" : "")}</a>${names}</div>${body}</article>`;
     return `<div class="topbar"><div class="page-head"><button class="icon-btn" data-act="back" aria-label="${tr("Back")}">${icon("back")}</button><h1 class="grow">${tr("Post noun")}</h1></div></div>
       ${ancestorBlock(post, chain)}
       ${repostBanner(post)}
@@ -14696,7 +14759,81 @@ const here = parseRoute();
     return (Number(stats.likes) || 0) + (Number(stats.reposts) || 0) + (Number(stats.replies) || 0);
   }
 
+  /* People search on the server: accounts made in this app are found by their
+     username or the name the viewer sees, even before this device has seen them.
+     Accounts that turned off "Let others find me in search" are left out by the
+     server (the site owner still finds them, audit-logged there). */
+  const PEOPLE_FOUND = {};
+  const PEOPLE_TTL = 60 * 1000;
+  let peopleTimer = 0;
+  let peopleWant = "";
+  function peopleKey(q) {
+    return String(q || "").trim().replace(/^@+/, "").toLowerCase().slice(0, 40);
+  }
+  function serverPeople(q) {
+    const key = peopleKey(q);
+    if (key.length < 2) return [];
+    const hit = PEOPLE_FOUND[key];
+    if (hit && Date.now() - hit.at < PEOPLE_TTL) return hit.accounts;
+    askServerPeople(key);
+    return hit ? hit.accounts : [];
+  }
+  function askServerPeople(key) {
+    const acc = window.ViktorychAccounts;
+    const token = accountToken();
+    if (!acc || !acc.call || !token) return;
+    if (peopleWant === key && peopleTimer) return;
+    peopleWant = key;
+    clearTimeout(peopleTimer);
+    peopleTimer = setTimeout(() => {
+      peopleTimer = 0;
+      const prev = PEOPLE_FOUND[key];
+      PEOPLE_FOUND[key] = { at: Date.now(), accounts: prev ? prev.accounts : [] };
+      acc.call("/v1/people?q=" + encodeURIComponent(key), { token: token }).then((res) => {
+        if (!res || res.status !== 200) { delete PEOPLE_FOUND[key]; return; }
+        const list = (Array.isArray(res.accounts) ? res.accounts : []).filter((item) => item && item.handle).map((item) => ({
+          id: String(item.id || ("app:@" + item.handle)),
+          kind: "account",
+          platform: "app",
+          appAccount: true,
+          handle: String(item.handle),
+          name: String(item.name || item.handle),
+          avatar: String(item.avatar || ""),
+          avatarFace: item.avatarFace || "",
+          bio: String(item.bio || "")
+        }));
+        const keys = Object.keys(PEOPLE_FOUND);
+        if (keys.length > 40) delete PEOPLE_FOUND[keys[0]];
+        PEOPLE_FOUND[key] = { at: Date.now(), accounts: list };
+        if (!list.length && !(prev && prev.accounts.length)) return;
+        const route = parseRoute();
+        const input = document.getElementById("explore-q");
+        if (input && peopleKey(input.value) === key && document.activeElement === input) syncExploreSuggest(input);
+        else if (route.name === "explore" && peopleKey(route.query.get("q") || "") === key) render();
+      }, () => { delete PEOPLE_FOUND[key]; });
+    }, 250);
+  }
+  function withServerPeople(q, hits) {
+    const found = serverPeople(q);
+    if (!found.length) return hits;
+    const seen = {};
+    (hits.accounts || []).forEach((f) => {
+      seen[String(f.id || "")] = 1;
+      if (String(f.id || "").indexOf("app:") === 0 || f.platform === "app") seen["app:@" + String(f.handle || "").toLowerCase()] = 1;
+    });
+    const extra = found.filter((f) => !seen[f.id] && !seen["app:@" + f.handle.toLowerCase()] && !matchesMute(STATE.settings.mutedAccounts, f.handle, "app", f.id));
+    if (!extra.length) return hits;
+    const key = peopleKey(q);
+    const exact = extra.filter((f) => f.handle.toLowerCase() === key);
+    const rest = extra.filter((f) => f.handle.toLowerCase() !== key);
+    return Object.assign({}, hits, { accounts: exact.concat(hits.accounts || [], rest) });
+  }
+
   function exploreHits(q) {
+    return withServerPeople(q, exploreLocalHits(q));
+  }
+
+  function exploreLocalHits(q) {
     const dev = window.ViktorychDevice;
     const idx = window.ViktorychDeviceSearch;
     if (dev && idx && dev.featureOn(dev.read(), "search", dev.signals()) && !dev.cooling("search")) {
@@ -16825,6 +16962,56 @@ const here = parseRoute();
     return matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || navigator.standalone === true;
   }
 
+  window.installPromptNow = installPromptNow;
+  window.triggerInstallModal = function() {
+    STATE.modal = "install";
+    render();
+  };
+  function installPromptNow() {
+    const prompt = STATE.installPrompt || window.__VIKTORYCH_INSTALL;
+    return prompt && typeof prompt.prompt === "function" ? prompt : null;
+  }
+
+  function installedHere() {
+    try { return !!localStorage.getItem("viktorychapp-installed"); } catch (err) { return false; }
+  }
+
+  // Which browser's own install steps to show when there is no install prompt.
+  function installHelpKind(ua) {
+    const text = String(ua == null ? navigator.userAgent || "" : ua);
+    const mobile = /android|mobile/i.test(text);
+    if (/firefox\/|fxios/i.test(text)) return mobile ? "firefox-android" : "firefox";
+    if (/edg\/|edga\//i.test(text)) return mobile ? "chrome-android" : "edge";
+    if (/chrome|chromium/i.test(text)) return mobile ? "chrome-android" : "chrome";
+    if (/macintosh/i.test(text) && /safari/i.test(text)) return "safari-mac";
+    return "other";
+  }
+
+  function installHelpHtml() {
+    const kind = installHelpKind();
+    const steps = (list) => `<ol class="install-steps">${list.map((line) => `<li>${esc(line)}</li>`).join("")}</ol>`;
+    const lead = installedHere() && kind !== "firefox" && kind !== "other"
+      ? `<p class="install-help-lead">${esc(tr("It looks like the app is already installed on this device. Open it from your apps or desktop."))}</p>`
+      : "";
+    let body = "";
+    if (kind === "chrome") {
+      body = steps([tr("Click the install icon at the right end of the address bar."), tr("Or open the ⋮ menu, choose Cast, save, and share, then Install page as app.")]);
+    } else if (kind === "edge") {
+      body = steps([tr("Click the install icon at the right end of the address bar."), tr("Or open the … menu, choose Apps, then Install this site as an app.")]);
+    } else if (kind === "chrome-android") {
+      body = steps([tr("Open the ⋮ menu."), tr("Choose Add to Home screen, then Install.")]);
+    } else if (kind === "safari-mac") {
+      body = steps([tr("In the menu bar, choose File."), tr("Choose Add to Dock, then click Add.")]);
+    } else if (kind === "firefox") {
+      body = `<p>${esc(tr("Firefox can’t install web apps on computers. Open this page in Chrome or Edge to install it."))}</p>`;
+    } else if (kind === "firefox-android") {
+      body = steps([tr("Open the ⋮ menu."), tr("Choose Add app to Home screen.")]);
+    } else {
+      body = `<p>${esc(tr("Open your browser menu and look for Install or Add to Home Screen. If it isn’t there, open this page in Chrome or Edge."))}</p>`;
+    }
+    return `<div class="install-help" data-kind="${esc(kind)}">${lead}${body}</div>`;
+  }
+
   function installOfferHtml() {
     const kind = installKindNow();
     const api = window.ViktorychNative;
@@ -16832,16 +17019,16 @@ const here = parseRoute();
     const extra = { touchMac: navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1 };
     const arrow = api && api.installArrow ? api.installArrow(kind, ua, extra) : (kind === "ios-safari" ? "down" : "");
     const benefit = (glyph, text) => `<li class="install-benefit"><span aria-hidden="true">${icon(glyph)}</span><span>${esc(text)}</span></li>`;
-    const benefits = `<ul class="install-benefits">${benefit("home", tr("It opens full screen and loads faster."))}${benefit("check", tr("Posts you already opened stay available offline."))}${benefit("plus", tr("It stays on your Home Screen or desktop."))}</ul>`;
+    const benefits = `<ul class="install-benefits">${benefit("home", tr("It opens full screen and loads faster."))}${benefit("check", tr("Posts you already opened stay available offline."))}${benefit("phone", tr("Default dialer, phone calls & offline contacts on Android."))}${benefit("plus", tr("It stays on your Home Screen or desktop."))}</ul>`;
     let body = "";
     if (kind === "ios-browser") {
       body = `<p>${esc(tr("This browser can’t add the app to your Home Screen. Open the page in Safari, then use the Share button."))}</p>`;
     } else if (kind === "ios-safari") {
       body = `${benefits}<ol class="install-steps"><li>${esc(tr("Tap Share in Safari"))}</li><li>${esc(tr("Choose Add to Home Screen"))}</li><li>${esc(tr("Tap Add"))}</li></ol>`;
-    } else if (kind === "native" || STATE.installPrompt) {
+    } else if (installPromptNow()) {
       body = `${benefits}<button class="install-go" type="button" data-act="install-go">${esc(tr("Install"))}</button>`;
     } else {
-      body = `<p>${esc(tr("In Safari, use Share or File, then Add to Dock. In Firefox, use the install icon in the address bar."))}</p>`;
+      body = installHelpHtml();
     }
     const pointer = arrow ? `<div class="install-arrow is-${arrow}" aria-hidden="true">${icon(arrow === "up" ? "arrowUp" : "arrowDown")}</div>` : "";
     return `<div class="install-offer" data-act="stop"><div class="install-panel" role="dialog" aria-modal="true" aria-label="${esc(tr("Install app"))}">
@@ -16976,7 +17163,7 @@ const here = parseRoute();
       ? `<a class="icon-btn" href="${backHref}" aria-label="${esc(tr("Back"))}">${icon("back")}</a>`
       : `<button class="icon-btn" type="button" data-act="back" aria-label="${esc(tr("Back"))}">${icon("back")}</button>`;
     return `<div class="topbar tall"><div class="mhead">
-        <button class="m-ava" type="button" data-act="drawer" aria-label="${esc(tr("Menu"))}"><span class="ava initials">Y</span></button>
+        <button class="m-ava" type="button" data-act="drawer" aria-label="${esc(tr("Menu"))}">${viewerFace()}</button>
         ${mobileLogo()}
         <a class="m-icon" href="#/settings" aria-label="${esc(tr("Settings"))}">${icon("spark")}</a>
       </div>
@@ -17131,7 +17318,8 @@ const here = parseRoute();
         ${homeFeatureSwitch("stories", tr("Stories"), tr("The stories tray and viewer. Off loads nothing for it."))}
         ${sw("story-notes", notesOn, tr("Show notes"), tr("Notes sit above stories. Turn this off to hide them."))}
         ${friendsOffNow() ? "" : sw("toggle-privacy-pref", friendsOn, tr("Friends panel"), tr("Show active friends beside the home feed."), ` data-key="friendsRail"`)}
-        ${localAiOn() ? sw("ai-fab", !!st.aiFab, tr("Local AI button"), tr("A round button on every page that opens Local AI."), "") : ""}`)}
+        ${localAiOn() ? sw("ai-fab", !!st.aiFab, tr("Local AI button"), tr("A round button on every page that opens Local AI."), "") : ""}
+        ${localAiSetupOn() ? `<div class="set-list">${settingsRow("#/ai?setup=1", tr("Set up Local AI again"), tr("Check this device, pick a model and choose how Local AI works."))}</div>` : ""}`)}
       ${sec(tr("Your feed"), `${sw("pz-feed", st.forYouReposts !== false, tr("Show reposts"), "", ` data-key="forYouReposts"`)}
         ${sw("pz-feed", st.forYouReplies !== false, tr("Show replies in tab"), "", ` data-key="forYouReplies"`)}
         ${sw("pz-feed", st.communitiesHome !== false, tr("Communities in Home"), "", ` data-key="communitiesHome"`)}
@@ -17180,6 +17368,7 @@ const here = parseRoute();
   /* Local AI (local-ai-ui.js): an owner switch, an entry at the top of
      Settings, the side menu, and an optional floating button. */
   function localAiOn() { return !serverOffList().includes("local_ai"); }
+  function localAiSetupOn() { return localAiOn() && !serverOffList().includes("local_ai_setup"); }
   function localAiEntryHtml() {
     if (!localAiOn() || String(STATE.settingsQ || "").trim()) return "";
     return `<a class="lai-entry" href="#/ai"><span class="lai-entry-ico" aria-hidden="true">${icon("spark")}</span><span class="lai-entry-copy"><b>${esc(tr("Ask Local AI"))}</b><span>${esc(tr("Say what you want changed, like “bigger text” or “make it private”. It runs on this device."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></a>`;
@@ -17567,8 +17756,10 @@ const here = parseRoute();
       </div>${netHelpHtml()}`;
     }
     if (section === "resources") {
+      const upgradeRow = isStandalone() ? `<div class="set-list"><button class="set-row" type="button" data-act="prompt-pwa-upgrade"><span class="set-copy"><b>${esc(tr("Upgrade app shortcut"))}</b><span class="set-sub">${esc(tr("Refresh native Android dialer, protocol handlers and shortcuts."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button></div>` : "";
       return settingsHead(tr("Additional resources"), "#/settings") + `<div class="set-block">
         ${installControl()}
+        ${upgradeRow}
         <div class="set-list">${settingsRow("#/send-to-tv", tr("Send to my TV"), tr("Open the app on your TV without typing a long address."))}</div>
         <button class="primary" type="button" data-act="export">${esc(tr("Export settings"))}</button>
         <label class="primary import-btn">${esc(tr("Import settings"))}<input id="import-file" data-act="import" type="file" accept="application/json" hidden></label>
@@ -17645,7 +17836,7 @@ const here = parseRoute();
 
   const DRAWER_LOCKED = ["home", "settings", "logout", "customize"];
   const DRAWER_PRIMARY = ["home", "explore", "notifications", "profile", "online", "premium", "communities", "bookmarks", "points", "lists", "spaces", "golive", "requests", "studio", "localai", "settings", "help", "logout", "customize"];
-  const DRAWER_EXTRA = ["tv", "messages", "feeds", "history", "shorts", "subscriptions", "vault", "packages", "storage", "games", "music"];
+  const DRAWER_EXTRA = ["contacts", "tv", "messages", "feeds", "history", "shorts", "subscriptions", "vault", "packages", "storage", "games", "music"];
   const DRAWER_IDS = DRAWER_PRIMARY.concat(DRAWER_EXTRA);
   const DRAWER_NAV = {
     home: "home",
@@ -18124,7 +18315,7 @@ if (STATE.histClear) {
         <div class="modal-head"><button class="icon-btn" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${tr("Quote")}</h2><button id="quote-post" class="save" data-act="quote-post" disabled>${tr("Post")}</button></div>
         <div class="modal-body" style="display:flex;gap:12px">
           ${face}
-          <div style="flex:1"><textarea id="quote-text" maxlength="280" placeholder="${tr("Add a comment")}" style="width:100%;min-height:120px;background:transparent;border:0;resize:vertical;font-size:20px;outline:none"></textarea></div>
+          <div style="flex:1;min-width:0"><textarea id="quote-text" maxlength="280" placeholder="${tr("Add a comment")}" style="width:100%;min-height:120px;background:transparent;border:0;resize:vertical;font-size:20px;outline:none"></textarea>${quoteSheetCard(locatePost(STATE.quoteTarget))}</div>
         </div></div></div>`;
     }
     if (STATE.modal === "list") {
@@ -18193,6 +18384,9 @@ if (STATE.histClear) {
     }
     if (STATE.modal === "tabs") {
       const pinned = STATE.settings.lists.filter((list) => list.pinned);
+      const reg = window.ViktorychSettingsSync;
+      const shared = !(STATE.settings && STATE.settings.syncUi === false);
+      const tabsSyncOn = reg && reg.catLocal ? !reg.catLocal("tabs") : true;
       const rows = pinned.map((list, index) => `<div class="acct-row tab-manage-row"><span class="color-chip" style="background:${esc(list.bannerColor || COLORS[0])}"></span><span class="who-copy"><span class="name">${esc(list.name)}</span><span class="handle">${trn("members", (list.members || []).length)}</span></span><button class="icon-btn" type="button" data-act="tab-move" data-id="${esc(list.id)}" data-dir="-1" aria-label="${esc(tr("Move {name} left", { name: list.name }))}"${index === 0 ? " disabled" : ""}>${icon("chevL")}</button><button class="icon-btn" type="button" data-act="tab-move" data-id="${esc(list.id)}" data-dir="1" aria-label="${esc(tr("Move {name} right", { name: list.name }))}"${index === pinned.length - 1 ? " disabled" : ""}>${icon("chevR")}</button><button class="outline" type="button" data-act="tab-unpin" data-id="${esc(list.id)}">${tr("Unpin")}</button></div>`).join("");
       return `<div class="modal-back" data-act="close-modal"><div class="modal" role="dialog" aria-label="${tr("Manage tabs")}" data-act="stop">
         <div class="modal-head"><button class="icon-btn" type="button" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${tr("Manage tabs")}</h2></div>
@@ -18203,6 +18397,7 @@ if (STATE.histClear) {
           <h3>${tr("Custom tabs")}</h3>
           <button class="outline" type="button" data-act="feed-tab-new" aria-label="${tr("New tab")}">${tr("New tab")}</button>
           ${feedTabs().map((tab) => `<div class="acct-row tab-manage-row"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="who-copy"><span class="name">${esc(tab.name)}</span><span class="handle">${tab.showHome === false ? tr("Hidden on Home") : tr("On Home")}${tab.showNotes === false ? " · " + tr("Hidden in Notifications") : ""}</span></span><button class="outline" type="button" data-act="feed-tab-edit" data-id="${esc(tab.id)}">${tr("Edit")}</button></div>`).join("") || `<p class="phandle">${tr("Create a tab to group accounts on Home and in Notifications.")}</p>`}
+          ${reg && shared && reg.catLocal ? `<button class="tab-switch${tabsSyncOn ? " on" : ""}" type="button" role="switch" aria-checked="${tabsSyncOn ? "true" : "false"}" data-act="sync-cat-local" data-cat="tabs"><span>${esc(tr("Sync these tabs across devices"))}</span><i></i></button><p class="phandle">${esc(tr("Off keeps this device's tabs on this device only."))}</p>` : ""}
         </div>
       </div></div>`;
     }
@@ -18616,8 +18811,21 @@ if (STATE.histClear) {
     return (post.media || []).some((item) => item && (item.type === "video" || item.type === "animated_gif"));
   }
 
+  // followedPost() asks for this once per post while a timeline is built, and
+  // each call walks every follow against every feed. The answer cannot change
+  // inside one synchronous paint, so it is kept until the current task ends.
+  let FOLLOW_IDS_MEMO = null;
   function followIdsNow() {
     const settings = STATE.settings || {};
+    const feedList = feeds();
+    if (FOLLOW_IDS_MEMO && FOLLOW_IDS_MEMO.follows === settings.follows && FOLLOW_IDS_MEMO.accountFollows === settings.accountFollows && FOLLOW_IDS_MEMO.feeds === feedList && FOLLOW_IDS_MEMO.n === feedList.length) return FOLLOW_IDS_MEMO.out;
+    const out = followIdsCompute(settings);
+    FOLLOW_IDS_MEMO = { follows: settings.follows, accountFollows: settings.accountFollows, feeds: feedList, n: feedList.length, out };
+    const drop = () => { FOLLOW_IDS_MEMO = null; };
+    if (typeof queueMicrotask === "function") queueMicrotask(drop); else Promise.resolve().then(drop);
+    return out;
+  }
+  function followIdsCompute(settings) {
     const raw = (settings.follows || []).concat(settings.accountFollows || []);
     const out = [];
     const seen = {};
@@ -18655,18 +18863,29 @@ if (STATE.histClear) {
     };
   }
 
+  function isOrgVerified(post, face) {
+    const v = (face && (face.verified || face.verifiedType)) ||
+              (post && (post.verifiedType || (post.verified && post.verified !== true && post.verified !== "blue"))) || "";
+    if (v === "business" || v === "organization") return true;
+    const feed = post ? feedOf(post) : null;
+    return !!(feed && (feed.verifiedType === "business" || feed.verifiedType === "organization"));
+  }
+
   function authorFace(post) {
     if (isRepost(post)) {
       const creator = creatorOf(post);
+      const reposter = post.repostedBy || {};
+      const byFeed = reposter.feedId ? feedById(reposter.feedId) : (reposter.handle ? findFeed(reposter.platform || post.platform || "x", reposter.handle) : null);
+      const reposterAva = reposter.avatar || (byFeed && byFeed.avatar) || "";
       return {
-        avatar: post.avatar || creator.avatar || "",
-        verified: post.verifiedType || creator.verifiedType || ""
+        avatar: post.avatar || (creator && creator.avatar) || reposterAva || "",
+        verified: post.verifiedType || (creator && creator.verifiedType) || ""
       };
     }
     const feed = feedOf(post);
     return {
-      avatar: post.avatar || feed.avatar || "",
-      verified: post.verifiedType || feed.verifiedType || ""
+      avatar: post.avatar || (feed && feed.avatar) || "",
+      verified: post.verifiedType || (feed && feed.verifiedType) || ""
     };
   }
 
@@ -19618,7 +19837,7 @@ if (STATE.histClear) {
     const ancHandle = internalPostHandle(post.handle || "", post);
     const shown = parentShown ? mentionless(post) : replyBody(post);
     return `<article class="ancestor" data-open="${esc(statusHash(post))}">
-      <div class="ava-col"><a data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author || post.handle)}</a><div class="thread-line"></div></div>
+      <div class="ava-col"><a data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author || post.handle, isOrgVerified(post, face) ? "sq" : "")}</a><div class="thread-line"></div></div>
       <div class="ancestor-main">
         <div class="byline">
           <a class="name" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(post.author || post.handle)}${badge(face.verified)}</a>
@@ -19888,6 +20107,12 @@ if (STATE.histClear) {
 
   function view(route) {
     if (route.name === "music") return (window.SIntelMusic && window.SIntelMusic.page(route)) || pageHead(productName("music")) + emptyBlock(tr("{music} isn’t available", { music: productName("music") }), tr("Reload the page."));
+    if (route.name === "contacts") {
+      if (!featureOn("contacts")) return pageHead(tr("Contacts")) + emptyBlock(tr("Contacts"), tr("Contacts is turned off right now."));
+      if (window.ViktorychContacts) return window.ViktorychContacts.page(route);
+      ensureLazy("contacts");
+      return lazySkeleton(tr("Contacts"));
+    }
     if (route.name === "shorts") {
       if (window.ViktorychShorts && window.ViktorychShorts.visible()) return window.ViktorychShorts.page(route);
       if (!window.ViktorychShorts) { ensureLazy("shorts"); return lazySkeleton(tr("Shorts")); }
@@ -20935,6 +21160,10 @@ if (STATE.histClear) {
         else if (window.ViktorychPrivacy.paint) window.ViktorychPrivacy.paint();
       }
       if (window.ViktorychPresence) window.ViktorychPresence.refresh(document.getElementById("app"));
+      if (window.ViktorychContacts) {
+        if (route.name === "contacts") window.ViktorychContacts.mount(route);
+        else if (window.ViktorychContacts.unmount) window.ViktorychContacts.unmount();
+      }
       if (window.ViktorychShorts) {
         if (route.name === "shorts") window.ViktorychShorts.mount(route);
         else window.ViktorychShorts.unmount();
@@ -21812,6 +22041,17 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       render({ y: 0 });
       return;
     }
+    if (act === "lai-post") {
+      const post = locatePost(el.dataset.id) || findAnyPost(el.dataset.id);
+      STATE.menu = null;
+      if (!post) { goHash("#/ai"); return; }
+      const author = post.handle ? `@${internalPostHandle(post.handle)}` : (post.author || "");
+      const body = String(post.text || post.title || "").trim();
+      const prefix = tr("Explain this post");
+      const prompt = body ? (prefix + (author ? " (" + author + "): " : ": ") + "\"" + body + "\"") : prefix;
+      goHash("#/ai?q=" + encodeURIComponent(prompt) + "&postId=" + encodeURIComponent(post.id));
+      return;
+    }
     if (act === "foryou-hide" || act === "foryou-less") {
       const post = findAnyPost(el.dataset.id);
       if (post && post.cmMirror && act === "foryou-hide") cmFyHideId(String(post.id));
@@ -22338,6 +22578,15 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (accts && accts.runSetup) accts.runSetup();
       return;
     }
+    if (act === "prompt-pwa-upgrade") {
+      if (window.installPromptNow && window.installPromptNow()) {
+        const pr = window.installPromptNow();
+        if (pr && pr.prompt) pr.prompt();
+      } else {
+        alert(tr("To upgrade system integration, reinstall from browser menu or allow Android WebAPK background update."));
+      }
+      return;
+    }
     if (act === "install") {
       STATE.drawer = false;
       STATE.drawerEdit = false;
@@ -22348,15 +22597,24 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "install-go") {
-      const prompt = STATE.installPrompt || window.__VIKTORYCH_INSTALL;
-      if (prompt && prompt.prompt) {
-        STATE.installPrompt = null;
-        window.__VIKTORYCH_INSTALL = null;
-        Promise.resolve().then(() => prompt.prompt()).then(() => prompt.userChoice).then(() => {
-          STATE.modal = null;
-          render();
-        }).catch(() => render());
+      const prompt = installPromptNow();
+      // A deferred prompt can be used once. Without one, show the browser's
+      // own install steps instead of a button that does nothing.
+      STATE.installPrompt = null;
+      window.__VIKTORYCH_INSTALL = null;
+      if (!prompt) {
+        render();
+        return;
       }
+      let shown;
+      try { shown = prompt.prompt(); } catch (err) { shown = Promise.reject(err); }
+      Promise.resolve(shown).then(() => prompt.userChoice).then((choice) => {
+        if (choice && choice.outcome === "accepted") {
+          try { localStorage.setItem("viktorychapp-installed", String(Date.now())); } catch (err) { /* private mode */ }
+          STATE.modal = null;
+        }
+        render();
+      }).catch(() => render());
       return;
     }
     if (act === "install-later" || act === "install-never") {
@@ -24814,7 +25072,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     scrollTick = 0;
     paintProfileChrome();
     const homeStories = parseRoute().name === "home" && document.querySelector(".story-shell");
-    if (window.innerWidth >= 500 || homeStories) {
+    const isBarNav = document.documentElement.getAttribute("data-nav-layout") === "bar";
+    if ((window.innerWidth >= 500 && !isBarNav) || homeStories) {
       STATE.headerHidden = false;
       paintChromeHidden(false);
       return;
@@ -24848,6 +25107,20 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }, 200);
     }
   });
+  /* The card lives on hover only. A route change or a scroll removes or
+     moves the anchor without a mouseout, so an open card would stay parked
+     on the page and block what sits under it (it can end up over the
+     top-left menu button). Drop it there too. */
+  window.addEventListener("hashchange", () => {
+    clearTimeout(hoverTimer);
+    const box = document.getElementById("hover");
+    if (box) box.innerHTML = "";
+  });
+  window.addEventListener("scroll", () => {
+    clearTimeout(hoverTimer);
+    const box = document.getElementById("hover");
+    if (box && box.childElementCount) box.innerHTML = "";
+  }, { passive: true });
 
   function presenceIdOf(profile) {
     const raw = String((profile && profile.publicId) || "");
@@ -24862,12 +25135,19 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const rect = el.getBoundingClientRect();
     const box = document.getElementById("hover");
     if (!box || !profile) return;
+    /* The anchor can be gone from the screen (a row that collapsed or
+       scrolled away between the hover and the paint): an off-screen anchor
+       would clamp the card into the top-left corner, over the menu. */
+    if (rect.width < 4 || rect.height < 4 || rect.bottom < 4 || rect.top > window.innerHeight - 4) {
+      box.innerHTML = "";
+      return;
+    }
     const handle = profile.displayHandle || (profile.platform === "youtube" ? "" : profile.handle);
     const id = liveFollowId(profile);
     const bannerFace = faceChoice("banner", profile.banner, profile.bannerFace);
     const banner = bannerFace === "none" ? "" : (bannerFace === "photo" ? `<div class="hbanner" style="background:url(${encodeURI(profile.banner)}) center/cover"></div>` : `<div class="hbanner"></div>`);
     const pid = presenceIdOf(profile);
-    let face = avatar(profile.avatar, profile.name, "pava", profile.avatarFace);
+    let face = avatar(profile.avatar, profile.name, isOrgVerified(null, profile) ? "pava sq" : "pava", profile.avatarFace);
     let seen = "";
     if (pid && window.ViktorychPresence) {
       face = window.ViktorychPresence.wrap(pid, face);
@@ -26468,8 +26748,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
 
   /* A calm note when our servers keep failing or stalling while the device
      is online. The offline note wins when both apply. */
+  let netLimitedTimer = 0;
   function setLimited(on) {
     STATE.netLimited = !!on;
+    if (netLimitedTimer) { clearTimeout(netLimitedTimer); netLimitedTimer = 0; }
+    if (STATE.netLimited) {
+      netLimitedTimer = setTimeout(() => {
+        STATE.netLimited = false;
+        paintNetNote();
+      }, 8000);
+    }
     paintNetNote();
   }
 
@@ -27427,6 +27715,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
 
   function consumeShareTarget() {
+    const p = new URLSearchParams(location.search);
+    if (p.has("tel") || p.has("call") || p.has("contact")) {
+      const q = encodeURIComponent(p.get("tel") || p.get("call") || p.get("contact") || "");
+      history.replaceState(null, "", location.pathname + "#/contacts?tel=" + q);
+      return;
+    }
     const params = new URLSearchParams(location.search);
     const media = params.get("media") || "";
     const posting = params.get("post") === "1";
@@ -28648,6 +28942,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
 
   function scheduleDeviceIndex() {
+    if (window.ViktorychLocalAIPage && window.ViktorychLocalAIPage.prewarm) {
+      try { window.ViktorychLocalAIPage.prewarm(); } catch (err) {}
+    }
     if (parseRoute().name !== "explore" && parseRoute().name !== "settings") return;
     const run = () => {
       if (gameBusy()) return;
@@ -28780,16 +29077,28 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (choice.mode !== "later") return;
       if (offerInstall("return")) render();
     }, 1600);
-    window.addEventListener("beforeinstallprompt", (event) => {
-      event.preventDefault();
+    // index.html catches beforeinstallprompt in <head>, before this file
+    // runs; pick up a prompt that already arrived and any later one.
+    if (window.__VIKTORYCH_INSTALL && window.__VIKTORYCH_INSTALL.prompt) STATE.installPrompt = window.__VIKTORYCH_INSTALL;
+    const takeInstallPrompt = (event) => {
       STATE.installPrompt = event;
       window.__VIKTORYCH_INSTALL = event;
-      try { document.dispatchEvent(new CustomEvent("viktorych-install-ready")); } catch (err) { /* the menu install button still works */ }
+      try { localStorage.removeItem("viktorychapp-installed"); } catch (err) { /* private mode */ }
       render();
+    };
+    document.addEventListener("viktorych-install-ready", () => {
+      if (window.__VIKTORYCH_INSTALL && window.__VIKTORYCH_INSTALL !== STATE.installPrompt) takeInstallPrompt(window.__VIKTORYCH_INSTALL);
+    });
+    window.addEventListener("beforeinstallprompt", (event) => {
+      event.preventDefault();
+      if (event === STATE.installPrompt) return;
+      takeInstallPrompt(event);
     });
     window.addEventListener("appinstalled", () => {
       STATE.installPrompt = null;
       window.__VIKTORYCH_INSTALL = null;
+      try { localStorage.setItem("viktorychapp-installed", String(Date.now())); } catch (err) { /* private mode */ }
+      if (STATE.modal === "install") STATE.modal = null;
       if (window.ViktorychStorage && window.ViktorychStorage.askPersist) window.ViktorychStorage.askPersist();
       render();
     });
@@ -30103,6 +30412,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     if (row.store === "pymk") {
       const P = window.ViktorychPYMK;
+      if (row.key === "searchable") return P && P.searchable ? P.searchable() !== false : undefined;
       return P && P.discoverable ? P.discoverable() !== false : undefined;
     }
     if (row.store === "presence") {
@@ -30212,7 +30522,21 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     },
     go: (hash) => goHash(hash),
     toast: (msg) => toast(msg),
-    icon: (name) => icon(name)
+    icon: (name) => icon(name),
+    logo: () => markSvg("mark", "lai-logo"),
+    appName: () => productName("app"),
+    /* First-run setup. The choices sync with the account; model files stay on the device. */
+    setupRequired: () => localAiSetupOn(),
+    setup: () => {
+      const v = STATE.settings && STATE.settings.aiSetup;
+      return v && typeof v === "object" ? Object.assign({}, v) : null;
+    },
+    saveSetup: (v) => {
+      if (!STATE.settings) return;
+      STATE.settings.aiSetup = v && typeof v === "object" ? v : null;
+      STATE.settings.prefsAt = Object.assign({}, STATE.settings.prefsAt || {}, { aiSetup: Date.now() });
+      saveSettings();
+    }
   };
 
   window.ViktorychSetup = {

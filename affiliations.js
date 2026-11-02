@@ -57,7 +57,8 @@
 
   function badgeButton(item) {
     var label = tr("Affiliated with {name}", { name: item.name });
-    return '<span class="aff-badge" role="link" tabindex="0" title="' + esc(label) + '" data-aff-open="' + esc(item.id) + '" data-aff-name="' + esc(item.name) + '" data-aff-logo="' + esc(item.logo) + '" data-aff-href="' + esc(item.href || "") + '" aria-label="' + esc(label) + '"><img src="' + esc(item.logo) + '" alt="" decoding="async"></span>';
+    var logo = root.ruSafeImageUrl ? root.ruSafeImageUrl(item.logo) : item.logo;
+    return '<span class="aff-badge" role="link" tabindex="0" title="' + esc(label) + '" data-aff-open="' + esc(item.id) + '" data-aff-name="' + esc(item.name) + '" data-aff-logo="' + esc(logo) + '" data-aff-href="' + esc(item.href || "") + '" aria-label="' + esc(label) + '"><img src="' + esc(logo) + '" alt="" decoding="async" onerror="this.style.display=\'none\'"></span>';
   }
 
   function paint() {

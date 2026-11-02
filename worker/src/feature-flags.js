@@ -35,8 +35,13 @@ export const FEATURES = {
   nft: { paths: ["/v1/nft"], defaultOff: true },
   // Nearby chat (Bitchat). No server endpoints; clients stop offering it when off.
   bitchat: { paths: [] },
+  // Contacts address book: local-first directory, device contact sync, dialer protocol.
+  contacts: { paths: [] },
   // Local AI settings page. No server endpoints: models run on the device.
-  local_ai: { paths: [] }
+  local_ai: { paths: [] },
+  // Local AI first-run setup: device check, download, test and preferences
+  // before the chat opens. No server endpoints; choices sync with prefs.
+  local_ai_setup: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

@@ -1,6 +1,7 @@
 /* Short notes above the story avatars. One note per account.
    The worker decides who may see it. A note is not a story. */
 
+import { friendshipLive } from "./friends-pref.js";
 import { inspectHandle } from "../../shared/handle-skeleton.js";
 import { blocksEither, actorHidden } from "./social.js";
 import { notLocked } from "./locked-sql.js";
@@ -82,7 +83,7 @@ async function mutual(env, leftId, rightId) {
   const row = await env.DB.prepare(
     "SELECT user_id FROM account_friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)"
   ).bind(leftId, rightId, rightId, leftId).first();
-  if (row) return true;
+  if (row && await friendshipLive(env, leftId, rightId)) return true;
   return (await follows(env, leftId, rightId)) && (await follows(env, rightId, leftId));
 }
 
