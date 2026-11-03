@@ -30883,19 +30883,6 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const info = event.detail || {};
     if (info.name === "shorts") bindShortsModule();
     if (info.name === "communities") bindCommunitiesModule();
-    if (info.name === "music" && window.SIntelMusic && !window.SIntelMusic.__shell) {
-      if (window.SIntelMusic.install && window.__VIKTORYCH_ICON_PATHS) window.SIntelMusic.install(window.__VIKTORYCH_ICON_PATHS);
-      window.SIntelMusic.__shell = true;
-      if (window.SIntelMusic.bind) {
-        window.SIntelMusic.bind({
-          render: function () { render(); },
-          toast: toast,
-          go: goHash,
-          repo: function () { return GITHUB_REPO; }
-        });
-      }
-      if (window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(parseRoute());
-    }
     if (!info.silent || (info.name === "servers" && parseRoute().name === "messages")) render();
   });
   setTimeout(deviceHello, 6000);
@@ -30903,7 +30890,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   setTimeout(() => {
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();
-      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers", "music", "discord", "gifts", "nostr", "mesh", "tvshell"];
+      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers", "discord", "gifts", "nostr", "mesh", "tvshell"];
       if (saver) saver.whenRoomy(() => window.ViktorychLazy.preload(list));
       else window.ViktorychLazy.preload(list);
     }

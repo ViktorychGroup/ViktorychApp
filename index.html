@@ -671,6 +671,7 @@
     <link rel="stylesheet" href="pymk.css">
     <link rel="stylesheet" href="friend-privacy.css">
     <link rel="stylesheet" href="spaces.css">
+    <link rel="stylesheet" href="music.css">
     <link rel="stylesheet" href="x-settings.css">
     <link rel="stylesheet" href="stories.css">
     <link rel="stylesheet" href="accounts.css">
@@ -713,15 +714,12 @@
     <link rel="stylesheet" href="discord-ui.css">
     <link rel="stylesheet" href="discord-local.css">
     <link rel="stylesheet" href="discord-key-helper.css">
-    <link rel="stylesheet" href="music.css">
     <link rel="stylesheet" href="gifts.css">
     <script src="tv.js" defer></script>
     <script src="discord-ui.js" defer></script>
     <script src="discord-picks.js" defer></script>
     <script src="discord-local.js" defer></script>
     <script src="discord-key-helper.js" defer></script>
-    <script src="ytm.js" defer></script>
-    <script src="music.js" defer></script>
     <script src="shared/gift-catalog.js" type="module"></script>
     <script src="shared/store-catalog.js" type="module"></script>
     <script src="gifts-ui.js" defer></script>
@@ -746,6 +744,8 @@
     <script src="audience-ui.js" defer></script>
     <script src="usernames-ui.js" defer></script>
     <script src="display-names-ui.js" defer></script>
+    <script src="ytm.js" defer></script>
+    <script src="music.js" defer></script>
     <script src="shared/handle-skeleton.js" type="module"></script>
     <script src="shared/reposts.js" type="module"></script>
     <script src="shared/lazy-modules.js" defer></script>
@@ -821,7 +821,6 @@
         var tv = document.documentElement.classList.contains("tv-on");
         try { if (window.ViktorychTVMode && window.ViktorychTVMode.on) tv = true; } catch (err) {}
         if (tv || hashIs("#/tv") || hashIs("#/link-tv") || hash.indexOf("#/linktv") === 0 || hashIs("#/send-to-tv")) names.push("tv.js", "tv.css");
-        if (hashIs("#/music")) names.push("ytm.js", "music.js", "music.css");
         if (/^#\/messages(?=$|[/?])/.test(hash)) names.push("discord-ui.js", "discord-picks.js", "discord-local.js", "discord-key-helper.js", "discord-ui.css", "discord-local.css", "discord-key-helper.css");
         if (hashIs("#/store") || hashIs("#/gifts") || hashIs("#/points")) names.push("shared/gift-catalog.js", "shared/store-catalog.js", "gifts-ui.js", "nft-ui.js", "gifts.css");
         if (hashIs("#/nostr") || hash.indexOf("#/settings/nostr") === 0) names.push("nostr.js");
