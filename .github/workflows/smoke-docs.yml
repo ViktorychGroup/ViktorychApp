@@ -1,0 +1,27 @@
+name: Page smoke (docs only)
+
+# Branch protection requires a check named smoke. The real Page smoke
+# workflow skips a pull request that only changes markdown and docs, so
+# that check never appears and the pull request cannot merge. This job
+# reports the same check name and succeeds. It does not run the suite.
+# A pull request that also changes code still runs the real Page smoke
+# workflow, and that result must pass too.
+
+on:
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "docs/**"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Docs only
+        run: |
+          echo 'docs-only: page smoke not needed'
