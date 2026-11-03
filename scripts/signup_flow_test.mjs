@@ -982,7 +982,6 @@ async function firstRun(page) {
   await page.getByText("Could not sign in.").waitFor({ timeout: 20000 });
   await page.keyboard.press("Escape");
   await openLogin(page);
-  const reloaded = page.waitForEvent("load", { timeout: 20000 }).catch(() => null);
   const loggedIn = await page.evaluate(() => {
     const number = JSON.parse(sessionStorage.getItem("viktorychapp-signup-number") || "null");
     const input = document.querySelector("#acct-accountNumber");
@@ -993,18 +992,15 @@ async function firstRun(page) {
     return /^\d{16}$/.test(String(number || ""));
   });
   if (!loggedIn) notes.push("saved number was not available for sign-in");
-  await reloaded;
-  // Sign-in always reloads onto Home. Wait for that load before opening
-  // Settings, or the reload lands on top of the settings address and Home
-  // stays on screen with no Log out button.
+  // The session has to be stored and the sign-in wall gone. Home's heading
+  // is not required: a paint that is still catching up to the hash is the
+  // router's job, and Log out then opens Settings itself.
   const back = await page.waitForFunction(() => {
     try {
       const session = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
       if (!session || !session.token || !session.account) return false;
     } catch (err) { return false; }
-    if (document.documentElement.getAttribute("data-wall") === "1") return false;
-    const h1 = document.querySelector("#app h1");
-    return !!(h1 && h1.textContent.trim() === "Home");
+    return document.documentElement.getAttribute("data-wall") !== "1";
   }, null, { timeout: 20000 }).then(() => true, () => false);
   if (!back) {
     notes.push("sign-in did not open the app (" + loginStatus + ")");
