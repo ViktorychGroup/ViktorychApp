@@ -251,17 +251,24 @@ async function main() {
         await page.click(".wco .wco-close");
         if (await page.evaluate(() => window.__closed) !== 1) fail("Close did not call window.close()");
         // Something unsaveable: ask first; cancel keeps the window.
-        await page.evaluate(() => {
+        // A reply-parent redraw calls commitApp and replaces #app. Waiting
+        // for the Close button to sit still lets that redraw drop the field,
+        // and Close then sees nothing to ask about. Plant the field and
+        // press the button that is on screen in the same turn.
+        const after = await page.evaluate(() => {
+          const app = document.getElementById("app");
           const area = document.createElement("textarea");
           area.value = "unsent reply";
-          document.getElementById("app").appendChild(area);
+          app.appendChild(area);
           window.__asked = 0;
           window.confirm = () => { window.__asked += 1; return false; };
+          const btn = document.querySelector(".wco .wco-close");
+          if (!btn || !area.isConnected) return { closed: window.__closed, asked: 0 };
+          btn.click();
+          return { closed: window.__closed, asked: window.__asked };
         });
-        await page.click(".wco .wco-close");
-        const after = await page.evaluate(() => ({ closed: window.__closed, asked: window.__asked }));
         if (after.asked !== 1 || after.closed !== 1) fail("unsaved text did not ask before closing " + JSON.stringify(after));
-        await page.evaluate(() => { document.querySelector("#app > textarea").remove(); const t = document.getElementById("toast"); if (t) t.hidden = true; });
+        await page.evaluate(() => { const area = document.querySelector("#app > textarea"); if (area) area.remove(); const t = document.getElementById("toast"); if (t) t.hidden = true; });
         await page.mouse.move(400, 400);
         // Full screen hides the title bar.
         await page.click(".wco [data-desk='fullscreen']");

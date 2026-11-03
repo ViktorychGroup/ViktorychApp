@@ -403,6 +403,10 @@
     return livePane === "past" ? "past" : paneNow();
   }
 
+  function rowPaused(row) {
+    return !!(row && row.capPaused);
+  }
+
   function orderLiveNow(rows, previous) {
     var prior = Array.isArray(previous) ? previous.map(foldHandle) : [];
     return (rows || []).slice().sort(function (a, b) {
@@ -420,6 +424,24 @@
       if (left > right) return 1;
       return 0;
     });
+  }
+
+  function playableNeighbor(rows, handle, delta) {
+    var list = rows || [];
+    var step = Number(delta) < 0 ? -1 : 1;
+    var cursor = handle;
+    var guard = 0;
+    while (guard < list.length) {
+      cursor = neighborHandle(list, cursor, step);
+      if (!cursor) return "";
+      var row = null;
+      for (var i = 0; i < list.length; i++) {
+        if (foldHandle(list[i] && list[i].handle) === foldHandle(cursor)) { row = list[i]; break; }
+      }
+      if (!rowPaused(row)) return cursor;
+      guard += 1;
+    }
+    return "";
   }
 
   function neighborHandle(rows, handle, delta) {
@@ -726,6 +748,7 @@
 
   function orderedNow() {
     var ordered = orderLiveNow(liveRows(), lastLiveOrder);
+    if (window.ViewerCap && window.ViewerCap.sinkPaused) ordered = window.ViewerCap.sinkPaused(ordered, rowPaused);
     lastLiveOrder = ordered.map(function (row) { return foldHandle(row.handle); });
     swipeQueue = ordered;
     return ordered;
@@ -736,9 +759,10 @@
     var profile = "https://www.tiktok.com/@" + encodeURIComponent(handle) + "/live";
     var appProfile = "#/tiktok/" + encodeURIComponent(handle);
     var on = !!(row && row.live);
+    var held = rowPaused(row);
     var avatar = avatarFor(handle, row);
     var cover = avatar ? '<img class="shorts-poster" alt="" src="' + hooks.esc(avatar) + '" referrerpolicy="no-referrer">' : "";
-    var preview = on ? '<video class="shorts-preview" muted playsinline webkit-playsinline preload="none"' + (avatar ? ' poster="' + hooks.esc(avatar) + '"' : "") + "></video>" : "";
+    var preview = on && !held ? '<video class="shorts-preview" muted playsinline webkit-playsinline preload="none"' + (avatar ? ' poster="' + hooks.esc(avatar) + '"' : "") + "></video>" : "";
     var body = on
       ? cover + preview + '<button class="shorts-hit" type="button" data-shorts="watch" aria-label="' + hooks.esc(tr("LIVE")) + '"></button>'
       : cover + '<div class="shorts-offline"><h2>' + hooks.esc(tr("Not live right now")) + "</h2>" +
@@ -748,11 +772,13 @@
     var badge = on ? '<span class="shorts-live-tag">' + hooks.esc(tr("LIVE")) + "</span>" : "";
     var recText = recordLabel(row);
     var recBadge = recText ? '<span class="shorts-rec-tag">' + hooks.esc(recText) + "</span>" : "";
-    return '<article class="shorts-slide" data-kind="live" data-live="' + (on ? "1" : "0") + '" data-handle="' + hooks.esc(handle) + '">' +
+    var capNote = held ? '<p class="shorts-over-note">' + hooks.esc(tr("Live paused: over {count} viewers", { count: String(row.cap != null ? row.cap : 20) })) + "</p>" : "";
+    return '<article class="shorts-slide' + (held ? " is-over-cap" : "") + '" data-kind="live" data-live="' + (on && !held ? "1" : "0") + '" data-handle="' + hooks.esc(handle) + '">' +
       '<div class="shorts-stage">' + body +
       '<div class="shorts-meta">' + badge + recBadge + viewers +
       '<div><a class="shorts-author" href="' + hooks.esc(appProfile) + '">@' + hooks.esc(handle) + "</a></div>" +
       (row && row.title ? '<p class="shorts-caption">' + hooks.esc(row.title) + "</p>" : "") +
+      capNote +
       (on ? '<a class="shorts-open" target="_blank" rel="noopener noreferrer" href="' + hooks.esc(profile) + '">' + hooks.esc(tr("Open on TikTok")) + "</a>" : "") +
       "</div>" +
       (avatar ? '<a class="shorts-ava" style="position:absolute;right:12px;bottom:96px;z-index:2" href="' + hooks.esc(appProfile) + '">' + hooks.avatar(avatar, handle) + "</a>" : "") +
@@ -812,6 +838,43 @@
     }).join("");
   }
 
+  var CAP_KEY = "viktorych_viewer_cap";
+  function capPrefs() {
+    var cap = 20;
+    var autoRestart = false;
+    try {
+      var row = JSON.parse(localStorage.getItem(CAP_KEY) || "{}");
+      if (row && (row.cap === "off" || row.cap === 0 || row.cap === "0")) cap = "off";
+      else if (row && Number(row.cap) >= 1) cap = Math.floor(Number(row.cap));
+      autoRestart = !!(row && row.autoRestart === true);
+    } catch (err) { cap = 20; }
+    return { cap: cap, autoRestart: autoRestart };
+  }
+  function saveCapPrefs(next) {
+    var row = { cap: next.cap === "off" ? "off" : Number(next.cap) || 20, autoRestart: next.autoRestart === true };
+    try { localStorage.setItem(CAP_KEY, JSON.stringify(row)); } catch (err) { /* the server copy still applies */ }
+    var base = apiBase();
+    if (!base || !hooks.token()) return;
+    fetch(base + "/v1/owner/tiktok/viewer-cap", {
+      method: "POST",
+      headers: Object.assign({ "content-type": "application/json" }, authHeaders()),
+      body: JSON.stringify(row)
+    }).catch(function () {});
+  }
+  function capSettingsHtml() {
+    var prefs = capPrefs();
+    var choices = [["10", "10"], ["20", "20"], ["50", "50"], ["off", tr("Off")]];
+    var buttons = choices.map(function (pair) {
+      var on = String(prefs.cap) === pair[0];
+      return '<button type="button" class="shorts-cap-choice' + (on ? " on" : "") + '" data-shorts="cap" data-cap="' + pair[0] + '">' + hooks.esc(pair[1]) + "</button>";
+    }).join("");
+    return '<div class="shorts-cap"><b>' + hooks.esc(tr("Viewer cap")) + "</b>" +
+      "<small>" + hooks.esc(tr("Pause a live, including playback, when more people than this are watching. Off leaves every live playing.")) + "</small>" +
+      '<div class="shorts-cap-choices">' + buttons + "</div>" +
+      '<button type="button" class="shorts-cap-restart' + (prefs.autoRestart ? " on" : "") + '" data-shorts="cap-restart" aria-pressed="' + (prefs.autoRestart ? "true" : "false") + '">' +
+      hooks.esc(tr("Restart recording when the count drops")) + "</button></div>";
+  }
+
   function accountSheet() {
     if (!ownerHere()) return "";
     var locked = isLocked();
@@ -827,6 +890,7 @@
       '<div class="shorts-lock-info"><b>' + hooks.esc(tr("Locked mode")) + "</b><small>" + hooks.esc(tr("When locked, only unlocked accounts are visible.")) + "</small></div>" +
       '<button type="button" class="shorts-lock-toggle' + (locked ? " on" : "") + '" data-shorts="toggle-lock">' + lockSvg(locked) + "<span>" + hooks.esc(locked ? tr("Locked") : tr("Unlocked")) + "</span></button>" +
       "</div>" +
+      capSettingsHtml() +
       "<h3>" + hooks.esc(tr("Unlocked accounts")) + "</h3>" +
       '<ul class="shorts-account-list shorts-unlocked-list" id="shorts-unlocked">' + renderUnlocked() + "</ul>" +
       "<h3>" + hooks.esc(tr("added accounts")) + "</h3>" +
@@ -1509,8 +1573,12 @@
     });
   }
 
+  var proxyHandle = "";
+  var resumeOpen = function () {};
   function proxyUrl(direct) {
-    return playBase() + "/v1/owner/media?url=" + encodeURIComponent(direct);
+    var url = playBase() + "/v1/owner/media?url=" + encodeURIComponent(direct);
+    if (proxyHandle && /^[A-Za-z0-9._]{2,24}$/.test(proxyHandle)) url += "&handle=" + encodeURIComponent(proxyHandle);
+    return url;
   }
 
   function destroyMpeg() {
@@ -1604,11 +1672,15 @@
       roomId: (info && info.roomId) || prev.roomId || "",
       lastLiveAt: (info && info.lastLiveAt) || prev.lastLiveAt || "",
       checkedAt: (info && info.checkedAt) || prev.checkedAt || "",
-      detail: (info && info.detail) || ""
+      detail: (info && info.detail) || "",
+      capPaused: !!(info && info.capPaused),
+      cap: info && info.cap != null ? info.cap : (prev.cap != null ? prev.cap : 20)
     };
     cached.live[slot] = next;
     if (quiet && next.live) {
       patchViewers(next.handle, next);
+      if (next.capPaused) holdOverCap(next.handle, next);
+      else if (prev.capPaused && !next.capPaused) releaseOverCap(next.handle);
       return;
     }
     schedulePaint();
@@ -2080,9 +2152,69 @@
     statsTimer = setInterval(statsTick, 15000);
   }
 
+  function lastFrame(video) {
+    if (!video || !video.videoWidth || !video.videoHeight) return "";
+    try {
+      var canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      var ctx = canvas.getContext("2d");
+      if (!ctx) return "";
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/png");
+    } catch (err) { return ""; }
+  }
+
+  function holdOverCap(handle, info) {
+    var root = liveRoot();
+    if (root && root.getAttribute("data-handle") === handle) {
+      var video = root.querySelector("video");
+      var shot = lastFrame(video);
+      stopStats();
+      destroyHls();
+      destroyMpeg();
+      if (video) {
+        try { video.pause(); } catch (err) { /* already quiet */ }
+        video.removeAttribute("src");
+        try { video.load(); } catch (err) { /* buffers dropped */ }
+      }
+      var cover = root.querySelector(".shorts-live-cover");
+      var img = cover && cover.querySelector("img");
+      if (shot && img) img.src = shot;
+      else if (shot && cover) {
+        img = document.createElement("img");
+        img.alt = "";
+        img.src = shot;
+        cover.insertBefore(img, cover.firstChild);
+      }
+      root.classList.add("is-over-cap");
+      var cap = info && info.cap != null ? info.cap : 20;
+      showLiveMessage(handle, tr("Live paused: over {count} viewers", { count: String(cap) }));
+      if (foldHandle(previewHandle) === foldHandle(handle)) stopPreview();
+    }
+    if (foldHandle(previewHandle) === foldHandle(handle)) stopPreview();
+  }
+
+  function releaseOverCap(handle) {
+    var root = liveRoot();
+    if (!root || root.getAttribute("data-handle") !== handle) return;
+    if (!root.classList.contains("is-over-cap")) return;
+    root.classList.remove("is-over-cap");
+    var note = root.querySelector(".shorts-live-note");
+    if (note) note.textContent = "";
+    var cover = root.querySelector(".shorts-live-cover");
+    if (cover) cover.hidden = true;
+    resumeOpen(handle);
+  }
+
   function applyPlayerStats(handle, info) {
     var root = liveRoot();
     if (!root || root.getAttribute("data-handle") !== handle || !info || info.blocked) return;
+    if (info.capPaused) {
+      if (!root.classList.contains("is-over-cap")) holdOverCap(handle, info);
+      return;
+    }
+    if (root.classList.contains("is-over-cap")) releaseOverCap(handle);
     if (info.live === false) {
       endLive(handle);
       return;
@@ -2285,6 +2417,7 @@
   }
 
   function closeLive() {
+    proxyHandle = "";
     liveToken += 1;
     liveFatal = null;
     onLiveLevel = null;
@@ -2590,6 +2723,8 @@
     if (!slide || !previewsOn() || liveRoot()) return;
     var handle = slide.getAttribute("data-handle") || "";
     if (!handle || foldHandle(handle) === foldHandle(previewHandle)) return;
+    if (rowPaused(liveStatus(handle))) return;
+    proxyHandle = handle;
     stopPreview();
     var token = previewToken;
     previewHandle = handle;
@@ -2653,9 +2788,155 @@
     return { video: video, hls: player, at: at };
   }
 
+  var localCopy = null;
+  function recordPrefs() {
+    try {
+      var row = JSON.parse(localStorage.getItem("viktorych_live_record") || "{}");
+      return { auto: row.auto === true, server: row.server === true };
+    } catch (err) { return { auto: false, server: false }; }
+  }
+  function saveRecordPrefs(next) {
+    var row = { auto: next.auto === true, server: next.server === true };
+    try { localStorage.setItem("viktorych_live_record", JSON.stringify(row)); } catch (err) { /* the tap still records */ }
+    var base = apiBase();
+    if (!base || !hooks.token()) return;
+    fetch(base + "/v1/owner/live-record", {
+      method: "POST",
+      headers: Object.assign({ "content-type": "application/json" }, authHeaders()),
+      body: JSON.stringify({ server: row.server, auto: false })
+    }).catch(function () {});
+  }
+  function frameGrabOn() {
+    if (!ownerHere()) return false;
+    try {
+      var list = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]");
+      return !(Array.isArray(list) && list.indexOf("live_frame_grab") >= 0);
+    } catch (err) { return true; }
+  }
+  function downloadBytes(bytes, name, type) {
+    var blob = new Blob([bytes], { type: type || "application/octet-stream" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  function copySegments(handle, info) {
+    var Copy = window.LiveCopy;
+    if (!Copy) return Promise.reject(new Error("copy"));
+    var source = Copy.bestSource(info);
+    if (!source || source.kind !== "hls") return Promise.reject(new Error("source"));
+    proxyHandle = handle;
+    return fetch(proxyUrl(source.url), { headers: authHeaders() }).then(function (res) {
+      if (!res || !res.ok) throw new Error("playlist");
+      return res.text();
+    }).then(function (text) {
+      var parsed = Copy.parseHls(text, source.url);
+      var plan = Copy.copyPlan(parsed);
+      if (!plan.ok) throw new Error("plan");
+      var urls = parsed.segments.slice();
+      if (plan.method === "concat-fmp4" && parsed.map) urls.unshift(parsed.map);
+      var chain = Promise.resolve([]);
+      urls.forEach(function (url) {
+        chain = chain.then(function (parts) {
+          return fetch(proxyUrl(url), { headers: authHeaders() }).then(function (res) {
+            if (!res || !res.ok) throw new Error("segment");
+            return res.arrayBuffer();
+          }).then(function (buf) {
+            parts.push(new Uint8Array(buf));
+            return parts;
+          });
+        });
+      });
+      return chain.then(function (parts) {
+        var bytes = plan.method === "concat-flv" ? Copy.concatFlv(parts) : Copy.concatBytes(parts);
+        downloadBytes(bytes, "live-" + foldHandle(handle) + "." + plan.ext, plan.ext === "mp4" ? "video/mp4" : "video/mp2t");
+      });
+    });
+  }
+  function grabStill(video) {
+    var Grab = window.LiveGrab;
+    var box = Grab ? Grab.frameBox(video) : { width: video && video.videoWidth, height: video && video.videoHeight };
+    if (!box.width || !box.height) return null;
+    var canvas = document.createElement("canvas");
+    canvas.width = box.width;
+    canvas.height = box.height;
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, box.width, box.height);
+    return canvas;
+  }
+  function savePng(canvas, name) {
+    if (!canvas || !canvas.toBlob) return;
+    canvas.toBlob(function (blob) {
+      if (!blob) return;
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    }, "image/png");
+  }
+  function showBurst(frames) {
+    var old = document.getElementById("shorts-burst");
+    if (old) old.remove();
+    var sheet = document.createElement("div");
+    sheet.id = "shorts-burst";
+    sheet.className = "shorts-burst";
+    sheet.innerHTML = "<p>" + hooks.esc(tr("Pick the frames to keep")) + "</p>" +
+      frames.map(function (frame, index) {
+        return '<label><input type="checkbox" checked data-i="' + index + '"></label>';
+      }).join("") +
+      '<button type="button" data-shorts="save-burst">' + hooks.esc(tr("Save selected")) + "</button>";
+    frames.forEach(function (frame, index) {
+      var box = document.createElement("span");
+      box.hidden = true;
+      box._full = frame.canvas;
+      box.setAttribute("data-full", String(index));
+      sheet.appendChild(box);
+    });
+    document.body.appendChild(sheet);
+    sheet.addEventListener("click", function (event) {
+      var button = event.target.closest && event.target.closest("[data-shorts='save-burst']");
+      if (!button) return;
+      sheet.querySelectorAll("input").forEach(function (input) {
+        if (!input.checked) return;
+        var box = sheet.querySelector('[data-full="' + input.getAttribute("data-i") + '"]');
+        if (box && box._full) savePng(box._full, "frame-" + input.getAttribute("data-i") + ".png");
+      });
+      sheet.remove();
+    });
+  }
+  function startBurst(video) {
+    var Grab = window.LiveGrab;
+    var count = Grab ? Grab.clampBurst(12) : 12;
+    var frames = [];
+    function step(now, meta) {
+      var canvas = grabStill(video);
+      var stamp = meta && meta.mediaTime != null ? meta.mediaTime : (video.currentTime || now);
+      if (canvas) frames.push({ canvas: canvas, timestamp: stamp });
+      count -= 1;
+      if (count <= 0) {
+        showBurst(Grab ? Grab.uniqueFrames(frames) : frames);
+        return;
+      }
+      if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(step);
+      else setTimeout(function () { step(Date.now(), { mediaTime: video.currentTime }); }, 50);
+    }
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(step);
+    else step(Date.now(), { mediaTime: video.currentTime });
+  }
+
   function openLive(handle) {
     handle = String(handle || "");
     if (!handle) return;
+    proxyHandle = handle;
     var handed = takePreview(handle);
     if (!handed) stopPreview();
     closeLive();
@@ -2679,7 +2960,10 @@
       '<div class="shorts-live-hud"><button type="button" data-shorts="close-live" aria-label="' + hooks.esc(tr("Close")) + '">×</button>' +
       '<span class="shorts-live-tag">' + hooks.esc(tr("LIVE")) + "</span>" +
       '<span class="shorts-live-q"></span>' +
-      '<button type="button" data-shorts="mute" aria-label="' + hooks.esc(sound ? tr("Mute") : tr("Unmute")) + '">' + hooks.icon(sound ? "vol" : "volOff") + "</button></div>" +
+      '<button type="button" data-shorts="mute" aria-label="' + hooks.esc(sound ? tr("Mute") : tr("Unmute")) + '">' + hooks.icon(sound ? "vol" : "volOff") + "</button>" +
+      '<button type="button" data-shorts="record-live">' + hooks.esc(tr("Record this live")) + "</button>" +
+      (frameGrabOn() ? '<button type="button" data-shorts="grab-frame">' + hooks.esc(tr("Save frame")) + '</button><button type="button" data-shorts="grab-burst">' + hooks.esc(tr("Burst")) + "</button>" : "") +
+      "</div>" +
       '<div class="shorts-live-foot"><b>@' + hooks.esc(handle) + "</b>" +
       '<span class="shorts-live-viewers"></span></div>';
     document.body.appendChild(root);
@@ -2706,6 +2990,35 @@
         event.preventDefault();
         sound = !sound;
         syncMute(button);
+      } else if (kind === "record-live") {
+        event.preventDefault();
+        if (localCopy) {
+          localCopy.stop = true;
+          button.textContent = tr("Record this live");
+          return;
+        }
+        localCopy = { stop: false };
+        button.textContent = tr("Stop and save");
+        refreshLive(handle, true).then(function (info) {
+          if (!info || info.capPaused) throw new Error("cap");
+          return copySegments(handle, info);
+        }).then(function () {
+          showLiveMessage(handle, tr("Saved on this device"));
+        }).catch(function () {
+          showLiveMessage(handle, tr("Could not save that recording. Try again."));
+        }).then(function () {
+          localCopy = null;
+          if (button) button.textContent = tr("Record this live");
+        });
+      } else if (kind === "grab-frame") {
+        event.preventDefault();
+        if (!frameGrabOn()) return;
+        var still = grabStill(video);
+        if (still) savePng(still, "frame.png");
+      } else if (kind === "grab-burst") {
+        event.preventDefault();
+        if (!frameGrabOn()) return;
+        startBurst(video);
       } else if (kind === "retry-live") {
         event.preventDefault();
         var againHandle = root.getAttribute("data-handle") || handle;
@@ -2716,6 +3029,7 @@
     var refreshed = false;
     function finishFail() {
       if (token !== liveToken) return;
+      if (root.classList.contains("is-over-cap")) return;
       destroyHls();
       destroyMpeg();
       showLiveMessage(handle, tr("Couldn't play this live"), true);
@@ -2757,6 +3071,12 @@
       refreshLive(handle).then(function (info) {
         if (token !== liveToken) return;
         if (!info) { finishFail(); return; }
+        startStats(handle, info.roomId || "");
+        if (info.capPaused) { holdOverCap(handle, info); return; }
+        if (recordPrefs().auto && !localCopy) {
+          localCopy = { stop: false };
+          copySegments(handle, info).catch(function () {}).then(function () { localCopy = null; });
+        }
         var viewers = root.querySelector(".shorts-live-viewers");
         if (viewers) viewers.textContent = info.viewers ? tn("watching", info.viewers, { count: hooks.formatCount(info.viewers, 1000) }) : "";
         var quality = root.querySelector(".shorts-live-q");
@@ -2800,14 +3120,20 @@
         preloadNeighbors(handle);
       });
     }
+    resumeOpen = function (name) {
+      if (token !== liveToken) return;
+      if (foldHandle(name) !== foldHandle(root.getAttribute("data-handle") || "")) return;
+      begin(name);
+    };
     swapLive = function (delta) {
       if (!root.parentNode) return;
       var rows = swipeQueue.length ? swipeQueue : orderedNow();
-      var next = neighborHandle(rows, root.getAttribute("data-handle") || handle, delta);
+      var next = playableNeighbor(rows, root.getAttribute("data-handle") || handle, delta);
       if (!next) return;
       liveToken += 1;
       token = liveToken;
       handle = next;
+      proxyHandle = handle;
       root.setAttribute("data-handle", handle);
       destroyHls();
       destroyMpeg();
@@ -2839,12 +3165,13 @@
     }
     [-1, 1].forEach(function (delta) {
       var row = rows[index + delta];
-      if (!row || !row.live) return;
+      if (!row || !row.live || rowPaused(row)) return;
       var key = foldHandle(row.handle);
       if (!key || manifestWarm[key]) return;
       manifestWarm[key] = true;
       refreshLive(row.handle).then(function (info) {
-        var url = info && (info.hls || (info.variants && info.variants[0] && info.variants[0].hls));
+        if (!info || info.capPaused) { manifestWarm[key] = false; return; }
+        var url = info.hls || (info.variants && info.variants[0] && info.variants[0].hls);
         if (!url) { manifestWarm[key] = false; return; }
         var target = sameApi(url) ? url : proxyUrl(url);
         var headers = sameApi(url) ? {} : authHeaders();
@@ -2927,6 +3254,42 @@
     note.textContent = text;
   }
 
+  function r2Copy(post) {
+    var media = (post && post.media) || [];
+    for (var i = 0; i < media.length; i++) {
+      var item = media[i] || {};
+      var url = String(item.r2 || item.copy || "");
+      if (/^https:\/\//.test(url) && /r2\.dev|r2\.cloudflarestorage\.com/i.test(url)) return url;
+    }
+    return "";
+  }
+
+  function mountShortEmbed(slideEl, video, url) {
+    if (!slideEl || !url) return false;
+    var stage = slideEl.querySelector(".shorts-stage");
+    if (!stage) return false;
+    try { video.pause(); } catch (err) { /* already quiet */ }
+    video.removeAttribute("src");
+    try { video.load(); } catch (err) { /* the embed replaces the file */ }
+    var box = stage.querySelector(".shorts-embed");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "shorts-embed";
+      stage.insertBefore(box, stage.firstChild);
+    }
+    box.innerHTML = '<iframe src="' + hooks.esc(url) + '" allow="autoplay; fullscreen; encrypted-media" referrerpolicy="origin" title="' + hooks.esc(tr("Official player")) + '"></iframe>';
+    var badge = stage.querySelector(".shorts-embed-badge");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "shorts-embed-badge";
+      stage.appendChild(badge);
+    }
+    badge.hidden = false;
+    badge.textContent = tr("Official player");
+    video._embed = box.querySelector("iframe");
+    return true;
+  }
+
   function armStored(video, post, preload) {
     var level = preload === "auto" ? "auto" : "meta";
     var armed = video.dataset.tgArm || "";
@@ -2969,6 +3332,26 @@
           try { video.load(); } catch (loadErr) { /* the poster stays */ }
         }
         console.error("shorts playback", err && err.message ? err.message : err);
+        var Play = window.ShortsPlay;
+        var steps = Play ? Play.chain(post, { key: key, r2: r2Copy(post) }) : [];
+        var next = Play ? Play.after(steps, "tg") : null;
+        if (next && next.kind === "r2") {
+          video.muted = true;
+          video.src = next.url;
+          var copied = video.play();
+          if (copied && copied.then) {
+            copied.then(function () { video.dataset.tgArm = level; }).catch(function () {
+              var embed = Play.after(steps, "r2");
+              if (!(embed && mountShortEmbed(slideEl, video, embed.url))) {
+                var posterR = slideEl && slideEl.querySelector(".shorts-poster");
+                if (posterR) posterR.style.display = "block";
+                backingNote(slideEl, playbackNote(err));
+              }
+            });
+            return;
+          }
+        }
+        if (next && next.kind === "embed" && mountShortEmbed(slideEl, video, next.url)) return;
         var poster = slideEl && slideEl.querySelector(".shorts-poster");
         if (poster) poster.style.display = "block";
         backingNote(slideEl, playbackNote(err));
@@ -3045,21 +3428,25 @@
     if (!feed) return;
     var slides = feed.querySelectorAll(".shorts-slide");
     var current = activeVideo();
+    var prevSlide = null;
     var next = null;
     for (var n = 0; n < slides.length; n++) {
-      if (slides[n] === current && slides[n + 1] && slides[n + 1].getAttribute("data-kind") !== "live") next = slides[n + 1];
+      if (slides[n] !== current) continue;
+      if (slides[n - 1] && slides[n - 1].getAttribute("data-kind") !== "live") prevSlide = slides[n - 1];
+      if (slides[n + 1] && slides[n + 1].getAttribute("data-kind") !== "live") next = slides[n + 1];
     }
     for (var i = 0; i < slides.length; i++) {
       if (slides[i] !== current && slides[i]._zoom) slides[i]._zoom.reset();
       var video = slides[i].querySelector("video");
       if (!video || slides[i].getAttribute("data-kind") === "live") continue;
-      video.muted = !sound;
+      video.muted = true;
       if (slides[i] === current) {
         armSlide(slides[i], "auto");
         var play = video.play();
-        if (play && play.catch) play.catch(function () {});
-      } else if (slides[i] === next) {
-        armSlide(slides[i], "metadata");
+        if (play && play.then) play.then(function () { if (sound) video.muted = false; }).catch(function () {});
+        else if (play && play.catch) play.catch(function () {});
+      } else if (slides[i] === next || slides[i] === prevSlide) {
+        armSlide(slides[i], "auto");
         video.pause();
       } else stopSlide(slides[i]);
     }
@@ -3151,6 +3538,9 @@
       if (video.muted || !sound) {
         sound = true;
         video.muted = false;
+        if (video._embed && video._embed.contentWindow) {
+          try { video._embed.contentWindow.postMessage({ type: "unMute", "x-tiktok-player": true }, "https://www.tiktok.com"); } catch (err) { /* the embed stays muted */ }
+        }
         var mute = slideEl.querySelector('[data-shorts="mute"]');
         if (mute) {
           mute.setAttribute("aria-label", tr("Mute"));
@@ -3372,6 +3762,24 @@
           }
         }
       });
+    } else if (kind === "cap") {
+      event.preventDefault();
+      var picked = button.getAttribute("data-cap") || "20";
+      var prefs = capPrefs();
+      prefs.cap = picked === "off" ? "off" : Number(picked);
+      saveCapPrefs(prefs);
+      var sheet = document.getElementById("shorts-accounts");
+      if (sheet) {
+        var block = sheet.querySelector(".shorts-cap");
+        if (block) block.outerHTML = capSettingsHtml();
+      }
+    } else if (kind === "cap-restart") {
+      event.preventDefault();
+      var again = capPrefs();
+      again.autoRestart = !again.autoRestart;
+      saveCapPrefs(again);
+      button.classList.toggle("on", again.autoRestart);
+      button.setAttribute("aria-pressed", again.autoRestart ? "true" : "false");
     } else if (kind === "toggle-lock") {
       event.preventDefault();
       toggleLock();
@@ -3651,6 +4059,7 @@
     lowestPreview: lowestPreview,
     previewsAllowed: previewsAllowed,
     formatBytes: formatBytes,
+    bindZoom: bindVideoZoom,
     setRecordings: function (next) {
       recordingsState = "ready";
       recordings = {

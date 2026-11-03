@@ -135,22 +135,68 @@ async function gotoFresh(page) {
   return firstScreen;
 }
 
+function signedInSession() {
+  return `(() => {
+    try {
+      const session = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+      return !!(session && session.token && session.account);
+    } catch (err) { return false; }
+  })()`;
+}
+
 async function logOut(page) {
-  // A sign-in that is still settling can bounce the first settings visit
-  // (seen on CI runners), so open settings again before giving up.
-  for (let attempt = 0; ; attempt++) {
-    const found = await page.locator("[data-acct='logout']").waitFor({ state: "attached", timeout: 8000 }).then(() => true, () => false);
-    if (found) break;
-    if (attempt >= 2) throw new Error("settings never showed Log out (" + page.url() + ")");
-    await openPage(page, "/#/settings");
-  }
-  // Log out sits far below the phone viewport, and settings redraws while
-  // federation status loads. Scrolling, or clicking a node resolved earlier,
-  // misses the handler. Click the button that is in the document now.
+  // Log out lives on the settings page. A full reload to that address can
+  // lose the race with the sign-in reload and leave Home on screen under
+  // the settings address. Move the hash after the session exists so the
+  // page paints Settings, then press the button that is on screen.
+  await page.waitForFunction(signedInSession(), null, { timeout: 20000 });
   await page.evaluate(() => {
-    const el = document.querySelector("[data-acct='logout']");
-    if (el) el.click();
+    const want = "#/settings";
+    const title = document.querySelector("#app h1");
+    const onSettings = (location.hash || "") === want && title && title.textContent.trim() === "Settings";
+    if (!onSettings) {
+      if ((location.hash || "") !== want) location.hash = want;
+      else window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }
   });
+  const ready = await page.waitForFunction(() => {
+    if (window.__didLogout) return true;
+    const title = document.querySelector("#app h1");
+    if (!title || title.textContent.trim() !== "Settings") return false;
+    const nodes = [...document.querySelectorAll("#app [data-acct='logout']")];
+    const el = nodes.find((node) => node.getBoundingClientRect().height > 0) || nodes[0];
+    if (!el || !el.isConnected) return false;
+    el.scrollIntoView({ block: "center", inline: "nearest" });
+    el.click();
+    window.__didLogout = true;
+    return true;
+  }, null, { timeout: 15000 }).then(() => true, () => false);
+  await page.evaluate(() => { window.__didLogout = false; });
+  if (!ready) {
+    const why = await page.evaluate(() => {
+      let signed = false;
+      try {
+        const session = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+        signed = !!(session && session.account);
+      } catch (err) { signed = false; }
+      const el = document.querySelector("[data-acct='logout']");
+      const app = document.getElementById("app");
+      let built = "";
+      let builtErr = "";
+      try {
+        built = window.ViktorychAccounts && window.ViktorychAccounts.settingsHtml ? window.ViktorychAccounts.settingsHtml() : "missing";
+      } catch (err) { builtErr = String(err && err.message || err); }
+      return {
+        signed: signed,
+        attached: !!(el && el.isConnected),
+        hash: location.hash,
+        heading: (app && app.querySelector("h1") && app.querySelector("h1").textContent) || "",
+        builtHasLogout: typeof built === "string" && built.indexOf("data-acct=\"logout\"") >= 0,
+        builtErr: builtErr
+      };
+    });
+    throw new Error("settings never showed Log out (" + page.url() + ") " + JSON.stringify(why));
+  }
 }
 
 // Right after a log out the sign-in wall can draw once more while the
@@ -946,9 +992,15 @@ async function firstRun(page) {
     return /^\d{16}$/.test(String(number || ""));
   });
   if (!loggedIn) notes.push("saved number was not available for sign-in");
+  // The session has to be stored and the sign-in wall gone. Home's heading
+  // is not required: a paint that is still catching up to the hash is the
+  // router's job, and Log out then opens Settings itself.
   const back = await page.waitForFunction(() => {
-    const text = document.body ? document.body.innerText : "";
-    return /Your account/.test(text) || /No posts yet/.test(text);
+    try {
+      const session = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+      if (!session || !session.token || !session.account) return false;
+    } catch (err) { return false; }
+    return document.documentElement.getAttribute("data-wall") !== "1";
   }, null, { timeout: 20000 }).then(() => true, () => false);
   if (!back) {
     notes.push("sign-in did not open the app (" + loginStatus + ")");

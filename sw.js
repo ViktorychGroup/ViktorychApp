@@ -4,7 +4,7 @@ const VERSION = "viktorych-a279-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-03T07:32:50.355Z-friend-alias-accept
+// cache-bust: 2026-11-03T11:32:48.000Z-route-paint
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -241,6 +241,10 @@ const SHELL_FILES = [
   "./shared/home-fresh.js",
   "./shared/pill-data.js",
   "./shared/tiktok-lock.js",
+  "./shared/viewer-cap.js",
+  "./shared/shorts-play.js",
+  "./shared/live-copy.js",
+  "./shared/live-grab.js",
   "./shared/lazy-modules.js",
   "./favicon.svg",
   "./favicon.ico",

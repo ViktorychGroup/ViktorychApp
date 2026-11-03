@@ -50,7 +50,9 @@ export const FEATURES = {
   local_ai: { paths: [] },
   // Local AI first-run setup: device check, download, test and preferences
   // before the chat opens. No server endpoints; choices sync with prefs.
-  local_ai_setup: { paths: [] }
+  local_ai_setup: { paths: [] },
+  // Lossless stills from a live, on the owner's device. No server endpoints.
+  live_frame_grab: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

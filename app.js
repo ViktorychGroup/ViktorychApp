@@ -1961,7 +1961,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2049,7 +2049,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       local_ai: [tr("Local AI"), tr("The Local AI page that changes settings from plain words. Models run on each person's device; nothing is sent to us.")],
       local_ai_setup: [tr("Local AI setup"), tr("Everyone sets up Local AI once before the chat opens: device check, model download, a quick test and preferences. Off opens the chat straight away.")],
       ext_nicknames: [tr("Custom names"), tr("Lets people give any account, from any network, a private name only they see.")],
-      merged_profiles: [tr("Merged linked profiles"), tr("Linked profiles set to merge show on their owner's profile, and their own pages, links and follows lead there.")]
+      merged_profiles: [tr("Merged linked profiles"), tr("Linked profiles set to merge show on their owner's profile, and their own pages, links and follows lead there.")],
+      live_frame_grab: [tr("Live frame grab"), tr("A camera button on a live saves a full-size still, or a short burst, on this device.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -18175,6 +18176,12 @@ const here = parseRoute();
     const keysRow = (window.OwnerKeys && window.OwnerKeys.visible && window.OwnerKeys.visible()) || window.DiscordLocal || (window.NzlayKeys && window.NzlayKeys.enabled())
       ? settingsRow("#/settings/keys", tr("Connected keys"), tr("Keys from your own accounts stay encrypted."))
       : "";
+    let accountBlock = "";
+    try {
+      accountBlock = window.ViktorychAccounts && window.ViktorychAccounts.settingsHtml ? window.ViktorychAccounts.settingsHtml() : "";
+    } catch (err) {
+      accountBlock = "";
+    }
     return settingsHead(tr("Settings"), "") + settingsSearchHtml() + localAiEntryHtml() + `<div class="set-block set-main-note"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}><p class="phandle">${esc(tr("Follows, Lists, custom tabs, likes, bookmarks, and history stay in this browser."))}</p></div><div class="set-list set-main-list"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}>
       ${settingsRow("#/customize", tr("Customize"), tr("Theme, colour, text size, profile pictures and your feed, all in one place."))}
       ${settingsRow("#/settings/accessibility", tr("Accessibility, display and languages"), tr("Manage how {app} looks and which language it uses.", { app: productName("app") }))}
@@ -18197,7 +18204,8 @@ const here = parseRoute();
       ${settingsRow("#/settings/resources", tr("Additional resources"))}
       ${isStandalone() ? "" : `<button class="set-row" type="button" data-act="install"><span class="set-copy"><b>${esc(tr("Install app"))}</b><span class="set-sub">${esc(tr("Add it to your Home Screen or desktop."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button>`}
       ${accountToken() ? `<button class="set-row" type="button" data-act="run-setup"><span class="set-copy"><b>${esc(tr("Run setup again"))}</b><span class="set-sub">${esc(tr("Privacy, look, alerts, install and follows."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button>` : ""}
-    </div>${settingsSearchOut()}` + (window.ViktorychAccounts && window.ViktorychAccounts.settingsHtml ? window.ViktorychAccounts.settingsHtml() : "");
+      ${accountToken() ? `<button class="set-row" type="button" data-acct="logout"><span class="set-copy"><b>${esc(tr("Log out"))}</b></span></button>` : ""}
+    </div>${settingsSearchOut()}` + accountBlock;
   }
 
   const DRAWER_LOCKED = ["home", "settings", "logout", "customize"];
@@ -20456,8 +20464,9 @@ if (STATE.histClear) {
      placeholder and this device has the last screen of that page, paint that
      screen now; the live render replaces it in place when data arrives. Each
      finished screen is saved (bounded, least recently used first out, wiped on
-     sign-out). Pages that hold secrets, private lists or live media are never saved. */
-  const SNAP_SKIP = { vault: 1, drive: 1, storage: 1, packages: 1, games: 1, shorts: 1, watch: 1, spaces: 1, compose: 1, lock: 1, sourcelists: 1, feedrequests: 1 };
+     sign-out). Pages that hold secrets, private lists, live media, or Settings
+     (Log out and the account id) are never saved. */
+  const SNAP_SKIP = { vault: 1, drive: 1, storage: 1, packages: 1, games: 1, shorts: 1, watch: 1, spaces: 1, compose: 1, lock: 1, sourcelists: 1, feedrequests: 1, settings: 1 };
   function routeLoading(html) {
     if (!html) return true;
     if (html.indexOf('class="tab-loading"') >= 0 || html.indexOf('role="progressbar"') >= 0) return true;
@@ -21422,6 +21431,52 @@ if (STATE.histClear) {
     else requestAnimationFrame(run);
   }
 
+  /* The newest address wins. A paint that started on Home can finish after
+     the hash has already moved to Settings; that paint must not stay, and a
+     hashchange that was skipped (sign-in still settling, or a newer
+     navigation) asks for one more render of the hash that is current. */
+  let routePaintState = { token: 0, painted: "#/" };
+  let routeFollowQueued = false;
+  function routePaintMismatch(paintedHash, liveHash) {
+    return String(paintedHash || "#/") !== String(liveHash || "#/");
+  }
+  function routePaintDecision(state, event) {
+    const live = String((event && event.hash) || "#/");
+    const prev = state && typeof state === "object" ? state : { token: 0, painted: "#/" };
+    if (event && event.type === "hash") {
+      return { token: (prev.token || 0) + 1, painted: prev.painted || "#/", live: live, render: true, reason: "hash" };
+    }
+    if (event && event.type === "finish") {
+      if (event.token != null && event.token !== prev.token) {
+        return { token: prev.token || 0, painted: prev.painted || "#/", live: live, render: true, reason: "stale" };
+      }
+      const painted = String(event.paintedHash || "#/");
+      const mismatch = routePaintMismatch(painted, live);
+      return { token: prev.token || 0, painted: painted, live: live, render: mismatch, reason: mismatch ? "mismatch" : "ok" };
+    }
+    return { token: prev.token || 0, painted: prev.painted || "#/", live: live, render: routePaintMismatch(prev.painted, live), reason: "check" };
+  }
+  function followRoute() {
+    const decision = routePaintDecision(routePaintState, { type: "check", hash: location.hash || "#/" });
+    if (!decision.render || routeFollowQueued) return;
+    routeFollowQueued = true;
+    setTimeout(() => {
+      routeFollowQueued = false;
+      const again = routePaintDecision(routePaintState, { type: "check", hash: location.hash || "#/" });
+      if (!again.render) return;
+      render();
+    }, 0);
+  }
+  function noteRoutePaint(paintedHash) {
+    routePaintState = routePaintDecision(routePaintState, {
+      type: "finish",
+      token: routePaintState.token,
+      paintedHash: paintedHash,
+      hash: location.hash || "#/"
+    });
+    if (routePaintState.render) followRoute();
+  }
+
   function render(opts) {
     if (!renderQ) return renderNow(opts);
     if (renderDeferred(opts)) return;
@@ -21444,6 +21499,9 @@ if (STATE.histClear) {
     } else if (bare === "#/drive" || bare.startsWith("#/drive/")) {
       history.replaceState(null, "", location.pathname + location.search + "#/storage" + bare.slice("#/drive".length) + (qCut >= 0 ? hashNow.slice(qCut) : ""));
     }
+    const hashAtStart = location.hash || "#/";
+    let paintedHash = hashAtStart;
+    let applied = false;
     const gen = (STATE.renderGen = (STATE.renderGen || 0) + 1);
     let route = parseRoute();
     if (route.name === "spaces" && window.Spaces && window.Spaces.__shell && window.Spaces.start && !(window.ViktorychAccounts && window.ViktorychAccounts.blocking && window.ViktorychAccounts.blocking())) window.Spaces.start();
@@ -21526,6 +21584,12 @@ if (STATE.histClear) {
     const transition = false && routeChanged && !reduced;
     const apply = () => {
       if (gen !== STATE.renderGen) return;
+      const liveNow = location.hash || "#/";
+      if (liveNow !== hashAtStart) {
+        route = parseRoute();
+        paintedHash = liveNow;
+      }
+      applied = true;
       if (STATE.snapTop) y = 0;
       else if (STATE.holdY != null) y = STATE.holdY;
       else if (!(opts && Object.prototype.hasOwnProperty.call(opts, "y"))) y = window.scrollY;
@@ -21677,6 +21741,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       apply();
       endRoute();
     }
+    if (applied) noteRoutePaint(paintedHash);
+    else followRoute();
   }
 
   function toast(message) {
@@ -25816,9 +25882,13 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     // new view renders right after that paint instead of inside the click.
     paintNavNow(nextRoute);
     if (y > 0) restoreWhenTall(key, y);
-    const token = ++routeRenderToken;
+    routePaintState = routePaintDecision(routePaintState, { type: "hash", hash: location.hash || "#/" });
+    const token = routePaintState.token;
     afterNextPaint(() => {
-      if (token !== routeRenderToken) return;
+      if (token !== routePaintState.token) {
+        followRoute();
+        return;
+      }
       render({
         y: y,
         done: () => {
@@ -25831,7 +25901,6 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     });
   });
 
-  let routeRenderToken = 0;
   function afterNextPaint(fn) {
     let ran = false;
     const go = () => { if (ran) return; ran = true; fn(); };

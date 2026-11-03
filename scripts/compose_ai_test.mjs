@@ -128,10 +128,48 @@ async function measure(page) {
   });
 }
 
+/* The home composer is redrawn while the page settles. A locator that was
+   stable a moment ago can detach mid-scroll. Re-query and try again. */
+/* Home replaces #compose-text when a reply's parent arrives. Scroll and
+   click only after the same node has stayed attached, and try again if a
+   late redraw still detaches it mid-action. */
+async function waitForStableCompose(page) {
+  await page.waitForFunction(() => {
+    const el = document.querySelector("#compose-text");
+    if (!el || !el.isConnected) {
+      window.__composeNode = null;
+      return false;
+    }
+    const now = Date.now();
+    if (window.__composeNode !== el) {
+      window.__composeNode = el;
+      window.__composeSince = now;
+      return false;
+    }
+    return now - window.__composeSince >= 350;
+  }, null, { timeout: 8000 });
+}
+
 async function openMenu(page) {
-  await page.locator("#compose-text").scrollIntoViewIfNeeded();
-  await page.locator(".xc .xc-ai-btn").click();
-  await page.locator(".xc-ai-pop").waitFor({ timeout: 5000 });
+  let last;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      await page.evaluate(() => { window.__composeNode = null; });
+      await waitForStableCompose(page);
+      const field = page.locator("#compose-text");
+      await field.scrollIntoViewIfNeeded({ timeout: 5000 });
+      const spark = page.locator(".xc .xc-ai-btn");
+      await spark.click({ timeout: 5000 });
+      await page.locator(".xc-ai-pop").waitFor({ timeout: 5000 });
+      return;
+    } catch (err) {
+      last = err;
+      const text = String(err && err.message || err);
+      if (attempt === 3 || !/not attached|not stable|detached/i.test(text)) throw err;
+      await page.waitForTimeout(300);
+    }
+  }
+  throw last;
 }
 
 async function layout(page, vp) {

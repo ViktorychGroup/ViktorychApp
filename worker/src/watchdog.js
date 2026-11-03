@@ -21,6 +21,7 @@
 import { usageReport, FREE_LIMITS } from "./usage.js";
 import { ownerKeyAlerts } from "./owner-keys.js";
 import { RENDER_BACKUP, quietHours, renderHours } from "./render-warm.js";
+import { tiktokSaveProblems } from "./tiktok-save-health.js";
 
 export const WATCH_KEY = "owner/watchdog.json";
 export const REPO = "ViktorychGroup/ViktorychApp";
@@ -366,6 +367,12 @@ export async function runWatchdog(env, now, fetcher) {
   let usage = null;
   try { usage = await usageReport(env, at); } catch (err) { usage = null; }
   usageProblems(usage, null).forEach((p) => problems.push(p));
+  if (env.DATA) {
+    try {
+      const saved = await env.DATA.get("backup/tiktok-save-health.json");
+      if (saved) tiktokSaveProblems(JSON.parse(await saved.text())).forEach((row) => problems.push(row));
+    } catch (err) { /* a missing queue is healthy */ }
+  }
 
   // Keep when each problem was first seen.
   const since = {};
