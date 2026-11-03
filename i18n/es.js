@@ -6053,5 +6053,6 @@ SI18n.addPack("es", {
   "Dragon status": "Estado dragón",
   "Gem status": "Estado gema",
   "Unicorn status": "Estado unicornio",
-  "Crown status": "Estado corona"
+  "Crown status": "Estado corona",
+  "Couldn’t do that. Try again.": "No se pudo hacer eso. Inténtalo de nuevo."
 });

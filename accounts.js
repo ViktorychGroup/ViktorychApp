@@ -4584,6 +4584,11 @@ function signupPayload() {
         graphCounts[idKey].friends = prevCount;
         if (graphCounts[meKey]) graphCounts[meKey].friends = prevMyCount;
         if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+        /* Anything else (a stale target id, a server hiccup) used to revert
+           silently, which reads as "the button does nothing". Say it once. */
+        if ((!res || res.status >= 400) && !(res && res.status === 403) && window.ViktorychAccounts && window.ViktorychAccounts.toast) {
+          window.ViktorychAccounts.toast(tr("Couldn’t do that. Try again."));
+        }
         return;
       }
       if (friendWord(res)) graphCounts[idKey].friendStatus = friendWord(res);

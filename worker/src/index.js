@@ -4995,7 +4995,16 @@ async function accountIdFromRef(env, raw) {
   const checked = inspectHandle(text);
   if (!checked || !checked.skeleton) return "";
   const row = await env.DB.prepare("SELECT public_id FROM accounts WHERE skeleton = ?").bind(checked.skeleton).first();
-  return row && row.public_id ? row.public_id : "";
+  if (row && row.public_id) return row.public_id;
+  /* Extra usernames resolve to the same account everywhere else (profiles,
+     search, mentions), so friend cards and buttons that carry one must resolve
+     here too; otherwise accepting a request sent under an extra username
+     answers bad_target and the button silently does nothing. */
+  try {
+    const alias = await env.DB.prepare("SELECT public_id FROM account_handles WHERE skeleton = ?").bind(checked.skeleton).first();
+    if (alias && alias.public_id) return alias.public_id;
+  } catch (err) { /* the table may not exist in an older copy */ }
+  return "";
 }
 
 async function accountByFollowRef(env, id) {

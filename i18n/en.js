@@ -6050,5 +6050,6 @@ SI18n.addPack("en", {
   "Dragon status": "Dragon status",
   "Gem status": "Gem status",
   "Unicorn status": "Unicorn status",
-  "Crown status": "Crown status"
+  "Crown status": "Crown status",
+  "Couldn’t do that. Try again.": "Couldn’t do that. Try again."
 });
