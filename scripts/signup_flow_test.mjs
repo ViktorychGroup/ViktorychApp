@@ -701,6 +701,10 @@ async function openPage(page, path) {
       last = err;
       const text = String(err && err.message || err);
       if (text.indexOf("interrupted by another navigation") < 0) throw err;
+      // The winning navigation may already show this address while its
+      // document is still the previous page. Wait until that load settles
+      // before treating the address as open.
+      await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
       const here = page.url();
       if (path && here.indexOf(path.replace(/^\//, "")) >= 0) return;
       await page.waitForTimeout(150);
@@ -1179,24 +1183,65 @@ await bindings.DATA.put("feeds.json", JSON.stringify({
   ],
   posts: []
 }));
+async function runViewport(browser, viewport) {
+  const notes = [];
+  const { context, page, problems } = await openFresh(browser, viewport);
+  try {
+    const ms = await gotoFresh(page);
+    console.log(viewport.name + " " + viewport.width + "x" + viewport.height + " first-screen " + ms + "ms");
+    if (ms > 8000) notes.push(viewport.name + ": first screen took " + ms + "ms");
+    notes.push(...await layoutPass(page, viewport));
+    if (viewport.name === "phone") notes.push(...await firstRun(page));
+    notes.push(...problems.map((p) => viewport.name + " pageerror: " + p.slice(0, 180)));
+  } catch (err) {
+    notes.push(viewport.name + " failed: " + redact(err && err.stack || err).slice(0, 1200));
+  } finally {
+    await context.close();
+  }
+  return notes;
+}
+
+async function runNamed(browser, item) {
+  const notes = [];
+  // A renderer crash is the browser, not the app (seen once locally on a
+  // busy machine); that run starts over once in a new context.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { context, page, problems } = await openFresh(browser, item.viewport, item.reduced ? { reducedMotion: "reduce" } : {});
+    let crashed = false;
+    page.on("crash", () => { crashed = true; });
+    try {
+      await gotoFresh(page);
+      const started = Date.now();
+      notes.push(...await item.run(page, item.viewport));
+      console.log(item.name + " " + item.viewport.width + "x" + item.viewport.height + " " + (Date.now() - started) + "ms");
+      notes.push(...problems.map((p) => item.name + " pageerror: " + p.slice(0, 180)));
+    } catch (err) {
+      if (crashed && attempt === 0) {
+        console.log(item.name + ": the page crashed, running it again");
+        notes.length = 0;
+        continue;
+      }
+      notes.push(item.name + " failed: " + redact(err && err.stack || err).slice(0, 1200));
+    } finally {
+      await context.close().catch(() => {});
+    }
+    break;
+  }
+  return notes;
+}
+
 const browser = await launch();
 const failures = [];
+const signupPart = process.env.SIGNUP_PART || "all";
 try {
-  for (const viewport of process.env.ONLY ? [] : VIEWPORTS) {
-    const { context, page, problems } = await openFresh(browser, viewport);
-    try {
-      const ms = await gotoFresh(page);
-      console.log(viewport.name + " " + viewport.width + "x" + viewport.height + " first-screen " + ms + "ms");
-      if (ms > 8000) failures.push(viewport.name + ": first screen took " + ms + "ms");
-      failures.push(...await layoutPass(page, viewport));
-      if (viewport.name === "phone") failures.push(...await firstRun(page));
-      failures.push(...problems.map((p) => viewport.name + " pageerror: " + p.slice(0, 180)));
-    } catch (err) {
-      failures.push(viewport.name + " failed: " + redact(err && err.stack || err).slice(0, 1200));
-    } finally {
-      await context.close();
-    }
+  // One viewport at a time. The first-screen limit is a timing check, so
+  // sizes do not share the runner.
+  if (signupPart !== "flows" && !process.env.ONLY) {
+    for (const viewport of VIEWPORTS) failures.push(...await runViewport(browser, viewport));
   }
+  if (signupPart === "sizes") {
+    // The other half of this file runs in a second CI job.
+  } else {
   failures.push(...await tvAskFlow(browser));
   // The whole step flow at phone and desktop size, the quick path at both,
   // and both motion settings.
@@ -1210,26 +1255,8 @@ try {
     { name: "reduced motion", viewport: VIEWPORTS[0], reduced: true, run: (page) => motionPass(page, true) }
   ];
   for (const item of runs.filter((r) => !process.env.ONLY || process.env.ONLY.split(",").includes(r.name))) {
-    // A renderer crash is the browser, not the app (seen once locally on a
-    // busy machine); that run starts over once in a new context.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const { context, page, problems } = await openFresh(browser, item.viewport, item.reduced ? { reducedMotion: "reduce" } : {});
-      let crashed = false;
-      page.on("crash", () => { crashed = true; });
-      try {
-        await gotoFresh(page);
-        const started = Date.now();
-        failures.push(...await item.run(page, item.viewport));
-        console.log(item.name + " " + item.viewport.width + "x" + item.viewport.height + " " + (Date.now() - started) + "ms");
-        failures.push(...problems.map((p) => item.name + " pageerror: " + p.slice(0, 180)));
-      } catch (err) {
-        if (crashed && attempt === 0) { console.log(item.name + ": the page crashed, running it again"); continue; }
-        failures.push(item.name + " failed: " + redact(err && err.stack || err).slice(0, 1200));
-      } finally {
-        await context.close().catch(() => {});
-      }
-      break;
-    }
+    failures.push(...await runNamed(browser, item));
+  }
   }
 } finally {
   await browser.close();
@@ -1242,8 +1269,8 @@ if (failures.length) {
 }
 console.log("signup flow ok");
 
-// Ride-along (workflow files are not edited): TV sign-in on the short address.
-{
+// Ride-along: TV sign-in on the short address. It starts after the flows above.
+if (signupPart !== "sizes") {
   const { spawnSync } = await import("node:child_process");
   const tvShort = spawnSync(process.execPath, [path.join(root, "scripts", "tv_short_pair_test.mjs")], { cwd: root, env: process.env, stdio: "inherit" });
   if (tvShort.status !== 0) process.exit(1);

@@ -5,6 +5,7 @@
    once with saved data from before the presence deploy. */
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
+import net from "node:net";
 import { mkdtempSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
@@ -158,7 +159,9 @@ async function checkAssets(pageUrl) {
 
 async function waitForAssets(pageUrl, tries) {
   let last = "not ready";
-  for (let i = 0; i < tries; i++) {
+  // Same overall wait as one pause per try. Poll until the page is actually ready.
+  const deadline = Date.now() + tries * 15000;
+  while (Date.now() < deadline) {
     try {
       const count = await checkAssets(pageUrl);
       console.log("live assets " + count);
@@ -166,19 +169,62 @@ async function waitForAssets(pageUrl, tries) {
     } catch (err) {
       last = err.message || String(err);
       console.log("waiting for live page: " + last.split("\n")[0]);
-      await sleep(15000);
+      const pause = Math.min(1000, deadline - Date.now());
+      if (pause > 0) await sleep(pause);
     }
   }
   throw new Error(last);
 }
 
-function get(url) {
-  return fetch(url).then((res) => res.text());
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      server.close(() => resolve(port));
+    });
+  });
 }
 
-async function probe(pageUrl, opts) {
+function cdpSocket(wsUrl) {
+  const ws = new WebSocket(wsUrl);
+  let id = 0;
+  const pending = new Map();
+  const events = [];
+  function send(method, params) {
+    const msgId = ++id;
+    return new Promise((resolve, reject) => {
+      pending.set(msgId, { resolve, reject });
+      ws.send(JSON.stringify({ id: msgId, method, params: params || {} }));
+    });
+  }
+  ws.addEventListener("message", (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.id && pending.has(msg.id)) {
+      const waiter = pending.get(msg.id);
+      pending.delete(msg.id);
+      if (msg.error) waiter.reject(new Error(JSON.stringify(msg.error)));
+      else waiter.resolve(msg.result);
+    } else if (msg.method) events.push(msg);
+  });
+  const opened = new Promise((resolve, reject) => {
+    ws.addEventListener("open", resolve);
+    ws.addEventListener("error", reject);
+  });
+  return { ws, send, events, opened };
+}
+
+async function openSession() {
+  if (process.env.SMOKE_CDP) {
+    const port = Number(new URL(process.env.SMOKE_CDP).port);
+    const ver = JSON.parse(await get("http://127.0.0.1:" + port + "/json/version"));
+    const browser = cdpSocket(ver.webSocketDebuggerUrl);
+    await browser.opened;
+    return { port, browser, external: true };
+  }
   const dir = mkdtempSync(join(tmpdir(), "viktorych-smoke-"));
-  const port = 9300 + Math.floor(Math.random() * 500);
+  const port = await freePort();
   const logPath = join(dir, "chrome.log");
   const logFd = openSync(logPath, "a");
   const bin = chromeBin();
@@ -191,55 +237,77 @@ async function probe(pageUrl, opts) {
     "--remote-allow-origins=*",
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${dir}`,
-    `--window-size=${opts.width},${opts.height}`,
     "about:blank"
   ], { stdio: ["ignore", logFd, logFd] });
+  let ver = null;
+  for (let i = 0; i < 50; i++) {
+    try {
+      ver = JSON.parse(await get(`http://127.0.0.1:${port}/json/version`));
+      break;
+    } catch (err) {
+      await sleep(200);
+    }
+  }
+  if (!ver) {
+    try { chrome.kill("SIGKILL"); } catch (err) { /* already gone */ }
+    let detail = "";
+    try { detail = readFileSync(logPath, "utf8").trim().slice(-800); } catch (err) { detail = ""; }
+    throw new Error("Chrome did not open a debugger (" + bin + ")" + (detail ? "\n" + detail : ""));
+  }
+  const browser = cdpSocket(ver.webSocketDebuggerUrl);
+  await browser.opened;
+  return { port, browser, chrome, dir, external: false };
+}
+
+async function closeSession(session) {
+  if (!session) return;
+  try { session.browser.ws.close(); } catch (err) { /* already closed */ }
+  if (session.external) return;
+  try { session.chrome.kill("SIGKILL"); } catch (err) { /* already gone */ }
+  await sleep(300);
+  try { rmSync(session.dir, { recursive: true, force: true }); } catch (err) { /* Chrome may still be releasing the profile */ }
+}
+
+function get(url) {
+  return fetch(url).then((res) => res.text());
+}
+
+async function probe(session, pageUrl, opts) {
+  let contextId = "";
+  let page = null;
   try {
-    let wsUrl = "";
+    const created = await session.browser.send("Target.createBrowserContext");
+    contextId = created.browserContextId;
+    const target = await session.browser.send("Target.createTarget", {
+      url: "about:blank",
+      browserContextId: contextId,
+      width: opts.width,
+      height: opts.height
+    });
+    let listed = null;
     for (let i = 0; i < 50; i++) {
-      try {
-        const ver = JSON.parse(await get(`http://127.0.0.1:${port}/json/version`));
-        wsUrl = ver.webSocketDebuggerUrl;
-        break;
-      } catch (err) {
-        await sleep(200);
-      }
+      const targets = JSON.parse(await get(`http://127.0.0.1:${session.port}/json/list`));
+      listed = targets.find((item) => item.id === target.targetId);
+      if (listed && listed.webSocketDebuggerUrl) break;
+      await sleep(100);
     }
-    if (!wsUrl) {
-      let detail = "";
-      try { detail = readFileSync(logPath, "utf8").trim().slice(-800); } catch (err) { detail = ""; }
-      throw new Error("Chrome did not open a debugger (" + bin + ")" + (detail ? "\n" + detail : ""));
+    if (!listed || !listed.webSocketDebuggerUrl) {
+      throw new Error("Chrome did not open a debugger (target)");
     }
-    const targets = JSON.parse(await get(`http://127.0.0.1:${port}/json/list`));
-    const page = targets.find((item) => item.type === "page") || targets[0];
-    const ws = new WebSocket(page.webSocketDebuggerUrl);
-    let id = 0;
-    const pending = new Map();
-    const events = [];
-    function send(method, params) {
-      const msgId = ++id;
-      return new Promise((resolve, reject) => {
-        pending.set(msgId, { resolve, reject });
-        ws.send(JSON.stringify({ id: msgId, method, params: params || {} }));
-      });
-    }
-    ws.addEventListener("message", (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.id && pending.has(msg.id)) {
-        const waiter = pending.get(msg.id);
-        pending.delete(msg.id);
-        if (msg.error) waiter.reject(new Error(JSON.stringify(msg.error)));
-        else waiter.resolve(msg.result);
-      } else if (msg.method) events.push(msg);
-    });
-    await new Promise((resolve, reject) => {
-      ws.addEventListener("open", resolve);
-      ws.addEventListener("error", reject);
-    });
+    page = cdpSocket(listed.webSocketDebuggerUrl);
+    await page.opened;
+    const send = page.send;
+    const events = page.events;
     await send("Page.enable");
     await send("Runtime.enable");
     await send("Network.enable");
     await send("Log.enable");
+    await send("Emulation.setDeviceMetricsOverride", {
+      width: opts.width,
+      height: opts.height,
+      deviceScaleFactor: 1,
+      mobile: false
+    });
     if (opts.init) await send("Page.addScriptToEvaluateOnNewDocument", { source: opts.init });
     await send("Page.navigate", { url: pageUrl });
     const start = Date.now();
@@ -247,15 +315,30 @@ async function probe(pageUrl, opts) {
       if (events.some((event) => event.method === "Page.loadEventFired")) break;
       await sleep(200);
     }
-    await sleep(3500);
+    const loadedAt = Date.now();
     let ownerInfo = null;
     if (opts.owner) {
-      const started = Date.now();
-      while (Date.now() - started < 8000) {
+      // The old probe always waited 3.5s and then up to 8s. Keep that ceiling.
+      const ownerDeadline = loadedAt + 3500 + 8000;
+      while (Date.now() < ownerDeadline) {
         const checked = await send("Runtime.evaluate", { expression: OWNER_CHECK, returnByValue: true });
         ownerInfo = checked && checked.result && checked.result.value || null;
         if (ownerInfo && ownerInfo.owner && ownerInfo.health && ownerInfo.kept && (ownerInfo.shortsOff ? !ownerInfo.shorts : (ownerInfo.shorts && ownerInfo.unlocks && ownerInfo.shown))) break;
         await sleep(400);
+      }
+    } else {
+      const settleEnd = loadedAt + 3500;
+      while (Date.now() < settleEnd) {
+        const peeked = await send("Runtime.evaluate", {
+          expression: `(() => {
+            const text = (document.body && document.body.innerText || "").replace(/\\s+/g, " ").trim();
+            return { text: text.slice(0, 300), guard: !!document.getElementById("boot-guard") };
+          })()`,
+          returnByValue: true
+        });
+        const peek = peeked && peeked.result && peeked.result.value || {};
+        if (peek.text && peek.text.length >= 8 && !peek.guard) break;
+        await sleep(100);
       }
     }
     const info = await send("Runtime.evaluate", {
@@ -284,7 +367,6 @@ async function probe(pageUrl, opts) {
         return false;
       }
     });
-    ws.close();
     const problems = [];
     if (exceptions.length) problems.push("exception: " + exceptions[0]);
     if (failed.length) problems.push("request: " + failed[0]);
@@ -305,9 +387,12 @@ async function probe(pageUrl, opts) {
     }
     return { problems, text: opts.owner ? "" : (pageInfo.text || ""), label: opts.label };
   } finally {
-    try { chrome.kill("SIGKILL"); } catch (err) { /* already gone */ }
-    await sleep(300);
-    try { rmSync(dir, { recursive: true, force: true }); } catch (err) { /* Chrome may still be releasing the profile */ }
+    if (page) {
+      try { page.ws.close(); } catch (err) { /* already closed */ }
+    }
+    if (contextId) {
+      try { await session.browser.send("Target.disposeBrowserContext", { browserContextId: contextId }); } catch (err) { /* context already gone */ }
+    }
   }
 }
 
@@ -344,24 +429,37 @@ async function main() {
     // shows up again on every one of up to three fresh-profile attempts, so a
     // one-off flake cannot hold version.json back for hours.
     const attempts = Math.max(1, Number(arg("--attempts", live && !site ? "3" : "1")) || 1);
-    for (const run of runs) {
-      let kept = null;
-      let result = null;
-      for (let attempt = 0; attempt < attempts; attempt++) {
-        try {
-          result = await probe(url, run);
-        } catch (err) {
-          const message = err && err.message ? err.message : String(err);
-          if (!/did not open a debugger/.test(message)) throw err;
-          result = await probe(url, run);
+    let session = null;
+    try {
+      session = await openSession();
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      if (!/did not open a debugger/.test(message)) throw err;
+      session = await openSession();
+    }
+    try {
+      const found = await Promise.all(runs.map(async (run) => {
+        let kept = null;
+        let result = null;
+        for (let attempt = 0; attempt < attempts; attempt++) {
+          try {
+            result = await probe(session, url, run);
+          } catch (err) {
+            const message = err && err.message ? err.message : String(err);
+            if (!/did not open a debugger/.test(message)) throw err;
+            result = await probe(session, url, run);
+          }
+          const now = result.problems.map((problem) => problem.replace(/^(exception|request): .*/, "$1"));
+          kept = kept === null ? now : kept.filter((problem) => now.indexOf(problem) >= 0);
+          if (!kept.length) break;
+          console.log(run.label + " attempt " + (attempt + 1) + ": " + result.problems.join("; ").slice(0, 300));
         }
-        const now = result.problems.map((problem) => problem.replace(/^(exception|request): .*/, "$1"));
-        kept = kept === null ? now : kept.filter((problem) => now.indexOf(problem) >= 0);
-        if (!kept.length) break;
-        console.log(run.label + " attempt " + (attempt + 1) + ": " + result.problems.join("; ").slice(0, 300));
-      }
-      console.log(run.label + ": " + (result.text || (run.owner ? "(owner checks only)" : "(empty)")).slice(0, 120));
-      if (kept.length) result.problems.forEach((problem) => problems.push(run.label + " " + problem));
+        console.log(run.label + ": " + (result.text || (run.owner ? "(owner checks only)" : "(empty)")).slice(0, 120));
+        return kept.length ? result.problems.map((problem) => run.label + " " + problem) : [];
+      }));
+      found.forEach((lines) => problems.push(...lines));
+    } finally {
+      await closeSession(session);
     }
     if (problems.length) {
       console.error(problems.join("\n"));

@@ -62,9 +62,25 @@ jobs:
           cache: npm
           cache-dependency-path: worker/package-lock.json
 
+      - name: Cache worker modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: worker/node_modules
+          key: worker-modules-${{ runner.os }}-${{ hashFiles('worker/package-lock.json') }}
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('worker/package-lock.json') }}
+          restore-keys: |
+            ms-playwright-${{ runner.os }}-
+
       - name: Test the account worker
         working-directory: worker
-        run: npm ci && npm test
+        run: |
+          if [ ! -d node_modules/miniflare ]; then npm ci --no-fund --no-audit; fi
+          npm test
 
       - name: Privacy cover rules
         run: node scripts/app_lock_crypto_test.mjs
