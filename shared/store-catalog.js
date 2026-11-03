@@ -40,6 +40,20 @@ export const STICKER_PACKS = [
   { id: "royal", name: t("Royal treasures"), tier: "premium", viktorychs: 400, items: ["crown", "gem", "ring", "trophy", "rocket", "comet", "unicorn", "lion", "crystal_ball", "magic_wand"] }
 ];
 
+/* Status emojis: special emojis for the custom status on your avatar.
+   Viktorychs only (they are Unicode emoji, not our own art, so no money price).
+   Any other emoji stays free to use as a status. */
+export const STATUS_EMOJIS = [
+  { id: "flame", emoji: "🔥", name: t("Flame status"), tier: "small", viktorychs: 20, popular: true },
+  { id: "party", emoji: "🎉", name: t("Party status"), tier: "small", viktorychs: 25, popular: true },
+  { id: "rainbow", emoji: "🌈", name: t("Rainbow status"), tier: "medium", viktorychs: 35, fresh: true },
+  { id: "rocket", emoji: "🚀", name: t("Rocket status"), tier: "medium", viktorychs: 40, popular: true },
+  { id: "dragon", emoji: "🐉", name: t("Dragon status"), tier: "medium", viktorychs: 60, fresh: true },
+  { id: "gem", emoji: "💎", name: t("Gem status"), tier: "premium", viktorychs: 80, popular: true },
+  { id: "unicorn", emoji: "🦄", name: t("Unicorn status"), tier: "premium", viktorychs: 100, fresh: true },
+  { id: "regal", emoji: "👑", name: t("Crown status"), tier: "premium", viktorychs: 120, popular: true }
+];
+
 const LOCAL = new Set(LOCAL_ART);
 const PREMIUM = new Set(PREMIUM_ART);
 
@@ -70,6 +84,11 @@ export function storeItem(kind, id) {
     if (!pack) return null;
     return { kind: "stickers", id: pack.id, tier: pack.tier, cents: TIERS[pack.tier].cents, viktorychs: pack.viktorychs, limit: 0, base: pack.items[0], name: pack.name, items: pack.items.slice() };
   }
+  if (kind === "emoji") {
+    const status = statusEmojiById(key);
+    if (!status) return null;
+    return { kind: "emoji", id: status.id, tier: status.tier, cents: 0, viktorychs: status.viktorychs, limit: 0, base: "", name: status.name, emoji: status.emoji };
+  }
   if (kind !== "gift") return null;
   const limited = LIMITED.find((item) => item.id === key);
   if (limited) return { kind: "gift", id: limited.id, tier: limited.tier, cents: TIERS[limited.tier].cents, viktorychs: limited.viktorychs, limit: limited.limit, until: limited.until, base: limited.base, name: limited.name };
@@ -83,6 +102,22 @@ export function storeItem(kind, id) {
 
 export function limitedById(id) {
   return LIMITED.find((item) => item.id === String(id || "")) || null;
+}
+
+export function statusEmojiById(id) {
+  return STATUS_EMOJIS.find((item) => item.id === String(id || "")) || null;
+}
+
+/* Strips the variation selector so "👑" and "👑\uFE0F" match the same entry. */
+export function statusEmojiByChar(value) {
+  const text = String(value || "").replace(/\uFE0F/g, "").trim();
+  if (!text) return null;
+  return STATUS_EMOJIS.find((item) => item.emoji.replace(/\uFE0F/g, "") === text) || null;
+}
+
+/* Entitlement key for an owned status emoji (shares store_entitlements with sticker packs). */
+export function emojiEntitlement(id) {
+  return "emoji:" + String(id || "");
 }
 
 export function stickerPack(id) {
@@ -101,6 +136,6 @@ export function validSticker(pack, item) {
   return !!(found && found.items.indexOf(item) >= 0 && LOCAL.has(item));
 }
 
-const api = { CURRENCY, TIERS, TIER_ORDER, PREMIUM_ART, REFUND_DAYS, LIMITED, STICKER_PACKS, giftTier, limitedOpen, storeItem, limitedById, stickerPack, STICKER_RE, stickerToken, validSticker };
+const api = { CURRENCY, TIERS, TIER_ORDER, PREMIUM_ART, REFUND_DAYS, LIMITED, STICKER_PACKS, STATUS_EMOJIS, statusEmojiById, statusEmojiByChar, emojiEntitlement, giftTier, limitedOpen, storeItem, limitedById, stickerPack, STICKER_RE, stickerToken, validSticker };
 globalThis.StoreCatalog = api;
 try { globalThis.dispatchEvent && globalThis.dispatchEvent(new Event("storecatalog")); } catch (err) { /* workers have no events here */ }

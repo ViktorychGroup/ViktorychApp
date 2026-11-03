@@ -175,15 +175,20 @@ window.ViktorychAccounts = {
   call: function (path, opts) {
     opts = opts || {};
     if (path === "/v1/channel/ticket") return Promise.resolve({ status: 200, ticket: "ct1.test" });
+    if (path === "/v1/store/catalog") return Promise.resolve({ status: 200, emojis: [{ id: "rocket", emoji: "\u{1F680}", name: "Rocket status", owned: true }, { id: "gem", emoji: "\u{1F48E}", name: "Gem status", owned: false }] });
     if (String(path).indexOf("/v1/presence") === 0 && opts.method === "PATCH") {
       var body = opts.body || {};
-      var status = body.status || {};
+      window.__patches = (window.__patches || []).concat([body]);
+      if (body.status) window.__status = body.status;
+      var status = window.__status || {};
       return Promise.resolve({
         status: 200,
         id: "123456789012",
         state: body.preference || "online",
         preference: body.preference || "online",
         seenPrivacy: body.seenPrivacy || "everyone",
+        statusAudience: body.statusAudience || "everyone",
+        statusLists: body.statusLists || [],
         exact: true,
         lastSeen: Date.now(),
         emoji: status.emoji || "",
@@ -362,6 +367,41 @@ async function main() {
     assert.ok(sheet.line.includes("reading"));
     assert.equal(sheet.phrase, "last seen 5 min ago");
     assert.equal(sheet.sheet, true);
+    const status = await evaluate(`(function(){
+      var picks = Array.from(document.querySelectorAll('[data-presence="pick-emoji"]')).map(function (b) { return b.textContent; });
+      var more = !!document.querySelector('a[href="#/store/emojis"]');
+      var audience = document.querySelectorAll('[data-presence="status-audience"]').length;
+      document.querySelector('[data-presence="pick-emoji"]').click();
+      var picked = document.querySelector("[data-presence-emoji]").value;
+      document.querySelector('[data-presence="status-audience"][data-value="followers"]').click();
+      return new Promise(function(resolve){
+        setTimeout(function(){
+          var host = document.getElementById("card");
+          host.innerHTML = window.ViktorychPresence.wrap("123456789012", '<span class="ava"></span>');
+          var badge = host.querySelector(".status-badge");
+          var dot = host.querySelector(".presence-dot");
+          var last = window.__patches[window.__patches.length - 1] || {};
+          resolve({
+            picks: picks,
+            more: more,
+            audience: audience,
+            picked: picked,
+            sent: last.statusAudience || "",
+            pressed: document.querySelector('[data-presence="status-audience"][data-value="followers"]').getAttribute("aria-pressed"),
+            badge: badge ? badge.textContent : "",
+            dot: getComputedStyle(dot).display
+          });
+        }, 80);
+      });
+    })()`);
+    assert.deepEqual(status.picks, ["\u{1F680}"]);
+    assert.equal(status.more, true);
+    assert.equal(status.audience, 6);
+    assert.equal(status.picked, "\u{1F680}");
+    assert.equal(status.sent, "followers");
+    assert.equal(status.pressed, "true");
+    assert.equal(status.badge, "\u2728");
+    assert.equal(status.dot, "none");
     const hiddenAgain = await evaluate("var n=window.__sockets.length;window.__vis='hidden';document.dispatchEvent(new Event('visibilitychange'));n");
     const after = await evaluate("window.__sockets.length");
     if (after !== hiddenAgain) throw new Error("hidden reconnect");
