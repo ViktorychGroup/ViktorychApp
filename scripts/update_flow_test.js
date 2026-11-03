@@ -71,9 +71,13 @@ assert.strictEqual(update.offerMismatch(NEWER, OLDER, "", ""), false);
 assert.strictEqual(update.offerMismatch(OLDER, NEWER, "", ""), false);
 assert.strictEqual(update.offerMismatch(SAME, SAME, "", ""), false);
 assert.strictEqual(update.offerMismatch(SAME, SAME, SAME, ""), false);
-assert.strictEqual(update.offerMismatch(OLDER, NEWER, NEWER, ""), true);
-assert.strictEqual(update.offerMismatch(OLDER, NEWER, NEWER, NEWER), false);
-assert.strictEqual(update.offerMismatch(NEWER, OLDER, OLDER, ""), true);
+assert.strictEqual(update.offerMismatch(OLDER, NEWER, NEWER, "", "2026-10-27T00:00:00Z", "2020-01-01T00:00:00Z"), true);
+assert.strictEqual(update.offerMismatch(OLDER, NEWER, NEWER, NEWER, "2026-10-27T00:00:00Z", "2020-01-01T00:00:00Z"), false);
+// version.json older than the running service worker: no offer and no reload signal.
+assert.strictEqual(update.offerMismatch(NEWER, OLDER, "", "", "2020-01-01T00:00:00Z", "2026-10-27T00:00:00Z"), false);
+assert.strictEqual(update.offerMismatch(NEWER, OLDER, OLDER, "", "2020-01-01T00:00:00Z", "2026-10-27T00:00:00Z"), false);
+// The service worker's own newer build still counts when version.json has not caught up.
+assert.strictEqual(update.offerMismatch(OLDER, OLDER, NEWER, "", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z"), true);
 assert.strictEqual(update.reloadAllowed("", "", ""), false);
 assert.strictEqual(update.reloadAllowed(NEWER, "", ""), true);
 assert.strictEqual(update.reloadAllowed(NEWER, NEWER, ""), false);

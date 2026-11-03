@@ -493,6 +493,19 @@ async function testVersionMismatchIdle(browser) {
     await waitControlled(running.page);
     const sha = await assertStaysIdle(running.page, 2500, "worker newer than version.json");
     assert(sha === NEW, "worker newer than version.json changed the build");
+    let extra = 0;
+    const onNav = () => { extra += 1; };
+    running.page.on("framenavigated", onNav);
+    await running.page.evaluate(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      window.ViktorychUpdate.onControllerChange();
+      window.ViktorychUpdate.poke();
+    });
+    await running.page.waitForTimeout(1500);
+    assert(extra === 0, "version.json older than the service worker reloaded the page");
+    const again = await shownState(running.page);
+    assert(!again.visible && !again.error, "version.json older than the service worker showed an update");
+    assert(await shaOf(running.page) === NEW, "the running build changed after the stale version file");
   } finally {
     await running.context.close();
     ahead.server.close();

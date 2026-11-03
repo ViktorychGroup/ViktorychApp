@@ -130,10 +130,9 @@
     return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(text) ? text : "";
   }
 
-  /* version.json only counts as an update when it is strictly newer than the
-     running build. Equal, older, or unknown build times stay idle, and a sha
-     this device already applied is never offered again. A real deploy still
-     shows up through the waiting service worker. */
+  /* version.json only counts as a newer published build when its time is
+     strictly newer. Equal, older, or unknown times stay idle. A file that
+     lags the running service worker is not an update. */
   function manifestPending(remoteSha, currentSha, remoteBuilt, currentBuilt, appliedSha) {
     if (!remoteSha || !currentSha || remoteSha === currentSha) return false;
     if (appliedSha && remoteSha === appliedSha) return false;
@@ -148,15 +147,22 @@
     return /^[0-9a-f]{7,64}$/.test(sha) ? sha : "";
   }
 
-  /* version.json never opens an update by itself. The running worker is the
-     truth, so a newer file, an older file, or the same sha stays idle.
-     A waiting worker with a different sha is a real update, once. */
-  function offerMismatch(controllerSha, remoteSha, waitingSha, appliedSha) {
+  /* The running service worker is the only build that can open an update.
+     version.json lagging or merely differing from that worker never does.
+     A waiting worker is a real update once, unless it is only the stale
+     version.json sha (that would reload back and forth). */
+  function offerMismatch(controllerSha, remoteSha, waitingSha, appliedSha, remoteBuilt, currentBuilt) {
     var controller = normSha(controllerSha);
+    var remote = normSha(remoteSha);
     var waiting = normSha(waitingSha);
     var applied = normSha(appliedSha);
+    if (applied && waiting && waiting === applied) return false;
     if (!controller || !waiting || waiting === controller) return false;
-    if (applied && waiting === applied) return false;
+    if (remote && waiting === remote) {
+      var remoteTime = isoBuilt(remoteBuilt);
+      var localTime = isoBuilt(currentBuilt);
+      if (!remoteTime || !localTime || remoteTime <= localTime) return false;
+    }
     return true;
   }
 
@@ -271,7 +277,7 @@
     sha = normSha(state.heardSha);
     var controller = normSha(state.currentSha);
     if (!sha || !controller || !state.waiting) return;
-    var fresh = offerMismatch(controller, state.remoteSha, sha, appliedSha()) && !reloadSpent(sha);
+    var fresh = offerMismatch(controller, state.remoteSha, sha, appliedSha(), state.remoteBuilt, state.currentBuilt) && !reloadSpent(sha);
     if (!fresh) {
       if (!applying && state.phase === "offer") {
         state.pending = false;
@@ -1262,9 +1268,9 @@
       state.notes = notesOf(doc);
       state.short = String(doc.short || sha.slice(0, 7));
       var waiting = normSha(state.pendingSha);
-      state.critical = doc.critical === true && !!waiting && waiting === sha;
-      // The running worker is the truth. A missing match here is not an offer.
-      if (!state.waiting || !waiting || waiting === state.currentSha) {
+      state.critical = doc.critical === true && !!waiting && waiting === sha && offerMismatch(state.currentSha, sha, waiting, appliedSha(), state.remoteBuilt, state.currentBuilt);
+      // version.json lagging or differing from the running worker is not an offer.
+      if (!offerMismatch(state.currentSha, sha, waiting, appliedSha(), state.remoteBuilt, state.currentBuilt)) {
         if (state.phase === "offer") state.pending = false;
       }
       paint();
@@ -1416,7 +1422,14 @@
   function onControllerChange() {
     askVersion();
     if (state.reloaded) return;
-    if (state.expectingController || state.phase === "working" || state.phase === "done") finishUpdate();
+    if (!(state.expectingController || state.phase === "working" || state.phase === "done")) return;
+    var remote = normSha(state.remoteSha);
+    var current = normSha(state.currentSha);
+    var pending = normSha(state.pendingSha);
+    // The worker that is already running is the build. A version.json sha
+    // that names something else must not reload the page again.
+    if (!state.expectingController && remote && current && remote !== current && (!pending || pending === current)) return;
+    finishUpdate();
   }
 
   function poke() {
