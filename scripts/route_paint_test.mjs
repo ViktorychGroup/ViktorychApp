@@ -27,10 +27,12 @@ function grab(name) {
 const sandbox = {};
 vm.runInNewContext(
   grab("routePaintMismatch") + "\n" + grab("routePaintDecision") + "\n" +
-  "this.routePaintMismatch = routePaintMismatch; this.routePaintDecision = routePaintDecision;",
+  grab("homeLoadingShell") + "\n" + grab("commitFrameDecision") + "\n" +
+  "this.routePaintMismatch = routePaintMismatch; this.routePaintDecision = routePaintDecision;" +
+  "this.homeLoadingShell = homeLoadingShell; this.commitFrameDecision = commitFrameDecision;",
   sandbox
 );
-const { routePaintMismatch, routePaintDecision } = sandbox;
+const { routePaintMismatch, routePaintDecision, homeLoadingShell, commitFrameDecision } = sandbox;
 
 assert.equal(routePaintMismatch("#/", "#/settings"), true);
 assert.equal(routePaintMismatch("#/settings", "#/settings"), false);
@@ -62,5 +64,26 @@ assert.equal(routePaintDecision(dropped, { type: "check", hash: "#/settings" }).
 assert.ok(src.includes("if (token !== routePaintState.token)"), "a dropped hashchange must notice the newer token");
 assert.ok(src.includes("followRoute()"), "a mismatch must schedule another render");
 assert.ok(src.includes("noteRoutePaint(paintedHash)"), "a finished paint must record the hash it drew");
+assert.ok(src.includes("homeLoadingShell(route, STATE.loading)"), "the Home skeleton must not run for every route");
+assert.ok(src.includes("commitFrameDecision("), "commit must check the render token and the live hash");
+assert.ok(src.includes("if (!routeDomReady)"), "a corrective render must wait until DOMContentLoaded");
+assert.ok(src.includes("routeCorrectiveToken = -1"), "the first hash can still schedule its one corrective render");
+assert.ok(src.includes("routeCorrectiveToken === token"), "one hash change gets one corrective render");
+assert.ok(src.includes("decision.reason !== \"stale-hash\""), "a stale frame is discarded and the current hash is built once");
+assert.ok(src.includes("requestAnimationFrame(() => queueMicrotask(run))"), "the corrective render is async");
+assert.equal(src.includes('if (parseRoute().name !== "home") render()'), false, "boot must not render Settings before the document loads");
+
+assert.equal(homeLoadingShell({ name: "home" }, true), true);
+assert.equal(homeLoadingShell({ name: "settings" }, true), false);
+assert.equal(homeLoadingShell({ name: "home" }, false), false);
+
+const homeFrame = { token: 1, builtHash: "#/" };
+const afterSettings = { renderGen: 2, hash: "#/settings" };
+assert.equal(commitFrameDecision(homeFrame, afterSettings).commit, false);
+assert.equal(commitFrameDecision(homeFrame, afterSettings).reason, "stale-token");
+assert.equal(commitFrameDecision({ token: 2, builtHash: "#/" }, afterSettings).reason, "stale-hash");
+const kept = commitFrameDecision({ token: 2, builtHash: "#/settings" }, afterSettings);
+assert.equal(kept.commit, true);
+assert.equal(kept.hash, "#/settings");
 
 console.log("route paint ok");

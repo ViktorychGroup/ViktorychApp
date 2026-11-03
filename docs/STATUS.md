@@ -1,12 +1,13 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main is `e4f38df3`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main is `39623360`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## Merged today
 
 - **#531** Shorts re-enabled (owner-only): viewer cap, on-device stream-copy recording, native frame grab, playback fallback, TikTok follow placement. Squash merge `904144017f5260ab140efdeee40cab1357e4f72f`. Live on both sites (`version.json` matched that sha, watchdog HTTP 200).
 - **#532** A new community folder keeps its typed name when the page redraws, so Create still makes the folder. Squash merge `eb6cee2deb532bbf4f31f35e042fd9fe67277d39`. Its pull-request Page smoke passed. Main's own Page smoke for that commit was still running when this note was written.
 - **#537** The blue toast stays fixed and moves above an open info or achievement alert, so Undo stays tappable. Squash merge `e4f38df3`.
+- **#538** A phone route change attaches the new view. Settings is not left on Home, and Sign up reaches its welcome step. Squash merge `39623360`.
 
 ## Toast and alerts
 
@@ -18,7 +19,7 @@ A birthday note is sent only to someone who still follows the celebrant. Each fo
 
 ## Settings while the feed loads
 
-Opening Settings while the feed is still loading paints Settings, not the Home skeleton. A saved Home screen is not restored under another address. Sign-in reloads once, so the next page can finish loading. Log out on that page stays reachable.
+A reload to `#/settings` could keep the Home heading, so Log out was missing. While the feed was loading, Settings was painted as the Home skeleton, and a Home frame that had already started could still be committed after the address moved. Every route uses the same rule, including the screen Sign up opens from. A commit whose route is not the current `location.hash` is discarded. After the document has loaded, the current address is built and committed once. Before `DOMContentLoaded` that second build does not run, because it kept the phone reload from finishing. One corrective render can follow, on a later frame, and only once for that hash change. A render is not dropped on the floor, so the new view still gets attached.
 
 ## Page smoke on docs-only changes
 
