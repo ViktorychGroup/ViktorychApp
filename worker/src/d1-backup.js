@@ -48,24 +48,50 @@ async function gzipText(text) {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+export const PAGE_ROWS = 500;
+export const MAX_ROWS = 200000;
+
+function pushRows(chunks, ident, cols, rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const values = cols.map((col) => sqlLiteral(row[col.slice(1, -1)]));
+    chunks.push("INSERT INTO " + ident + " (" + cols.join(", ") + ") VALUES (" + values.join(", ") + ");\n");
+  }
+}
+
+/* Pages walk the rowid, so each row is read once. LIMIT/OFFSET re-read every
+   earlier row on each page: the 18k-row telegram_files table alone cost about
+   two million D1 rows read per backup. WITHOUT ROWID tables have no rowid and
+   fall back to OFFSET pages. */
 async function dumpTable(env, name, chunks) {
   const ident = quoteIdent(name);
   if (!ident) return;
   const info = await env.DB.prepare("PRAGMA table_info(" + ident + ")").all();
   const cols = ((info && info.results) || []).map((row) => quoteIdent(row.name)).filter(Boolean);
   if (!cols.length) return;
-  let offset = 0;
-  while (offset < 200000) {
-    const page = await env.DB.prepare("SELECT " + cols.join(", ") + " FROM " + ident + " LIMIT 100 OFFSET " + offset).all();
+  const select = "SELECT " + cols.join(", ");
+  let done = 0;
+  let last = null;
+  let keyset = true;
+  while (done < MAX_ROWS) {
+    let page = null;
+    if (keyset) {
+      try {
+        page = last === null
+          ? await env.DB.prepare(select + ", rowid AS \"__vk_rowid\" FROM " + ident + " ORDER BY rowid LIMIT " + PAGE_ROWS).all()
+          : await env.DB.prepare(select + ", rowid AS \"__vk_rowid\" FROM " + ident + " WHERE rowid > ? ORDER BY rowid LIMIT " + PAGE_ROWS).bind(last).all();
+      } catch (err) {
+        if (done > 0) throw err;
+        keyset = false;
+      }
+    }
+    if (!keyset) page = await env.DB.prepare(select + " FROM " + ident + " LIMIT " + PAGE_ROWS + " OFFSET " + done).all();
     const rows = (page && page.results) || [];
     if (!rows.length) break;
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const values = cols.map((col) => sqlLiteral(row[col.slice(1, -1)]));
-      chunks.push("INSERT INTO " + ident + " (" + cols.join(", ") + ") VALUES (" + values.join(", ") + ");\n");
-    }
-    offset += rows.length;
-    if (rows.length < 100) break;
+    pushRows(chunks, ident, cols, rows);
+    done += rows.length;
+    if (keyset) last = rows[rows.length - 1].__vk_rowid;
+    if (rows.length < PAGE_ROWS) break;
   }
 }
 

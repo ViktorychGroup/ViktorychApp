@@ -38,6 +38,7 @@ let sheet = null;
 let sheetAnchor = null;
 let audioCtx = null;
 let audienceLists = [];
+let ownedEmojis = [];
 let friends = [];
 let friendsAt = 0;
 let friendsLoading = null;
@@ -107,6 +108,8 @@ function applyMine(body) {
     seenPrivacy: body.seenPrivacy || prev.seenPrivacy || "everyone",
     reciprocal: body.reciprocal != null ? !!body.reciprocal : (prev.reciprocal != null ? !!prev.reciprocal : true),
     seenLists: Array.isArray(body.seenLists) ? body.seenLists.slice() : (prev.seenLists || []).slice(),
+    statusAudience: body.statusAudience || prev.statusAudience || "everyone",
+    statusLists: Array.isArray(body.statusLists) ? body.statusLists.slice() : (prev.statusLists || []).slice(),
     clearAt: body.clearAt != null ? Number(body.clearAt) || 0 : (prev.clearAt || 0)
   };
   cache.set(id, { view: mine, at: Date.now() });
@@ -376,6 +379,11 @@ function paint(root) {
     if (el.getAttribute("data-presence") !== state) el.setAttribute("data-presence", state);
     if (view && view.playing && state !== "offline") el.setAttribute("data-playing", "1");
     else el.removeAttribute("data-playing");
+    const emoji = view && view.emoji ? String(view.emoji) : "";
+    if (emoji) el.setAttribute("data-status-emoji", "1");
+    else el.removeAttribute("data-status-emoji");
+    const badge = el.querySelector(".status-badge");
+    if (badge && badge.textContent !== emoji) badge.textContent = emoji;
     const label = lineText(view);
     if (label) el.setAttribute("title", label);
   });
@@ -447,6 +455,36 @@ function listRows() {
   }).join("") + "</div>";
 }
 
+/* Who sees the custom status: the same choices as last seen, saved on their own. */
+function statusAudienceRows() {
+  const selected = (mine && mine.statusAudience) || "everyone";
+  return PRIVACY_IDS.map(function (id) {
+    const on = selected === id;
+    return '<button type="button" class="presence-choice' + (on ? " on" : "") + '" data-presence="status-audience" data-value="' + id + '" aria-pressed="' + (on ? "true" : "false") + '"><b>' + esc(privacyCopy(id)) + '</b></button>';
+  }).join("");
+}
+
+function statusListRows() {
+  if (!mine || mine.statusAudience !== "lists") return "";
+  if (!audienceLists.length) return '<p class="presence-note">' + esc(tr("Create a list to choose who sees you.")) + "</p>";
+  const selected = mine.statusLists || [];
+  return '<div class="presence-lists">' + audienceLists.map(function (list) {
+    const id = String(list.id || "");
+    const on = selected.indexOf(id) >= 0;
+    return '<button type="button" class="presence-choice' + (on ? " on" : "") + '" data-presence="status-list" data-value="' + esc(id) + '" aria-pressed="' + (on ? "true" : "false") + '"><b>' + esc(list.name || tr("Custom lists")) + "</b></button>";
+  }).join("") + "</div>";
+}
+
+/* Status emojis from the store that this account owns, one tap to pick. */
+function ownedEmojiRow() {
+  const current = (mine && mine.emoji) || "";
+  const owned = ownedEmojis.map(function (item) {
+    const on = current === item.emoji;
+    return '<button type="button" class="presence-emoji' + (on ? " on" : "") + '" data-presence="pick-emoji" data-value="' + esc(item.emoji) + '" aria-pressed="' + (on ? "true" : "false") + '" aria-label="' + esc(item.name ? tr(item.name) : tr("Status emoji")) + '">' + esc(item.emoji) + "</button>";
+  }).join("");
+  return '<div class="presence-emojis">' + owned + '<a class="presence-emoji-more" href="#/store/emojis" data-presence="close">' + esc(tr("Get status emojis")) + "</a></div>";
+}
+
 function reciprocalRow() {
   const on = !mine || mine.reciprocal !== false;
   return '<button type="button" class="presence-switch' + (on ? " on" : "") + '" role="switch" data-presence="reciprocal" aria-checked="' + (on ? "true" : "false") + '"><span>' + esc(tr("Hide their presence when they can’t see mine")) + "</span><i></i></button>";
@@ -467,10 +505,14 @@ function formHtml() {
       '<input data-presence-emoji maxlength="16" placeholder="' + esc(tr("Emoji")) + '" aria-label="' + esc(tr("Emoji")) + '" value="' + esc(mine && mine.emoji || "") + '">' +
       '<input data-presence-text maxlength="80" placeholder="' + esc(tr("Status text")) + '" aria-label="' + esc(tr("Status text")) + '" value="' + esc(mine && mine.text || "") + '">' +
     '</div>' +
+    ownedEmojiRow() +
     '<label class="presence-clear">' + esc(tr("Clear after")) +
       '<select data-presence-clear aria-label="' + esc(tr("Clear after")) + '">' + options + '</select></label>' +
     '<div class="presence-actions"><button type="button" class="presence-save" data-presence="save">' + esc(tr("Save")) + '</button>' +
       '<button type="button" class="presence-textbtn" data-presence="clear-status">' + esc(tr("Clear status")) + '</button></div>' +
+    '<p class="presence-kicker">' + esc(tr("Who can see my status")) + '</p>' +
+    statusAudienceRows() +
+    '<div data-status-lists>' + statusListRows() + '</div>' +
     '<p class="presence-kicker">' + esc(tr("Who can see my last seen")) + '</p>' +
     '<p class="presence-note">' + esc(tr("Last seen and online")) + '</p>' +
     privacyRows(privacy) +
@@ -536,6 +578,11 @@ function open(anchor) {
     audienceLists = body.lists;
     if (sheet && !sheet.hidden) fillSheet();
   });
+  call("/v1/store/catalog").then(function (body) {
+    if (!body || body.status !== 200 || !Array.isArray(body.emojis)) return;
+    ownedEmojis = body.emojis.filter(function (item) { return item && item.owned && item.emoji; });
+    if (sheet && !sheet.hidden) fillSheet();
+  });
 }
 
 function close() {
@@ -579,7 +626,7 @@ function save(root, status) {
   }
   return call("/v1/presence", { method: "PATCH", body: body }).then(function (res) {
     if (!res || res.status !== 200) {
-      note(root, tr("Couldn’t save your status."));
+      note(root, res && res.error === "owned" ? tr("This emoji is not in your collection.") : tr("Couldn’t save your status."));
       return;
     }
     applyMine(res);
@@ -587,6 +634,21 @@ function save(root, status) {
     paint();
     const api = accounts();
     if (api && api.requestRender) api.requestRender();
+  });
+}
+
+function saveAudience(root) {
+  const body = {
+    statusAudience: (mine && mine.statusAudience) || "everyone",
+    statusLists: (mine && mine.statusLists) || []
+  };
+  return call("/v1/presence", { method: "PATCH", body: body }).then(function (res) {
+    if (!res || res.status !== 200) {
+      note(root, tr("Couldn’t save your status."));
+      return;
+    }
+    applyMine(res);
+    note(root, tr("Status saved"));
   });
 }
 
@@ -642,6 +704,46 @@ function onClick(event) {
     el.classList.toggle("on", on);
     el.setAttribute("aria-pressed", on ? "true" : "false");
     save(root);
+    return;
+  }
+  if (act === "status-audience" || act === "status-list") {
+    event.preventDefault();
+    const value = el.getAttribute("data-value") || "";
+    if (!mine) mine = { id: selfId(), exact: true, preference: "online", seenPrivacy: "everyone", reciprocal: true, seenLists: [], statusAudience: "everyone", statusLists: [], state: "offline", emoji: "", text: "" };
+    const box = el.closest(".presence-card, .presence-settings") || document.body;
+    if (act === "status-audience") {
+      mine.statusAudience = value;
+      box.querySelectorAll('[data-presence="status-audience"]').forEach(function (button) {
+        const on = button.getAttribute("data-value") === value;
+        button.classList.toggle("on", on);
+        button.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      const host = box.querySelector("[data-status-lists]");
+      if (host) host.innerHTML = statusListRows();
+    } else {
+      const selected = (mine.statusLists || []).slice();
+      const at = selected.indexOf(value);
+      if (at >= 0) selected.splice(at, 1);
+      else if (value) selected.push(value);
+      mine.statusLists = selected;
+      const on = selected.indexOf(value) >= 0;
+      el.classList.toggle("on", on);
+      el.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    saveAudience(root);
+    return;
+  }
+  if (act === "pick-emoji") {
+    event.preventDefault();
+    const value = el.getAttribute("data-value") || "";
+    const box = el.closest(".presence-form") || document;
+    const field = box.querySelector("[data-presence-emoji]");
+    if (field) field.value = value;
+    box.querySelectorAll('[data-presence="pick-emoji"]').forEach(function (button) {
+      const on = button === el;
+      button.classList.toggle("on", on);
+      button.setAttribute("aria-pressed", on ? "true" : "false");
+    });
     return;
   }
   if (act === "reciprocal") {
@@ -702,7 +804,7 @@ function wrap(publicId, html, attrs) {
   const state = view && view.state ? view.state : "";
   // A small controller badge marks friends who are playing right now.
   const game = view && view.playing && state !== "offline" ? ' data-playing="1"' : "";
-  return '<span class="ava-presence" data-pid="' + publicId + '" data-presence="' + esc(state) + '"' + game + (attrs || "") + '>' + html + '<i class="presence-dot" aria-hidden="true"></i></span>';
+  return '<span class="ava-presence" data-pid="' + publicId + '" data-presence="' + esc(state) + '"' + game + (attrs || "") + (view && view.emoji ? ' data-status-emoji="1"' : "") + '>' + html + '<i class="presence-dot" aria-hidden="true"></i><i class="status-badge" aria-hidden="true">' + esc(view && view.emoji ? view.emoji : "") + '</i></span>';
 }
 
 function linesHtml(publicId) {

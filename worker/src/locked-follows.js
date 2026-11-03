@@ -462,10 +462,16 @@ export async function handleLockedFollows(request, env, path, url, deps) {
     if (!setUp) return deps.json(409, { error: "not_set_up" });
     const paced = await deps.rateHit(env, "lf-lock:" + me, 60, 10 * 60 * 1000);
     if (!paced.ok) return deps.limited(paced);
-    const target = await resolveTarget(env, deps, body.id);
+    let target = await resolveTarget(env, deps, body.id);
     if (!target) return deps.json(404, { error: "not_found" });
-    const follow = await env.DB.prepare("SELECT created_at FROM account_follows WHERE follower_id = ? AND target_id = ?").bind(me, target).first();
+    let follow = await env.DB.prepare("SELECT target_id, created_at FROM account_follows WHERE follower_id = ? AND lower(target_id) = lower(?)").bind(me, target).first();
+    if (!follow && target.indexOf("app:") !== 0) {
+      const now = Date.now();
+      await env.DB.prepare("INSERT INTO account_follows (follower_id, target_id, snapshot, created_at) VALUES (?, ?, '', ?) ON CONFLICT(follower_id, target_id) DO NOTHING").bind(me, target, now).run();
+      follow = { target_id: target, created_at: now };
+    }
     if (!follow) return deps.json(404, { error: "not_following" });
+    target = follow.target_id || target;
     await env.DB.prepare("INSERT INTO locked_follows (owner_id, target_id, follow_at, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(owner_id, target_id) DO UPDATE SET follow_at = excluded.follow_at, created_at = excluded.created_at").bind(me, target, Number(follow.created_at) || 0, Date.now()).run();
     return deps.json(200, { ok: true, followingCount: await followingCount(env, me) });
   }
@@ -476,7 +482,7 @@ export async function handleLockedFollows(request, env, path, url, deps) {
   if (path === "/v1/locked-follows/unlock-follow" && method === "POST") {
     const target = await resolveTarget(env, deps, body.id);
     if (!target) return deps.json(404, { error: "not_found" });
-    await env.DB.prepare("DELETE FROM locked_follows WHERE owner_id = ? AND target_id = ?").bind(me, target).run();
+    await env.DB.prepare("DELETE FROM locked_follows WHERE owner_id = ? AND lower(target_id) = lower(?)").bind(me, target).run();
     return deps.json(200, { ok: true, followingCount: await followingCount(env, me) });
   }
 
@@ -488,7 +494,7 @@ export async function handleLockedFollows(request, env, path, url, deps) {
         const cards = await deps.cards(env, request, [id.slice(4)]);
         if (cards[0]) accounts.push(cards[0]);
       } else {
-        const snap = await env.DB.prepare("SELECT snapshot FROM account_follows WHERE follower_id = ? AND target_id = ?").bind(me, id).first();
+        const snap = await env.DB.prepare("SELECT snapshot FROM account_follows WHERE follower_id = ? AND lower(target_id) = lower(?)").bind(me, id).first();
         accounts.push(deps.feedCard(id, snap && snap.snapshot));
       }
     }

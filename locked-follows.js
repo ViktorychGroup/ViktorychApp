@@ -44,7 +44,23 @@
   function accounts() { return root.ViktorychAccounts || null; }
   function me() { var a = accounts(); return a && a.account ? a.account() : null; }
   function token() { var a = accounts(); return a && a.token ? a.token() : ""; }
-  function owner() { var m = me(); return m ? String(m.publicId || m.handle || "") : ""; }
+  /* owner() sits on the hottest path in the app: the timeline asks
+     hidesId() for every feed and post on every paint. Reading the session
+     means a localStorage read plus a JSON parse, so it is remembered for a
+     moment and dropped whenever the session can have changed. */
+  var ownerMemo = { value: "", at: -1e9 };
+  function owner() {
+    var now = Date.now();
+    if (now - ownerMemo.at < 2000) return ownerMemo.value;
+    var m = me();
+    var next = m ? String(m.publicId || m.handle || "") : "";
+    if (next !== ownerMemo.value) hideMemo.clear();
+    ownerMemo.value = next; ownerMemo.at = now;
+    return next;
+  }
+  function forgetOwner() { ownerMemo.at = -1e9; hideMemo.clear(); }
+  var hideMemo = new Map();
+  var filterVersion = 0;
   function redraw() { var a = accounts(); if (a && a.requestRender) a.requestRender(); }
 
   /* ---------- the device filter ---------- */
@@ -69,19 +85,35 @@
     return null;
   }
   function saveFilter(f) {
+    forgetOwner();
+    filterVersion++;
     filter = f ? { owner: owner(), salt: f.salt, set: new Set(f.hashes || []) } : null;
     try {
       if (f) localStorage.setItem(FILTER_KEY, JSON.stringify({ owner: owner(), salt: f.salt, hashes: f.hashes || [] }));
       else localStorage.removeItem(FILTER_KEY);
     } catch (err) { /* private mode */ }
   }
+  /* True only when this device holds a filter with someone in it for the
+     signed-in account. Lets callers skip per-item checks entirely. */
+  function active() {
+    if (!filter || !filter.set.size) return false;
+    var o = owner();
+    return !!o && filter.owner === o;
+  }
   function hidesId(id) {
-    if (!filter || !id || !owner() || filter.owner !== owner()) return false;
-    return filter.set.has(filterHash(filter.salt, String(id)));
+    if (!id || !active()) return false;
+    var key = String(id);
+    var hit = hideMemo.get(key);
+    if (hit !== undefined) return hit;
+    hit = filter.set.has(filterHash(filter.salt, key));
+    if (hideMemo.size > 20000) hideMemo.clear();
+    hideMemo.set(key, hit);
+    return hit;
   }
   function hides(post) {
-    if (!post || !filter || !owner() || filter.owner !== owner()) return false;
+    if (!post || !active()) return false;
     if (hidesId(post.feedId)) return true;
+    if (post.platform && post.handle && post.platform !== "app" && hidesId(post.platform + ":" + String(post.handle).replace(/^@/, ""))) return true;
     var handle = String(post.authorHandle || (post.platform === "app" ? post.handle : "") || "").replace(/^@/, "");
     if (handle && hidesId("app:@" + handle)) return true;
     if (post.authorId && /^\d{12}$/.test(String(post.authorId)) && hidesId("app:" + post.authorId)) return true;
@@ -384,10 +416,16 @@
       if (!a.people) body = loadingRow;
       else if (!a.people.length) body = '<div class="lf-empty"><h3>' + esc(tr("No locked follows")) + "</h3><p>" + esc(tr("Lock someone from their profile’s ⋯ menu or from your Following list.")) + "</p></div>";
       else body = a.people.map(function (p) {
-        var handle = String(p.handle || "").replace(/^@/, "");
-        var href = handle ? "#/@" + encodeURIComponent(handle) : "";
-        return '<div class="lf-person">' + face(p) + '<a class="lf-person-copy" href="' + esc(href) + '" data-lf-act="go"><b>' + esc(p.displayName || p.name || handle) + "</b><span>" + (handle ? "@" + esc(handle) : esc(p.id || "")) + "</span></a>" +
-          '<button class="lf-pill small ghost" type="button" data-lf-act="unlock-follow" data-id="' + esc(p.id || ("app:@" + handle)) + '">' + esc(tr("Unlock")) + "</button></div>";
+        var rawId = String(p.id || "");
+        var cut = rawId.indexOf(":");
+        var derivedPlatform = cut > 0 ? rawId.slice(0, cut).toLowerCase() : "";
+        var derivedHandle = cut > 0 && derivedPlatform !== "app" ? rawId.slice(cut + 1) : "";
+        var platform = String(p.platform || derivedPlatform || "app").toLowerCase();
+        var handle = String(p.handle || derivedHandle || "").replace(/^@/, "");
+        var href = handle ? (platform && platform !== "app" && platform !== "x" ? "#/" + encodeURIComponent(platform) + "/" + encodeURIComponent(handle) : "#/@" + encodeURIComponent(handle)) : "";
+        var label = p.displayName || p.name || handle || rawId;
+        return '<div class="lf-person">' + face(p) + '<a class="lf-person-copy" href="' + esc(href) + '" data-lf-act="go"><b>' + esc(label) + "</b><span>" + (handle ? "@" + esc(handle) : esc(rawId)) + "</span></a>" +
+          '<button class="lf-pill small ghost" type="button" data-lf-act="unlock-follow" data-id="' + esc(rawId || ("app:@" + handle)) + '">' + esc(tr("Unlock")) + "</button></div>";
       }).join("");
     } else if (ui.tab === "posts") {
       if (!a.posts) body = loadingRow;
@@ -653,6 +691,16 @@
     }
   }
 
+  /* Another tab signed in, out, or changed the filter: forget what was
+     remembered so the next check reads it fresh. */
+  if (root.addEventListener) {
+    root.addEventListener("storage", function (e) {
+      if (e && e.key && !/account-v1|accounts-session|locked-filter/.test(e.key)) return;
+      if (!e || !e.key || /locked-filter/.test(e.key)) { filter = readFilter(); filterVersion++; }
+      forgetOwner();
+    });
+  }
+
   if (doc) {
     doc.addEventListener("click", onClick, true);
     doc.addEventListener("submit", onSubmit, true);
@@ -683,6 +731,8 @@
   root.ViktorychLocked = {
     hides: hides,
     hidesId: hidesId,
+    active: active,
+    version: function () { return filterVersion + ":" + (active() ? owner() : ""); },
     load: load,
     lockFlow: lockFlow,
     openArea: openArea,

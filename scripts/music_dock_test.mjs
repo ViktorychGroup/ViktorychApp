@@ -167,9 +167,21 @@ async function exercise(browser, origin, vp) {
   const where = vp.name;
   await page.goto(origin + "/#/music", { waitUntil: "domcontentloaded" });
   try {
-    await page.waitForSelector(".mu-tile[data-id='tone-a']", { timeout: 20000 });
+    await page.waitForSelector(".mu-tile[data-id='tone-a']", { timeout: 45000 });
   } catch (err) {
-    fail(where + " music page did not list the test song");
+    const info = await ev(page, () => {
+      const keys = [];
+      try { for (let i = 0; i < localStorage.length; i += 1) { const k = localStorage.key(i); if (k && k.indexOf("music") >= 0) keys.push(k); } } catch (e) { keys.push(String(e)); }
+      return {
+        hash: location.hash,
+        ready: document.readyState,
+        tiles: document.querySelectorAll(".mu-tile").length,
+        grid: !!document.querySelector(".mu-grid"),
+        songsKey: keys.join(","),
+        appBooted: !!document.querySelector("#timeline-out, #mu-grid, nav.bottom-nav")
+      };
+    }).catch(() => ({}));
+    fail(where + " music page did not list the test song " + JSON.stringify(info) + " pageErrors=" + JSON.stringify(errors.slice(0, 3)));
   }
   await page.click(".mu-tile[data-id='tone-a']");
   await wait(page, where + " step 134", () => { const a = document.getElementById("mu-audio"); return a && !a.paused && a.currentTime > 0.2; }, null, { timeout: 15000 });

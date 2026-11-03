@@ -6,6 +6,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 
 const accountsCode = fs.readFileSync("accounts.js", "utf8");
+const syncCode = fs.readFileSync("settings-sync.js", "utf8");
 const store = {};
 const windowMock = {
   addEventListener: () => {},
@@ -33,7 +34,9 @@ const windowMock = {
 };
 windowMock.window = windowMock;
 windowMock.document.defaultView = windowMock;
-vm.runInContext(accountsCode, vm.createContext(windowMock));
+const context = vm.createContext(windowMock);
+vm.runInContext(syncCode, context);
+vm.runInContext(accountsCode, context);
 const accounts = windowMock.ViktorychAccounts;
 
 // Newer per-key choice wins in both directions.
@@ -76,6 +79,23 @@ assert.equal(accounts.uiSyncOn(), true);
 snap = accounts.snapshotFrom({ syncUi: false, syncUiAt: 9, appearance: "dim" });
 assert.equal(snap.uiLocal, true);
 assert.equal(snap.syncUi, false, "the switch itself still syncs");
+
+// Custom tabs follow the account until this device keeps them.
+const tabsReg = windowMock.ViktorychSettingsSync;
+assert.ok(tabsReg && tabsReg.CAT_OF.feedTabs === "tabs", "tabs have their own sync choice");
+tabsReg.setCatLocal("tabs", true);
+snap = accounts.snapshotFrom({ follows: ["x:a"], feedTabs: [{ id: "t1", name: "News" }], noteTabs: [], tabViews: { t1: "grid" }, lastNoteTab: "t1" });
+assert.equal(snap.feedTabs, undefined, "kept-local tabs are not sent");
+assert.equal(snap.noteTabs, undefined);
+assert.equal(snap.lastNoteTab, undefined, "the last-read marker follows the tabs choice");
+assert.equal(snap.tabViews, undefined);
+assert.ok(Array.isArray(snap.localKeys) && snap.localKeys.indexOf("feedTabs") >= 0 && snap.localKeys.indexOf("lastNoteTab") >= 0, "the payload marks what stays here");
+assert.deepEqual(Array.from(snap.follows), ["x:a"], "follows still sync");
+merged = accounts.mergePayload(snap, { feedTabs: [{ id: "t2", name: "Fun" }] });
+assert.ok(merged.feedTabs.length === 1 && merged.feedTabs[0].id === "t2", "the account keeps its copy for the other devices");
+tabsReg.setCatLocal("tabs", false);
+snap = accounts.snapshotFrom({ follows: ["x:a"], feedTabs: [{ id: "t1", name: "News" }] });
+assert.ok(Array.isArray(snap.feedTabs) && snap.feedTabs.length === 1, "tabs ride the account again");
 
 // Live updates ride the account channel.
 const presence = fs.readFileSync("presence.js", "utf8");

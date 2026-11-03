@@ -21,3 +21,10 @@ assert.equal(canSeeIdentity({ audience: "list", hidden: false }, mutual, { "2222
 assert.equal(canSeeIdentity({ audience: "public", hidden: false }, blocked, {}), false);
 
 console.log("identity audience ok");
+
+// Specific people: only a viewer the account chose sees the link.
+const chosen = { owner: false, follows: false, followsYou: false, friends: false, blocked: false, viewerId: "v1" };
+assert.equal(canSeeIdentity({ audience: "people", hidden: false }, chosen, { v1: 1 }), true);
+assert.equal(canSeeIdentity({ audience: "people", hidden: false }, chosen, {}), false);
+assert.equal(canSeeIdentity({ audience: "people", hidden: false }, Object.assign({}, chosen, { blocked: true }), { v1: 1 }), false);
+console.log("identity audience people ok");

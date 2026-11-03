@@ -1,0 +1,74 @@
+/* Who can see each friendship (friend-privacy-ui.js). X settings style:
+   full-width rows, 15px titles, muted 13px subtitles, accent radios. */
+.fpv { margin: 0 -16px; color: var(--text); }
+.fpv > p, .fpv > .fpv-chips, .fpv > .fpv-lists, .fpv > .fpv-tools, .fpv > .fpv-preview, .fpv > .fpv-actions, .fpv > .fpv-head, .fpv > .fpv-who, .fpv > .fpv-h { margin-left: 16px; margin-right: 16px; }
+.fpv-preview .fpv-note, .fpv-chips .fpv-note { margin-left: 0; margin-right: 0; }
+.fpv-lead { margin-top: 4px; margin-bottom: 12px; color: var(--muted); font-size: 13px; line-height: 16px; }
+/* The app header already has the back arrow and title. */
+.fpv-head { display: none; }
+.fpv-tools { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.fpv-search { flex: 1; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 9999px; background: var(--search); border: 1px solid transparent; color: var(--muted); }
+.fpv-search:focus-within { border-color: var(--blue); background: var(--bg); color: var(--blue); }
+.fpv-search svg { width: 18px; height: 18px; flex: none; }
+.fpv-search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--text); font: inherit; font-size: 15px; outline: none; }
+.fpv-link { border: 0; background: none; color: var(--blue); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; padding: 8px 0; }
+.fpv-rows { display: flex; flex-direction: column; }
+.fpv-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 12px 16px; border: 0; background: none; color: inherit; text-align: left; font: inherit; text-decoration: none; cursor: pointer; }
+.fpv-row:hover { background: var(--hover-soft); }
+.fpv-ava { width: 40px; height: 40px; flex: none; border-radius: 50%; object-fit: cover; background: var(--banner); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; color: var(--text); }
+.fpv-copy { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fpv-copy b { font-size: 15px; font-weight: 700; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpv-copy > span { color: var(--muted); font-size: 13px; line-height: 16px; }
+.fpv-at { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fpv-sum { margin-top: 2px; }
+.fpv-sum.own { color: var(--text); }
+.fpv-chev { width: 18px; height: 18px; flex: none; color: var(--muted); }
+.fpv-check { width: 20px; height: 20px; flex: none; border: 2px solid var(--muted); border-radius: 4px; }
+.fpv-check.on { border-color: var(--blue); background: var(--blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E") center / 16px no-repeat; }
+.fpv-bulkbar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg); border-top: 1px solid var(--line); font-size: 15px; }
+.fpv-bulkbar > span { flex: 1; font-weight: 700; }
+.fpv-bulkbar .primary, .fpv-actions .primary { border-radius: 9999px; min-height: 36px; padding: 0 16px; font-weight: 700; }
+.fpv-who { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+.fpv-sentence { margin-top: 4px; margin-bottom: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 15px; line-height: 20px; }
+.fpv-h, .fpv-chips h3, .fpv-lists h3 { margin-top: 16px; margin-bottom: 4px; font-size: 20px; font-weight: 800; line-height: 24px; }
+.fpv-chips h3, .fpv-lists h3 { font-size: 17px; }
+.fpv-choices, .fpv-lists { display: flex; flex-direction: column; }
+.fpv-choice { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 12px 16px; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.fpv-lists .fpv-choice { padding-left: 0; padding-right: 0; }
+.fpv-choice:hover { background: var(--hover-soft); }
+.fpv-choice .fpv-copy b { font-weight: 400; }
+.fpv-radio { width: 20px; height: 20px; flex: none; border: 2px solid var(--muted); border-radius: 50%; box-sizing: border-box; }
+.fpv-choice.on .fpv-radio { border: 6px solid var(--blue); }
+.fpv-box { width: 20px; height: 20px; flex: none; border: 2px solid var(--muted); border-radius: 4px; box-sizing: border-box; }
+.fpv-choice.on .fpv-box { border-color: var(--blue); background: var(--blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='white' d='M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E") center / 16px no-repeat; }
+.fpv-chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.fpv-chip-row:focus-within { border-bottom-color: var(--blue); }
+.fpv-chip { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 4px 0 12px; border: 1px solid var(--line); border-radius: 9999px; font-size: 14px; font-weight: 700; }
+.fpv-chip button { width: 24px; height: 24px; border: 0; border-radius: 50%; background: none; color: var(--blue); font-size: 18px; line-height: 1; cursor: pointer; }
+.fpv-chip button:hover { background: var(--blue-dim); }
+.fpv-chip-add { flex: 1; min-width: 120px; }
+.fpv-chip-add input { width: 100%; height: 32px; border: 0; background: none; color: var(--text); font: inherit; font-size: 15px; outline: none; }
+.fpv-suggest { display: flex; flex-direction: column; }
+.fpv-hit { display: flex; align-items: center; gap: 12px; padding: 8px 0; border: 0; background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.fpv-hit:hover { background: var(--hover-soft); }
+.fpv-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 16px; }
+.fpv-actions { display: flex; gap: 12px; margin-top: 16px; }
+.fpv-actions .outline { border-radius: 9999px; min-height: 36px; padding: 0 16px; }
+/* Preview as: a dashed card with an eye, never the owner's solid banner. */
+.fpv-preview { margin-top: 20px; padding: 12px 16px; border: 1px dashed var(--muted); border-radius: 16px; }
+.fpv-preview-head { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.fpv-ico { width: 18px; height: 18px; color: var(--muted); }
+.fpv-tag { margin-left: auto; padding: 2px 8px; border-radius: 9999px; background: var(--search); color: var(--muted); font-size: 12px; }
+.fpv-select select { width: 100%; height: 40px; margin-top: 10px; padding: 0 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 15px; }
+.fpv-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.fpv-preview-person { display: flex; gap: 8px; margin-top: 8px; }
+.fpv-preview-person input { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; font-size: 15px; }
+.fpv-preview-person .outline { border-radius: 9999px; padding: 0 14px; }
+.fpv-preview-out { margin: 12px 0 0; font-size: 15px; line-height: 20px; }
+.fpv-preview-out.yes { color: var(--green); }
+.fpv-preview-out.no { color: var(--muted); }
+.fpv-preview-list { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+/* Owner view (accounts.js friends tab): solid accent banner and badges. */
+.friends-owner-view { display: flex; flex-direction: column; gap: 2px; margin: 8px 16px; padding: 10px 14px; border-radius: 12px; background: var(--blue-dim); border-left: 4px solid var(--blue); font-size: 13px; line-height: 16px; }
+.friends-owner-view b { color: var(--blue); font-size: 15px; }
+.friend-card-owneronly { margin-top: 2px; color: var(--blue); font-size: 12px; font-weight: 700; }

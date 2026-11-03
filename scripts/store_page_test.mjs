@@ -71,6 +71,7 @@ const CATALOG = {
   refundDays: 14,
   limited: [{ id: "unicorn_gold", sold: 3, limit: 250, open: true }, { id: "pumpkin_2026", sold: 0, limit: 1000, open: true }, { id: "crown_founders", sold: 0, limit: 500, open: true }],
   stickers: [{ id: "starter", owned: true }, { id: "critters", owned: false }],
+  emojis: [{ id: "flame", emoji: "\u{1F525}", name: "Flame status", tier: "small", viktorychs: 20, popular: true, owned: true }, { id: "rocket", emoji: "\u{1F680}", name: "Rocket status", tier: "medium", viktorychs: 40, popular: true, owned: false }],
   balance: 120,
   owner: false
 };
@@ -90,13 +91,14 @@ async function check(page, origin, vp) {
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: '{"posts":[],"ok":true,"balance":120,"history":[]}' });
   });
-  for (const hash of ["#/store", "#/store/stickers", "#/store/terms", "#/store/orders", "#/points"]) {
+  for (const hash of ["#/store", "#/store/stickers", "#/store/emojis", "#/store/terms", "#/store/orders", "#/points"]) {
     await page.goto(origin + "/" + hash, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.querySelector(".store-page, .points-page, .vkg"), null, { timeout: 20000 });
     await page.waitForTimeout(400);
     const text = await page.evaluate(() => document.body.innerText);
     if (hash === "#/store" && text.indexOf("Card payments are coming soon") < 0) fail(vp.name + " store has no coming-soon note");
     if (hash === "#/store/stickers" && text.indexOf("Cute critters") < 0) fail(vp.name + " sticker packs missing");
+    if (hash === "#/store/emojis" && (text.indexOf("Rocket status") < 0 || text.indexOf("Status emojis") < 0)) fail(vp.name + " status emojis missing");
     if (hash === "#/store/terms" && text.indexOf("no cash value") < 0) fail(vp.name + " terms missing");
     if (hash === "#/points" && text.indexOf("never sold") < 0) fail(vp.name + " points page missing the earn rules");
     if (/buy viktorychs|viktorych pack/i.test(text)) fail(vp.name + " a buy-Viktorychs path is visible on " + hash);
@@ -161,6 +163,16 @@ async function check(page, origin, vp) {
     const sheet = await page.locator(".gift-sheet").innerText();
     if (sheet.indexOf("Coming soon") < 0) fail(vp.name + " money option is not marked Coming soon");
   }
+  await page.locator(".gift-sheet [data-gift='close']").click();
+  await page.waitForFunction(() => !document.querySelector(".gift-sheet"));
+  await page.goto(origin + "/#/store/emojis", { waitUntil: "domcontentloaded" });
+  const getEmoji = page.locator("[data-gift='emoji'][data-emoji-id='rocket']");
+  await getEmoji.waitFor({ timeout: 20000 });
+  await getEmoji.click();
+  await page.locator(".gift-sheet").waitFor({ timeout: 10000 });
+  const emojiSheet = await page.locator(".gift-sheet").innerText();
+  if (emojiSheet.indexOf("Rocket status") < 0) fail(vp.name + " status emoji sheet has no name");
+  if (await page.locator(".gift-sheet input[data-gift-pay='money']").count()) fail(vp.name + " status emojis offer a money price");
   await page.locator(".gift-sheet [data-gift='close']").click();
   await page.waitForFunction(() => !document.querySelector(".gift-sheet"));
   await page.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
