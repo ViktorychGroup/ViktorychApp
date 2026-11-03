@@ -16,7 +16,7 @@ import { quotaPct, refreshQuota, d1ReadPct } from "./quota.js";
 import { withD1Saver } from "./d1-saver.js";
 import { guardClass, guardKey, takeToken, noteGuardTier, tokenGuardKey, publishPulse, pulseResponse } from "./guard.js";
 import { handleNostr } from "./nostr.js";
-import { handleIdentitiesRoute, IDENTITY_SCHEMA, listAccountIdentities, visibleIdentities } from "./identities.js";
+import { handleIdentitiesRoute, IDENTITY_SCHEMA, listAccountIdentities, visibleIdentities, mergedMap, ownView } from "./identities.js";
 import { handleVaultRoute, VAULT_SCHEMA } from "./vault.js";
 import { handleXProxy } from "./xproxy.js";
 import { handleExtGraph } from "./ext-graph.js";
@@ -645,7 +645,7 @@ function publicProfileTabs(raw, own) {
 async function presentAccount(env, request, row, own, opts) {
   const next = await ensureMediaKeys(env, row);
   const account = publicAccount(next, request, !!own);
-  account.identities = await listAccountIdentities(env, next.public_id);
+  account.identities = (await listAccountIdentities(env, next.public_id)).map(ownView);
   await decorateTemporary(env, next.public_id, account, !!own);
   if (opts && opts.skipMedia) {
     if (!own) {
@@ -1255,7 +1255,7 @@ async function handleProfileGet(request, env, handle) {
     if (allNames) account.allDisplayNames = allNames;
   }
   await liveProfileCounts(env, row, account, viewer);
-  account.identities = await visibleIdentities(env, row.public_id, viewer, own);
+  account.identities = await visibleIdentities(env, row.public_id, viewer, own, request);
   account.protected = row.protected_account === 1;
   if (viewer && viewer.public_id !== row.public_id) {
     const state = await pairState(env, viewer.public_id, row.public_id);
@@ -1280,6 +1280,33 @@ async function handleProfileGet(request, env, handle) {
     }
   }
   return json(200, { account, reposts, identities: account.identities || [] });
+}
+
+/* Merged linked profiles this viewer may see, with the name, handle and
+   avatar this viewer sees for the account each one merged into. */
+async function handleMergedMap(request, env) {
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const paced = await rateHit(env, "id-map:" + ip, 120, 10 * 60 * 1000);
+  if (!paced.ok) return limited(paced);
+  // Profiles need a session, so the map does too.
+  const viewer = await sessionAccount(env, request);
+  if (!viewer) return json(401, { error: "unauthorized" });
+  const viewerId = viewer.public_id;
+  const present = async (ownerId) => {
+    const row = await env.DB.prepare("SELECT " + ACCOUNT_COLS + " FROM accounts WHERE public_id = ?").bind(ownerId).first();
+    if (!row || row.profile_less === 1) return null;
+    if (viewerId && viewerId !== ownerId) {
+      const state = await pairState(env, viewerId, ownerId);
+      if (state.blockedBy || state.viewerBlocks) return null;
+    }
+    const card = publicAccount(row, request, viewerId === ownerId);
+    const seen = viewerId === ownerId ? { handle: row.handle } : await viewerHandle(env, request, ownerId, viewerId);
+    if (!seen || seen.hidden || !seen.handle) return null;
+    const shown = viewerId === ownerId ? { name: row.display_name } : await viewerDisplay(env, request, ownerId, viewerId, card.displayName);
+    return { handle: seen.handle, name: shown && !shown.hidden ? (shown.name || card.displayName) : seen.handle, avatar: card.avatar, avatarFace: card.avatarFace };
+  };
+  const list = await mergedMap(env, request, viewer, present);
+  return json(200, { merged: list }, { "cache-control": "private, max-age=60" });
 }
 
 async function handleRepostPut(request, env) {
@@ -5989,6 +6016,9 @@ async function route(request, env, ctx) {
   }
   if (path === "/.well-known/nostr.json" || path.startsWith("/v1/federation/")) {
     return handleFederationRoute(request, env, path, url, { json, sessionAccount, readJson, rateHit, limited });
+  }
+  if (path === "/v1/identities/merged" && request.method === "GET") {
+    return handleMergedMap(request, env);
   }
   if (path === "/v1/account/identities" || path.startsWith("/v1/account/identities/")) {
     return handleIdentitiesRoute(request, env, path, url, { json, sessionAccount, readJson, rateHit, limited });

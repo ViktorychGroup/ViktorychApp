@@ -9,6 +9,7 @@ import { invalidate } from "./edge-cache.js";
 import { assertNotPaidX } from "./x-guard.js";
 import { pairState } from "./social.js";
 import { canSeeIdentity, cleanIdentityAudience } from "../../shared/identity-audience.js";
+import { isSiteOwner, auditOwnerView } from "./display-names.js";
 
 export const IDENTITY_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS account_identities (id INTEGER PRIMARY KEY AUTOINCREMENT, public_id TEXT NOT NULL, platform TEXT NOT NULL, handle TEXT NOT NULL, display_name TEXT NOT NULL DEFAULT '', avatar TEXT NOT NULL DEFAULT '', proof_url TEXT NOT NULL DEFAULT '', verification_type TEXT NOT NULL DEFAULT 'challenge', verified INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, UNIQUE(public_id, platform, handle))",
@@ -16,8 +17,12 @@ export const IDENTITY_SCHEMA = [
   "CREATE INDEX IF NOT EXISTS account_identities_lookup ON account_identities(platform, handle)",
   "CREATE TABLE IF NOT EXISTS identity_challenges (challenge_id TEXT PRIMARY KEY, public_id TEXT NOT NULL, platform TEXT NOT NULL, handle TEXT NOT NULL, code TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)",
   "CREATE INDEX IF NOT EXISTS identity_challenges_user ON identity_challenges(public_id, platform, handle)",
-  "CREATE TABLE IF NOT EXISTS identity_list_grants (identity_id INTEGER NOT NULL, list_id TEXT NOT NULL, PRIMARY KEY (identity_id, list_id))"
+  "CREATE TABLE IF NOT EXISTS identity_list_grants (identity_id INTEGER NOT NULL, list_id TEXT NOT NULL, PRIMARY KEY (identity_id, list_id))",
+  "CREATE TABLE IF NOT EXISTS identity_people_grants (identity_id INTEGER NOT NULL, member_id TEXT NOT NULL, PRIMARY KEY (identity_id, member_id))"
 ];
+
+/* Most people one linked profile can be shown to by name. */
+const PEOPLE_CAP = 50;
 
 const SUPPORTED_PLATFORMS = ["x", "telegram", "instagram", "youtube", "threads", "vk"];
 
@@ -78,7 +83,11 @@ function ensureIdentityColumns(env) {
     const statements = [
       "ALTER TABLE account_identities ADD COLUMN audience TEXT NOT NULL DEFAULT 'public'",
       "ALTER TABLE account_identities ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
-      "CREATE TABLE IF NOT EXISTS identity_list_grants (identity_id INTEGER NOT NULL, list_id TEXT NOT NULL, PRIMARY KEY (identity_id, list_id))"
+      // 1 = the profile's posts merge into the account's own profile and its
+      // old page redirects there; 0 = linked, but keeps its own page.
+      "ALTER TABLE account_identities ADD COLUMN merged INTEGER NOT NULL DEFAULT 1",
+      "CREATE TABLE IF NOT EXISTS identity_list_grants (identity_id INTEGER NOT NULL, list_id TEXT NOT NULL, PRIMARY KEY (identity_id, list_id))",
+      "CREATE TABLE IF NOT EXISTS identity_people_grants (identity_id INTEGER NOT NULL, member_id TEXT NOT NULL, PRIMARY KEY (identity_id, member_id))"
     ];
     for (let i = 0; i < statements.length; i++) {
       try {
@@ -100,11 +109,13 @@ export async function listAccountIdentities(env, publicId) {
   try {
     await ensureIdentityColumns(env);
     const res = await env.DB.prepare(
-      "SELECT id, platform, handle, display_name, avatar, proof_url, verification_type, verified, created_at, audience, hidden FROM account_identities WHERE public_id = ? ORDER BY created_at ASC"
+      "SELECT id, platform, handle, display_name, avatar, proof_url, verification_type, verified, created_at, audience, hidden, merged FROM account_identities WHERE public_id = ? ORDER BY created_at ASC"
     ).bind(publicId).all();
     const rows = res.results || [];
     const ids = rows.map((row) => Number(row.id)).filter((id) => id > 0);
     const grants = {};
+    const people = {};
+    const peopleIds = {};
     if (ids.length) {
       const marks = ids.map(() => "?").join(",");
       const listed = await env.DB.prepare(
@@ -113,6 +124,13 @@ export async function listAccountIdentities(env, publicId) {
       (listed.results || []).forEach((row) => {
         const bag = grants[row.identity_id] || (grants[row.identity_id] = []);
         if (row.list_id) bag.push(String(row.list_id));
+      });
+      const chosen = await env.DB.prepare(
+        "SELECT g.identity_id, g.member_id, a.handle FROM identity_people_grants g JOIN accounts a ON a.public_id = g.member_id WHERE g.identity_id IN (" + marks + ")"
+      ).bind(...ids).all();
+      (chosen.results || []).forEach((row) => {
+        (people[row.identity_id] || (people[row.identity_id] = [])).push(String(row.handle || ""));
+        (peopleIds[row.identity_id] || (peopleIds[row.identity_id] = [])).push(String(row.member_id || ""));
       });
     }
     return rows.map((row) => ({
@@ -127,7 +145,10 @@ export async function listAccountIdentities(env, publicId) {
       createdAt: row.created_at,
       audience: cleanIdentityAudience(row.audience),
       hidden: row.hidden === 1,
-      listIds: grants[row.id] || []
+      merged: row.merged !== 0,
+      listIds: grants[row.id] || [],
+      people: people[row.id] || [],
+      peopleIds: peopleIds[row.id] || []
     }));
   } catch (err) {
     return [];
@@ -146,10 +167,46 @@ async function memberAllowed(env, listIds, viewerId) {
   return allowed;
 }
 
-export async function visibleIdentities(env, ownerId, viewer, own) {
+export function ownView(item) {
+  const out = Object.assign({}, item);
+  delete out.peopleIds;
+  return out;
+}
+
+function shownItem(item) {
+  return {
+    id: item.id,
+    platform: item.platform,
+    handle: item.handle,
+    displayName: item.displayName,
+    avatar: item.avatar,
+    proofUrl: item.proofUrl,
+    verificationType: item.verificationType,
+    verified: item.verified,
+    merged: item.merged,
+    createdAt: item.createdAt
+  };
+}
+
+function peopleAllowed(item, viewerId) {
+  const allowed = {};
+  if (viewerId && (item.peopleIds || []).indexOf(viewerId) >= 0) allowed[viewerId] = 1;
+  return allowed;
+}
+
+/* The linked profiles this viewer may see. The account itself sees all of
+   them with their settings; the site owner sees all of them too (each view
+   audit-logged, like the other owner views); everyone else sees only the
+   ones whose audience lets them in. */
+export async function visibleIdentities(env, ownerId, viewer, own, request) {
   const list = await listAccountIdentities(env, ownerId);
-  if (own) return list;
+  if (own) return list.map(ownView);
   const viewerId = viewer && viewer.public_id ? viewer.public_id : "";
+  if (viewerId && request && list.length && (await isSiteOwner(env, request, viewerId))) {
+    const shut = list.filter((item) => item.hidden || cleanIdentityAudience(item.audience) !== "public").length;
+    if (shut) await auditOwnerView(env, request, viewerId, ownerId, "linked-profiles", { linked: list.length, private: shut });
+    return list.map((item) => Object.assign(shownItem(item), { ownerView: item.hidden || cleanIdentityAudience(item.audience) !== "public" }));
+  }
   let relation = { owner: false, follows: false, followsYou: false, friends: false, blocked: false, viewerId: viewerId };
   if (viewerId && viewerId !== ownerId) {
     const state = await pairState(env, viewerId, ownerId);
@@ -165,28 +222,66 @@ export async function visibleIdentities(env, ownerId, viewer, own) {
   const out = [];
   for (let i = 0; i < list.length; i++) {
     const item = list[i];
-    const allowed = item.audience === "list" ? await memberAllowed(env, item.listIds, viewerId) : {};
+    const allowed = item.audience === "list" ? await memberAllowed(env, item.listIds, viewerId) : item.audience === "people" ? peopleAllowed(item, viewerId) : {};
     if (!canSeeIdentity(item, relation, allowed)) continue;
-    out.push({
-      id: item.id,
-      platform: item.platform,
-      handle: item.handle,
-      displayName: item.displayName,
-      avatar: item.avatar,
-      proofUrl: item.proofUrl,
-      verificationType: item.verificationType,
-      verified: item.verified,
-      createdAt: item.createdAt
+    out.push(shownItem(item));
+  }
+  return out;
+}
+
+/* Every merged profile this viewer may see, as "platform:handle" -> the
+   account's profile. Clients use it to send an old source page, search
+   result, mention or author link to the account it merged into. Hidden
+   links, separate pages and links the viewer may not see are left out, so
+   the map never reveals a link its audience hides. */
+export async function mergedMap(env, request, viewer, present) {
+  if (!env || !env.DB) return [];
+  await ensureIdentityColumns(env);
+  const res = await env.DB.prepare(
+    "SELECT DISTINCT i.public_id FROM account_identities i JOIN accounts a ON a.public_id = i.public_id WHERE i.merged = 1 AND i.verified = 1 AND a.profile_less = 0 LIMIT 500"
+  ).all();
+  const owners = (res.results || []).map((row) => String(row.public_id || "")).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < owners.length; i++) {
+    const ownerId = owners[i];
+    const own = !!(viewer && viewer.public_id === ownerId);
+    const shown = await visibleIdentities(env, ownerId, viewer, own, request);
+    const merged = shown.filter((item) => item && item.merged && item.verified !== false && (own || !item.hidden));
+    if (!merged.length) continue;
+    const card = await present(ownerId);
+    if (!card || !card.handle) continue;
+    merged.forEach((item) => {
+      out.push({
+        platform: item.platform,
+        handle: item.handle,
+        to: card.handle,
+        name: card.name || card.handle,
+        avatar: card.avatar || "",
+        avatarFace: card.avatarFace || ""
+      });
     });
+  }
+  return out;
+}
+
+async function peopleFromHandles(env, raw, selfId) {
+  const wanted = Array.isArray(raw) ? raw.slice(0, PEOPLE_CAP * 2) : [];
+  const out = [];
+  for (let i = 0; i < wanted.length && out.length < PEOPLE_CAP; i++) {
+    const handle = String(wanted[i] || "").trim().replace(/^@/, "");
+    if (!/^[A-Za-z0-9_.-]{1,60}$/.test(handle)) continue;
+    const found = await env.DB.prepare("SELECT public_id FROM accounts WHERE LOWER(handle) = LOWER(?) AND profile_less = 0").bind(handle).first();
+    if (found && found.public_id && found.public_id !== selfId && out.indexOf(found.public_id) < 0) out.push(found.public_id);
   }
   return out;
 }
 
 export { canSeeIdentity };
 
-async function verifyExternalProof(platform, handle, code, proofUrl) {
-  // Support testing mock verification
-  if (proofUrl && (proofUrl === "test:verified" || proofUrl.startsWith("mock:"))) {
+async function verifyExternalProof(platform, handle, code, proofUrl, allowMock) {
+  // Test-only mock proofs. Production never sets IDENTITY_TEST_PROOFS, so a
+  // link there always needs the code in the profile's bio or a public post.
+  if (allowMock && proofUrl && (proofUrl === "test:verified" || String(proofUrl).startsWith("mock:"))) {
     return {
       verified: true,
       type: "mock",
@@ -375,7 +470,7 @@ export async function handleIdentitiesRoute(request, env, path, url, helpers) {
   // 1. GET /v1/account/identities: list user's verified identities
   if (path === "/v1/account/identities" && request.method === "GET") {
     const list = await listAccountIdentities(env, row.public_id);
-    return json(200, { identities: list });
+    return json(200, { identities: list.map(ownView) });
   }
 
   // 2. POST /v1/account/identities/challenge: create a new verification challenge
@@ -444,7 +539,7 @@ export async function handleIdentitiesRoute(request, env, path, url, helpers) {
       return json(400, { error: "challenge_expired" });
     }
 
-    const proofResult = await verifyExternalProof(challenge.platform, challenge.handle, challenge.code, body.proofUrl);
+    const proofResult = await verifyExternalProof(challenge.platform, challenge.handle, challenge.code, body.proofUrl, env.IDENTITY_TEST_PROOFS === "1");
     if (proofResult.error) {
       return json(400, { error: proofResult.error, message: proofResult.message || "Verification failed." });
     }
@@ -455,14 +550,17 @@ export async function handleIdentitiesRoute(request, env, path, url, helpers) {
     const proofUrl = proofResult.proofUrl || "";
     const verificationType = proofResult.type || "challenge";
 
+    await ensureIdentityColumns(env);
     await env.DB.prepare(
-      "INSERT INTO account_identities (public_id, platform, handle, display_name, avatar, proof_url, verification_type, verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(public_id, platform, handle) DO UPDATE SET display_name = excluded.display_name, avatar = excluded.avatar, proof_url = excluded.proof_url, verification_type = excluded.verification_type, verified = 1, created_at = excluded.created_at"
+      "INSERT INTO account_identities (public_id, platform, handle, display_name, avatar, proof_url, verification_type, verified, created_at, merged) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 1) ON CONFLICT(public_id, platform, handle) DO UPDATE SET display_name = excluded.display_name, avatar = excluded.avatar, proof_url = excluded.proof_url, verification_type = excluded.verification_type, verified = 1, created_at = excluded.created_at"
     ).bind(row.public_id, challenge.platform, challenge.handle, displayName, avatar, proofUrl, verificationType, now).run();
 
     // Clean up used challenge
     await env.DB.prepare("DELETE FROM identity_challenges WHERE challenge_id = ?").bind(challengeId).run();
     await invalidate(env, "p:" + row.public_id);
 
+    const stored = (await listAccountIdentities(env, row.public_id)).find((item) => item.platform === challenge.platform && String(item.handle).toLowerCase() === String(challenge.handle).toLowerCase());
+    if (stored) return json(200, { ok: true, identity: ownView(stored) });
     return json(200, {
       ok: true,
       identity: {
@@ -473,43 +571,65 @@ export async function handleIdentitiesRoute(request, env, path, url, helpers) {
         proofUrl,
         verificationType,
         verified: true,
+        merged: true,
+        audience: "public",
         createdAt: now
       }
     });
   }
 
+  /* PATCH /v1/account/identities/:id: who sees the link (audience, a
+     custom list or chosen people), whether it shows on the profile, and
+     whether it merges into the profile or keeps its own page. Only the
+     fields sent change, so switching one never resets another. */
   if (request.method === "PATCH" && /^\/v1\/account\/identities\/\d+$/.test(path)) {
     const id = Number(path.slice("/v1/account/identities/".length));
-    const body = await readJson(request, 4000);
+    const paced = await rateHit(env, "id-set:" + row.public_id, 120, 10 * 60 * 1000);
+    if (!paced.ok) return limited(paced);
+    const body = await readJson(request, 8000);
     if (!body || body.error) return json(400, { error: "bad_json" });
     const existing = await env.DB.prepare(
       "SELECT id FROM account_identities WHERE id = ? AND public_id = ?"
     ).bind(id, row.public_id).first();
     if (!existing) return json(404, { error: "not_found" });
     await ensureIdentityColumns(env);
-    const audience = cleanIdentityAudience(body.audience);
-    const hidden = body.hidden === true ? 1 : 0;
-    const wanted = audience === "list" && Array.isArray(body.listIds) ? body.listIds.map((item) => String(item || "")).filter((item) => /^[A-Za-z0-9_-]{1,40}$/.test(item)) : [];
-    const owned = [];
-    for (let i = 0; i < wanted.length; i++) {
-      const found = await env.DB.prepare(
-        "SELECT id FROM audience_lists WHERE id = ? AND public_id = ?"
-      ).bind(wanted[i], row.public_id).first();
-      if (found) owned.push(wanted[i]);
+    if (typeof body.hidden === "boolean") {
+      await env.DB.prepare("UPDATE account_identities SET hidden = ? WHERE id = ? AND public_id = ?").bind(body.hidden ? 1 : 0, id, row.public_id).run();
     }
-    await env.DB.prepare(
-      "UPDATE account_identities SET audience = ?, hidden = ? WHERE id = ? AND public_id = ?"
-    ).bind(audience, hidden, id, row.public_id).run();
-    await env.DB.prepare("DELETE FROM identity_list_grants WHERE identity_id = ?").bind(id).run();
-    for (let i = 0; i < owned.length; i++) {
+    if (typeof body.merged === "boolean") {
+      await env.DB.prepare("UPDATE account_identities SET merged = ? WHERE id = ? AND public_id = ?").bind(body.merged ? 1 : 0, id, row.public_id).run();
+    }
+    if (body.audience != null) {
+      const audience = cleanIdentityAudience(body.audience);
+      const wanted = audience === "list" && Array.isArray(body.listIds) ? body.listIds.map((item) => String(item || "")).filter((item) => /^[A-Za-z0-9_-]{1,40}$/.test(item)) : [];
+      const owned = [];
+      for (let i = 0; i < wanted.length; i++) {
+        const found = await env.DB.prepare(
+          "SELECT id FROM audience_lists WHERE id = ? AND public_id = ?"
+        ).bind(wanted[i], row.public_id).first();
+        if (found) owned.push(wanted[i]);
+      }
+      const chosen = audience === "people" ? await peopleFromHandles(env, body.people, row.public_id) : [];
       await env.DB.prepare(
-        "INSERT INTO identity_list_grants (identity_id, list_id) VALUES (?, ?) ON CONFLICT(identity_id, list_id) DO NOTHING"
-      ).bind(id, owned[i]).run();
+        "UPDATE account_identities SET audience = ? WHERE id = ? AND public_id = ?"
+      ).bind(audience, id, row.public_id).run();
+      await env.DB.prepare("DELETE FROM identity_list_grants WHERE identity_id = ?").bind(id).run();
+      await env.DB.prepare("DELETE FROM identity_people_grants WHERE identity_id = ?").bind(id).run();
+      for (let i = 0; i < owned.length; i++) {
+        await env.DB.prepare(
+          "INSERT INTO identity_list_grants (identity_id, list_id) VALUES (?, ?) ON CONFLICT(identity_id, list_id) DO NOTHING"
+        ).bind(id, owned[i]).run();
+      }
+      for (let i = 0; i < chosen.length; i++) {
+        await env.DB.prepare(
+          "INSERT INTO identity_people_grants (identity_id, member_id) VALUES (?, ?) ON CONFLICT(identity_id, member_id) DO NOTHING"
+        ).bind(id, chosen[i]).run();
+      }
     }
     await invalidate(env, "p:" + row.public_id);
     const list = await listAccountIdentities(env, row.public_id);
     const updated = list.find((item) => Number(item.id) === id) || null;
-    return json(200, { ok: true, identity: updated });
+    return json(200, { ok: true, identity: updated ? ownView(updated) : null });
   }
 
   // 4. DELETE /v1/account/identities/:id or DELETE /v1/account/identities (with platform/handle or id)
@@ -531,12 +651,22 @@ export async function handleIdentitiesRoute(request, env, path, url, helpers) {
       if (url.searchParams.get("handle")) handle = cleanHandle(platform, url.searchParams.get("handle"));
     }
 
-    if (id) {
-      await env.DB.prepare("DELETE FROM account_identities WHERE id = ? AND public_id = ?").bind(id, row.public_id).run();
-    } else if (platform && handle) {
-      await env.DB.prepare("DELETE FROM account_identities WHERE platform = ? AND LOWER(handle) = LOWER(?) AND public_id = ?").bind(platform, handle, row.public_id).run();
-    } else {
-      return json(400, { error: "missing_identity_id" });
+    if (!id && platform && handle) {
+      const found = await env.DB.prepare("SELECT id FROM account_identities WHERE platform = ? AND LOWER(handle) = LOWER(?) AND public_id = ?").bind(platform, handle, row.public_id).first();
+      id = found ? Number(found.id) : 0;
+      if (!id) return json(200, { ok: true, removed: false });
+    }
+    if (!id) return json(400, { error: "missing_identity_id" });
+    // Unlinking only removes the link and who could see it. The account's
+    // own posts and the source's posts stay; the source gets its page back.
+    const mine = await env.DB.prepare("SELECT id FROM account_identities WHERE id = ? AND public_id = ?").bind(id, row.public_id).first();
+    if (mine) {
+      await ensureIdentityColumns(env);
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM account_identities WHERE id = ? AND public_id = ?").bind(id, row.public_id),
+        env.DB.prepare("DELETE FROM identity_list_grants WHERE identity_id = ?").bind(id),
+        env.DB.prepare("DELETE FROM identity_people_grants WHERE identity_id = ?").bind(id)
+      ]);
     }
     await invalidate(env, "p:" + row.public_id);
 

@@ -1537,7 +1537,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function isFollowed(id) {
     if (id && window.ViktorychLocked && window.ViktorychLocked.hidesId && window.ViktorychLocked.hidesId(id)) return false;
     const list = String(id || "").indexOf("app:") === 0 ? (STATE.settings.accountFollows || []) : (STATE.settings.follows || []);
-    return list.some((item) => sameFollowId(item, id));
+    if (list.some((item) => sameFollowId(item, id))) return true;
+    /* A merged linked profile counts as followed when its internal profile is. */
+    const alias = window.LinkedProfiles ? window.LinkedProfiles.followIds(id) : [];
+    return !!alias.length && (STATE.settings.accountFollows || []).some((item) => alias.some((other) => sameFollowId(item, other)));
   }
   function setFollowed(id, on) {
     if (!id) return;
@@ -1556,7 +1559,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
   }
   function applyFollow(ids, on) {
-    const list = (ids || []).map((item) => String(item || "").trim()).filter(Boolean);
+    /* Following a merged linked profile follows its internal profile. */
+    const lp = window.LinkedProfiles;
+    const list = (ids || []).map((item) => String(item || "").trim()).filter(Boolean).map((item) => lp ? lp.followId(item) : item).filter((item, at, all) => all.indexOf(item) === at);
     if (!list.length) return;
     const accounts = window.ViktorychAccounts;
     const ready = [];
@@ -1675,11 +1680,20 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
 
   function profileHash(platform, handle) {
     if (!handle) return "#/";
+    /* #/@name is also an internal profile, so only other platforms redirect here. */
+    if ((platform || "x") !== "x" && window.LinkedProfiles) {
+      const merged = window.LinkedProfiles.hashFor(platform, handle);
+      if (merged) return merged;
+    }
     if ((platform || "x") === "x") return `#/@${encodeURIComponent(handle)}`;
     return `#/${encodeURIComponent(platform)}/${encodeURIComponent(handle)}`;
   }
   function userHash(platform, handle) {
     if (!handle) return "#/";
+    if (window.LinkedProfiles) {
+      const merged = window.LinkedProfiles.hashFor(platform, handle);
+      if (merged) return merged;
+    }
     return "#/u/" + encodeURIComponent(platform || "x") + "/" + encodeURIComponent(handle);
   }
   let ownerAdded = [];
@@ -1811,7 +1825,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "owner_inspector"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -1898,7 +1912,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       owner_inspector: [tr("Owner inspector"), tr("Accounts in Settings: every account with all its usernames and details, only for you. Each look is logged.")],
       local_ai: [tr("Local AI"), tr("The Local AI page that changes settings from plain words. Models run on each person's device; nothing is sent to us.")],
       local_ai_setup: [tr("Local AI setup"), tr("Everyone sets up Local AI once before the chat opens: device check, model download, a quick test and preferences. Off opens the chat straight away.")],
-      ext_nicknames: [tr("Custom names"), tr("Lets people give any account, from any network, a private name only they see.")]
+      ext_nicknames: [tr("Custom names"), tr("Lets people give any account, from any network, a private name only they see.")],
+      merged_profiles: [tr("Merged linked profiles"), tr("Linked profiles set to merge show on their owner's profile, and their own pages, links and follows lead there.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -2089,6 +2104,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   }
   function accountHash(platform, handle) {
     if ((platform || "") === "app") return profileHash("x", handle);
+    if (window.LinkedProfiles) {
+      const merged = window.LinkedProfiles.hashFor(platform, handle);
+      if (merged) return merged;
+    }
     if (window.FeedsPeople) {
       const merged = window.FeedsPeople.hashFor(platform, handle);
       if (merged) return merged;
@@ -2570,6 +2589,15 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (p === "x") return `<span class="src pglyph pglyph-x" title="X" aria-hidden="true">X</span>`;
     const name = p === "instagram" ? "ig" : p === "threads" ? "threads" : p === "youtube" ? "subs" : p === "vk" ? "vk" : p === "telegram" ? "tg" : p === "discord" ? "discord" : p === "tiktok" ? "tiktok" : "rss";
     return `<span class="src pglyph" title="${esc(PLATFORM[p] || p)}">${icon(name)}</span>`;
+  }
+
+  /* The small, quiet platform mark by the time on a merged linked post. */
+  const X_MARK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.66l-5.21-6.82-5.97 6.82H1.67l7.73-8.84L1.25 2.25h6.83l4.71 6.23zm-1.16 17.52h1.83L7.08 4.13H5.12z"/></svg>';
+  function linkedSourceBadge(platform) {
+    const p = String(platform || "x").toLowerCase();
+    const label = PLATFORM[p] || p;
+    const mark = p === "x" ? X_MARK : (sourceBadge(p).replace(/^<span[^>]*>|<\/span>$/g, "") || "");
+    return `<span class="src lp-src" title="${esc(tr("Posted on {platform}", { platform: label }))}" aria-label="${esc(tr("Posted on {platform}", { platform: label }))}">${mark}</span>`;
   }
 
   function postSourceBadges(post) {
@@ -9961,13 +9989,21 @@ const here = parseRoute();
     const shown = opts.parentShown ? mentionless(displayPost(post)) : replyBody(displayPost(post));
     const dest = articleOf(post) ? articleHash(post) : (post.watch ? watchHash(post) : statusHash(post));
     const who = creator ? (post.profileHandle || creator.channelId || creator.handle || post.handle) : (post.profileHandle || post.handle);
-    const displayName = nickName(creator ? (creator.platform || post.platform) : post.platform, who, creator ? (creator.name || post.author || post.handle) : (post.author || post.handle));
-    const displayHandle = internalPostHandle(creator ? (post.handle || creator.handle || "") : (post.handle || ""), post, creator);
+    let displayName = nickName(creator ? (creator.platform || post.platform) : post.platform, who, creator ? (creator.name || post.author || post.handle) : (post.author || post.handle));
+    let displayHandle = internalPostHandle(creator ? (post.handle || creator.handle || "") : (post.handle || ""), post, creator);
     // Community mirror authors have no profile here: their links open the community.
-    const whoHref = post.cmMirror ? "#/communities/" + encodeURIComponent(post.community.name) : accountHash(post.platform, who);
-    const whoCard = post.cmMirror ? "" : ` data-card="${esc(post.platform + ":" + who)}"`;
-    const avaLink = `<a href="${esc(whoHref)}"${whoCard} aria-label="${esc(displayName || tr("Profile"))}">${avatar(face.avatar, displayName, isOrgVerified(post, face) ? "sq" : "", null, eager)}</a>`;
-    const avaCol = continues ? `<div class="ava-col">${avaLink}<div class="thread-line"></div></div>` : avaLink;
+    let whoHref = post.cmMirror ? "#/communities/" + encodeURIComponent(post.community.name) : accountHash(post.platform, who);
+    let whoCard = post.cmMirror ? "" : ` data-card="${esc(post.platform + ":" + who)}"`;
+    /* A linked profile's post on its merged profile: the internal name, avatar and handle. */
+    const asAccount = !creator && post.asAccount ? post.asAccount : null;
+    if (asAccount) {
+      displayName = asAccount.name || displayName;
+      displayHandle = asAccount.handle;
+      whoHref = profileHash("x", asAccount.handle);
+      whoCard = "";
+      face.avatar = asAccount.avatar || "";
+    }
+    const avaLink = `<a href="${esc(whoHref)}"${whoCard} aria-label="${esc(displayName || tr("Profile"))}">${avatar(face.avatar, displayName, isOrgVerified(post, face) ? "sq" : "", null, eager)}</a>`;    const avaCol = continues ? `<div class="ava-col">${avaLink}<div class="thread-line"></div></div>` : avaLink;
     const open = ` data-open="${esc(dest)}"`;
     const nestedDiscord = post.platform === "discord" && Array.isArray(post.replies) && post.replies.length;
     const threadLink = mode !== "status" && mode !== "reply" && (threadChildren(post).length || nestedDiscord)
@@ -9992,7 +10028,8 @@ const here = parseRoute();
             <span class="dot">·</span>
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
-            ${postSourceBadges(post)}
+            ${asAccount ? linkedSourceBadge(post.platform) : postSourceBadges(post)}
+            ${shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}
             ${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}
             <button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}">${icon("more")}</button>
           </div>
@@ -10614,12 +10651,13 @@ const here = parseRoute();
   }
 
   function shownFeeds(list) {
+    if (window.LinkedProfiles) list = window.LinkedProfiles.dropMerged(list);
     if (window.FeedsPeople && window.FeedsPeople.collapse) return window.FeedsPeople.collapse(list);
     return list;
   }
 
   function followSuggestions() {
-    const list = feeds().filter((f) => f.id && !feedBlocked(f));
+    const list = feeds().filter((f) => f.id && !feedBlocked(f) && !(window.LinkedProfiles && window.LinkedProfiles.isMergedFeed(f)));
     if (window.FeedsPeople && window.FeedsPeople.suggestions) return window.FeedsPeople.suggestions(list, isFollowed);
     return list.filter((f) => !isFollowed(f.id)).sort((a, b) => (b.configured ? 1 : 0) - (a.configured ? 1 : 0));
   }
@@ -10644,6 +10682,12 @@ const here = parseRoute();
     </aside>`;
   }
 
+  if (window.LinkedProfiles) {
+    window.LinkedProfiles.setHost({
+      render: () => render(),
+      icon: (platform) => (platform === "x" ? X_MARK : (sourceBadge(platform).replace(/^<span[^>]*>|<\/span>$/g, "") || ""))
+    });
+  }
   if (window.ViktorychPYMK && window.ViktorychPYMK.setHost) {
     window.ViktorychPYMK.setHost({
       esc, avatar, badge, icon, isFollowed, sourceBadge,
@@ -14143,7 +14187,16 @@ const here = parseRoute();
     return `<div class="bell-sheet" data-act="close-profile-menu"><div class="menu bell-menu profile-menu" data-act="stop" role="menu" aria-label="${esc(title)}"><div class="bell-grab" aria-hidden="true"></div>${rows.join("")}</div></div>`;
   }
 
+  function linkedRedirect(route) {
+    const next = window.LinkedProfiles ? window.LinkedProfiles.hashFor(route.platform, route.handle) : "";
+    if (!next || (location.hash || "") === next) return "";
+    setTimeout(() => { if ((location.hash || "") !== next) location.replace(next); }, 0);
+    return `<div class="reply-empty">${tr("Loading…")}</div>`;
+  }
+
   function userView(route) {
+    const linked = linkedRedirect(route);
+    if (linked) return linked;
     if (window.FeedsPeople) {
       const merged = window.FeedsPeople.page(route);
       if (merged) return merged;
@@ -14552,6 +14605,9 @@ const here = parseRoute();
         return `<div class="reply-empty">${tr("Loading…")}</div>`;
       }
     }
+    /* Not an internal account: a merged linked profile opens its owner's profile. */
+    const linked = linkedRedirect(route);
+    if (linked) return linked;
     posts().forEach(creditCarried);
     if (window.FeedsPeople) {
       const merged = window.FeedsPeople.page(route);
@@ -14897,6 +14953,7 @@ const here = parseRoute();
           heat: exploreHeat
         });
         if (found && found.complete && found.hits) {
+          if (window.LinkedProfiles && Array.isArray(found.hits.accounts)) found.hits.accounts = window.LinkedProfiles.dropMerged(found.hits.accounts);
           dev.noteStat("local", "search", dev.measureBytes(found.hits), found.ms || 0);
           return found.hits;
         }
@@ -17749,6 +17806,7 @@ const here = parseRoute();
       const body = window.ViktorychUsernames && window.ViktorychUsernames.settingsHtml ? window.ViktorychUsernames.settingsHtml() : "";
       return settingsHead(tr("Usernames"), "#/settings/privacy") + `<div class="set-block">${body}</div>`;
     }
+    if (section === "linked" && window.LinkedProfiles && window.LinkedProfiles.enabled()) return settingsHead(tr("Linked accounts"), "#/settings") + `<div class="set-block">${window.LinkedProfiles.pageHtml()}</div>`;
     if (section === "locked-follows") return settingsHead(tr("Locked follows"), "#/settings/privacy") + `<div class="set-block">${window.ViktorychLocked ? window.ViktorychLocked.settingsHtml() : ""}</div>`;
     if (section === "friends") {
       const each = window.ViktorychFriendPrivacy && window.ViktorychFriendsPref && !window.ViktorychFriendsPref.isOff() ? `<div class="set-list">${window.ViktorychFriendPrivacy.entryHtml()}</div>` : "";
@@ -18653,7 +18711,8 @@ if (STATE.histClear) {
     const lib = repostLib();
     if (!lib || !account) return { html: "", count: 0 };
     const mine = isMyAccount(account);
-    const identities = (account && account.identities) || [];
+    const lpMod = window.LinkedProfiles;
+    const identities = lpMod ? lpMod.mergedLinks(account) : ((account && account.identities) || []);
     const ownKey = authorKey(account);
     const ownApp = ownKey ? authorPosts(ownKey).map(appCardPost) : [];
     if (!ownApp.length && !account.repostsLoaded && !rowsForAccount(account).length && !identities.length) {
@@ -18695,7 +18754,7 @@ if (STATE.histClear) {
                           (pFeedId === idPlatform + ":" + idHandle) ||
                           (pFeedId === idHandle);
           if (matches) {
-            addPost(p);
+            addPost(lpMod ? lpMod.asOwn(p, account) : p);
           }
         });
       });
@@ -18711,7 +18770,10 @@ if (STATE.histClear) {
     else if (tab === "posts" || !tab) shown = postList.filter((post) => post.kind !== "reply");
     const entry = ownKey ? authorPostCache[ownKey] : null;
     const more = entry && entry.more ? `<div id="author-more" class="reply-empty" data-id="${esc(ownKey)}"><button type="button" class="link-btn" data-act="author-more" data-id="${esc(ownKey)}">${tr("Show more")}</button></div>` : "";
-    return { html: shown.map((post) => card(post, "")).join("") + more, count: postList.length };
+    /* Optional platform filters: All, Posts, X, Instagram… The default is the mixed timeline. */
+    const pills = lpMod ? lpMod.filterHtml(account, postList) : "";
+    if (pills) shown = shown.filter((post) => lpMod.filterPost(post, account));
+    return { html: pills + shown.map((post) => card(post, "")).join("") + more, count: postList.length };
   }
 
   function repostPostById(handle, id) {

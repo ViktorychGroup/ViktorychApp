@@ -32,6 +32,10 @@ export const FEATURES = {
   // Owner account inspector (Cuentas): owner-only account details for
   // moderation. On by default; off hides the owner view and its routes.
   owner_inspector: { paths: ["/v1/owner/inspector"] },
+  // Linked profiles merged into the account's own profile: their posts join
+  // its timeline and their old pages redirect there. On by default. Off:
+  // linked profiles stay listed but keep their own pages.
+  merged_profiles: { paths: ["/v1/identities/merged"] },
   // Private custom names for accounts from other networks. On by default.
   ext_nicknames: { paths: ["/v1/nicknames/external"] },
   // Off until the owner turns it on: NIP-05 names and post links to Nostr events.
