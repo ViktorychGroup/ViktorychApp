@@ -20545,11 +20545,8 @@ if (STATE.histClear) {
       if (!window.ViktorychVault) { ensureLazy("vault"); return lazySkeleton(tr("Vault")); }
       return pageHead(tr("Vault")) + emptyBlock(tr("Vault"), tr("Reload the page."));
     }
-    if (route.name === "points" || route.name === "store") {
-      if (!window.ProfileGifts) { ensureLazy("gifts"); return lazySkeleton(tr("Gifts")); }
-      if (route.name === "points") return window.ProfileGifts.pointsPage();
-      return window.ProfileGifts.storePage(route);
-    }
+    if (route.name === "points" && window.ProfileGifts) return window.ProfileGifts.pointsPage();
+    if (route.name === "store" && window.ProfileGifts) return window.ProfileGifts.storePage(route);
     if (route.name === "games") {
       const lazyHtml = window.ViktorychGames ? window.ViktorychGames.page(route) : "";
       if (lazyHtml) return lazyHtml;
@@ -20609,7 +20606,6 @@ if (STATE.histClear) {
     if (route.name === "spaces") return (window.Spaces && window.Spaces.page && window.Spaces.page(route)) || pageHead(tr("Space"), "", true) + emptyBlock(tr("This Space has ended"), tr("This Space isn’t available."));
     if (route.name === "live") return (window.ViktorychLive && window.ViktorychLive.page && window.ViktorychLive.page(route)) || pageHead(tr("Live"), "", true) + emptyBlock(tr("This live has ended"), tr("This live isn’t available."));
     if (route.name === "connections") return connectionsView(route);
-    if (route.name === "profile" || route.name === "user" || route.name === "person") ensureLazy("gifts");
     if (route.name === "profile") return profileView(route);
     if (route.name === "user") return userView(route);
     if (route.name === "status") return statusView(route);
@@ -20623,11 +20619,7 @@ if (STATE.histClear) {
     if (route.name === "article") return articleView(route);
     if (route.name === "subscriptions") return subsView(route);
     if (route.name === "watch") return watchView(route);
-    if (route.name === "settings") {
-      ensureLazy("nostr");
-      ensureLazy("mesh");
-      return settingsView();
-    }
+    if (route.name === "settings") return settingsView();
     if (route.name === "customize") return customizeView();
     if (route.name === "incoming") return incomingView();
     if (route.name === "messages" && nativeServerHash(location.hash)) {
@@ -20638,10 +20630,7 @@ if (STATE.histClear) {
     if (route.name === "messages" && route.sms) return inboxSmsView(route);
     if (route.name === "messages" && route.mail) return inboxMailView(route);
     if (route.name === "messages" && window.FeedsDiscord) return (window.ProfileGifts && window.ProfileGifts.dmBar ? window.ProfileGifts.dmBar() : "") + window.FeedsDiscord.page(route);
-    if (route.name === "messages") {
-      ensureLazy("discord");
-      return lazySkeleton(tr("Inbox"));
-    }
+    if (route.name === "messages") return (window.ProfileGifts && window.ProfileGifts.dmBar ? window.ProfileGifts.dmBar() : "") + notesView(tr("Inbox"), tr("Welcome to your inbox"), tr("Private conversations aren’t part of this reader."));
     if (route.name === "sources") return sourcesView();
     return homeView({ tab: "foryou", query: new URLSearchParams() });
   }
@@ -30951,7 +30940,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   setTimeout(() => {
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();
-      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers", "discord", "gifts", "nostr", "mesh", "tvshell"];
+      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers"];
       if (saver) saver.whenRoomy(() => window.ViktorychLazy.preload(list));
       else window.ViktorychLazy.preload(list);
     }

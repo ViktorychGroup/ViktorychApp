@@ -670,12 +670,17 @@
     <link rel="stylesheet" href="people.css">
     <link rel="stylesheet" href="pymk.css">
     <link rel="stylesheet" href="friend-privacy.css">
+    <link rel="stylesheet" href="tv.css">
+    <link rel="stylesheet" href="discord-ui.css">
+    <link rel="stylesheet" href="discord-local.css">
+    <link rel="stylesheet" href="discord-key-helper.css">
     <link rel="stylesheet" href="spaces.css">
     <link rel="stylesheet" href="x-settings.css">
     <link rel="stylesheet" href="stories.css">
     <link rel="stylesheet" href="music.css">
     <link rel="stylesheet" href="accounts.css">
     <link rel="stylesheet" href="locked-follows.css">
+    <link rel="stylesheet" href="gifts.css">
     <link rel="stylesheet" href="badges.css">
     <link rel="stylesheet" href="game-social.css">
     <link rel="stylesheet" href="setting-alerts.css">
@@ -706,26 +711,13 @@
     <script src="friends-pref.js" defer></script>
     <script src="linked-profiles.js" defer></script>
     <script src="friend-privacy-ui.js" defer></script>
+    <script src="tv.js" defer></script>
     <script src="split.js" defer></script>
     <script src="inbox.js" defer></script>
-  </template>
-  <template id="idle-scripts">
-    <link rel="stylesheet" href="tv.css">
-    <link rel="stylesheet" href="discord-ui.css">
-    <link rel="stylesheet" href="discord-local.css">
-    <link rel="stylesheet" href="discord-key-helper.css">
-    <link rel="stylesheet" href="gifts.css">
-    <script src="tv.js" defer></script>
     <script src="discord-ui.js" defer></script>
     <script src="discord-picks.js" defer></script>
     <script src="discord-local.js" defer></script>
     <script src="discord-key-helper.js" defer></script>
-    <script src="shared/gift-catalog.js" type="module"></script>
-    <script src="shared/store-catalog.js" type="module"></script>
-    <script src="gifts-ui.js" defer></script>
-    <script src="nft-ui.js" defer></script>
-    <script src="nostr.js" defer></script>
-    <script src="mesh-chat.js" defer></script>
   </template>
   <script src="shared/mirror.js" defer></script>
   <script src="shared/x-range.js" defer></script>
@@ -753,6 +745,10 @@
     <script src="friend-p2p.js" type="module"></script>
     <script src="peer-pool.js" type="module"></script>
     <script src="about-ui.js" defer></script>
+    <script src="gifts-ui.js" defer></script>
+    <script src="nft-ui.js" defer></script>
+    <script src="shared/gift-catalog.js" type="module"></script>
+    <script src="shared/store-catalog.js" type="module"></script>
     <script src="badges.js" defer></script>
     <script src="shared/regone.js" type="module"></script>
     <script src="game-social.js" defer></script>
@@ -769,6 +765,8 @@
     <script src="locked-follows.js" defer></script>
     <script src="mention-suggest.js" defer></script>
     <script src="settings-assistant.js" defer></script>
+    <script src="nostr.js" defer></script>
+    <script src="mesh-chat.js" defer></script>
     <script src="follow-lists.js" defer></script>
     <script src="owner-keys.js" defer></script>
     <script src="nzlay-keys.js" defer></script>
@@ -807,46 +805,6 @@
       function activeLang() {
         var code = String(document.documentElement.lang || "en").split("-")[0];
         return code === "ru" || code === "es" || code === "hi" ? code : "en";
-      }
-      function hashPath() {
-        return String(location.hash || "").split("?")[0];
-      }
-      function hashIs(path) {
-        var hash = hashPath();
-        return hash === path || hash.indexOf(path + "/") === 0;
-      }
-      function eagerIdleNames() {
-        var hash = hashPath();
-        var names = [];
-        var tv = document.documentElement.classList.contains("tv-on");
-        try { if (window.ViktorychTVMode && window.ViktorychTVMode.on) tv = true; } catch (err) {}
-        if (tv || hashIs("#/tv") || hashIs("#/link-tv") || hash.indexOf("#/linktv") === 0 || hashIs("#/send-to-tv")) names.push("tv.js", "tv.css");
-        if (/^#\/messages(?=$|[/?])/.test(hash)) names.push("discord-ui.js", "discord-picks.js", "discord-local.js", "discord-key-helper.js", "discord-ui.css", "discord-local.css", "discord-key-helper.css");
-        if (hashIs("#/store") || hashIs("#/gifts") || hashIs("#/points")) names.push("shared/gift-catalog.js", "shared/store-catalog.js", "gifts-ui.js", "nft-ui.js", "gifts.css");
-        if (hashIs("#/nostr") || hash.indexOf("#/settings/nostr") === 0) names.push("nostr.js");
-        if (hashIs("#/mesh") || hash.indexOf("#/settings/mesh") === 0) names.push("mesh-chat.js");
-        return names;
-      }
-      function injectIdle(list) {
-        list.forEach(function (node) {
-          var ref = assetRef(node);
-          if (!ref) return;
-          if (node.tagName === "LINK") {
-            if (document.querySelector('link[rel="stylesheet"][href="' + node.getAttribute("href") + '"]')) return;
-            var link = document.createElement("link");
-            link.rel = "stylesheet";
-            link.href = node.getAttribute("href");
-            document.head.appendChild(link);
-            return;
-          }
-          if (document.querySelector('script[src="' + node.getAttribute("src") + '"]')) return;
-          var el = document.createElement("script");
-          var type = node.getAttribute("type");
-          if (type) el.type = type;
-          el.async = false;
-          el.src = node.getAttribute("src");
-          document.body.appendChild(el);
-        });
       }
       /* Register once the scripts for this visit have run. Signed out, that is
          the landing set. Signed in, it is the core app, before feature files
@@ -898,7 +856,6 @@
         links = links.filter(wanted);
         nodes = nodes.filter(wanted);
         var wall = document.documentElement.getAttribute("data-wall") === "1";
-        var idleLeft = [];
         if (wall) {
           /* Signed out: the landing page only. The full app loads on the next
              visit, after a session exists. */
@@ -906,37 +863,6 @@
           allow["i18n/" + activeLang() + ".js"] = 1;
           nodes = nodes.filter(function (node) { return !!allow[assetRef(node)]; });
           links = links.filter(function (node) { return assetRef(node) === "accounts.css"; });
-        } else {
-          var idleTpl = document.getElementById("idle-scripts");
-          var eager = eagerIdleNames();
-          var eagerSet = {};
-          eager.forEach(function (name) { eagerSet[name] = 1; });
-          if (idleTpl && idleTpl.content && !idleTpl.dataset.mounted) {
-            idleTpl.dataset.mounted = "1";
-            Array.prototype.forEach.call(idleTpl.content.querySelectorAll("link, script"), function (node) {
-              if (!wanted(node)) return;
-              if (eagerSet[assetRef(node)]) {
-                if (node.tagName === "LINK") links.push(node);
-                else nodes.push(node);
-              } else idleLeft.push(node);
-            });
-            if (eager.length) {
-              var before = [];
-              var around = [];
-              var seenEager = false;
-              nodes.forEach(function (node) {
-                if (assetRef(node) === "app.js") seenEager = true;
-                if (eagerSet[assetRef(node)]) around.push(node);
-                else before.push(node);
-              });
-              var at = 0;
-              for (var i = 0; i < before.length; i++) {
-                if (assetRef(before[i]) === "app.js") { at = i; break; }
-              }
-              nodes = before.slice(0, at).concat(around).concat(before.slice(at));
-              void seenEager;
-            }
-          }
         }
         if (!links.length && !nodes.length) return;
         links.forEach(function (node) {
@@ -976,13 +902,6 @@
           left += 1;
           frag.appendChild(el);
         });
-        if (!wall && idleLeft.length) {
-          window.addEventListener("viktorych-late", function () {
-            var run = function () { injectIdle(idleLeft); };
-            if (window.requestIdleCallback) requestIdleCallback(run, { timeout: 8000 });
-            else setTimeout(run, 4000);
-          });
-        }
         if (!left) { left = 1; done(); }
         else document.body.appendChild(frag);
       }
