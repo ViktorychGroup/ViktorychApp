@@ -80,7 +80,7 @@ Written 2026-10-30, about 10:00 CET (09:00 UTC). Main was at `f353f771` and the 
 
 ## Fast tests
 
-Page smoke is split into parallel CI jobs. Each job runs its scripts one at a time, and viewport checks inside a script run one at a time. The service-worker update check has its own job and runs with nothing else. Opening Settings while the feed is still loading paints Settings, not the Home skeleton, and a saved Home screen is not restored under another address. The required check is still named `smoke`; it passes only when every shard passes. Locally, from the repo root:
+This branch includes main through `#538`. Page smoke is split into parallel CI jobs. Each job runs its scripts one at a time, and viewport checks inside a script run one at a time. The service-worker update check has its own job and runs with nothing else. The required check is still named `smoke`; it passes only when every shard passes. A shard that still fails is not retried in a loop: that script stays in its old unsharded form, assertions unchanged, and becomes its own follow-up pull request. Locally, from the repo root:
 
 ```sh
 scripts/smoke-all.sh
