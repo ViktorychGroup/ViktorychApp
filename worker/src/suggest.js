@@ -12,11 +12,13 @@
    Never suggested: yourself, accounts you follow or asked to follow,
    blocks either way, mutes, people you dismissed, protected accounts,
    profile-less accounts, accounts that turned off "Let others see me in
-   People you may know", and temporary accounts unless they opted in.
+   People you may know", accounts that turned Friends off, and temporary accounts unless they opted in.
 
    Reasons never name anyone whose follows are private, and the payload
    carries handles (as the viewer may see them), never account numbers. */
+import { notLocked } from "./locked-sql.js";
 
+import { friendsOffAmong } from "./friends-pref.js";
 import { resolveName, viewerHandle } from "./usernames.js";
 
 export const ACCOUNT_KINDS = ["person", "business", "organization", "media", "government", "creator", "bot", "community", "other"];
@@ -43,6 +45,7 @@ export const SUGGEST_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS account_kind (public_id TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'person', owner_kind TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS suggest_prefs (public_id TEXT PRIMARY KEY, discoverable INTEGER NOT NULL DEFAULT 1, temp_opt_in INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS suggest_dismiss (public_id TEXT NOT NULL, target_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (public_id, target_id))",
+  "CREATE TABLE IF NOT EXISTS search_prefs (public_id TEXT PRIMARY KEY, searchable INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)",
   "CREATE TABLE IF NOT EXISTS suggest_cache (public_id TEXT PRIMARY KEY, body TEXT NOT NULL, created_at INTEGER NOT NULL)"
 ];
 
@@ -122,7 +125,7 @@ async function signalsFor(env, viewerId, now) {
       "SELECT substr(f2.target_id, 5) AS cid, COUNT(*) AS n, MIN(f2.follower_id) AS via FROM account_follows f1 " +
       "JOIN account_follows f2 ON f2.follower_id = substr(f1.target_id, 5) " +
       "JOIN accounts va ON va.public_id = f2.follower_id AND va.private_follows = 0 AND va.protected_account = 0 " +
-      "WHERE f1.follower_id = ? AND f1.target_id LIKE 'app:%' AND f2.target_id LIKE 'app:%' " +
+      "WHERE f1.follower_id = ? AND f1.target_id LIKE 'app:%' AND f2.target_id LIKE 'app:%'" + notLocked("f1") + " " +
       "GROUP BY f2.target_id ORDER BY n DESC LIMIT " + POOL, viewerId),
     all(env, "SELECT follower_id AS cid FROM account_follows WHERE target_id = ? ORDER BY created_at DESC LIMIT " + POOL, "app:" + viewerId),
     all(env,
@@ -139,7 +142,7 @@ async function signalsFor(env, viewerId, now) {
       "JOIN community_members m ON m.public_id = substr(f.target_id, 5) " +
       "LEFT JOIN community_meta meta ON meta.community_id = m.community_id " +
       "LEFT JOIN community_members mine ON mine.community_id = m.community_id AND mine.public_id = ? " +
-      "WHERE f.follower_id = ? AND f.target_id LIKE 'app:%' AND mine.public_id IS NULL AND COALESCE(meta.visibility, 'public') = 'public' " +
+      "WHERE f.follower_id = ? AND f.target_id LIKE 'app:%' AND mine.public_id IS NULL AND COALESCE(meta.visibility, 'public') = 'public'" + notLocked("f") + " " +
       "GROUP BY m.community_id ORDER BY n DESC LIMIT 20", viewerId, viewerId)
   ]);
   return { fof, follower, community, interact, communities };
@@ -193,6 +196,9 @@ export async function computeSuggestions(env, request, viewerId, deps, now) {
   const signals = await signalsFor(env, viewerId, now);
   const ranked = rankCandidates(signals, excluded);
   const rows = await eligibleRows(env, ranked.map((r) => r.id).slice(0, POOL * 2));
+  // People who turned Friends off are never suggested to anyone.
+  const friendsOff = await friendsOffAmong(env, Array.from(rows.keys()));
+  friendsOff.forEach((id) => rows.delete(id));
   const groups = {};
   const nameCache = new Map();
   for (let i = 0; i < ranked.length; i++) {
@@ -244,8 +250,12 @@ async function targetFrom(env, raw, viewerId) {
 async function readPrefs(env, publicId) {
   const row = await first(env, "SELECT discoverable, temp_opt_in FROM suggest_prefs WHERE public_id = ?", publicId);
   const kind = await first(env, "SELECT kind, owner_kind FROM account_kind WHERE public_id = ?", publicId);
+  let search = null;
+  try { search = await first(env, "SELECT searchable FROM search_prefs WHERE public_id = ?", publicId); }
+  catch (err) { /* no table yet: visible */ }
   return {
     discoverable: row ? Number(row.discoverable) === 1 : true,
+    searchable: search ? Number(search.searchable) === 1 : true,
     tempOptIn: row ? Number(row.temp_opt_in) === 1 : false,
     kind: kind ? (cleanKind(kind.kind) || "person") : "person",
     ownerKind: kind ? cleanKind(kind.owner_kind) : ""
@@ -255,8 +265,8 @@ async function readPrefs(env, publicId) {
 /* Routes:
    GET    /v1/suggestions               the viewer's typed suggestions
    POST   /v1/suggestions/dismiss       { id } "Not interested in this person" ({ community } for a community)
-   GET    /v1/suggestions/prefs         { discoverable, tempOptIn, kind, ownerKind }
-   PUT    /v1/suggestions/prefs         { discoverable?, tempOptIn?, kind? }
+   GET    /v1/suggestions/prefs         { discoverable, searchable, tempOptIn, kind, ownerKind }
+   PUT    /v1/suggestions/prefs         { discoverable?, searchable?, tempOptIn?, kind? }
    PUT    /v1/owner/account-kind        { id, kind } owner override ("" clears) */
 export async function handleSuggestRoutes(request, env, path, url, deps) {
   if (path !== "/v1/suggestions" && path.indexOf("/v1/suggestions/") !== 0 && path !== "/v1/owner/account-kind") return null;
@@ -313,6 +323,12 @@ export async function handleSuggestRoutes(request, env, path, url, deps) {
     const tempOptIn = typeof body.tempOptIn === "boolean" ? body.tempOptIn : prev.tempOptIn;
     await env.DB.prepare("INSERT INTO suggest_prefs (public_id, discoverable, temp_opt_in, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(public_id) DO UPDATE SET discoverable = excluded.discoverable, temp_opt_in = excluded.temp_opt_in, updated_at = excluded.updated_at")
       .bind(me, discoverable ? 1 : 0, tempOptIn ? 1 : 0, now).run();
+    if (typeof body.searchable === "boolean") {
+      // "Let others find me in search": off keeps the account out of People search
+      // for everyone except the site owner (audit-logged there).
+      await env.DB.prepare("INSERT INTO search_prefs (public_id, searchable, updated_at) VALUES (?, ?, ?) ON CONFLICT(public_id) DO UPDATE SET searchable = excluded.searchable, updated_at = excluded.updated_at")
+        .bind(me, body.searchable ? 1 : 0, now).run();
+    }
     if (body.kind !== undefined) {
       const kind = cleanKind(body.kind);
       if (!kind) return deps.json(400, { error: "bad_kind" });

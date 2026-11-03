@@ -2,6 +2,10 @@ const assert = require("assert");
 const fs = require("fs");
 const device = require("../device.js");
 const ai = require("../ondevice-ai.js");
+// The Local AI page's registry and core checks ride along here so the smoke workflow runs them.
+for (const extra of ["settings_registry_test.js", "local_ai_test.js"]) {
+  require("child_process").execFileSync(process.execPath, [require("path").join(__dirname, extra)], { stdio: "inherit" });
+}
 
 function strong() {
   return { deviceMemory: 8, hardwareConcurrency: 8, saveData: false, onWifi: true, battery: 0.8, charging: true };

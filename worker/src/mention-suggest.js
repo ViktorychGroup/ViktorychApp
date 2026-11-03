@@ -6,6 +6,7 @@
    shared. */
 
 import { blocksEither } from "./social.js";
+import { lockedAccountSet } from "./locked-sql.js";
 import { resolveName, viewerHandle } from "./usernames.js";
 import { canMention } from "./name-rules.js";
 
@@ -85,7 +86,8 @@ export async function mentionSuggest(env, request, url, viewer, deps) {
   if (!prefix) return deps.json(200, { accounts: [] }, headers);
   const paced = await deps.rateHit(env, "mention:" + viewer.public_id, 300, 10 * 60 * 1000);
   if (!paced.ok) return deps.json(429, { error: "rate_limited" }, { "retry-after": String(paced.retry || 60) });
-  const list = (await candidates(env, prefix)).filter((row) => row.id !== viewer.public_id);
+  const lockedIds = await lockedAccountSet(env, viewer.public_id);
+  const list = (await candidates(env, prefix)).filter((row) => row.id !== viewer.public_id && !lockedIds.has(String(row.id)));
   const ids = list.map((row) => row.id);
   const follows = await idSet(env, "SELECT target_id AS id FROM account_follows WHERE follower_id = ? AND target_id IN ($IN)", viewer.public_id, ids.map((id) => "app:" + id));
   const talked = await idSet(env, "SELECT target_id AS id FROM mentions WHERE author_id = ? AND target_id IN ($IN)", viewer.public_id, ids);

@@ -154,7 +154,34 @@ export function resolveSource(raw, opts) {
   const spec = detectInput(bskyId ? "bluesky:" + bskyId[1] : text);
   if (!spec.ok) return { ok: false, error: spec.error || "bad_input", message: spec.message || "" };
   const keys = specKeys(spec);
-  return { ok: true, key: keys[0], keys, platform: spec.platform, kind: "feed", handle: spec.handle, input: text, url: spec.url || "", spec };
+  return { ok: true, key: keys[0], keys, platform: spec.platform, kind: "feed", handle: spec.handle, input: canonicalInput(spec, text), url: spec.url || "", spec };
+}
+
+/* One spelling per source, whatever was pasted: a full profile URL (with or
+   without www, a trailing slash or a query string), an @handle or a
+   platform:handle id all become platform:handle. Feeds keep their https URL.
+   resolveSource(canonicalInput(spec)) gives the same key again. */
+export function canonicalInput(spec, fallback) {
+  if (!spec || !spec.ok || !spec.platform) return clip(fallback, 300);
+  if (spec.platform === "rss") return clip(spec.url || fallback, 300);
+  if (spec.platform === "mastodon") return "mastodon:" + spec.handle + "@" + spec.host;
+  if (spec.platform === "reddit") return "reddit:" + (spec.redditKind === "r" ? "r/" : "u/") + spec.handle;
+  if (spec.platform === "youtube" && spec.channelId) return "youtube:" + spec.channelId;
+  return spec.platform + ":" + spec.handle;
+}
+
+/* A stored request row as a clean input. Rows filed before inputs were
+   normalized carry the pasted URL; this re-reads it and checks the key. */
+export function rowInput(row) {
+  if (!row) return "";
+  if (row.kind === "community" || row.kind === "news" || row.kind === "nostr") return row.input;
+  const source = resolveSource(row.input, {});
+  if (source.ok && keyVariants(source.keys).indexOf(String(row.source_key || "").toLowerCase()) >= 0) return source.input;
+  if (row.platform && row.handle && ["x", "threads", "instagram", "tiktok", "vk", "telegram", "bluesky"].indexOf(row.platform) >= 0) {
+    const again = resolveSource(row.platform + ":" + row.handle, {});
+    if (again.ok && again.key === String(row.source_key || "").toLowerCase()) return again.input;
+  }
+  return row.input;
 }
 
 /* A follow id as the app stores it (x:handle, news:key, mastodon:u@host). */
@@ -277,6 +304,7 @@ function publicRequest(row, voter) {
     key: row.source_key,
     kind: row.kind,
     platform: row.platform,
+    handle: row.handle || "",
     input: row.input,
     name: row.name || "",
     avatar: row.avatar || "",
@@ -417,6 +445,14 @@ async function ownerQueue(env, state) {
   const where = state === "decided" ? "state IN ('approved','rejected')" : "state = 'pending'";
   const rows = await env.DB.prepare(`SELECT * FROM feed_requests WHERE ${where} ORDER BY updated_at DESC LIMIT 200`).all();
   const list = rows.results || [];
+  for (const row of list) {
+    if (row.state !== "pending" || !/^https?:\/\//i.test(String(row.input || ""))) continue;
+    const clean = rowInput(row);
+    if (clean && clean !== row.input) {
+      await env.DB.prepare("UPDATE feed_requests SET input = ? WHERE id = ?").bind(clean, row.id).run();
+      row.input = clean;
+    }
+  }
   const voters = {};
   const ids = new Set();
   for (let i = 0; i < list.length; i += 50) {
@@ -478,7 +514,13 @@ async function allowRequest(env, row, body, deps, gateRow) {
   const pending = await env.DB.prepare("SELECT public_id FROM feed_request_voters WHERE request_id = ? AND state = 'pending'").bind(row.id).all();
   const askers = (pending.results || []).map((v) => String(v.public_id));
   const server = row.kind === "community" || SERVER_PLATFORMS.indexOf(row.platform) >= 0;
+  const input = rowInput(row);
+  if (input !== row.input) {
+    await env.DB.prepare("UPDATE feed_requests SET input = ? WHERE id = ?").bind(input, row.id).run();
+    row.input = input;
+  }
   let detail = "";
+  let unverified = false;
   if (dest === "everyone") {
     if (row.kind === "community") {
       const communities = await import("./communities.js");
@@ -486,8 +528,9 @@ async function allowRequest(env, row, body, deps, gateRow) {
       if (added.error) return { status: added.status || 400, body: { error: added.error } };
     } else if (server) {
       const feeds = await import("./owner-feeds.js");
-      const added = await feeds.addToCatalog(env, row.input, deps);
+      const added = await feeds.addToCatalog(env, input, deps, { unverified: true });
       if (added.status !== 200) return added;
+      unverified = !!(added.body && added.body.unverified);
     }
     await env.DB.prepare("INSERT INTO feed_allows (source_key, scope, created_at) VALUES (?, 'all', ?) ON CONFLICT DO NOTHING").bind(row.source_key, now).run();
   } else {
@@ -496,12 +539,13 @@ async function allowRequest(env, row, body, deps, gateRow) {
     if (server && row.kind !== "community" && row.platform !== "tiktok") {
       const lists = await import("./source-lists.js");
       const placed = await lists.allowIntoList(env, deps, {
-        input: row.input,
+        unverified: true,
+        input,
         listId: dest === "list" ? body.listId : "",
         newList: dest === "list" ? body.newList : (body.newList || row.name || row.input),
         memberIds: members
       });
-      if (placed.error) return { status: placed.status || 400, body: { error: placed.error } };
+      if (placed.error) return { status: placed.status || 400, body: { error: placed.error, message: placed.message || "" } };
       detail = placed.listId || "";
     }
     for (const id of members) {
@@ -510,7 +554,7 @@ async function allowRequest(env, row, body, deps, gateRow) {
   }
   await env.DB.prepare("UPDATE feed_requests SET state = 'approved', dest = ?, dest_detail = ?, decided_at = ?, updated_at = ?, seen_at = ? WHERE id = ?").bind(dest, detail, now, now, now, row.id).run();
   await decideVoters(env, Object.assign({}, row), "approved", now);
-  return { status: 200, body: { ok: true, id: row.id, dest } };
+  return { status: 200, body: { ok: true, id: row.id, dest, unverified } };
 }
 
 async function blockRequest(env, row) {
@@ -556,7 +600,7 @@ async function banSource(env, source, meta, deps) {
 }
 
 async function banRequest(env, row, deps) {
-  const source = resolveSource(row.kind === "community" ? row.handle || row.input : row.input, { kind: row.kind === "community" ? "community" : "", newsKey: row.kind === "news" ? row.source_key : "" });
+  const source = resolveSource(row.kind === "community" ? row.handle || row.input : rowInput(row), { kind: row.kind === "community" ? "community" : "", newsKey: row.kind === "news" ? row.source_key : "" });
   const target = source.ok && source.key === row.source_key ? source : { key: row.source_key, keys: [row.source_key], platform: row.platform, input: row.input };
   await banSource(env, target, row, deps);
   return { status: 200, body: { ok: true, id: row.id } };
@@ -615,10 +659,10 @@ export async function handleOwnerFeedRequests(request, env, path, deps) {
     const row = await env.DB.prepare("SELECT * FROM feed_requests WHERE id = ?").bind(one[1]).first();
     if (!row) return deps.json(404, { error: "not_found" });
     if (one[2] === "preview") {
-      const source = resolveSource(row.input, {});
+      const source = resolveSource(rowInput(row), {});
       if (!source.ok || !source.spec) return deps.json(200, { request: publicRequest(row, null), preview: [] });
       const feeds = await import("./owner-feeds.js");
-      const probed = await feeds.probeAccount(source.spec);
+      const probed = await feeds.probeWithin(source.spec, 9000);
       if (probed.error) return deps.json(200, { request: publicRequest(row, null), preview: [], error: probed.error });
       const posts = (probed.posts || []).slice(0, 3).map((post) => ({ text: clip(post.text, 200), date: clip(post.date, 40), url: /^https:\/\//.test(String(post.url || "")) ? clip(post.url, 400) : "" }));
       const name = clip(probed.profile && probed.profile.name, 80) || row.name;

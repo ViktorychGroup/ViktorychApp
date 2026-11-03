@@ -8,6 +8,10 @@ keys: shared/presence.js
 keys: shared/pill-data.js
 keys: shared/owner-keys.js
 keys: mesh-chat.js
+# Settings registry: labels are pack keys (tr() where they render); descriptions are English for the on-device model.
+keys: settings-registry.js
+# Local AI core: the model prompt is English on purpose, and model names are proper nouns.
+keys: local-ai.js
 # Pack keys picked by a ternary inside tr().
 x-compose.js|Reply
 x-compose.js|5 minutes
@@ -346,3 +350,119 @@ desktop-app.js|Alt+F4
 app.js|Next video
 app.js|Previous video
 own: tv-tune.js
+# Local AI: settings descriptions and the prompt are English for the on-device model; model names and language endonyms stay as written.
+local-ai.js|Gemini Nano
+local-ai.js|Qwen3.5-0.8B-q4f16_1-MLC
+local-ai.js|Qwen3.5 0.8B
+local-ai.js|Qwen3.5-0.8B-q4f32_1-MLC
+local-ai.js|Qwen3.5-2B-q4f16_1-MLC
+local-ai.js|Qwen3.5 2B
+local-ai.js|Qwen3.5-2B-q4f32_1-MLC
+local-ai.js|Qwen3.5-4B-q4f16_1-MLC
+local-ai.js|Qwen3.5 4B
+local-ai.js|Qwen3.5 0.8B (CPU)
+local-ai.js|English
+local-ai.js|Spanish
+local-ai.js|Russian
+local-ai.js|Hindi
+local-ai.js|You are the settings assistant inside a social app. You change the user's app settings by returning JSON tool calls.
+local-ai.js|Answer with one JSON object: {"reply": short friendly text in
+local-ai.js|Only use ids from the list. Values must be one of the allowed values. Use several calls when the user asks for several things.
+local-ai.js|Never log out, delete, or sign out: use "open" for those. If unsure, ask a short question and return no calls.
+local-ai.js|Pages you can only open:
+local-ai.js|Groups:
+settings-registry.js|Accent colour used for buttons, links and highlights.
+settings-registry.js|Text size in pixels for posts and menus. 15 is normal.
+settings-registry.js|Turns off most animations and moving effects.
+settings-registry.js|Shape of profile pictures: round or square.
+settings-registry.js|Small vibrations when you tap buttons on phones.
+settings-registry.js|Logo in the desktop sidebar: default mark, your own text, or hidden.
+settings-registry.js|Which items the desktop sidebar shows and their order.
+settings-registry.js|Time stamp that travels with the sidebar order.
+settings-registry.js|Icons in the phone bottom bar and their order.
+settings-registry.js|Whether the bottom bar uses your own order.
+settings-registry.js|Use the bottom bar when the phone is sideways.
+settings-registry.js|Copy the navigation layout to your other devices.
+settings-registry.js|Order, folders and hidden items of the side menu.
+settings-registry.js|Which Inbox sections are merged, split or hidden.
+settings-registry.js|Order of the tabs on profiles.
+settings-registry.js|Keyboard shortcut choices on computers.
+settings-registry.js|Shows a floating Local AI button on every page.
+settings-registry.js|Play videos in HD when possible. Off saves data.
+settings-registry.js|Keep live counts and lives updating while you scroll.
+settings-registry.js|One switch that lowers data use: smaller images, no autoplay, slower refresh.
+settings-registry.js|Where videos play from: embed (official player), device (direct file) or server.
+settings-registry.js|Weather, scores and live spaces row above the Home timeline.
+settings-registry.js|The stories row at the top of Home.
+settings-registry.js|Short notes shown on stories.
+settings-registry.js|Show reposts in For You.
+settings-registry.js|Show replies in For You.
+settings-registry.js|Show posts from your communities on Home.
+settings-registry.js|The friends and online panel on the side and on Home.
+settings-registry.js|Profiles of the same person on several networks shown as one.
+settings-registry.js|Limits for very busy accounts in your feed.
+settings-registry.js|English
+settings-registry.js|Español
+settings-registry.js|Français
+settings-registry.js|Deutsch
+settings-registry.js|Português
+settings-registry.js|Italiano
+settings-registry.js|Translate posts in other languages without tapping.
+settings-registry.js|Languages that are never translated.
+settings-registry.js|Language of the app itself.
+settings-registry.js|Stop saving the videos you watch in History.
+settings-registry.js|Stop saving the articles you open in History.
+settings-registry.js|Notifications from the app on this device. Turning on asks the browser for permission.
+settings-registry.js|Show who it is from in notifications.
+settings-registry.js|Show the message text in notifications.
+settings-registry.js|Pop-up banners for notifications.
+settings-registry.js|The red dot on the app icon and bell.
+settings-registry.js|Show the number of unread notifications.
+settings-registry.js|Notifications for
+settings-registry.js|Bell alerts for single accounts.
+settings-registry.js|Your own tabs in Notifications, with their people and alert types.
+settings-registry.js|Notifications use the same custom tabs as Home.
+settings-registry.js|Filters for the Notifications list.
+settings-registry.js|Your own tabs on Home.
+settings-registry.js|Account groups used by tabs.
+settings-registry.js|Use your own groups instead of the default ones.
+settings-registry.js|The group shown in Subscriptions.
+settings-registry.js|How each tab is shown (list or grid).
+settings-registry.js|Tabs inside communities.
+settings-registry.js|Your folders of communities.
+settings-registry.js|Your lists of accounts.
+settings-registry.js|Show your account in People you may know.
+settings-registry.js|Who can see your online status.
+settings-registry.js|Blocks outside players and embeds until you tap them.
+settings-registry.js|Hides your IP address from peer connections.
+settings-registry.js|Sites you open do not learn where you came from.
+settings-registry.js|Removes tracking codes from links.
+settings-registry.js|Makes this browser harder to fingerprint.
+settings-registry.js|Leave no history or caches on this device.
+settings-registry.js|Words you never want to see.
+settings-registry.js|Accounts you muted.
+settings-registry.js|Blocked accounts, posts, sources and types.
+settings-registry.js|Accounts whose reposts you hid.
+settings-registry.js|Group of the notification privacy switches above.
+settings-registry.js|How much this device does itself: low, balanced or max.
+settings-registry.js|Group of device performance choices.
+settings-registry.js|Lock the app with a passkey, PIN or fingerprint.
+settings-registry.js|Sign in without a password.
+settings-registry.js|Every device signed in to this account, and signing them out.
+settings-registry.js|Sign out on this device.
+settings-registry.js|Delete your account for good.
+settings-registry.js|Clear caches and downloads on this device.
+settings-registry.js|Your usernames and who sees which one.
+settings-registry.js|Who sees your games and who can invite you.
+settings-registry.js|Live captions and translation for videos and lives.
+settings-registry.js|Keys from your own accounts, kept encrypted.
+settings-registry.js|Nostr relays and keys.
+settings-registry.js|Cross-posting to X.
+settings-registry.js|Sign a TV in with the code it shows. TV picture and sound settings live in the TV app.
+settings-registry.js|Owner only: show a Temporary label on temporary accounts.
+settings-registry.js|Go through the first-time setup again.
+settings-registry.js|Internal app data.
+settings-registry.js|Friends master switch: turn Friends off entirely (no requests, lists, counts or online status), or choose who can send requests and see your friends.
+# Local AI setup: each reply language is shown in its own name.
+local-ai-ui.js|English
+local-ai-ui.js|Español

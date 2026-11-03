@@ -13,7 +13,7 @@
     { id: "look", label: "Look and menus", keys: [
       ["appearance", "Theme"], ["showPictures", "Profile pictures"], ["avatarShape", "Profile picture shape"], ["haptics", "Haptics"], ["showBanners", "Banners"],
       ["drawerMenu", "Menu order"], ["navCustom", "Sidebar"], ["brandLogo", "Sidebar logo"], ["bottomNav", "Bottom bar"], ["inboxLayout", "Inbox sections"], ["profileTabs", "Profile tabs"], ["keyboard", "Keyboard shortcuts"],
-      ["accent", "Color"], ["fontSize", "Font size"], ["density", "Density"], ["reduceMotion", "Reduce motion"]
+      ["accent", "Color"], ["fontSize", "Font size"], ["density", "Density"], ["reduceMotion", "Reduce motion"], ["aiFab", "Local AI button"], ["aiSetup", "Local AI setup"]
     ] },
     { id: "feed", label: "Feed", keys: [
       ["homePills", "Home pills"], ["stories", "Stories"], ["storyNotes", "Story notes"], ["autoplay", "Autoplay videos"],
@@ -21,6 +21,9 @@
       ["livePreview", "Live previews"], ["friendsRail", "Friends panel"], ["translateTo", "Translate to"],
       ["translateAuto", "Automatically translate posts"], ["translateNever", "Never translate"],
       ["peopleLinks", "Merged profiles"], ["busyPrefs", "Posting volume"]
+    ] },
+    { id: "tabs", label: "Tabs", keys: [
+      ["feedTabs", "Custom tabs"], ["noteTabs", "Notification tabs"], ["communityTabs", "Community tabs"], ["tabViews", "Tab views"]
     ] },
     { id: "notifications", label: "Notifications", keys: [["notify", "Notifications"], ["bells", "Account alerts"], ["notifPrivacy", "Notification privacy"]] },
     { id: "privacy", label: "Privacy and mentions", keys: [
@@ -36,11 +39,11 @@
   var LWW = ["appearance", "showPictures", "showBanners", "autoplay", "followingSort", "forYouReposts", "forYouReplies",
     "storyNotes", "livePreview", "friendsRail", "translateTo", "translateAuto", "translateNever", "notify", "bells", "notifPrivacy",
     "accent", "fontSize", "density", "reduceMotion",
-    "privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "peopleLinks", "avatarShape", "haptics", "keyboard", "busyPrefs", "inboxLayout", "musicPrefs", "brandLogo"];
+    "privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "peopleLinks", "avatarShape", "haptics", "keyboard", "busyPrefs", "inboxLayout", "aiFab", "aiSetup", "musicPrefs", "brandLogo"];
   var CAT_OF = {};
   CATS.forEach(function (cat) { cat.keys.forEach(function (row) { CAT_OF[row[0]] = cat.id; }); });
   // Companion keys travel with their setting.
-  var COMPANIONS = { navCustom: ["navCustomAt"], bottomNav: ["bottomNavCustom"] };
+  var COMPANIONS = { navCustom: ["navCustomAt"], bottomNav: ["bottomNavCustom"], noteTabs: ["lastNoteTab"] };
 
   function store() { try { return root.localStorage; } catch (err) { return null; } }
   function readJson(key) {

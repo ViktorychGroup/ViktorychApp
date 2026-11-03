@@ -2,7 +2,7 @@
    Viktorychs (earned, never sold). Purchases and entitlements live in D1, keyed
    by internal account ids. No card data is ever stored here. */
 
-import { storeItem, limitedById, limitedOpen, STICKER_PACKS, STICKER_RE, validSticker, stickerPack, CURRENCY, TIERS, LIMITED, REFUND_DAYS, giftTier } from "../../shared/store-catalog.js";
+import { storeItem, limitedById, limitedOpen, STICKER_PACKS, STICKER_RE, validSticker, stickerPack, STATUS_EMOJIS, statusEmojiById, statusEmojiByChar, emojiEntitlement, CURRENCY, TIERS, LIMITED, REFUND_DAYS, giftTier } from "../../shared/store-catalog.js";
 import { GIFTS } from "../../shared/gift-catalog.js";
 import { blocksEither } from "./social.js";
 import { canSeeAudience } from "./audience.js";
@@ -74,6 +74,27 @@ export async function ownedPacks(env, publicId) {
   return owned;
 }
 
+/* Status emojis this account owns (ids from the catalog). */
+export async function ownedEmojis(env, publicId) {
+  const owned = [];
+  if (!PUBLIC_ID.test(String(publicId || ""))) return owned;
+  try {
+    const listed = await env.DB.prepare("SELECT pack_id FROM store_entitlements WHERE owner_id = ? AND pack_id LIKE 'emoji:%'").bind(publicId).all();
+    rowsOf(listed).forEach((row) => {
+      const id = String(row.pack_id || "").slice(6);
+      if (statusEmojiById(id) && owned.indexOf(id) < 0) owned.push(id);
+    });
+  } catch (err) { /* table not ready: nothing owned */ }
+  return owned;
+}
+
+/* A custom status may use any emoji except a store status emoji the account doesn't own. */
+export async function statusEmojiAllowed(env, publicId, emoji) {
+  const special = statusEmojiByChar(emoji);
+  if (!special) return true;
+  return (await ownedEmojis(env, publicId)).indexOf(special.id) >= 0;
+}
+
 /* Drops sticker tokens the author does not own, so stickers in comments are real purchases. */
 export async function keepOwnedStickers(env, publicId, text) {
   const value = String(text || "");
@@ -116,7 +137,7 @@ async function checkRecipient(env, viewer, recipient, item) {
 
 /* Shared checks for both ways to pay. */
 async function prepare(env, viewer, body, deps) {
-  const kind = body.kind === "stickers" ? "stickers" : "gift";
+  const kind = body.kind === "stickers" || body.kind === "emoji" ? body.kind : "gift";
   const item = storeItem(kind, String(body.itemId || ""));
   if (!item) return { fail: { status: 400, error: "item" } };
   const limited = limitedById(item.id);
@@ -131,6 +152,10 @@ async function prepare(env, viewer, body, deps) {
   }
   if (kind === "stickers") {
     const owned = await ownedPacks(env, recipient.public_id);
+    if (owned.indexOf(item.id) >= 0) return { fail: { status: 409, error: "owned" } };
+  }
+  if (kind === "emoji") {
+    const owned = await ownedEmojis(env, recipient.public_id);
     if (owned.indexOf(item.id) >= 0) return { fail: { status: 409, error: "owned" } };
   }
   const privacy = body.privacy === "private" || body.privacy === "anonymous" ? body.privacy : "public";
@@ -163,7 +188,7 @@ function deliverStatements(env, order, now) {
   } else {
     out.push(env.DB.prepare(
       "INSERT INTO store_entitlements (owner_id, pack_id, order_id, created_at) VALUES (?, ?, ?, ?)"
-    ).bind(order.recipientId, order.itemId, order.id, now));
+    ).bind(order.recipientId, order.kind === "emoji" ? emojiEntitlement(order.itemId) : order.itemId, order.id, now));
   }
   return out;
 }
@@ -181,7 +206,7 @@ async function notifyRecipient(env, order, buyer, recipientHandle) {
       handle: named ? buyer.handle || "" : "",
       name: named ? buyer.display_name || "" : "",
       text: String(order.message || "").slice(0, 140),
-      hash: order.kind === "stickers" ? "#/store/stickers" : "#/@" + encodeURIComponent(recipientHandle || "") + "?tab=gifts",
+      hash: order.kind === "stickers" ? "#/store/stickers" : order.kind === "emoji" ? "#/store/emojis" : "#/@" + encodeURIComponent(recipientHandle || "") + "?tab=gifts",
       platform: "app"
     });
   } catch (err) { /* the item is already delivered */ }
@@ -269,7 +294,7 @@ function returnBase(body, deps, env) {
   return "https://viktorychgroup.github.io/ViktorychApp/";
 }
 
-export function catalogBody(env, sold, owned) {
+export function catalogBody(env, sold, owned, emojis) {
   const payments = paymentsInfo(env);
   return {
     payments: { enabled: payments.enabled, providers: payments.providers, currency: CURRENCY },
@@ -280,7 +305,8 @@ export function catalogBody(env, sold, owned) {
       return { id: gift.id, tier: item.tier, cents: item.cents, viktorychs: item.viktorychs };
     }),
     limited: LIMITED.map((item) => ({ id: item.id, base: item.base, name: item.name, tier: item.tier, cents: TIERS[item.tier].cents, viktorychs: item.viktorychs, limit: item.limit, sold: sold[item.id] || 0, until: item.until, open: limitedOpen(item) })),
-    stickers: STICKER_PACKS.map((pack) => ({ id: pack.id, name: pack.name, tier: pack.tier, cents: TIERS[pack.tier].cents, viktorychs: pack.viktorychs, items: pack.items, owned: owned ? owned.indexOf(pack.id) >= 0 : pack.tier === "free" }))
+    stickers: STICKER_PACKS.map((pack) => ({ id: pack.id, name: pack.name, tier: pack.tier, cents: TIERS[pack.tier].cents, viktorychs: pack.viktorychs, items: pack.items, owned: owned ? owned.indexOf(pack.id) >= 0 : pack.tier === "free" })),
+    emojis: STATUS_EMOJIS.map((item) => ({ id: item.id, emoji: item.emoji, name: item.name, tier: item.tier, viktorychs: item.viktorychs, popular: !!item.popular, fresh: !!item.fresh, owned: !!(emojis && emojis.indexOf(item.id) >= 0) }))
   };
 }
 
@@ -306,7 +332,8 @@ export async function handleStore(request, env, path, deps) {
   const viewer = await deps.sessionAccount(env, request);
   if (path === "/v1/store/catalog" && request.method === "GET") {
     const owned = viewer ? await ownedPacks(env, viewer.public_id) : null;
-    const body = catalogBody(env, await editionsSold(env), owned);
+    const emojis = viewer ? await ownedEmojis(env, viewer.public_id) : null;
+    const body = catalogBody(env, await editionsSold(env), owned, emojis);
     if (viewer) {
       body.balance = await balanceOf(env, viewer.public_id);
       body.owner = viewer.owner === 1;
@@ -341,7 +368,7 @@ export async function handleStore(request, env, path, deps) {
     );
     const orderArgs = [order.id, order.buyerId, order.recipientId, order.kind, order.itemId, order.method, order.amount].concat(ready.limited ? [ready.limited.id] : [], [order.sendId, order.message, order.privacy, now, now]);
     const statements = editionStatements(env, ready.limited)
-      .concat(free ? [] : spendStatements(env, viewer.public_id, item.viktorychs, item.kind === "gift" ? "gift" : "stickers", order.id, now))
+      .concat(free ? [] : spendStatements(env, viewer.public_id, item.viktorychs, item.kind === "gift" ? "gift" : item.kind === "emoji" ? "status_emoji" : "stickers", order.id, now))
       .concat([insertOrder.bind.apply(insertOrder, orderArgs)], deliverStatements(env, order, now), [env.DB.prepare("DELETE FROM point_guard")]);
     try { await env.DB.batch(statements); }
     catch (err) {
@@ -449,7 +476,7 @@ export async function handleStore(request, env, path, deps) {
     if (viewer.owner !== 1) return deps.json(403, { error: "forbidden" });
     const body = await deps.readJson(request, 2000);
     if (body.error) return deps.json(400, { error: body.error });
-    const kind = body.kind === "stickers" ? "stickers" : "gift";
+    const kind = body.kind === "stickers" || body.kind === "emoji" ? body.kind : "gift";
     const item = storeItem(kind, String(body.itemId || ""));
     if (!item) return deps.json(400, { error: "item" });
     const target = body.handle ? await accountByHandle(env, body.handle) : viewer;

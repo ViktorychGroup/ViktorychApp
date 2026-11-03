@@ -99,6 +99,36 @@ export function birthdayParts(text) {
   return null;
 }
 
+export const BIRTHDAY_MIN_AGE = 13;
+
+/* A calendar birth date (YYYY-MM-DD or MM-DD) must be a real day, not in
+   the future, and at least BIRTHDAY_MIN_AGE years ago. Free text from older
+   About fields is left alone. "Today" is the latest calendar day anywhere
+   (UTC+14), so nobody is turned away by their time zone. */
+export function birthdayProblem(text, now) {
+  const raw = String(text || "").trim();
+  const full = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const short = raw.match(/^(\d{2})-(\d{2})$/);
+  if (!full && !short) return "";
+  const year = full ? Number(full[1]) : 0;
+  const month = Number(full ? full[2] : short[1]);
+  const day = Number(full ? full[3] : short[2]);
+  const last = new Date(Date.UTC(year || 2000, month, 0)).getUTCDate();
+  if (month < 1 || month > 12 || day < 1 || day > last || (year && year < 1900)) return "birthday_invalid";
+  if (!year) return "";
+  const latest = new Date(Number(now || Date.now()) + 14 * 3600000);
+  const ty = latest.getUTCFullYear();
+  const tm = latest.getUTCMonth() + 1;
+  const td = latest.getUTCDate();
+  if (year > ty || (year === ty && (month > tm || (month === tm && day > td)))) return "birthday_invalid";
+  let age = ty - year;
+  let bm = month;
+  let bd = day;
+  if (bm === 2 && bd === 29 && new Date(Date.UTC(ty, 2, 0)).getUTCDate() !== 29) { bm = 3; bd = 1; }
+  if (tm < bm || (tm === bm && td < bd)) age -= 1;
+  return age < BIRTHDAY_MIN_AGE ? "birthday_too_young" : "";
+}
+
 function partsOf(year, month, day) {
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
   return { year: year, month: month, day: day };
@@ -365,6 +395,10 @@ async function writeField(env, viewer, existing, body) {
   } else if (kind !== "family") personId = "";
   const showYear = kind === "birthday" ? ((body && body.showYear != null) ? (body.showYear ? 1 : 0) : (existing ? existing.show_year : 0)) : 0;
   let tz = "";
+  if (kind === "birthday" && body && body.text != null) {
+    const why = birthdayProblem(text, Date.now());
+    if (why) return { error: why, status: 400 };
+  }
   if (kind === "birthday") {
     const asked = body && body.tz != null ? cleanZone(body.tz) : (existing ? existing.tz || "" : "");
     if (asked == null) return { error: "zone", status: 400 };

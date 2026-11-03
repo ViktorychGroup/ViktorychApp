@@ -3,7 +3,8 @@ import fs from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
-import { canSeeField, daysUntilBirthday, publicBirthday } from "../src/about.js";
+import { birthdayProblem, canSeeField, daysUntilBirthday, publicBirthday } from "../src/about.js";
+import "../../shared/birth-date.js";
 import { runBirthdaySweep, upcomingBirthdays } from "../src/birthdays.js";
 
 let mf;
@@ -307,4 +308,85 @@ test("birthday reminders honor privacy, the year, opt-out, and the time zone", a
   assert.equal(pausedList.enabled, false);
   assert.equal(pausedList.upcoming.length, 0);
   delete bindings.BIRTHDAY_NOTES;
+});
+
+test("birthday rules match on the client and the server", () => {
+  const B = globalThis.ViktorychBirthDate;
+  const on = Date.UTC(2026, 9, 30, 12);
+  const day = { year: 2026, month: 10, day: 30 };
+  assert.equal(birthdayProblem("1990-03-14", on), "");
+  assert.equal(birthdayProblem("03-14", on), "");
+  assert.equal(birthdayProblem("02-29", on), "");
+  assert.equal(birthdayProblem("sample 1900", on), "");
+  assert.equal(birthdayProblem("1990-02-31", on), "birthday_invalid");
+  assert.equal(birthdayProblem("1899-12-31", on), "birthday_invalid");
+  assert.equal(birthdayProblem("2027-01-01", on), "birthday_invalid");
+  assert.equal(birthdayProblem("2013-10-30", on), "");
+  assert.equal(birthdayProblem("2013-10-31", on), "");
+  assert.equal(birthdayProblem("2013-11-01", on), "birthday_too_young");
+  assert.equal(birthdayProblem("2020-01-01", on), "birthday_too_young");
+
+  assert.equal(B.daysIn(2, 2023), 28);
+  assert.equal(B.daysIn(2, 2024), 29);
+  assert.equal(B.daysIn(2, 0), 29);
+  assert.deepEqual(B.parse("1992-02-28"), { year: 1992, month: 2, day: 28 });
+  assert.deepEqual(B.parse("03-01"), { year: 0, month: 3, day: 1 });
+  assert.equal(B.parse("1992-02-30"), null);
+  assert.equal(B.compose(1992, 2, 28), "1992-02-28");
+  assert.equal(B.compose(0, 3, 1), "03-01");
+  assert.equal(B.check(0, 0, 0, day), "");
+  assert.equal(B.check(1990, 3, 0, day), "incomplete");
+  assert.equal(B.check(2013, 10, 30, day), "");
+  assert.equal(B.check(2013, 10, 31, day), "young");
+  assert.equal(B.check(2027, 1, 1, day), "future");
+  assert.equal(B.age({ year: 2000, month: 2, day: 29 }, { year: 2013, month: 2, day: 28 }), 12);
+  assert.equal(B.age({ year: 2000, month: 2, day: 29 }, { year: 2013, month: 3, day: 1 }), 13);
+  assert.equal(B.years(day)[0], 2026);
+  assert.equal(B.years(day).at(-1), 1900);
+  assert.equal(B.monthNames("es")[2], "Marzo");
+  assert.equal(B.monthNames("en")[0], "January");
+  const prev = process.env.TZ;
+  for (const zone of ["America/Los_Angeles", "Pacific/Kiritimati", "UTC"]) {
+    process.env.TZ = zone;
+    assert.match(B.label("1990-03-01", "en"), /March 1, 1990/);
+    assert.match(B.label("03-01", "es"), /^1 de marzo$/);
+  }
+  if (prev == null) delete process.env.TZ; else process.env.TZ = prev;
+});
+
+test("the about API refuses an impossible or too recent birth date", async () => {
+  const kai = await signup("user_k", "203.0.113.120");
+  const young = new Date();
+  const bad = await call("/v1/about", {
+    method: "POST",
+    ip: "203.0.113.121",
+    token: kai.token,
+    body: { section: "personal", kind: "birthday", text: (young.getUTCFullYear() - 5) + "-01-01", audience: "public" }
+  });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error, "birthday_too_young");
+  const odd = await call("/v1/about", {
+    method: "POST",
+    ip: "203.0.113.122",
+    token: kai.token,
+    body: { section: "personal", kind: "birthday", text: "1990-02-31", audience: "public" }
+  });
+  assert.equal(odd.status, 400);
+  assert.equal(odd.body.error, "birthday_invalid");
+  const ok = await call("/v1/about", {
+    method: "POST",
+    ip: "203.0.113.123",
+    token: kai.token,
+    body: { section: "personal", kind: "birthday", text: "1992-02-28", audience: "followers", showYear: true }
+  });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  const moved = await call("/v1/about/" + ok.body.id, {
+    method: "PATCH",
+    ip: "203.0.113.124",
+    token: kai.token,
+    body: { text: (young.getUTCFullYear() + 1) + "-01-01" }
+  });
+  assert.equal(moved.status, 400);
+  const back = await call("/v1/about?handle=user_k", { ip: "203.0.113.125", token: kai.token });
+  assert.equal(JSON.stringify(back.body).includes("1992-02-28"), true);
 });

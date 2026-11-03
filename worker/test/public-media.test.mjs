@@ -45,7 +45,7 @@ function workerOptions() {
           }
         });
       }
-      if (url.hostname === "pbs.twimg.com" || url.hostname === "yt3.ggpht.com") {
+      if (url.hostname === "pbs.twimg.com" || url.hostname === "yt3.ggpht.com" || url.hostname === "yt3.googleusercontent.com") {
         return new Response("img", { status: 200, headers: { "content-type": "image/jpeg" } });
       }
       return new Response("no", { status: 404 });
@@ -82,6 +82,9 @@ test("an X video relay is not cached and keeps the original bytes", async () => 
     // YouTube channel pictures are throttled in Russia too; the relay takes them.
     const avatar = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://yt3.ggpht.com/a/pic=s88"));
     assert.equal(avatar.status, 200);
+
+    const avatarG = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://yt3.googleusercontent.com/placeholder-avatar=s176-c-k-c0x00ffffff-no-rj"));
+    assert.equal(avatarG.status, 200);
 
     const other = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://cdninstagram.com/clip.mp4"));
     assert.equal(other.status, 404);

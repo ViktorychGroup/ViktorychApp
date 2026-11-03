@@ -16,6 +16,7 @@
    muted people never see any of it, and a pair is shown only when both
    people allow the viewer. */
 
+import { friendshipLive, liveFriendIds } from "./friends-pref.js";
 import { emitNotification, readPrefs as readNotePrefs } from "./notifications.js";
 import { publishToAccount } from "./channel.js";
 import { readFlags } from "./feature-flags.js";
@@ -83,12 +84,12 @@ async function people(env, ids) {
 }
 async function areFriends(env, a, b) {
   const row = await env.DB.prepare("SELECT 1 AS ok FROM account_friends WHERE user_id = ? AND friend_id = ?").bind(a, b).first();
-  return !!row;
+  return !!row && await friendshipLive(env, a, b);
 }
 async function friendIds(env, id) {
   try {
     const got = await env.DB.prepare("SELECT friend_id FROM account_friends WHERE user_id = ? ORDER BY created_at DESC LIMIT 200").bind(id).all();
-    return rows(got).map((row) => String(row.friend_id)).filter((x) => ID.test(x));
+    return await liveFriendIds(env, id, rows(got).map((row) => String(row.friend_id)).filter((x) => ID.test(x)));
   } catch (err) { return []; }
 }
 /* Either side blocked or muted the other. */
@@ -240,10 +241,36 @@ export async function awardGame(env, id, game, extra) {
       "INSERT INTO game_achievements (public_id, game_id, ach_id, earned_at, seen) VALUES (?, ?, ?, ?, 0) ON CONFLICT(public_id, game_id, ach_id) DO NOTHING"
     ).bind(id, game, a, now)));
     await publish(env, id, { type: "achievements", gameId: game, ids: fresh });
+    await noteAchievements(env, id, game, fresh, now);
     return fresh;
   } catch (err) {
     return [];
   }
+}
+
+/* Earned achievements also land in Notifications > Games, unless the
+   person turned game notifications off. They are your own, so nobody else
+   is involved and no push goes out during quiet hours. */
+async function noteAchievements(env, id, game, fresh, now) {
+  try {
+    const notePrefs = await readNotePrefs(env, id).catch(() => ({}));
+    if (notePrefs.games === "off") return;
+    const p = await gamePrefs(env, id);
+    const quiet = p.quiet.on && inQuiet(now, p.tz, p.quiet.from, p.quiet.to);
+    for (const ach of fresh.slice(0, 6)) {
+      await emitNotification(env, {
+        publicId: id,
+        kind: "game_achievement",
+        at: now,
+        actorId: "",
+        idempotencyKey: "gameach:" + game + ":" + ach,
+        text: ach,
+        hash: "#/games/" + game,
+        platform: "app",
+        noPush: quiet
+      });
+    }
+  } catch (err) { /* a missed note never blocks the award */ }
 }
 
 /* Called from each play beat: night owl, weekend warrior, hours, streaks,
@@ -423,6 +450,35 @@ async function recordTogether(env, ids, game) {
   if (stmts.length) await env.DB.batch(stmts.slice(0, 60));
 }
 
+/* "{name} joined your game" for the person who sent the invite. The pair
+   already passed the friends-only, block and hide checks when the invite
+   was sent and again on the answer. */
+async function noteJoined(env, row, viewer, now) {
+  try {
+    const notePrefs = await readNotePrefs(env, row.from_id).catch(() => ({}));
+    if (notePrefs.games === "off") return;
+    const p = await gamePrefs(env, row.from_id);
+    const quiet = p.quiet.on && inQuiet(now, p.tz, p.quiet.from, p.quiet.to);
+    const parts = ["ReGone"];
+    if (row.room && Number(row.private) !== 1) parts.push(row.room);
+    await emitNotification(env, {
+      publicId: row.from_id,
+      kind: "game_join",
+      at: now,
+      actorId: viewer.public_id,
+      idempotencyKey: "gamejoin:" + row.id,
+      handle: viewer.handle,
+      name: viewer.display_name,
+      avatar: viewer.hide_avatar === 1 ? "" : viewer.avatar,
+      text: parts.join(" \u00B7 "),
+      hash: "#/games/" + row.game_id,
+      platform: "app",
+      feedId: "app:" + viewer.public_id,
+      noPush: quiet
+    });
+  } catch (err) { /* the join itself already went through */ }
+}
+
 async function inviteAnswer(request, env, viewer, deps) {
   const body = await deps.readJson(request, 1000) || {};
   const id = String(body.id || "");
@@ -458,6 +514,7 @@ async function inviteAnswer(request, env, viewer, deps) {
     mine = await awardGame(env, viewer.public_id, row.game_id, {});
     if (row.room && Number(row.private) !== 1) await setRoom(env, viewer.public_id, row.game_id, row.room);
   }
+  if (answer === "joined") await noteJoined(env, row, viewer, now);
   await publish(env, row.from_id, { type: "invite-status", id, status: answer, by: personOf(viewer) });
   return deps.json(200, { ok: true, status: answer, gameId: row.game_id, room: row.room || "", lobbyId: lobby || "", achievements: mine });
 }

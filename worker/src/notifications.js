@@ -17,9 +17,10 @@ import { visibleAvatarUrl } from "./profile-media.js";
 import { tiktokAudienceAll, unlockedHandles } from "./tiktok-unlock.js";
 import { actorHidden, canMention } from "./social.js";
 import { viewerDisplay } from "./name-rules.js";
+import { lockedAccountSet, notLocked } from "./locked-sql.js";
 
 const encoder = new TextEncoder();
-const KINDS = { post: 1, mention: 1, reply: 1, quote: 1, like: 1, repost: 1, follow: 1, follow_request: 1, follow_accept: 1, friend_request: 1, friend_accept: 1, dm: 1, discord: 1, live: 1, birthday: 1, birthday_self: 1, gift: 1, package: 1, game_invite: 1, tv_signin: 1, community_note: 1, feed_request: 1, feed_approved: 1, feed_rejected: 1 };
+const KINDS = { post: 1, mention: 1, reply: 1, quote: 1, like: 1, repost: 1, follow: 1, follow_request: 1, follow_accept: 1, friend_request: 1, friend_accept: 1, dm: 1, discord: 1, live: 1, birthday: 1, birthday_self: 1, gift: 1, package: 1, game_invite: 1, game_join: 1, game_achievement: 1, game_board: 1, tv_signin: 1, community_note: 1, feed_request: 1, feed_approved: 1, feed_rejected: 1 };
 const PREF_KINDS = ["mentions", "replies", "quotes", "likes", "reposts", "follows", "dms", "games"];
 const DEFAULT_PREFS = { mentions: "push", replies: "push", quotes: "push", likes: "inapp", reposts: "inapp", follows: "push", dms: "push", games: "push", mentionsFrom: "all" };
 const BACKOFF_MS = [2000, 10000, 60000, 300000, 1800000];
@@ -44,12 +45,25 @@ export const NOTIFICATION_SCHEMA = [
   )`,
   "CREATE UNIQUE INDEX IF NOT EXISTS notifications_idem ON notifications(public_id, idempotency_key)",
   "CREATE INDEX IF NOT EXISTS notifications_time ON notifications(public_id, at DESC)",
+  "CREATE INDEX IF NOT EXISTS notifications_recent ON notifications(public_id, at DESC, note_id)",
+  "CREATE INDEX IF NOT EXISTS notifications_updated ON notifications(public_id, updated_at)",
   `CREATE TABLE IF NOT EXISTS notification_state (
     public_id TEXT PRIMARY KEY,
     read_until INTEGER NOT NULL DEFAULT 0,
     tabs TEXT NOT NULL DEFAULT '',
     bells_at INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL
+  )`,
+  /* One row per notification tab, so there is no cap on how many tabs a
+     person keeps and two devices never overwrite each other's tabs: each
+     row merges on its own updatedAt / deletedAt. */
+  `CREATE TABLE IF NOT EXISTS notification_tabs (
+    public_id TEXT NOT NULL,
+    tab_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    deleted_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (public_id, tab_id)
   )`,
   `CREATE TABLE IF NOT EXISTS notification_bells (
     public_id TEXT NOT NULL,
@@ -243,7 +257,58 @@ function cleanKind(value) {
 }
 
 function cleanTabs(list) {
-  return mergeNoteTabs(Array.isArray(list) ? list : [], []).slice(0, 500);
+  return mergeNoteTabs(Array.isArray(list) ? list : [], []);
+}
+
+const TAB_BYTES = 64000;
+
+/* A stored tab: the client's fields, minus anything that is not plain
+   data, with one tab capped at 64 KB. */
+function cleanStoredTab(tab) {
+  if (!tab || typeof tab !== "object") return null;
+  const id = String(tab.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
+  if (!id) return null;
+  const out = {};
+  Object.keys(tab).slice(0, 40).forEach((key) => {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,30}$/.test(key)) return;
+    const value = tab[key];
+    if (value == null) return;
+    const type = typeof value;
+    if (type === "string") out[key] = value.slice(0, 2000);
+    else if (type === "number") { if (isFinite(value)) out[key] = value; }
+    else if (type === "boolean") out[key] = value;
+    else if (Array.isArray(value)) out[key] = value.filter((item) => typeof item === "string" || typeof item === "number").slice(0, 1000).map((item) => typeof item === "string" ? item.slice(0, 160) : item);
+  });
+  out.id = id;
+  out.updatedAt = Number(tab.updatedAt) || 0;
+  out.deletedAt = Number(tab.deletedAt) || 0;
+  out.readAt = Number(tab.readAt) || 0;
+  if (JSON.stringify(out).length > TAB_BYTES) return null;
+  return out;
+}
+
+async function readTabRows(env, publicId) {
+  const listed = await env.DB.prepare("SELECT data FROM notification_tabs WHERE public_id = ?").bind(publicId).all();
+  const out = [];
+  ((listed && listed.results) || []).forEach((row) => {
+    try {
+      const tab = JSON.parse(row.data);
+      if (tab && tab.id) out.push(tab);
+    } catch (err) { /* skip a broken row */ }
+  });
+  return out;
+}
+
+function tabOrder(list) {
+  return list.slice().sort((a, b) => {
+    const pa = Number(a && a.pos);
+    const pb = Number(b && b.pos);
+    const ha = isFinite(pa) && a.pos != null;
+    const hb = isFinite(pb) && b.pos != null;
+    if (ha && hb && pa !== pb) return pa - pb;
+    if (ha !== hb) return ha ? -1 : 1;
+    return 0;
+  });
 }
 
 function stateTabs(raw) {
@@ -261,11 +326,19 @@ function stateTabs(raw) {
   }
 }
 
-async function readState(env, publicId) {
+async function readState(env, publicId, withTabs) {
   const row = await env.DB.prepare("SELECT read_until, tabs, bells_at, updated_at FROM notification_state WHERE public_id = ?").bind(publicId).first();
+  const blob = stateTabs(row && row.tabs);
+  const stored = withTabs ? await readTabRows(env, publicId).catch(() => []) : [];
+  let tabs = blob;
+  if (stored.length) {
+    tabs = blob || { tabs: [], noteTabsSame: true, lastNoteTab: "all" };
+    tabs = Object.assign({}, tabs, { tabs: tabOrder(mergeNoteTabs(tabs.tabs || [], stored)) });
+  }
   return {
     readUntil: Number(row && row.read_until) || 0,
-    tabs: stateTabs(row && row.tabs),
+    tabs,
+    blobTabs: blob ? blob.tabs : [],
     bellsAt: Number(row && row.bells_at) || 0,
     updatedAt: Number(row && row.updated_at) || 0
   };
@@ -400,7 +473,8 @@ async function unreadCount(env, publicId, readUntil, viewer) {
   const prefs = await readPrefs(env, publicId);
   const follows = await followedActorSet(env, publicId);
   const items = ((listed && listed.results) || []).map((row) => itemFromRow(row, readUntil));
-  const visible = items.filter((item) => !item.read && prefVisible(prefs, item, !!follows[item.actorId]) && !tiktokNoteHidden(item, view));
+  const held = await lockedAccountSet(env, publicId);
+  const visible = items.filter((item) => !item.read && !held.has(item.actorId) && prefVisible(prefs, item, !!follows[item.actorId]) && !tiktokNoteHidden(item, view));
   const kept = await dropHiddenNotes(env, publicId, visible);
   return kept.length;
 }
@@ -431,7 +505,7 @@ async function listBells(env, publicId) {
 
 async function followedActorSet(env, publicId) {
   const listed = await env.DB.prepare(
-    "SELECT target_id FROM account_follows WHERE follower_id = ? LIMIT 500"
+    "SELECT target_id FROM account_follows WHERE follower_id = ?" + notLocked("account_follows") + " LIMIT 500"
   ).bind(publicId).all();
   const set = {};
   ((listed && listed.results) || []).forEach((row) => {
@@ -442,7 +516,7 @@ async function followedActorSet(env, publicId) {
 }
 
 async function viewFor(env, publicId, since, lockedOverride, request) {
-  const state = await readState(env, publicId);
+  const state = await readState(env, publicId, true);
   const prefs = await readPrefs(env, publicId);
   const follows = await followedActorSet(env, publicId);
   const viewer = await lockViewer(env, publicId, lockedOverride);
@@ -457,12 +531,15 @@ async function viewFor(env, publicId, since, lockedOverride, request) {
     ).bind(publicId).all();
   const raw = (listed && listed.results) || [];
   const items = [];
+  const held = await lockedAccountSet(env, publicId);
   let cursor = sinceN;
   for (let i = 0; i < raw.length; i++) {
     const row = raw[i];
     const at = Number(row.updated_at) || Number(row.at) || 0;
     if (at > cursor) cursor = at;
     const item = itemFromRow(row, state.readUntil);
+    // Notes from a locked follow are held for the Locked area.
+    if (item.actorId && held.has(item.actorId)) continue;
     if (!prefVisible(prefs, item, !!follows[item.actorId])) continue;
     if (tiktokNoteHidden(item, viewer)) continue;
     if (await actorHidden(env, publicId, item.actorId)) continue;
@@ -671,6 +748,69 @@ async function publishNotes(env, publicId, data) {
   catch (err) { /* D1 stays the source of truth if the channel is down */ }
 }
 
+/* Notification tab types. The app and the server sort each notification
+   into one of these, so a tab can filter by type and its push and sound
+   switches apply on every device. */
+export function noteTypeKey(kind) {
+  const k = String(kind || "");
+  if (k === "game_invite") return "game_invite";
+  if (/^game_/.test(k)) return "game_other";
+  if (k === "friend_request" || k === "friend_accept") return "friend_request";
+  if (k === "follow" || k === "follow_request" || k === "follow_accept") return "follow";
+  if (k === "like") return "like";
+  if (k === "repost") return "repost";
+  if (k === "reply") return "reply";
+  if (k === "mention") return "mention";
+  if (k === "quote") return "quote";
+  if (k === "dm") return "dm";
+  if (k === "discord") return "discord";
+  if (k === "feed_request" || k === "feed_approved" || k === "feed_rejected") return "feed_request";
+  if (k === "post" || k === "live") return "post";
+  return "system";
+}
+
+function tabMatches(tab, item) {
+  if (!tab || (Number(tab.deletedAt) || 0) > (Number(tab.updatedAt) || 0) || tab.showNotes === false) return false;
+  const type = noteTypeKey(item && item.kind);
+  if (tab.kind === "games") return type === "game_invite" || type === "game_other";
+  if (tab.kind === "mentions") return type === "mention" || type === "discord";
+  if (tab.kind) return false;
+  const types = Array.isArray(tab.types) ? tab.types : [];
+  const members = Array.isArray(tab.members) ? tab.members : [];
+  if (!types.length && !members.length) return false;
+  if (types.length && types.indexOf(type) < 0) return false;
+  if (members.length) {
+    const keys = [String(item && item.feedId || "")];
+    const handle = String(item && item.handle || "").toLowerCase();
+    const platform = String(item && item.platform || "").toLowerCase();
+    if (handle && platform) keys.push(platform + ":" + handle);
+    if (!members.some((m) => keys.indexOf(String(m)) >= 0 || keys.indexOf(String(m).toLowerCase()) >= 0)) return false;
+  }
+  return true;
+}
+
+/* Per-tab push and sound. A notification that falls only in tabs with push
+   off is kept in the app but not pushed; one that falls only in tabs with
+   sound off is pushed quietly. Notifications in no tab follow the account
+   preferences alone. */
+export function tabPushRule(tabs, item) {
+  const hit = (Array.isArray(tabs) ? tabs : []).filter((tab) => tabMatches(tab, item));
+  if (!hit.length) return { push: true, sound: true };
+  return {
+    push: hit.some((tab) => tab.push !== false),
+    sound: hit.some((tab) => tab.push !== false && tab.sound !== false)
+  };
+}
+
+async function tabRuleFor(env, publicId, item) {
+  try {
+    const state = await readState(env, publicId, true);
+    return tabPushRule(state.tabs ? state.tabs.tabs : [], item);
+  } catch (err) {
+    return { push: true, sound: true };
+  }
+}
+
 async function sendPush(env, publicId, item, viewer) {
   const account = await accountRow(env, publicId) || {};
   try {
@@ -678,6 +818,8 @@ async function sendPush(env, publicId, item, viewer) {
     if (presence && presence.preference) account.presence = presence.preference;
   } catch (err) { /* presence is optional; the in-app list still updates */ }
   if (pushSuppressed(account, Date.now())) return { ok: true, skipped: true };
+  // No push for a locked follow: the note waits in the Locked area.
+  if (item && item.actorId && (await lockedAccountSet(env, publicId)).has(String(item.actorId))) return { ok: true, skipped: true };
   const keys = await vapidPublic(env);
   if (!keys.publicKey || !keys.privateJwk) return { ok: true, skipped: true };
   const subs = await env.DB.prepare(
@@ -687,9 +829,11 @@ async function sendPush(env, publicId, item, viewer) {
   const base = viewer || await lockViewer(env, publicId);
   const titleKey = titleKeyFor(item);
   if (!titleKey) return { ok: true, skipped: true };
+  const rule = await tabRuleFor(env, publicId, item);
+  if (!rule.push) return { ok: true, skipped: true };
   // Devices on the new service worker get the compact payload: kind, a
   // content-addressed short id and a count. No names, text, links or icons.
-  const compact = encoder.encode(JSON.stringify(await compactPush(item)));
+  const compact = encoder.encode(JSON.stringify(Object.assign(await compactPush(item), rule.sound ? {} : { q: 1 })));
   const payload = encoder.encode(JSON.stringify({
     titleKey,
     titleVars: {
@@ -704,7 +848,8 @@ async function sendPush(env, publicId, item, viewer) {
     tag: "note-" + item.id,
     platform: item.platform || "",
     handle: item.handle || "",
-    feedId: /^app:\d{12}$/.test(String(item.feedId || "")) ? "" : (item.feedId || "")
+    feedId: /^app:\d{12}$/.test(String(item.feedId || "")) ? "" : (item.feedId || ""),
+    quiet: !rule.sound
   }));
   let failed = false;
   for (let i = 0; i < rows.length; i++) {
@@ -777,6 +922,9 @@ function titleKeyFor(item) {
   if (kind === "gift" && !(item && item.actorId)) return "You received a gift";
   if (kind === "gift") return "{name} sent you a gift";
   if (kind === "game_invite") return "{name} invited you to play";
+  if (kind === "game_join") return "{name} joined your game";
+  if (kind === "game_achievement") return "Game achievement unlocked";
+  if (kind === "game_board") return "Game leaderboard update";
   if (kind === "community_note") return CN_TITLES.indexOf(item && item.text) >= 0 ? item.text : CN_TITLES[2];
   if (kind === "tv_signin") return "Approve sign-in on TV?";
   if (kind === "feed_request") return "Source request: {name}";
@@ -798,7 +946,7 @@ function prefKind(kind) {
   if (kind === "repost") return "reposts";
   if (kind === "follow" || kind === "follow_request" || kind === "follow_accept" || kind === "friend_request" || kind === "friend_accept") return "follows";
   if (kind === "dm") return "dms";
-  if (kind === "game_invite") return "games";
+  if (kind === "game_invite" || kind === "game_join" || kind === "game_achievement" || kind === "game_board") return "games";
   return "";
 }
 
@@ -1205,20 +1353,43 @@ async function saveBells(env, publicId, bells, bellsAt) {
 
 async function saveTabs(env, publicId, body) {
   if (!body || (!Array.isArray(body.tabs) && body.noteTabsSame == null && body.lastNoteTab == null)) return;
-  const state = await readState(env, publicId);
+  const state = await readState(env, publicId, true);
   const prev = state.tabs || { tabs: [], noteTabsSame: true, lastNoteTab: "all" };
-  const merged = mergeNoteTabs(body.tabs || [], prev.tabs);
+  const incoming = (Array.isArray(body.tabs) ? body.tabs : []).map(cleanStoredTab).filter(Boolean);
+  const known = new Map();
+  (prev.tabs || []).forEach((tab) => { if (tab && tab.id) known.set(String(tab.id), tab); });
+  /* Tabs from the old single-column store move to their own rows the first
+     time anything is saved, then the column keeps only the two settings. */
+  const moving = (state.blobTabs || []).map(cleanStoredTab).filter(Boolean);
+  const touched = new Map();
+  moving.forEach((tab) => touched.set(tab.id, known.get(tab.id) || tab));
+  incoming.forEach((tab) => {
+    const before = touched.get(tab.id) || known.get(tab.id);
+    touched.set(tab.id, before ? mergeNoteTabs([tab], [before])[0] : tab);
+  });
+  const statements = [];
+  touched.forEach((tab, id) => {
+    const clean = cleanStoredTab(tab);
+    if (!clean) return;
+    statements.push(env.DB.prepare(
+      "INSERT INTO notification_tabs (public_id, tab_id, data, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(public_id, tab_id) DO UPDATE SET data = CASE WHEN excluded.updated_at >= notification_tabs.updated_at THEN excluded.data ELSE notification_tabs.data END, updated_at = MAX(notification_tabs.updated_at, excluded.updated_at), deleted_at = MAX(notification_tabs.deleted_at, excluded.deleted_at)"
+    ).bind(publicId, id, JSON.stringify(clean), clean.updatedAt, clean.deletedAt));
+  });
+  for (let i = 0; i < statements.length; i += 50) await env.DB.batch(statements.slice(i, i + 50));
   const noteTabsSame = body.noteTabsSame === false ? false : (body.noteTabsSame === true ? true : prev.noteTabsSame);
   const lastNoteTab = body.lastNoteTab ? clip(body.lastNoteTab, 40) : prev.lastNoteTab;
-  const text = JSON.stringify({ tabs: merged, noteTabsSame, lastNoteTab });
-  if (text.length > 100000) return;
+  const text = JSON.stringify({ tabs: [], noteTabsSame, lastNoteTab });
   await env.DB.prepare(
     "INSERT INTO notification_state (public_id, read_until, tabs, bells_at, updated_at) VALUES (?, 0, ?, 0, ?) ON CONFLICT(public_id) DO UPDATE SET tabs = excluded.tabs, updated_at = excluded.updated_at"
   ).bind(publicId, text, Date.now()).run();
-  const unread = await unreadCount(env, publicId, (await readState(env, publicId)).readUntil);
+  const after = await readState(env, publicId, true);
+  const changed = Array.from(touched.keys());
+  const unread = await unreadCount(env, publicId, after.readUntil);
+  /* Other devices get only the tabs that changed; they merge them by id. */
   await publishNotes(env, publicId, {
     type: "tabs",
-    tabs: merged,
+    tabs: ((after.tabs && after.tabs.tabs) || []).filter((tab) => changed.indexOf(String(tab.id)) >= 0).slice(0, 200),
+    more: changed.length > 200,
     noteTabsSame,
     lastNoteTab,
     unread
@@ -1249,6 +1420,11 @@ async function markRead(env, publicId, until, ids, tab) {
     await env.DB.prepare(
       "INSERT INTO notification_tab_reads (public_id, tab_id, read_until, updated_at) VALUES (?, 'mentions', ?, ?) ON CONFLICT(public_id, tab_id) DO UPDATE SET read_until = excluded.read_until, updated_at = excluded.updated_at"
     ).bind(publicId, now, now).run();
+  }
+  if (tabId === "games") {
+    await env.DB.prepare(
+      "UPDATE notifications SET read_at = ?, updated_at = ? WHERE public_id = ? AND kind IN ('game_invite', 'game_join', 'game_achievement', 'game_board') AND read_at = 0"
+    ).bind(now, now, publicId).run();
   }
   if (nextUntil > state.readUntil) {
     await env.DB.prepare(
@@ -1319,7 +1495,7 @@ export async function handleNotificationRoutes(request, env, path, deps) {
   if (path === "/v1/notifications" && request.method === "POST") {
     const hit = await rateHit(env, "notes-write:" + row.public_id, 60, 10 * 60 * 1000);
     if (!hit.ok) return limited(hit);
-    const body = await readJson(request, 80000);
+    const body = await readJson(request, 1000000);
     if (body.error) return json(body.error === "too_large" ? 413 : 400, { error: body.error });
     if (lockFlag(body.shortsLocked) !== null) await writeShortsLocked(env, row.public_id, lockFlag(body.shortsLocked) === true);
     const items = Array.isArray(body.items) ? body.items.slice(0, 40) : [];
@@ -1611,6 +1787,14 @@ export async function notificationSelfTest() {
     [{ id: "t", name: "new", updatedAt: 8, readAt: 4, deletedAt: 12 }]
   );
   if (tabs[0].name !== "new" || tabs[0].readAt !== 9 || tabs[0].deletedAt !== 12) throw new Error("tabs");
+  const rules = [{ id: "g", kind: "games", push: false }, { id: "f", name: "F", types: ["follow"], sound: false }, { id: "d", name: "D", types: ["dm"], members: ["app:000000000001"] }];
+  if (tabPushRule(rules, { kind: "game_invite" }).push !== false) throw new Error("tab push off");
+  if (tabPushRule(rules, { kind: "game_join" }).push !== false) throw new Error("game other push off");
+  const quiet = tabPushRule(rules, { kind: "follow" });
+  if (!quiet.push || quiet.sound) throw new Error("tab sound off");
+  if (!tabPushRule(rules, { kind: "like" }).push) throw new Error("no tab keeps push");
+  if (!tabPushRule(rules, { kind: "dm", feedId: "app:000000000002" }).sound) throw new Error("member filter");
+  if (noteTypeKey("friend_accept") !== "friend_request" || noteTypeKey("tv_signin") !== "system") throw new Error("type keys");
   const round = await pushRoundTrip("hello");
   if (round !== "hello") throw new Error("push");
   if (pushSuppressed({ presence: "dnd" }, 10)) {
@@ -1637,4 +1821,24 @@ if (typeof process !== "undefined" && process.argv && process.argv.indexOf("--se
     console.error(err && err.message ? err.message : "notifications selftest failed");
     process.exit(1);
   });
+}
+
+/* Notes from locked follows, for the Locked area only (the route checks the
+   unlock grant). Same shape as the main list, without the actor id. */
+export async function heldNotes(env, request, publicId, actorIds) {
+  const ids = Array.from(actorIds || []).filter((id) => /^\d{12}$/.test(String(id))).slice(0, 200);
+  if (!ids.length) return [];
+  const state = await readState(env, publicId);
+  const marks = ids.map(() => "?").join(",");
+  const listed = await env.DB.prepare(
+    "SELECT note_id, kind, at, read_at, actor_id, payload, updated_at FROM notifications WHERE public_id = ? AND actor_id IN (" + marks + ") ORDER BY at DESC, note_id ASC LIMIT 80"
+  ).bind(publicId, ...ids).all();
+  const out = [];
+  const mediaViewer = { public_id: publicId };
+  for (const row of (listed && listed.results) || []) {
+    const item = await presentNote(env, request, mediaViewer, itemFromRow(row, state.readUntil));
+    delete item.actorId;
+    out.push(item);
+  }
+  return out;
 }

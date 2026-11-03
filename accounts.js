@@ -834,10 +834,15 @@
   var HEDGE_MS = 3000;
   var trouble = { all: 0, at: 0 };
   function troubleNote(ok) {
-    var was = trouble.all >= 2;
+    var was = trouble.all >= 4;
+    var nowTime = Date.now();
     if (ok) trouble.all = 0;
-    else { trouble.all += 1; trouble.at = Date.now(); }
-    var now = trouble.all >= 2;
+    else {
+      if (trouble.at && (nowTime - trouble.at) > 60000) trouble.all = 1;
+      else trouble.all += 1;
+      trouble.at = nowTime;
+    }
+    var now = trouble.all >= 4;
     if (was !== now) {
       try { window.dispatchEvent(new CustomEvent("viktorych-api-trouble", { detail: { on: now } })); } catch (err) { /* old browser */ }
     }
@@ -861,7 +866,7 @@
     // A Discord join and its captcha answer must reach the same Worker: the
     // challenge, its one retry and the owner's key all live there.
     // YouTube subscriptions need the Data API key, which only the Worker has.
-    if (/^\/v1\/owner\/(usage|limits)/.test(String(path)) || /^\/v1\/discord\/picks\/(join|captcha)$/.test(String(path)) || /^\/v1\/ext-graph\/youtube\?/.test(String(path))) {
+    if (/^\/v1\/(owner\/(usage|limits)|locked-follows)/.test(String(path)) || /^\/v1\/discord\/picks\/(join|captcha)$/.test(String(path)) || /^\/v1\/ext-graph\/youtube\?/.test(String(path))) {
       var mainRoot = String(config().api || "").replace(/\/$/, "");
       if (mainRoot) list = [mainRoot].concat(list.filter(function (r) { return r !== mainRoot; }));
       // Owner usage goes to the Worker only. Its analytics read can take a
@@ -875,6 +880,11 @@
     if (opts.token) headers.Authorization = "Bearer " + opts.token;
     if (opts.headers) {
       Object.keys(opts.headers).forEach(function (key) { headers[key] = opts.headers[key]; });
+    }
+    // An open Locked area on this device can read its people's messages.
+    if (!headers["X-Locked-Grant"] && /^\/v1\/messages/.test(String(path || "")) && window.ViktorychLocked && window.ViktorychLocked.grantHeader) {
+      var lockedGrant = window.ViktorychLocked.grantHeader();
+      if (lockedGrant) headers["X-Locked-Grant"] = lockedGrant;
     }
 
     var reading = !opts.method || opts.method === "GET";
@@ -1637,7 +1647,7 @@ var numberNote = form.passkey
     var faces = window.ViktorychFaces;
     var pick = faces && (kind === "banner" ? faces.banner : faces.picture);
     if (pick) return pick(src, accountFace);
-    if (accountFace === "none" || accountFace === "default") return accountFace;
+    if (accountFace === "none") return "none";
     return src ? "photo" : "default";
   }
   function presenceWrap(id, html, opener) {
@@ -1648,9 +1658,9 @@ var numberNote = form.passkey
   function publicAvatar(src, accountFace, cls, initials) {
     var mode = faceOf("picture", src, accountFace);
     if (mode === "none") return '<span class="ava-none"></span>';
-    var classes = "ava" + (cls ? " " + cls : "") + (mode === "default" ? " silhouette" : "");
+    var classes = "ava" + (cls ? " " + cls : "") + (mode === "default" && !src ? " silhouette" : "");
     var letter = String(initials || "?").trim().charAt(0).toUpperCase() || "?";
-    if (mode === "photo") return photoHtml(src, classes, letter);
+    if (src || mode === "photo") return photoHtml(src, classes, letter);
     return '<span class="' + classes + '" aria-hidden="true">' + PERSON + "</span>";
   }
   function publicBanner(src, accountFace) {
@@ -1722,6 +1732,8 @@ var numberNote = form.passkey
     return lang || "en";
   }
   function bdayLabel(text) {
+    var bd = window.ViktorychBirthDate;
+    if (bd) return bd.label(text, uiLang());
     var raw = String(text || "").trim();
     var full = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     var short = raw.match(/^(\d{2})-(\d{2})$/);
@@ -1731,13 +1743,53 @@ var numberNote = form.passkey
     } catch (err) { /* the raw text is still readable */ }
     return raw;
   }
-  function bdayAudienceSelect() {
-    var current = form.bdayAudience || "only";
-    var options = [["public", tr("Everyone")], ["followers", tr("Followers")], ["friends", tr("Mutuals")], ["only", tr("Only me")]];
-    if (current === "list") options.push(["list", tr("Custom list")]);
-    return '<div class="acct-field ep-select"><select id="acct-bdayAudience" name="bdayAudience">' + options.map(function (pair) {
-      return '<option value="' + pair[0] + '"' + (pair[0] === current ? " selected" : "") + ">" + esc(pair[1]) + "</option>";
-    }).join("") + '</select><label for="acct-bdayAudience">' + esc(tr("Who can see this")) + "</label></div>";
+  /* Birth date, as on X: "Birth date · Edit" opens a short warning, then
+     Month / Day / Year pickers and who sees the month and day and the year.
+     Every picker is a sheet of rows, never a raw browser control. */
+  var BDAY_AUDIENCES = ["public", "followers", "friends", "only"];
+  function bdayAudienceName(value) {
+    if (value === "public") return tr("Everyone");
+    if (value === "followers") return tr("Followers");
+    if (value === "friends") return tr("Mutuals");
+    if (value === "list") return tr("Custom list");
+    return tr("Only me");
+  }
+  function bdayParts() {
+    return { year: Number(form.bdayY) || 0, month: Number(form.bdayM) || 0, day: Number(form.bdayD) || 0 };
+  }
+  function setBdayParts(year, month, day) {
+    form.bdayY = year ? String(year) : "";
+    form.bdayM = month ? String(month) : "";
+    form.bdayD = day ? String(day) : "";
+    var bd = window.ViktorychBirthDate;
+    form.bdayText = bd && year && month && day ? bd.compose(year, month, day) : (!year && !month && !day ? "" : form.bdayText);
+  }
+  function syncBdayParts() {
+    var bd = window.ViktorychBirthDate;
+    var parts = bd ? bd.parse(form.bdayText) : null;
+    form.bdayY = parts && parts.year ? String(parts.year) : "";
+    form.bdayM = parts ? String(parts.month) : "";
+    form.bdayD = parts ? String(parts.day) : "";
+  }
+  /* "" when the open birth date can be saved, else the reason. */
+  function bdayProblem() {
+    if (!form.bdayOpen) return "";
+    var bd = window.ViktorychBirthDate;
+    if (!bd) return "";
+    var p = bdayParts();
+    if (!p.year && !p.month && !p.day) return "";
+    /* A date saved before without a year (MM-DD) stays valid as it is. */
+    if (!p.year && p.month && p.day && /^\d{2}-\d{2}$/.test(String((form.initial || {}).bdayText || "")) && String(form.bdayText) === String(form.initial.bdayText)) return "";
+    return bd.check(p.year, p.month, p.day, bd.today());
+  }
+  function bdayProblemText(code) {
+    if (code === "incomplete") return tr("Choose a month, day, and year.");
+    if (code === "young") return tr("You must be at least {age} years old.", { age: String((window.ViktorychBirthDate || {}).MIN_AGE || 13) });
+    if (code === "future" || code === "invalid") return tr("That date isn’t valid.");
+    return "";
+  }
+  function epPicker(sheet, title, value, empty, cls) {
+    return '<button class="ep-picker' + (cls ? " " + cls : "") + (value ? "" : " is-empty") + '" type="button" data-acct="ep-sheet" data-sheet="' + sheet + '" aria-haspopup="dialog" aria-expanded="' + (form.sheet === sheet ? "true" : "false") + '"><span class="ep-picker-label">' + esc(title) + '</span><span class="ep-picker-value">' + esc(value || empty || "") + '</span><svg class="ep-picker-chev" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3.543 8.96l1.414-1.42L12 14.59l7.043-7.05 1.414 1.42L12 17.41 3.543 8.96z"/></svg></button>';
   }
   function bdayBlock() {
     var value = form.bdayText ? bdayLabel(form.bdayText) : "";
@@ -1746,15 +1798,95 @@ var numberNote = form.passkey
       var shown = form.bdayState === "loading" && !value ? tr("Loading…") : (value || tr("Add your birth date"));
       return head + '<p class="ep-bday-value' + (value ? "" : " muted") + '">' + esc(shown) + "</p></div>";
     }
-    var dateValue = /^\d{4}-\d{2}-\d{2}$/.test(String(form.bdayText || "")) ? form.bdayText : "";
-    var now = new Date();
-    var max = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+    var bd = window.ViktorychBirthDate;
+    var p = bdayParts();
+    var months = bd ? bd.monthNames(uiLang()) : [];
+    var problem = bdayProblem();
+    var shownProblem = problem && (problem !== "incomplete" || form.bdayTried) ? bdayProblemText(problem) : "";
+    var yearVis = form.bdayShowYear ? tr("Same as month and day") : tr("Only me");
     return head + '<p class="ep-bday-note">' + esc(tr("This should be the date of your birthday. It is only on your profile if you choose who sees it.")) + "</p>" +
-      '<div class="acct-field"><input id="acct-bdayText" name="bdayText" type="date" min="1900-01-01" max="' + max + '" placeholder=" " value="' + esc(dateValue) + '"><label for="acct-bdayText">' + esc(tr("Birth date")) + "</label></div>" +
-      bdayAudienceSelect() +
-      epSwitch("toggle-bday-year", !!form.bdayShowYear, tr("Show year"), tr("Others see the day and month only when this is off.")) +
-      (form.bdayText ? '<button class="ep-link ep-bday-clear" type="button" data-acct="bday-clear">' + esc(tr("Remove birth date")) + "</button>" : "") +
+      '<div class="ep-bday-pick' + (shownProblem ? " has-error" : "") + '">' +
+      epPicker("month", tr("Month"), p.month ? months[p.month - 1] : "", "", "ep-picker-month") +
+      epPicker("day", tr("Day"), p.day ? String(p.day) : "", "", "ep-picker-day") +
+      epPicker("year", tr("Year"), p.year ? String(p.year) : "", "", "ep-picker-year") +
+      "</div>" +
+      (shownProblem ? '<p class="ep-bday-error" role="alert">' + esc(shownProblem) + "</p>" : "") +
+      '<h3 class="ep-bday-sub">' + esc(tr("Who can see this")) + "</h3>" +
+      epPicker("aud-md", tr("Month and day"), bdayAudienceName(form.bdayAudience || "only"), "", "ep-picker-wide") +
+      epPicker("aud-y", tr("Year"), yearVis, "", "ep-picker-wide") +
+      (form.bdayText || p.month || p.day || p.year ? '<button class="ep-link ep-bday-clear" type="button" data-acct="bday-clear">' + esc(tr("Remove birth date")) + "</button>" : "") +
       "</div>";
+  }
+  /* X's picker sheet: rows with a check on the chosen one; a bottom sheet
+     on phones, a small card on wider screens. */
+  function sheetOptions(kind) {
+    var bd = window.ViktorychBirthDate;
+    var p = bdayParts();
+    if (kind === "month") return (bd ? bd.monthNames(uiLang()) : []).map(function (name, i) { return [String(i + 1), name]; });
+    if (kind === "day") {
+      var days = bd ? bd.daysIn(p.month, p.year) : 31;
+      var out = [];
+      for (var d = 1; d <= days; d += 1) out.push([String(d), String(d)]);
+      return out;
+    }
+    if (kind === "year") return (bd ? bd.years(bd.today()) : []).map(function (y) { return [String(y), String(y)]; });
+    if (kind === "aud-md") {
+      var list = BDAY_AUDIENCES.slice();
+      if (form.bdayAudience === "list") list.push("list");
+      return list.map(function (a) { return [a, bdayAudienceName(a)]; });
+    }
+    if (kind === "aud-y") return [["same", tr("Same as month and day")], ["only", tr("Only me")]];
+    return [];
+  }
+  function sheetValue(kind) {
+    if (kind === "month") return String(form.bdayM || "");
+    if (kind === "day") return String(form.bdayD || "");
+    if (kind === "year") return String(form.bdayY || "");
+    if (kind === "aud-md") return form.bdayAudience || "only";
+    if (kind === "aud-y") return form.bdayShowYear ? "same" : "only";
+    return "";
+  }
+  function sheetTitle(kind) {
+    if (kind === "month") return tr("Month");
+    if (kind === "day") return tr("Day");
+    if (kind === "year") return tr("Year");
+    if (kind === "aud-md") return tr("Month and day");
+    if (kind === "aud-y") return tr("Year");
+    return "";
+  }
+  function sheetHtml() {
+    var kind = form.sheet;
+    if (!kind) return "";
+    var current = sheetValue(kind);
+    var check = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M9 20c-.264 0-.52-.104-.707-.293l-4.785-4.785 1.414-1.414L9 17.586 19.072 7.5l1.42 1.416L9.708 19.7c-.188.19-.442.3-.708.3z"/></svg>';
+    var rows = sheetOptions(kind).map(function (pair) {
+      var on = pair[0] === current;
+      return '<button class="ep-sheet-row' + (on ? " on" : "") + '" type="button" role="option" aria-selected="' + (on ? "true" : "false") + '" data-acct="ep-pick" data-sheet="' + kind + '" data-value="' + esc(pair[0]) + '"><span>' + esc(pair[1]) + '</span><i class="ep-sheet-check">' + (on ? check : "") + "</i></button>";
+    }).join("");
+    var note = kind === "aud-y" ? '<p class="ep-sheet-note">' + esc(tr("The year is never shown to more people than the month and day.")) + "</p>" : "";
+    return '<div class="ep-sheet-back" data-acct="ep-sheet-close"><div class="ep-sheet" role="dialog" aria-modal="true" aria-label="' + esc(sheetTitle(kind)) + '" data-sheet-kind="' + kind + '"><div class="ep-sheet-grab" aria-hidden="true"></div><h2 class="ep-sheet-title">' + esc(sheetTitle(kind)) + "</h2>" + note + '<div class="ep-sheet-list" role="listbox" aria-label="' + esc(sheetTitle(kind)) + '">' + rows + '</div><button class="ep-sheet-cancel" type="button" data-acct="ep-sheet-close">' + esc(tr("Cancel")) + "</button></div></div>";
+  }
+  function bdayWarnHtml() {
+    if (!form.bdayWarn) return "";
+    return '<div class="ep-confirm" role="alertdialog" aria-modal="true" aria-labelledby="ep-warn-title" aria-describedby="ep-warn-text"><div class="ep-confirm-box"><h2 id="ep-warn-title">' + esc(tr("Edit date of birth?")) + '</h2><p id="ep-warn-text">' + esc(tr("Make sure you enter the age of the person using the account.")) + '</p><button class="ep-primary" type="button" data-acct="bday-warn-yes">' + esc(tr("Edit")) + '</button><button class="ep-cancel" type="button" data-acct="bday-warn-no">' + esc(tr("Cancel")) + "</button></div></div>";
+  }
+  /* X's toast: a short note over the bottom of the sheet that stays in
+     view however far down the form is scrolled. */
+  var epToastTimer = 0;
+  function epToast(text) {
+    form.toast = text || "";
+    clearTimeout(epToastTimer);
+    if (!text) return;
+    var mine = form;
+    epToastTimer = setTimeout(function () {
+      if (form !== mine || !mine.toast) return;
+      mine.toast = "";
+      var el = document.querySelector("#account-layer .ep-toast");
+      if (el) el.remove();
+    }, 5000);
+  }
+  function toastHtml() {
+    return form.toast ? '<div class="ep-toast" role="alert">' + esc(form.toast) + "</div>" : "";
   }
   function usernamesSub() {
     var api = window.ViktorychUsernames;
@@ -1787,7 +1919,7 @@ var numberNote = form.passkey
       (window.ViktorychUsernames ? epRow("edit-sub", tr("Usernames"), usernamesSub(), ' data-sub="usernames"') : "") +
       epRow("open-link-identity", tr("Linked social accounts"), tr("Link your X, Telegram, Instagram, and YouTube accounts so their posts appear on your profile. Requires identity verification.")) +
       "</div>";
-    return editMedia() + '<div class="ep-fields">' + field("displayName", tr("Name"), "text", 50) + textArea("bio", tr("Bio"), 160) + field("location", tr("Location"), "text", 30) + field("website", tr("Website"), "text", 100) + bdayBlock() + "</div>" + rows + privRow + profLessRow + errorHtml();
+    return editMedia() + '<div class="ep-fields">' + field("displayName", tr("Name"), "text", 50) + textArea("bio", tr("Bio"), 160) + field("location", tr("Location"), "text", 30) + field("website", tr("Website"), "text", 100) + bdayBlock() + "</div>" + rows + privRow + profLessRow;
   }
   function discardHtml() {
     if (!form.confirmDiscard) return "";
@@ -1801,11 +1933,13 @@ var numberNote = form.passkey
     var lead = sub
       ? '<button class="icon-btn" type="button" data-acct="edit-back" aria-label="' + esc(tr("Back")) + '">' + backIcon() + "</button>"
       : '<button class="icon-btn" type="button" data-acct="close" aria-label="' + esc(tr("Close")) + '">' + closeIcon() + "</button>";
-    var save = sub ? "<span></span>" : '<button class="acct-save" type="button" data-acct="save-profile"' + (form.saving ? ' disabled aria-busy="true"' : "") + ">" + esc(tr("Save")) + "</button>";
+    var blocked = !form.saving && !!bdayProblem() && bdayProblem() !== "incomplete";
+    var save = sub ? "<span></span>" : '<button class="acct-save' + (form.saving ? " is-saving" : "") + '" type="button" data-acct="save-profile"' + (form.saving ? ' disabled aria-busy="true" aria-label="' + esc(tr("Saving…")) + '"' : blocked ? " disabled" : "") + '><span class="ep-save-text">' + esc(tr("Save")) + "</span>" + (form.saving ? '<span class="ep-spin" aria-hidden="true"></span>' : "") + "</button>";
     var backCls = "acct-back ep-back" + (anim === "enter" ? " ep-enter" : "");
     var cls = "acct-modal acct-edit ep" + (sub ? " ep-is-sub" : "") + (anim === "enter" ? " ep-enter" : "");
     var bodyCls = "acct-body acct-edit-body" + (anim === "sub" ? " ep-slide-in" : anim === "back" ? " ep-slide-back" : "");
-    return '<div class="' + backCls + '" data-ep-back="1"><div class="' + cls + '" role="dialog" aria-modal="true" aria-label="' + esc(title) + '"><div class="acct-head acct-edit-head"><span class="ep-lead">' + lead + "</span><h1>" + esc(title) + "</h1>" + save + '</div><div class="' + bodyCls + '">' + body + "</div>" + discardHtml() + "</div></div>";
+    var bodySub = ' data-sub="' + esc(form.sub || "") + '"';
+    return '<div class="' + backCls + '" data-ep-back="1"><div class="' + cls + '" role="dialog" aria-modal="true" aria-label="' + esc(title) + '"><div class="acct-head acct-edit-head"><span class="ep-lead">' + lead + "</span><h1>" + esc(title) + "</h1>" + save + '</div><div class="' + bodyCls + '"' + bodySub + ">" + body + "</div>" + bdayWarnHtml() + sheetHtml() + discardHtml() + toastHtml() + "</div></div>";
   }
   function cropModal() {
     var title = form.cropKind === "banner" ? tr("Edit banner") : tr("Edit photo");
@@ -1822,7 +1956,8 @@ var numberNote = form.passkey
       blog: tr("There is no separate blog. What you see here is the app."),
       developers: tr("After you sign in, Settings can export and import the data on this device.")
     };
-    return '<p class="acct-sub">' + esc(copy[legalKey] || tr("Not affiliated with X.")) + "</p>";
+    var ownerNote = legalKey === "privacy" || legalKey === "terms" ? '<p class="acct-sub">' + esc(tr("The site owner can see account details, including private usernames, for moderation. Each look is logged.")) + "</p>" : "";
+    return '<p class="acct-sub">' + esc(copy[legalKey] || tr("Not affiliated with X.")) + "</p>" + ownerNote;
   }
   function wallTheme() {
     var mode = document.documentElement.getAttribute("data-theme") || "lightsout";
@@ -1928,12 +2063,33 @@ var numberNote = form.passkey
       var focusName = "";
       var focusAct = "";
       var caret = null;
+      var caretEnd = null;
       if (previous && previous.closest && previous.closest("#account-layer")) {
         focusName = previous.name || "";
         focusAct = previous.getAttribute("data-acct") || "";
-        if (typeof previous.selectionStart === "number") caret = previous.selectionStart;
+        try { if (typeof previous.selectionStart === "number") { caret = previous.selectionStart; caretEnd = previous.selectionEnd; } } catch (err) { caret = null; }
       }
+      /* Edit profile repaints while you type (the birth date or a names
+         list arriving, a picker, a switch). Keep the scroll position, the
+         focused field and its caret, so the phone keyboard stays up and
+         the form does not jump back to the top. */
+      var oldBody = view === "edit" ? root.querySelector(".ep .acct-edit-body") : null;
+      var keepScroll = oldBody && oldBody.getAttribute("data-sub") === (form.sub || "") ? oldBody.scrollTop : null;
+      var focusSub = previous && previous.getAttribute ? previous.getAttribute("data-sub") || "" : "";
       root.innerHTML = html;
+      if (view === "edit") {
+        var newBody = root.querySelector(".ep .acct-edit-body");
+        if (newBody && keepScroll != null) newBody.scrollTop = keepScroll;
+        var again = null;
+        if (focusName) again = root.querySelector('.ep [name="' + focusName.replace(/[^A-Za-z]/g, "") + '"]');
+        if (!again && focusAct && focusAct !== "close" && focusAct !== "save-profile") again = root.querySelector('.ep [data-acct="' + focusAct.replace(/[^a-z-]/g, "") + '"]' + (focusSub ? '[data-sub="' + focusSub.replace(/[^a-z-]/g, "") + '"]' : ""));
+        if (again && !root.querySelector(".ep-confirm, .ep-sheet")) {
+          try { again.focus({ preventScroll: true }); } catch (err) { again.focus(); }
+          if (caret != null && focusName && again.setSelectionRange) {
+            try { again.setSelectionRange(caret, caretEnd == null ? caret : caretEnd); } catch (err) { /* not a text field */ }
+          }
+        }
+      }
       if (stepMoved) {
         var onbApi = window.ViktorychOnboarding;
         var titleEl = root.querySelector("#oobe-title");
@@ -2010,10 +2166,25 @@ var numberNote = form.passkey
       form.bdayAudience = "only";
       form.bdayShowYear = false;
       form.bdayOpen = false;
+      form.bdayWarn = false;
+      form.sheet = "";
+      form.toast = "";
       form.sub = "";
       form.anim = "enter";
+      /* Reopened right after a save: start from what was just saved, not
+         from a read that may still be catching up. */
+      var known = savedBday && savedBday.handle === account.handle && Date.now() - savedBday.at < BDAY_KEEP_MS ? savedBday : null;
+      if (known) {
+        form.bdayId = known.id || "";
+        form.bdayText = known.text;
+        form.bdayAudience = known.audience;
+        form.bdayShowYear = known.showYear;
+        form.bdayTz = known.tz || "";
+      }
+      syncBdayParts();
       form.initial = epSnapshot();
       loadBirthday(account);
+      pushEditHistory();
       watchUsernames();
       watchDisplayNames();
     }
@@ -2072,6 +2243,17 @@ var numberNote = form.passkey
       });
       var untouched = !mine.bdayOpen;
       mine.bdayState = "ready";
+      var known = savedBday && savedBday.handle === account.handle && Date.now() - savedBday.at < BDAY_KEEP_MS ? savedBday : null;
+      if (known && (!found || String(found.text || "") !== known.text || (found.audience || "only") !== known.audience || !!found.showYear !== known.showYear)) {
+        if (view === "edit") paint();
+        return;
+      }
+      if (!found && untouched && mine.bdayText && !known) {
+        mine.bdayText = "";
+        mine.bdayId = "";
+        syncBdayParts();
+        if (mine.initial) mine.initial.bdayText = "";
+      }
       if (found) {
         mine.bdayId = found.id || "";
         if (untouched) {
@@ -2079,6 +2261,7 @@ var numberNote = form.passkey
           mine.bdayAudience = found.audience || "only";
           mine.bdayShowYear = !!found.showYear;
           mine.bdayTz = found.tz || "";
+          if (form === mine) syncBdayParts();
           if (mine.initial) {
             mine.initial.bdayText = mine.bdayText;
             mine.initial.bdayAudience = mine.bdayAudience;
@@ -2097,21 +2280,70 @@ var numberNote = form.passkey
     var start = form.initial || {};
     return String(form.bdayText || "") !== String(start.bdayText || "") || String(form.bdayAudience || "") !== String(start.bdayAudience || "") || !!form.bdayShowYear !== !!start.bdayShowYear;
   }
-  function saveBirthday(token) {
+  /* Saves the birth date in About. Resolves true, or the server's error
+     code so the toast can say what went wrong. */
+  var savedBday = null;
+  var BDAY_KEEP_MS = 5 * 60 * 1000;
+  function saveBirthday(token, handle) {
     if (!birthdayChanged()) return Promise.resolve(true);
     var text = String(form.bdayText || "").trim();
-    var ok = function (res) { return !!res && (!res.status || res.status < 400); };
+    var mine = form;
+    var ok = function (res) {
+      var good = !!res && (!res.status || res.status < 400);
+      if (!good) return (res && res.error) || false;
+      var field = res && res.field;
+      if (field && field.id) mine.bdayId = field.id;
+      else if (res && res.id) mine.bdayId = res.id;
+      if (!text) mine.bdayId = "";
+      savedBday = { handle: handle || "", id: mine.bdayId || "", text: text, audience: mine.bdayAudience || "only", showYear: !!mine.bdayShowYear, tz: mine.bdayTz || "", at: Date.now() };
+      return true;
+    };
     if (!text) {
-      if (!form.bdayId) return Promise.resolve(true);
-      return api("/v1/about/" + form.bdayId, { method: "DELETE", token: token }).then(ok);
+      if (!form.bdayId) { savedBday = { handle: handle || "", id: "", text: "", audience: "only", showYear: false, tz: "", at: Date.now() }; return Promise.resolve(true); }
+      return api("/v1/about/" + form.bdayId, { method: "DELETE", token: token }).then(function (res) {
+        /* Already gone counts as removed. */
+        return ok(res && res.status === 404 ? { status: 200 } : res);
+      });
     }
     var zone = form.bdayTz || "";
     if (!zone) { try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (err) { zone = ""; } }
+    form.bdayTz = zone;
     var body = { section: "personal", kind: "birthday", text: text, audience: form.bdayAudience || "only", showYear: !!form.bdayShowYear, tz: zone };
     if (form.bdayAudience === "list") delete body.audience;
     if (form.bdayId) return api("/v1/about/" + form.bdayId, { method: "PATCH", token: token, body: body }).then(ok);
     return api("/v1/about", { method: "POST", token: token, body: body }).then(ok);
   }
+  /* X's Edit profile on Android: the system back button closes it, and
+     asks first when something changed. */
+  var epPushed = false;
+  var epPopIgnore = false;
+  function pushEditHistory() {
+    if (epPushed) return;
+    try {
+      history.pushState(Object.assign({}, history.state || {}, { epOpen: 1 }), "", location.href);
+      epPushed = true;
+    } catch (err) { epPushed = false; }
+  }
+  function popEditHistory() {
+    if (!epPushed) return;
+    epPushed = false;
+    try {
+      if (history.state && history.state.epOpen) { epPopIgnore = true; history.back(); }
+    } catch (err) { epPopIgnore = false; }
+  }
+  window.addEventListener("popstate", function () {
+    if (epPopIgnore) { epPopIgnore = false; return; }
+    if (!epPushed || (history.state && history.state.epOpen)) return;
+    epPushed = false;
+    if (view !== "edit" && view !== "crop") return;
+    if (view === "crop") { closeAuth(); pushEditHistory(); return; }
+    if (form.sheet || form.bdayWarn || form.confirmDiscard || (form.sub && form.subFrom !== "settings") || editDirty()) {
+      closeAuth();
+      if (view === "edit") pushEditHistory();
+      return;
+    }
+    requestEditClose(true);
+  });
   /* Close with X's short fade/scale; asks first when something changed. */
   var epClosing = false;
   function requestEditClose(force) {
@@ -2133,6 +2365,7 @@ var numberNote = form.passkey
       view = "";
       errorText = "";
       form = {};
+      popEditHistory();
       paint();
     };
     if (!back || still) { finish(); return; }
@@ -2150,6 +2383,8 @@ var numberNote = form.passkey
       return;
     }
     if (view === "edit") {
+      if (form.sheet) { var was = form.sheet; form.sheet = ""; paint(); var opener = document.querySelector('#account-layer [data-acct="ep-sheet"][data-sheet="' + was + '"]'); if (opener) { try { opener.focus({ preventScroll: true }); } catch (err) { opener.focus(); } } return; }
+      if (form.bdayWarn) { form.bdayWarn = false; paint(); return; }
       if (form.confirmDiscard) { form.confirmDiscard = false; paint(); return; }
       if (form.sub && form.subFrom !== "settings") { form.sub = ""; form.anim = "back"; paint(); return; }
       requestEditClose(false);
@@ -2252,7 +2487,7 @@ var numberNote = form.passkey
     if (!reg) return [];
     return reg.localKeys({ allOff: !!settings && settings.syncUi === false, lookOwn: deviceOwnUi() });
   }
-  var EXTRA_PREFS = ["privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "translateAuto", "translateNever", "bells", "livePreview", "notifPrivacy", "accent", "fontSize", "density", "reduceMotion", "peopleLinks", "avatarShape", "haptics", "keyboard", "busyPrefs", "inboxLayout", "friendsRail", "brandLogo"];
+  var EXTRA_PREFS = ["privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "translateAuto", "translateNever", "bells", "livePreview", "notifPrivacy", "accent", "fontSize", "density", "reduceMotion", "peopleLinks", "avatarShape", "haptics", "keyboard", "busyPrefs", "inboxLayout", "aiFab", "aiSetup", "friendsRail", "brandLogo"];
   function pickPrefs(local, remote) {
     // Home pills and Stories: each key keeps the newer choice.
     var out = {};
@@ -3121,8 +3356,14 @@ function signupPayload() {
         return;
       }
       form.passkey = true;
+      /* Same as a number sign-up: the server already follows the owner, and
+         this device's guest follows are never imported into the account. */
+      if (res.account && res.account.publicId) writeStored("follows-imported-v2-" + res.account.publicId, "1");
       if (saveDataWanted() && window.ViktorychDataSaver) {
         try { window.ViktorychDataSaver.apply(true); } catch (err) { /* the account still opens */ }
+      }
+      if (typeof window.ViktorychAccounts.onSignup === "function") {
+        try { window.ViktorychAccounts.onSignup(res.account || {}); } catch (err) { /* the session still opens */ }
       }
       writePending({ token: res.token, accountNumber: res.accountNumber, recoveryCodes: res.recoveryCodes || [], account: res.account });
       markSetupPost(res.account);
@@ -3538,9 +3779,29 @@ function signupPayload() {
       step();
     });
   }
+  /* Save, as on X: nothing changed closes at once; otherwise the button
+     spins and stays locked until the sheet closes (a second tap does
+     nothing), and on an error a toast says why while every edit stays. */
+  function saveFailText(code) {
+    if (code === "birthday_too_young") return bdayProblemText("young");
+    if (code === "birthday_invalid") return bdayProblemText("invalid");
+    if (code === "network") return tr("Something went wrong. Try again.");
+    return errorMessage(code) || tr("Something went wrong. Try again.");
+  }
   function saveProfile() {
     var session = readSession();
-    if (!session) return;
+    if (!session || view !== "edit") return;
+    if (form.saving || epClosing) return;
+    var problem = bdayProblem();
+    if (problem) {
+      form.bdayTried = true;
+      epToast(bdayProblemText(problem));
+      paint();
+      var pick = document.querySelector("#account-layer .ep-bday-pick");
+      if (pick && pick.scrollIntoView) pick.scrollIntoView({ block: "center" });
+      return;
+    }
+    if (!editDirty()) { requestEditClose(true); return; }
     var body = {
       displayName: String(form.displayName || "").trim(),
       bio: String(form.bio || ""),
@@ -3553,45 +3814,58 @@ function signupPayload() {
     body.bannerEmpty = form.bannerEmpty === "none" ? "none" : "default";
     if (form.avatarTouched) body.avatar = form.avatar || "";
     if (form.bannerTouched) body.banner = form.banner || "";
-    if (form.saving) return;
-    form.saving = true;
+    var mine = form;
+    var start = mine.initial || {};
+    var profileChanged = mine.avatarTouched || mine.bannerTouched || ["displayName", "bio", "location", "website", "privateFollows", "profileLess"].some(function (key) {
+      var now = mine[key] == null ? "" : mine[key];
+      var was = start[key] == null ? "" : start[key];
+      return typeof now === "string" || typeof was === "string" ? String(now).trim() !== String(was).trim() : now !== was;
+    });
+    mine.saving = true;
     errorText = "";
+    epToast("");
     paint();
-    api("/v1/profile", { method: "PATCH", token: session.token, body: body }).then(function (res) {
-        if (res.status !== 200 || !res.account) {
-          form.saving = false;
-          errorText = errorMessage(res.error);
+    var failed = function (code) {
+      if (form !== mine) return;
+      mine.saving = false;
+      epToast(saveFailText(code));
+      paint();
+    };
+    var saveBday = function () {
+      return saveBirthday(session.token, (session.account || {}).handle).then(function (bdayOk) {
+        if (form !== mine) return;
+        if (bdayOk !== true) {
+          /* The profile itself is saved; only the birthday needs another try. */
+          mine.saving = false;
+          mine.avatarTouched = false;
+          mine.bannerTouched = false;
+          var keepBday = { bdayText: mine.initial && mine.initial.bdayText, bdayAudience: mine.initial && mine.initial.bdayAudience, bdayShowYear: mine.initial && mine.initial.bdayShowYear };
+          mine.initial = epSnapshot();
+          Object.keys(keepBday).forEach(function (key) { mine.initial[key] = keepBday[key]; });
+          epToast(typeof bdayOk === "string" && /^birthday_/.test(bdayOk) ? saveFailText(bdayOk) : tr("Couldn’t save that detail."));
           paint();
           return;
         }
-        session.account = res.account;
-        writeSession(session);
-        remember(res.account);
-        dirtyLists();
-        if (window.ViktorychDisplayNames && window.ViktorychDisplayNames.names && window.ViktorychDisplayNames.names()) window.ViktorychDisplayNames.load();
+        if (window.ProfileAbout && window.ProfileAbout.forget) window.ProfileAbout.forget();
+        /* Stays "saving" through the close so a second tap cannot send it again. */
+        requestEditClose(true);
         if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
-        return saveBirthday(session.token).then(function (bdayOk) {
-          form.saving = false;
-          if (!bdayOk) {
-            /* The profile itself is saved; only the birthday needs another try. */
-            form.avatarTouched = false;
-            form.bannerTouched = false;
-            var keepBday = { bdayText: form.initial && form.initial.bdayText, bdayAudience: form.initial && form.initial.bdayAudience, bdayShowYear: form.initial && form.initial.bdayShowYear };
-            form.initial = epSnapshot();
-            Object.keys(keepBday).forEach(function (key) { form.initial[key] = keepBday[key]; });
-            errorText = tr("Couldn’t save that detail.");
-            paint();
-            return;
-          }
-          if (window.ProfileAbout && window.ProfileAbout.forget) window.ProfileAbout.forget();
-          requestEditClose(true);
-          if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
-        });
-    }).catch(function () {
-      form.saving = false;
-      errorText = tr("Something went wrong. Try again.");
-      paint();
-    });
+      });
+    };
+    var step = profileChanged ? api("/v1/profile", { method: "PATCH", token: session.token, body: body }).then(function (res) {
+      if (form !== mine) return false;
+      if (!res || res.status !== 200 || !res.account) { failed(res && res.error); return false; }
+      var fresh = readSession() || session;
+      fresh.account = res.account;
+      writeSession(fresh);
+      remember(res.account);
+      saveHead(res.account);
+      dirtyLists();
+      if (window.ViktorychDisplayNames && window.ViktorychDisplayNames.names && window.ViktorychDisplayNames.names()) window.ViktorychDisplayNames.load();
+      if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+      return true;
+    }) : Promise.resolve(true);
+    step.then(function (go) { if (go) return saveBday(); }).catch(function () { failed("network"); });
   }
   function remember(account) {
     if (!account || !account.handle) return;
@@ -4002,6 +4276,16 @@ function signupPayload() {
         if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
         return { pending: true };
       }
+      // Already followed, inside Locked follows: nothing changes and the
+      // follow stays hidden here.
+      if (follow && res.lockedFollow) {
+        if (!skipCounts) rollbackCounts(id, me, hadTarget, prevTarget, hadMine, prevMine);
+        previewFollow(id, false);
+        dirtyLists();
+        if (window.ViktorychLocked && window.ViktorychLocked.lockedNotice) window.ViktorychLocked.lockedNotice();
+        if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+        return false;
+      }
       graphCounts[id].pending = false;
       if (res.followersCount != null) graphCounts[id].followers = res.followersCount;
       graphCounts[id].fresh = true;
@@ -4039,6 +4323,7 @@ function signupPayload() {
     }
     return "";
   }
+  var FOLLOW_IMPORT_CUTOFF = Date.UTC(2026, 9, 28, 18, 4, 30);
   function syncFollows() {
     var session = readSession();
     if (!session || !hasApi() || !session.account) return Promise.resolve();
@@ -4049,7 +4334,10 @@ function signupPayload() {
     syncingFollows = true;
     var epoch = followEpoch;
     var key = "follows-imported-v2-" + session.account.publicId;
-    var imported = readStored(key) === "1";
+    /* Accounts made since new accounts started out following only the owner
+       never import this device's follows; only older accounts move theirs. */
+    var made = Number(session.account.createdAt) || 0;
+    var imported = readStored(key) === "1" || !made || made >= FOLLOW_IMPORT_CUTOFF;
     var local = localFeedFollows().concat(localAppFollows()).filter(function (id, index, all) {
       return id && all.indexOf(id) === index;
     });
@@ -4158,6 +4446,7 @@ function signupPayload() {
     return '<button class="friend-btn friend-add" type="button" data-friend-act="request" data-friend-id="' + esc(pid) + '" data-handle="' + esc(handle) + '"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span>' + esc(tr("Add Friend")) + '</span></button>';
   }
 
+  var friendsOwnerView = {};
   function ensureFriends(targetId) {
     var session = readSession();
     var key = String(targetId || "");
@@ -4172,6 +4461,8 @@ function signupPayload() {
       friendsLoads[key] = false;
       if (!res || res.status !== 200) { friendsFailedAt[key] = Date.now(); return; }
       friendsCache[key] = Array.isArray(res.friends) ? res.friends : [];
+      // Owner view: the server shows the app owner every friendship and logs it.
+      friendsOwnerView[key] = res.ownerView === true;
       var id = key;
       graphCounts[id] = graphCounts[id] || {};
       if (res.friendsCount != null) graphCounts[id].friends = res.friendsCount;
@@ -4406,6 +4697,7 @@ function signupPayload() {
               '<a class="friend-card-name" href="#/@' + encodeURIComponent(fr.handle) + '">' + esc(fr.name || fr.displayName || fr.handle) + (fr.owner ? badge() : "") + '</a>' +
               '<div class="friend-card-handle">@' + esc(fr.handle) + '</div>' +
               mutual +
+              (fr.ownerOnly ? '<div class="friend-card-owneronly">' + esc(tr("Hidden from others · owner view")) + '</div>' : '') +
             '</div>' +
             '<div class="friend-card-actions">' + btn + '</div>' +
           '</div>';
@@ -4422,7 +4714,8 @@ function signupPayload() {
       '<div class="friends-header-right">' + headerRight + '</div>' +
     '</div>';
 
-    return '<div class="friends-section">' + headingHtml + pills + cardsHtml + '</div>';
+    var ownerBanner = !mine && friendsOwnerView[pid] ? '<div class="friends-owner-view" role="note"><b>' + esc(tr("Owner view")) + '</b><span>' + esc(tr("You see every friendship here, including ones hidden from others. Each view is logged.")) + '</span></div>' : '';
+    return '<div class="friends-section">' + headingHtml + ownerBanner + pills + cardsHtml + '</div>';
   }
 
     var linkIdentityForm = {
@@ -4457,6 +4750,11 @@ function signupPayload() {
   }
 
   function linkedIdentitiesHtml(account) {
+    // The Linked profiles button and its X-style sheet (linked-profiles.js).
+    if (window.LinkedProfiles && window.LinkedProfiles.enabled()) {
+      var head = window.LinkedProfiles.headerHtml(account);
+      return head ? '<div class="acct-ident-row lp-head-row">' + head + "</div>" : "";
+    }
     var list = (account && account.identities) || [];
     var session = readSession();
     var mine = !!(session && session.account && (session.account.publicId === account.publicId || skel(session.account.handle) === skel(account.handle)));
@@ -4474,6 +4772,28 @@ function signupPayload() {
       '</a>';
     }).join("") + addBtn;
     return '<div class="acct-ident-row"><span class="acct-ident-label">' + esc(tr("Linked profiles")) + ':</span><div class="acct-ident-chips">' + chips + '</div></div>';
+  }
+
+  function linkedSettingsHtml(account) {
+    var lp = window.LinkedProfiles;
+    if (lp && lp.enabled()) {
+      return '<h2>' + esc(tr("Linked accounts")) + '</h2><div class="set-list"><a class="set-row" href="#/settings/linked"><span class="set-copy"><b>' + esc(tr("Linked accounts")) + '</b><span class="set-sub">' + esc(lp.summary()) + '</span></span><span class="set-chev" aria-hidden="true">›</span></a></div>';
+    }
+    return '<h2>' + esc(tr("Linked social accounts")) + '</h2><p class="set-sub">' + esc(tr("Link your X, Telegram, Instagram, and YouTube accounts so their posts appear on your profile. Requires identity verification.")) + '</p>' + identitiesSettingsHtml(account);
+  }
+  function openLinkIdentity() {
+    if (!readSession()) return;
+    linkIdentityForm = { platform: "x", handle: "", proofUrl: "", step: 0, challenge: null, loading: false };
+    errorText = "";
+    view = "link-identity";
+    paint();
+  }
+  function setIdentities(list) {
+    var session = readSession();
+    if (!session || !session.account) return;
+    session.account.identities = (list || []).slice();
+    writeSession(session);
+    if (profiles[skel(session.account.handle)]) profiles[skel(session.account.handle)].identities = session.account.identities;
   }
 
   function identitiesSettingsHtml(account) {
@@ -4679,7 +4999,8 @@ function signupPayload() {
     if (!rows.length) {
       var title = tab === "followers" ? tr("No followers yet") : tab === "mutuals" ? tr("No mutuals yet") : tab === "requests" ? tr("No follow requests") : tr("Not following anyone yet");
       var copy = tab === "requests" ? tr("When someone asks to follow you, they’ll show up here.") : tab === "mutuals" ? tr("People you follow who follow you back show up here.") : tab === "followers" ? tr("When someone follows this account, they’ll show up here.") : tr("When this account follows someone, they’ll show up here.");
-      return search + '<div class="empty"><h2>' + esc(title) + '</h2><p>' + esc(copy) + '</p></div>';
+      var empty = search + '<div class="empty"><h2>' + esc(title) + '</h2><p>' + esc(copy) + '</p></div>';
+      return tab === "following" && viewerOwnsSubject(subjectId, handle) ? lockedPullWrap(empty) : empty;
     }
     var mine = viewerOwnsSubject(subjectId, handle);
     var html = rows.map(function (item) {
@@ -4688,13 +5009,30 @@ function signupPayload() {
       var badge = item.followsYou ? '<span class="pill-badge">' + esc(tr("Follows you")) + '</span>' : "";
       var remove = mine && tab === "followers" && item.removable ? '<button class="outline" type="button" data-act="remove-follower" data-id="' + esc(person.id) + '">' + esc(tr("Remove follower")) + '</button>' : "";
       var accept = mine && tab === "requests" ? '<button class="friend-btn friend-accept" type="button" data-act="accept-follow" data-id="' + esc(person.id) + '">' + esc(tr("Accept")) + '</button><button class="friend-btn friend-decline" type="button" data-act="decline-follow" data-id="' + esc(person.id) + '">' + esc(tr("Decline")) + '</button>' : "";
-      var href = person.handle ? "#/@" + encodeURIComponent(person.handle) : (person.id ? "#/p/" + encodeURIComponent(String(person.id).replace(/^app:/, "")) : "#/");
+      var pid = String(person.id || "");
+      var cut = pid.indexOf(":");
+      var pPlat = String(item.platform || (cut > 0 ? pid.slice(0, cut) : "app")).toLowerCase();
+      var href = person.handle ? (pPlat && pPlat !== "app" && pPlat !== "x" ? "#/" + encodeURIComponent(pPlat) + "/" + encodeURIComponent(person.handle) : "#/@" + encodeURIComponent(person.handle)) : (pid ? "#/p/" + encodeURIComponent(pid.replace(/^app:/, "")) : "#/");
       var letter = String(person.name || person.handle || "?").trim().charAt(0).toUpperCase() || "?";
       var face = publicAvatar(person.avatar, person.avatarFace, "", letter);
-      return '<div class="connect-row"><a class="who-main" href="' + esc(href) + '">' + face + '<span class="who-copy"><span class="name">' + esc(person.name) + badge + '</span><span class="handle">' + (person.handle ? "@" + esc(person.handle) : "") + '</span></span></a><span class="row-actions">' + accept + remove + button + '</span></div>';
+      // Your own Following list: ⋯ or a long press locks the follow. The
+      // app owner's view of someone else's list marks their locked follows.
+      var lockable = mine && tab === "following" && LOCKED() && person.id;
+      var lockAttrs = lockable ? ' data-lf-row="' + esc(person.id) + '" data-name="' + esc(person.name || "") + '" data-handle="' + esc(person.handle || "") + '"' : "";
+      var lockMenu = lockable ? LOCKED().rowMenuHtml(person.id, person.name, person.handle) : "";
+      if (item.locked) badge += '<span class="pill-badge">' + esc(tr("Locked")) + '</span>';
+      return '<div class="connect-row"' + lockAttrs + '><a class="who-main" href="' + esc(href) + '">' + face + '<span class="who-copy"><span class="name">' + esc(person.name) + badge + '</span><span class="handle">' + (person.handle ? "@" + esc(person.handle) : "") + '</span></span></a><span class="row-actions">' + accept + remove + button + lockMenu + '</span></div>';
     }).join("");
     var more = pack.cursor ? '<button class="outline" type="button" data-act="graph-more" data-id="' + esc(subjectId) + '" data-tab="' + esc(tab) + '">' + esc(tr("Load more")) + '</button>' : "";
+    if (mine && tab === "following") return lockedPullWrap(search + html + more);
     return search + html + more;
+  }
+  function LOCKED() { return window.ViktorychLocked || null; }
+  /* Pull down on your own Following list to show the way into Locked
+     follows (unless the person chose to hide it). */
+  function lockedPullWrap(inner) {
+    var pull = LOCKED() && LOCKED().pullHtml ? LOCKED().pullHtml() : "";
+    return '<div class="lf-pull-host">' + pull + inner + '</div>';
   }
   function galleryList(account, kind) {
     var list = kind === "banner" ? ((account && account.banners) || []) : ((account && account.photos) || []);
@@ -4976,8 +5314,11 @@ function signupPayload() {
     var tabs = bar.html;
 
     var seenLine = mine && account.publicId && window.ViktorychPresence ? window.ViktorychPresence.linesHtml(account.publicId) : "";
+    var nk = (typeof window !== "undefined" ? window.ViktorychNick : null);
+    var originalName = account.originalName || account.displayName || account.handle || "";
     var top = window.ViktorychProfile && window.ViktorychProfile.top ? window.ViktorychProfile.top({
-      name: account.displayName || account.handle || "",
+      name: nk && !mine ? nk.name("app", account.handle || "", account.displayName || account.handle || "") : (account.displayName || account.handle || ""),
+      original: originalName,
       platform: "app",
       handle: account.handle || "",
       feedId: account.publicId ? "app:" + account.publicId : "",
@@ -4986,7 +5327,7 @@ function signupPayload() {
       count: count === "" ? "" : tn("posts", Number(count), { count: count })
     }, banner) : banner;
     top = birthdayBanner + top;
-    return top + '<div class="pinfo"><div class="pava-row">' + photo + '<div class="pactions">' + edit + giftBtn + followBtn + friendBtn + seenLine + '</div></div><h1 class="pname">' + nameRowHtml(account) + '</h1><div class="phandle">@' + esc(account.handle) + '</div>' + mutualLine + (account.bio ? '<div class="pbio">' + esc(account.bio) + "</div>" : "") + (account.location ? '<div class="acct-loc">' + esc(account.location) + "</div>" : "") + (siteHref(account.website) ? '<div class="acct-loc"><a href="' + esc(siteHref(account.website)) + '" target="_blank" rel="noopener noreferrer">' + esc(account.website) + "</a></div>" : "") + linkedIdentitiesHtml(account) + (account.profileLess ? '<div class="private-badge" style="margin:4px 0 8px">' + esc(tr("Profile-less (not visible to others)")) + '</div>' : "") + accountCountsHtml(account) + "</div>" + tabs + body + galleryHtml(account);
+    return top + '<div class="pinfo"><div class="pava-row">' + photo + '<div class="pactions">' + edit + giftBtn + followBtn + friendBtn + seenLine + '</div></div><h1 class="pname">' + nameRowHtml(account, !mine) + (nk && nk.button && !mine ? nk.button("app", account.handle || "", originalName) : "") + '</h1><div class="phandle">@' + esc(account.handle) + '</div>' + mutualLine + (account.bio ? '<div class="pbio">' + esc(account.bio) + "</div>" : "") + (account.location ? '<div class="acct-loc">' + esc(account.location) + "</div>" : "") + (siteHref(account.website) ? '<div class="acct-loc"><a href="' + esc(siteHref(account.website)) + '" target="_blank" rel="noopener noreferrer">' + esc(account.website) + "</a></div>" : "") + linkedIdentitiesHtml(account) + (account.profileLess ? '<div class="private-badge" style="margin:4px 0 8px">' + esc(tr("Profile-less (not visible to others)")) + '</div>' : "") + accountCountsHtml(account) + "</div>" + tabs + body + galleryHtml(account);
   }
   function profileHtml(route) {
     if (!route || route.name !== "profile" || !route.handle || route.handle === "_") return "";
@@ -5045,8 +5386,9 @@ function signupPayload() {
   }
   /* One name row for the profile header and the drawer, so the protected
      lock and the badges stay identical in size and order. */
-  function nameRowHtml(account) {
+  function nameRowHtml(account, nick) {
     var name = account.displayName || account.handle || "";
+    if (nick && (typeof window !== "undefined" ? window.ViktorychNick : null) && account.handle) name = window.ViktorychNick.name("app", account.handle, name);
     var lock = (account.privateFollows || account.locked) ? '<span class="protected-badge" title="' + esc(tr("Private account")) + '" aria-label="' + esc(tr("Private account")) + '">' + lockIcon(18) + "</span>" : "";
     var temp = account.temporary ? '<span class="temp-label">' + esc(tr("Temporary")) + "</span>" : "";
     return '<span class="name-row-text">' + esc(name) + "</span>" + lock + temp + (account.owner ? badge() : "") + (window.ViktorychAffiliations ? window.ViktorychAffiliations.slot(account.publicId) : "");
@@ -6008,7 +6350,7 @@ function signupPayload() {
     var aboutPrivacy = window.ProfileAbout && window.ProfileAbout.privacyOpen() ? window.ProfileAbout.privacyHtml(account.about || { sections: [] }) : "";
     return '<div class="set-block acct-settings">' + tempSettingsHtml(account) + '<h2>' + esc(tr("Your account")) + "</h2><p class=\"phandle\">@" + esc(account.handle) + "</p><p class=\"phandle acct-id-row\"><span>" + esc(tr("Account ID")) + " " + esc(grouped(account.publicId)) + '</span> <button class="outline" type="button" data-acct="copy-id">' + esc(idCopied ? tr("Account ID copied") : tr("Copy account ID")) + "</button></p><button class=\"outline\" type=\"button\" data-acct=\"edit\">" + esc(tr("Edit profile")) + '</button><button class="outline" type="button" data-about="privacy">' + esc(tr("About privacy")) + "</button>" + aboutPrivacy + '<h2>' + esc(tr("Hide my profile picture")) + '</h2><p class="set-sub">' + esc(tr("Other people see this instead of your photo.")) + '</p><div class="theme-row" role="group" aria-label="' + esc(tr("Hide my profile picture")) + '">' + hideBtn("", tr("Show my picture")) + hideBtn("default", tr("Default")) + hideBtn("none", tr("None")) + '</div><h2>' + esc(tr("Private followers and following")) + '</h2><p class="set-sub">' + esc(tr("Keep your followers and following list private. Only you will be able to see who you follow and who follows you.")) + '</p><button class="tab-switch' + (account.privateFollows ? " on" : "") + '" type="button" role="switch" aria-checked="' + (account.privateFollows ? "true" : "false") + '" data-acct="toggle-private-follows"><span>' + esc(tr("Keep lists private")) + '</span><i></i></button>' +
       '<h2>' + esc(tr("Protect your posts")) + '</h2><p class="set-sub">' + esc(tr("Only approved followers and friends can see your posts and lists.")) + '</p><button class="tab-switch' + (account.protected ? " on" : "") + '" type="button" role="switch" aria-checked="' + (account.protected ? "true" : "false") + '" data-acct="toggle-protected"><span>' + esc(tr("Protect your posts")) + '</span><i></i></button>' + relationSettingsHtml() +
-      '<h2>' + esc(tr("Profile-less account")) + '</h2><p class="set-sub">' + esc(tr("No public profile. Browse and comment anonymously.")) + '</p><button class="tab-switch' + (account.profileLess ? " on" : "") + '" type="button" role="switch" aria-checked="' + (account.profileLess ? "true" : "false") + '" data-acct="toggle-profileless"><span>' + esc(tr("Profile-less")) + '</span><i></i></button>' + (function () { if (!federationState.loaded && !federationState.loading) loadFederationSettings(); if (window.ViktorychNostr && !window.ViktorychNostr.allowed()) return ""; return '<h2>' + esc(tr("Nostr (NIP-05)")) + '</h2><p class="set-sub">' + esc(tr("Let Nostr apps find your account by its NIP-05 name. Default is off.")) + '</p><button class="tab-switch' + (federationState.enabled_nostr ? " on" : "") + '" type="button" role="switch" aria-checked="' + (federationState.enabled_nostr ? "true" : "false") + '" data-acct="toggle-fed-nostr"><span>' + esc(tr("Nostr (NIP-05)")) + (federationState.enabled_nostr && federationState.nostr_nip05 ? " (" + esc(federationState.nostr_nip05) + ")" : "") + '</span><i></i></button>'; })() + '<h2>' + esc(tr("Linked social accounts")) + '</h2><p class="set-sub">' + esc(tr("Link your X, Telegram, Instagram, and YouTube accounts so their posts appear on your profile. Requires identity verification.")) + '</p>' + identitiesSettingsHtml(account) + '<h2>' + esc(tr("Recovery codes")) + '</h2><p class="set-sub">' + esc(tr("These codes are shown once. Old codes stop working when you create new ones.")) + '</p><button class="outline" type="button" data-acct="recovery-new">' + esc(tr("Create new recovery codes")) + "</button>" + (account.owner ? ownerTempHtml() + '<h2>' + esc(tr("Review reports")) + '</h2><button class="outline" type="button" data-acct="open-reports">' + esc(tr("Review reports")) + "</button>" + (window.ViktorychAffiliations ? window.ViktorychAffiliations.adminHtml() : "") : "") + '<h2>' + esc(tr("Device sync")) + '</h2><p class="set-sub">' + esc(tr("Transfer your session to another browser or device.")) + '</p><button class="outline" type="button" data-acct="copy-session">' + esc(tr("Copy session code")) + "</button>" + (tempExpiresAt(account) ? "" : inactivityHtml(account) + deleteEntryHtml(account)) + '<button class="outline" type="button" data-acct="logout">' + esc(tr("Log out")) + '</button><button class="outline" type="button" data-acct="logout-all">' + esc(tr("Log out of all devices")) + '</button><button class="outline acct-danger" type="button" data-acct="logout-wipe">' + esc(tr("Sign out and delete data on this device")) + "</button></div>" + health;  }
+      '<h2>' + esc(tr("Profile-less account")) + '</h2><p class="set-sub">' + esc(tr("No public profile. Browse and comment anonymously.")) + '</p><button class="tab-switch' + (account.profileLess ? " on" : "") + '" type="button" role="switch" aria-checked="' + (account.profileLess ? "true" : "false") + '" data-acct="toggle-profileless"><span>' + esc(tr("Profile-less")) + '</span><i></i></button>' + (function () { if (!federationState.loaded && !federationState.loading) loadFederationSettings(); if (window.ViktorychNostr && !window.ViktorychNostr.allowed()) return ""; return '<h2>' + esc(tr("Nostr (NIP-05)")) + '</h2><p class="set-sub">' + esc(tr("Let Nostr apps find your account by its NIP-05 name. Default is off.")) + '</p><button class="tab-switch' + (federationState.enabled_nostr ? " on" : "") + '" type="button" role="switch" aria-checked="' + (federationState.enabled_nostr ? "true" : "false") + '" data-acct="toggle-fed-nostr"><span>' + esc(tr("Nostr (NIP-05)")) + (federationState.enabled_nostr && federationState.nostr_nip05 ? " (" + esc(federationState.nostr_nip05) + ")" : "") + '</span><i></i></button>'; })() + linkedSettingsHtml(account) + '<h2>' + esc(tr("Recovery codes")) + '</h2><p class="set-sub">' + esc(tr("These codes are shown once. Old codes stop working when you create new ones.")) + '</p><button class="outline" type="button" data-acct="recovery-new">' + esc(tr("Create new recovery codes")) + "</button>" + (account.owner ? ownerTempHtml() + '<h2>' + esc(tr("Review reports")) + '</h2><button class="outline" type="button" data-acct="open-reports">' + esc(tr("Review reports")) + "</button>" + (window.ViktorychAffiliations ? window.ViktorychAffiliations.adminHtml() : "") : "") + '<h2>' + esc(tr("Device sync")) + '</h2><p class="set-sub">' + esc(tr("Transfer your session to another browser or device.")) + '</p><button class="outline" type="button" data-acct="copy-session">' + esc(tr("Copy session code")) + "</button>" + (tempExpiresAt(account) ? "" : inactivityHtml(account) + deleteEntryHtml(account)) + '<button class="outline" type="button" data-acct="logout">' + esc(tr("Log out")) + '</button><button class="outline" type="button" data-acct="logout-all">' + esc(tr("Log out of all devices")) + '</button><button class="outline acct-danger" type="button" data-acct="logout-wipe">' + esc(tr("Sign out and delete data on this device")) + "</button></div>" + health;  }
   function onClick(event) {
     var reqKind = event.target && event.target.closest ? event.target.closest("[data-req-kind]") : null;
     if (reqKind) {
@@ -6184,6 +6526,7 @@ function signupPayload() {
             profiles[skel(session.account.handle)].identities = idList;
           }
         }
+        if (window.LinkedProfiles) window.LinkedProfiles.refresh(true);
         paint();
         if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       }).catch(function () {
@@ -6284,13 +6627,59 @@ function signupPayload() {
         form.bdayText = start.bdayText || "";
         form.bdayAudience = start.bdayAudience || "only";
         form.bdayShowYear = !!start.bdayShowYear;
+        form.bdayTried = false;
+        syncBdayParts();
+        form.bdayOpen = false;
+        paint();
+      } else {
+        form.bdayWarn = true;
+        paint();
+        var warnYes = document.querySelector('#account-layer [data-acct="bday-warn-yes"]');
+        if (warnYes) warnYes.focus();
       }
-      form.bdayOpen = !form.bdayOpen;
-      paint();
-      if (form.bdayOpen) { var dateEl = document.getElementById("acct-bdayText"); if (dateEl) dateEl.focus(); }
     }
-    else if (act === "bday-clear") { form.bdayText = ""; paint(); }
-    else if (act === "toggle-bday-year") { form.bdayShowYear = !form.bdayShowYear; paint(); }
+    else if (act === "bday-warn-no") { form.bdayWarn = false; paint(); }
+    else if (act === "bday-warn-yes") {
+      form.bdayWarn = false;
+      form.bdayOpen = true;
+      syncBdayParts();
+      paint();
+      var firstPick = document.querySelector('#account-layer [data-acct="ep-sheet"][data-sheet="month"]');
+      if (firstPick) { try { firstPick.focus({ preventScroll: true }); } catch (err) { firstPick.focus(); } }
+      var pickRow = document.querySelector("#account-layer .ep-bday");
+      if (pickRow && pickRow.scrollIntoView) pickRow.scrollIntoView({ block: "nearest" });
+    }
+    else if (act === "ep-sheet") {
+      form.sheet = acct.getAttribute("data-sheet") || "";
+      paint();
+      var chosen = document.querySelector("#account-layer .ep-sheet-row.on") || document.querySelector("#account-layer .ep-sheet-row");
+      if (chosen) {
+        try { chosen.focus({ preventScroll: true }); } catch (err) { chosen.focus(); }
+        if (chosen.scrollIntoView) chosen.scrollIntoView({ block: "center" });
+      }
+    }
+    else if (act === "ep-sheet-close") {
+      if (event.target.closest(".ep-sheet") && !event.target.closest(".ep-sheet-cancel")) return;
+      closeAuth();
+    }
+    else if (act === "ep-pick") {
+      var kindPicked = acct.getAttribute("data-sheet") || "";
+      var picked = acct.getAttribute("data-value") || "";
+      var bdHelp = window.ViktorychBirthDate;
+      var parts = bdayParts();
+      if (kindPicked === "month") parts.month = Number(picked) || 0;
+      else if (kindPicked === "day") parts.day = Number(picked) || 0;
+      else if (kindPicked === "year") parts.year = Number(picked) || 0;
+      if (kindPicked === "month" || kindPicked === "day" || kindPicked === "year") {
+        /* 31 → 30 or 29 when the month or year changes, never an invalid day. */
+        if (bdHelp && parts.day && parts.month) parts.day = Math.min(parts.day, bdHelp.daysIn(parts.month, parts.year));
+        setBdayParts(parts.year, parts.month, parts.day);
+      } else if (kindPicked === "aud-md") form.bdayAudience = BDAY_AUDIENCES.indexOf(picked) >= 0 || picked === "list" ? picked : "only";
+      else if (kindPicked === "aud-y") form.bdayShowYear = picked === "same";
+      epToast("");
+      closeAuth();
+    }
+    else if (act === "bday-clear") { form.bdayTried = false; setBdayParts(0, 0, 0); form.bdayText = ""; paint(); }
     else if (act === "save-profile") saveProfile();
     else if (act === "media-menu") {
       var kind = acct.dataset.kind === "banner" ? "banner" : "avatar";
@@ -6502,6 +6891,36 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
       remember(res.account);
       if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
     }).catch(function () {});
+  }
+  /* Local AI: read and write the server-side privacy switches with the same
+     PATCH the Settings toggles use. Resolves true once the server saved it. */
+  var AI_PROFILE_KEYS = { "protected": 1, privateFollows: 1, profileLess: 1, hideAvatar: 1 };
+  function aiSettings() {
+    var session = readSession();
+    if (!session || !session.account) return null;
+    var a = session.account;
+    return { "protected": !!a.protected, privateFollows: !!a.privateFollows, profileLess: !!a.profileLess, hideAvatar: a.hideAvatar === "none" || a.hideAvatar === "default" ? a.hideAvatar : "" };
+  }
+  function aiSetting(key, value) {
+    var session = readSession();
+    if (!session || !hasApi()) return Promise.resolve(false);
+    if (key === "discoverable" || key === "searchable") {
+      var prefBody = {};
+      prefBody[key] = !!value;
+      return api("/v1/suggestions/prefs", { method: "PUT", token: session.token, body: prefBody }).then(function (res) { return !!res && res.status === 200; }, function () { return false; });
+    }
+    if (!AI_PROFILE_KEYS[key]) return Promise.resolve(false);
+    var body = {};
+    body[key] = key === "hideAvatar" ? (value === "none" || value === "default" ? value : "") : !!value;
+    return api("/v1/profile", { method: "PATCH", token: session.token, body: body }).then(function (res) {
+      if (!res || res.status !== 200 || !res.account) return false;
+      session.account = res.account;
+      writeSession(session);
+      remember(res.account);
+      if (key === "privateFollows" || key === "profileLess") dirtyLists();
+      if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+      return true;
+    }, function () { return false; });
   }
   document.addEventListener("pointerdown", function (event) {
     if (view === "edit" && form.mediaMenu) {
@@ -6888,6 +7307,8 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
   });
 
   window.ViktorychAccounts = {
+    aiSettings: aiSettings,
+    aiSetting: aiSetting,
     signOut: function () { logout(false); },
     signOutAndWipe: function () {
       if (readSession()) logout(false, true);
@@ -6960,6 +7381,8 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     profilePending: profilePending,
     profileReady: profileReady,
     storedAccount: storedAccount,
+    setIdentities: setIdentities,
+    openLinkIdentity: openLinkIdentity,
     followButton: null,
     onServerFollows: null,
     onSignup: null,

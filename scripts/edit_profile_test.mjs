@@ -120,17 +120,21 @@ async function check(browser, port, size, lang) {
 
   /* Usernames subpage and back to the same form. */
   await page.click('.ep [data-acct="edit-sub"][data-sub="usernames"]');
-  await page.waitForSelector(".ep .un-in-edit .un-card", { timeout: 8000 }).catch(() => fail(label + ": usernames subpage did not load"));
+  await page.waitForSelector('.ep .un-in-edit [data-un="open-name"]', { timeout: 8000 }).catch(() => fail(label + ": usernames subpage did not load"));
   const ats = await page.$$eval(".ep .un-at", (els) => els.map((el) => el.textContent));
   if (ats.join() !== "@cedarhill,@cedar_close") fail(label + ": names " + ats);
-  if (!(await page.$(".ep .un-badge"))) fail(label + ": no Primary badge");
+  if (!(await page.$(".ep .xs-badge"))) fail(label + ": no Primary badge");
   await page.click('.ep [data-acct="edit-back"]');
   await page.waitForSelector(".ep #acct-displayName", { timeout: 3000 }).catch(() => fail(label + ": back did not return to the form"));
   if ((await page.inputValue("#acct-displayName")) !== "Cedar Ridge") fail(label + ": subpage lost the edit");
 
   /* Birth date, then save. */
   await page.click('.ep [data-acct="bday-edit"]');
-  await page.fill('.ep input[type="date"]', "1995-03-14");
+  await page.click('[data-acct="bday-warn-yes"]');
+  for (const [sheet, value] of [["month", "3"], ["day", "14"], ["year", "1995"]]) {
+    await page.click('.ep [data-acct="ep-sheet"][data-sheet="' + sheet + '"]');
+    await page.click('.ep-sheet [data-acct="ep-pick"][data-value="' + value + '"]');
+  }
   await page.fill("#acct-bio", "Another placeholder bio.");
   await page.click('.ep [data-acct="save-profile"]');
   await page.waitForFunction(() => !document.querySelector(".ep"), null, { timeout: 5000 }).catch(() => fail(label + ": save did not close"));

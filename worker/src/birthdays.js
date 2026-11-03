@@ -1,7 +1,9 @@
 /* Birthday reminders. The worker decides who may know, in the owner's time zone.
    A hidden birthday is left out of the list and out of the notification. */
 
+import { friendshipLive, siteOwnerId } from "./friends-pref.js";
 import { blocksEither } from "./social.js";
+import { notLocked } from "./locked-sql.js";
 import { emitNotification } from "./notifications.js";
 import { birthdayParts, canSeeField, daysUntilBirthday } from "./about.js";
 import { canSeeAudience } from "./audience.js";
@@ -41,7 +43,7 @@ async function allowSet(env, fieldId) {
   return bag;
 }
 
-async function followerRelation(env, ownerId, followerId, allowed) {
+async function followerRelation(env, ownerId, followerId, allowed, ownerBypass) {
   if (await blocksEither(env, ownerId, followerId)) return null;
   const back = await env.DB.prepare(
     "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id = ?"
@@ -53,7 +55,7 @@ async function followerRelation(env, ownerId, followerId, allowed) {
     owner: false,
     follows: true,
     followsYou: !!back,
-    friends: !!friends,
+    friends: !!friends && (!!ownerBypass || await friendshipLive(env, ownerId, followerId)),
     blocked: false,
     viewerId: followerId,
     allowed: allowed
@@ -83,7 +85,7 @@ export async function upcomingBirthdays(env, viewer, now) {
   const notes = !(pref && pref.notes === 0);
   if (!enabled(env)) return { upcoming: [], notes: notes, enabled: false };
   const follows = await env.DB.prepare(
-    "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id LIKE 'app:%' LIMIT 200"
+    "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id LIKE 'app:%'" + notLocked("account_follows") + " LIMIT 200"
   ).bind(viewer.public_id).all();
   const upcoming = [];
   for (const row of rowsOf(follows)) {
@@ -98,7 +100,7 @@ export async function upcomingBirthdays(env, viewer, now) {
     ).bind(ownerId).first();
     if (!account || account.profile_less === 1) continue;
     const allowed = field.audience === "list" ? await allowSet(env, field.id) : {};
-    const relation = await followerRelation(env, ownerId, viewer.public_id, allowed);
+    const relation = await followerRelation(env, ownerId, viewer.public_id, allowed, await siteOwnerId(env, viewer.public_id));
     if (!(await mayKnow(env, field.audience, relation, allowed, ownerId, field.id))) continue;
     const parts = birthdayParts(field.body);
     const inDays = daysUntilBirthday(parts, now, field.tz);
