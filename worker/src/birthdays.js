@@ -163,6 +163,10 @@ export async function runBirthdaySweep(env, now) {
     for (let i = 0; i < ids.length; i++) {
       const followerId = ids[i];
       if (muted[followerId]) continue;
+      const edge = await env.DB.prepare(
+        "SELECT follower_id FROM account_follows WHERE follower_id = ? AND target_id = ?"
+      ).bind(followerId, "app:" + field.public_id).first();
+      if (!edge) continue;
       const relation = await followerRelation(env, field.public_id, followerId, allowed);
       if (!(await mayKnow(env, field.audience, relation, allowed, field.public_id, field.id))) continue;
       const note = await emitNotification(env, {
@@ -170,7 +174,10 @@ export async function runBirthdaySweep(env, now) {
         kind: "birthday",
         at: at,
         actorId: field.public_id,
-        idempotencyKey: "bday:" + field.public_id + ":" + today,
+        /* The recipient is part of the key. The push id is derived from it,
+           and a key shared by every follower made later writes collide and
+           drop, or land on the first account. */
+        idempotencyKey: "bday:" + field.public_id + ":" + followerId + ":" + today,
         handle: field.handle || "",
         name: field.display_name || field.handle || "",
         text: "",

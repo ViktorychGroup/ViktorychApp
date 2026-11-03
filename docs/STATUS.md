@@ -1,12 +1,68 @@
 # Status snapshot
 
-Written 2026-11-03. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it, and update this file in a small PR after a big session.
+Written 2026-11-03 (UTC). Main was `c0f33423` when this note was merged. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
-## Speed (this branch)
+## Merged today
 
-Signed-out visits load the landing page only (i18n.js, the active language pack, accounts.js and accounts.css). Other language packs load when the language changes. Music, TV, Discord, gifts, Nostr and nearby chat load when that screen is opened, and again in idle time. Home that has not changed is put back as live DOM instead of rebuilt. The service worker registers from index.html, caches a small core first, and caches the rest when the browser is idle. app.js stays one file: it is a single closure, and splitting it would risk every route.
+- **#531** Shorts re-enabled (owner-only): viewer cap, on-device stream-copy recording, native frame grab, playback fallback, TikTok follow placement. Squash merge `904144017f5260ab140efdeee40cab1357e4f72f`. Live on both sites (`version.json` matched that sha, watchdog HTTP 200).
+- **#532** A new community folder keeps its typed name when the page redraws, so Create still makes the folder. Squash merge `eb6cee2deb532bbf4f31f35e042fd9fe67277d39`. Its pull-request Page smoke passed. Main's own Page smoke for that commit was still running when this note was written.
 
-Baseline on a phone-sized window, slow CPU, cold load: LCP about 7–10s, about 1.86 MB, TTI about 10s. Warm load about 0.5s. Back to Home about 310–340ms. CLS about 0.17 from the alert toast. After numbers are in the pull request.
+## Birthday reminders
+
+A birthday note is sent only to someone who still follows the celebrant. Each follower has their own note key, so one person's push id cannot collide with another's and drop or mis-file the write. The birth year stays out of the note's words. The reminder test checks those words. It does not search the whole JSON, because the sync cursor is a millisecond timestamp and that clock sometimes contains the digits `1990`.
+
+## Router render race
+
+Still open. After a reload to `#/settings` the address can be settings while the heading stays Home, so Log out is missing. A first attempt painted Settings during boot, before `DOMContentLoaded`, and the phone sign-up navigation to `#/settings` then timed out. That attempt is not in this pull request. `app.js` matches main. The follow-up keeps at most one corrective re-render per hash change, and that re-render is asynchronous and does not run during boot.
+
+## Page smoke on docs-only changes
+
+Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. `smoke` is a required check. A skipped run counts as passing.
+
+## Paused roadmap
+
+Do not start these unless the owner asks.
+
+- **PR 2.** 3D view, Join with my camera (including No frame), real-frames-only slow motion. No interpolation, no synthetic frames.
+- **PR 3.** X-style Past recordings rebuild, shared player features, full screen, zoom preserved everywhere.
+
+## Speed
+
+Pull request #535. Phone profile 390×844, 4G, CPU slowed 4×.
+
+| | Before | After |
+| --- | --- | --- |
+| Cold signed-out landing | LCP 7–10s, about 1.86 MB, 111 JS files (1,558 KB of JS), TTI about 10s | LCP 8.8s on the landing paragraph, FCP 3.6s, 21 JS files (1,083 KB of JS), about 1.5 MB |
+| Warm landing | about 0.5s | LCP 564ms, FCP 412ms |
+| Back to Home | 310–340ms | 33ms when the parked page is unchanged |
+| CLS | 0.17 from the alert toast | 0 |
+
+Signed-out visits load the landing set only. Only the active language pack downloads. Music, TV, Discord, gifts, Nostr and nearby chat load when opened, and again while idle. A click back to Home paints the parked page immediately; posts that arrived during the click are woven in after the pointer is up. The service worker registers from `index.html` and fills its cache after the first screen. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
+
+## Working rules
+
+- Run the full check suite locally before every push.
+- Stop after 2 failed CI rounds on a PR and report the check, the error and the diagnosis. Do not retry blindly.
+- Fix app bugs in the app. Do not weaken tests.
+- The handle guard is never weakened. No usernames, handles or account IDs in the public repo.
+- Do not edit `.github/`. Workflow changes go in `docs/owner-patches/`.
+- Owner gate: confirm the site is live and main's checks are green before opening the next PR.
+- Update `docs/STATUS.md` at the end of every PR.
+
+## Owner TODO
+
+Enable the four TikTok workflows by hand. Steps: `docs/owner-patches/tiktok-workflows-enable.md`.
+
+- TikTok added accounts
+- TikTok live
+- TikTok record
+- TikTok live upload
+
+They stay `disabled_manually`. The watchdog warning for the live workflow being off is expected until then.
+
+## Previous snapshot (2026-10-30)
+
+Written 2026-10-30, about 10:00 CET (09:00 UTC). Main was at `f353f771` and the latest D1 migration on that day was `0102_regone_social.sql`. Recheck every open PR below before acting on it.
 
 ## Live on main (recent)
 
