@@ -12,15 +12,6 @@ on:
     paths:
       - "**/*.md"
       - "docs/**"
-  # This branch push records the smoke check on the commit that adds the
-  # workflow. It does not match main or any other branch.
-  push:
-    branches:
-      - cursor/how-to-work-3b5d
-    paths:
-      - ".github/workflows/smoke-docs.yml"
-      - "**/*.md"
-      - "docs/**"
 
 permissions:
   contents: read

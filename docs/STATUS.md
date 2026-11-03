@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main is `bfa052eb`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main is `2fd7f0da`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -47,7 +47,7 @@ A reload to `#/settings` could keep the Home heading, so Log out was missing. Wh
 
 ## Page smoke on docs-only changes
 
-Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. The required check is still named `smoke`. `.github/workflows/smoke-docs.yml` is the stub for that case: it runs only when a pull request changes `**/*.md` or `docs/**`, its job name is `smoke`, and it prints `docs-only: page smoke not needed` and succeeds. The real Page smoke workflow is unchanged. A pull request that changes code and docs runs both. The real suite still has to pass. A docs-only change does not.
+Page smoke skips pull requests and pushes to main that only touch `**/*.md`, `docs/**`, or `.github/workflows/smoke-docs.yml`. The required check is still named `smoke`. `.github/workflows/smoke-docs.yml` is the stub: it runs only on a pull request that changes `**/*.md` or `docs/**`, its job name is `smoke`, and it prints `docs-only: page smoke not needed` and succeeds. A docs-only diff does not start the real suite. A pull request that also changes code runs the real Page smoke workflow, and that result must pass. If a shard is cancelled because a newer push superseded the run, the `smoke` job does not fail that head.
 
 ## Paused roadmap
 
@@ -55,6 +55,10 @@ Do not start these unless the owner asks.
 
 - **PR 2.** 3D view, Join with my camera (including No frame), real-frames-only slow motion. No interpolation, no synthetic frames.
 - **PR 3.** X-style Past recordings rebuild, shared player features, full screen, zoom preserved everywhere.
+
+## Back to Home
+
+Leaving Home keeps the page that was on screen. Coming back puts that page back immediately, then weaves in posts that arrived while you were away. A background refresh while Home is already showing waits for the next frame, so it does not block a click. Measured with the feed-load click check (desktop, CPU slowed 4×, feeds held for 3 seconds): back to Home was 32ms, 34ms and 29ms. Before the parked page, the same last click was about 310–340ms. The Following list, community scroll, and the music player still load the way they do on main.
 
 ## Shorts on the first load
 
