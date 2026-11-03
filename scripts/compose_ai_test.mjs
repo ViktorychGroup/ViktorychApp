@@ -128,10 +128,28 @@ async function measure(page) {
   });
 }
 
+/* The home composer is redrawn while the page settles. A locator that was
+   stable a moment ago can detach mid-scroll. Re-query and try again. */
 async function openMenu(page) {
-  await page.locator("#compose-text").scrollIntoViewIfNeeded();
-  await page.locator(".xc .xc-ai-btn").click();
-  await page.locator(".xc-ai-pop").waitFor({ timeout: 5000 });
+  let last;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const field = page.locator("#compose-text");
+      await field.waitFor({ state: "visible", timeout: 5000 });
+      await field.scrollIntoViewIfNeeded({ timeout: 5000 });
+      const spark = page.locator(".xc .xc-ai-btn");
+      await spark.waitFor({ state: "visible", timeout: 5000 });
+      await spark.click({ timeout: 5000 });
+      await page.locator(".xc-ai-pop").waitFor({ timeout: 5000 });
+      return;
+    } catch (err) {
+      last = err;
+      const text = String(err && err.message || err);
+      if (attempt === 3 || !/not attached|not stable|detached/i.test(text)) throw err;
+      await page.waitForTimeout(300);
+    }
+  }
+  throw last;
 }
 
 async function layout(page, vp) {
