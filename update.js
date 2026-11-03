@@ -182,13 +182,23 @@
     return !!(remote && controller && remote !== controller);
   }
 
-  /* True when a reload would be caused by a version.json mismatch, or this
-     service-worker build was already reloaded on this device. */
-  function blocksReload(remoteSha, controllerSha, buildId, sessionBuild, localBuild) {
+  /* A version.json older than the running worker, or one with no build time,
+     must not reload that worker. A newer manifest can still ship a new build. */
+  function staleManifest(remoteSha, controllerSha, remoteBuilt, currentBuilt) {
+    if (!versionMismatch(remoteSha, controllerSha)) return false;
+    var remoteTime = isoBuilt(remoteBuilt);
+    var localTime = isoBuilt(currentBuilt);
+    if (!remoteTime || !localTime) return true;
+    return remoteTime <= localTime;
+  }
+
+  /* True when a reload would repeat this service-worker build, or would
+     reload it only because version.json is older. */
+  function blocksReload(remoteSha, controllerSha, buildId, sessionBuild, localBuild, remoteBuilt, currentBuilt) {
     var build = normSha(buildId);
     var controller = normSha(controllerSha);
     if (!build) return true;
-    if (versionMismatch(remoteSha, controller) && build === controller) return true;
+    if (build === controller && staleManifest(remoteSha, controller, remoteBuilt, currentBuilt)) return true;
     return !reloadAllowed(build, sessionBuild, localBuild);
   }
 
@@ -295,7 +305,7 @@
     sha = normSha(state.heardSha);
     var controller = normSha(state.currentSha);
     if (!sha || !controller || !state.waiting) return;
-    if (versionMismatch(state.remoteSha, controller)) {
+    if (staleManifest(state.remoteSha, controller, state.remoteBuilt, state.currentBuilt)) {
       state.pending = false;
       paint();
       return;
@@ -601,7 +611,7 @@
     var box = ensure();
     var look = presentation(state, Date.now());
     if (state.quiet && look === "toast") look = "idle";
-    if (versionMismatch(state.remoteSha, state.currentSha)) look = "idle";
+    if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) look = "idle";
     if (updateBlocked() && look !== "idle" && look !== "pill") {
       if (state.ready && state.pending) state.deferApply = true;
       look = "idle";
@@ -712,7 +722,7 @@
   }
 
   function offer() {
-    if (versionMismatch(state.remoteSha, state.currentSha)) return;
+    if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) return;
     state.pending = true;
     if (state.phase !== "working" && state.phase !== "done" && state.phase !== "error") state.phase = "offer";
     paint();
@@ -914,7 +924,7 @@
     if (applying || state.reloaded || state.critical || state.forced) return;
     if (!state.ready || !state.pending || state.phase === "error" || state.phase === "working") return;
     if (updateBlocked()) { state.deferApply = true; return; }
-    if (versionMismatch(state.remoteSha, state.currentSha)) return;
+    if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) return;
     var sha = normSha(state.pendingSha);
     if (!sha || sha === normSha(state.currentSha) || reloadSpent(sha)) return;
     state.deferApply = false;
@@ -1092,10 +1102,10 @@
       return;
     }
     var sha = normSha(state.pendingSha) || normSha(state.currentSha);
-    if (blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage))) return;
+    if (blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) return;
     reloadTimer = setTimeout(function () {
       reloadTimer = 0;
-      if (updateBlocked() || blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage))) {
+      if (updateBlocked() || blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) {
         state.deferApply = true;
         state.reloaded = false;
         return;
@@ -1426,7 +1436,7 @@
   function hardReload() {
     if (updateBlocked()) { state.deferApply = true; return; }
     var sha = normSha(state.pendingSha) || normSha(state.currentSha);
-    if (blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage))) return;
+    if (blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) return;
     if (!markReload(sha)) return;
     captureState();
     state.expectingController = false;
@@ -1450,14 +1460,14 @@
   function onControllerChange() {
     askVersion();
     if (state.reloaded) return;
-    if (versionMismatch(state.remoteSha, state.currentSha)) return;
+    if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) return;
     if (!(state.expectingController || state.phase === "working" || state.phase === "done")) return;
-    if (blocksReload(state.remoteSha, state.currentSha, state.pendingSha || state.currentSha, storedReloadSha(sessionStorage), storedReloadSha(localStorage))) return;
+    if (blocksReload(state.remoteSha, state.currentSha, state.pendingSha || state.currentSha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) return;
     finishUpdate();
   }
 
   function blocksReloadNow() {
-    return blocksReload(state.remoteSha, state.currentSha, state.pendingSha || state.currentSha, storedReloadSha(sessionStorage), storedReloadSha(localStorage));
+    return blocksReload(state.remoteSha, state.currentSha, state.pendingSha || state.currentSha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt);
   }
 
   function poke() {
@@ -1544,6 +1554,7 @@
     shouldShowNotes: shouldShowNotes,
     shouldDeferApply: shouldDeferApply,
     versionMismatch: versionMismatch,
+    staleManifest: staleManifest,
     blocksReloadFor: blocksReload,
     blocksReload: blocksReloadNow,
     showReleaseNotes: showReleaseNotes,
