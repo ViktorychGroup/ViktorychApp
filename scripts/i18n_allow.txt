@@ -33,6 +33,14 @@ shared/reposts.js|Anonymous
 shared/webauthn.js|Account
 # Proper nouns, brands, demo content, model prompts, inline boot text in
 # other languages, and technical tokens found when this check started.
+# Static first paint. The boot script swaps these for the saved language.
+index.html|Log in
+index.html|Sign up
+index.html|A home for posts, stories, and the people you choose.
+index.html|The timeline, stories, notes, live video, and gifts. It runs in the browser and as an installed app.
+index.html|Try a temporary account
+index.html|La cronología, las historias, las notas, el video en vivo y los regalos. Funciona en el navegador y como app instalada.
+index.html|Probar una cuenta temporal
 accounts.js|English
 accounts.js|Español
 accounts.js|Fax
