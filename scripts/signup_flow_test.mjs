@@ -1228,12 +1228,16 @@ async function runNamed(browser, item) {
 
 const browser = await launch();
 const failures = [];
+const signupPart = process.env.SIGNUP_PART || "all";
 try {
   // One viewport at a time. The first-screen limit is a timing check, so
   // sizes do not share the runner.
-  if (!process.env.ONLY) {
+  if (signupPart !== "flows" && !process.env.ONLY) {
     for (const viewport of VIEWPORTS) failures.push(...await runViewport(browser, viewport));
   }
+  if (signupPart === "sizes") {
+    // The other half of this file runs in a second CI job.
+  } else {
   failures.push(...await tvAskFlow(browser));
   // The whole step flow at phone and desktop size, the quick path at both,
   // and both motion settings.
@@ -1249,6 +1253,7 @@ try {
   for (const item of runs.filter((r) => !process.env.ONLY || process.env.ONLY.split(",").includes(r.name))) {
     failures.push(...await runNamed(browser, item));
   }
+  }
 } finally {
   await browser.close();
   server.close();
@@ -1261,7 +1266,7 @@ if (failures.length) {
 console.log("signup flow ok");
 
 // Ride-along: TV sign-in on the short address. It starts after the flows above.
-{
+if (signupPart !== "sizes") {
   const { spawnSync } = await import("node:child_process");
   const tvShort = spawnSync(process.execPath, [path.join(root, "scripts", "tv_short_pair_test.mjs")], { cwd: root, env: process.env, stdio: "inherit" });
   if (tvShort.status !== 0) process.exit(1);

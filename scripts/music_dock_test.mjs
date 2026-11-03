@@ -279,12 +279,12 @@ async function main() {
   const origin = "http://127.0.0.1:" + server.address().port;
   const browser = await chromium.launch({ headless: true, channel: "chrome", args: ["--autoplay-policy=no-user-gesture-required", "--mute-audio"] });
   try {
-    await Promise.all([
-      exercise(browser, origin, { name: "phone", width: 390, height: 844 }),
-      exercise(browser, origin, { name: "desktop", width: 1280, height: 800 }),
-      exercise(browser, origin, { name: "tablet", width: 820, height: 1180 }),
-      exercise(browser, origin, { name: "landscape", width: 844, height: 390 })
-    ]);
+    for (const size of [
+      { name: "phone", width: 390, height: 844 },
+      { name: "desktop", width: 1280, height: 800 },
+      { name: "tablet", width: 820, height: 1180 },
+      { name: "landscape", width: 844, height: 390 }
+    ]) await exercise(browser, origin, size);
     console.log("music dock ok");
   } finally {
     await browser.close();

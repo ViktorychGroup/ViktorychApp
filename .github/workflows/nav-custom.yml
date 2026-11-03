@@ -62,9 +62,14 @@ permissions:
   contents: read
 
 jobs:
-  nav:
+  navshard:
+    name: nav-${{ matrix.shard }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [nav-reach, nav-shell, nav-layout, nav-pages]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -85,4 +90,16 @@ jobs:
         with:
           chrome-version: stable
       - name: Navigation checks
-        run: bash scripts/smoke-all.sh --suite nav --jobs 1
+        run: bash scripts/smoke-all.sh --suite nav --shard ${{ matrix.shard }}
+
+  nav:
+    needs: navshard
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every navigation shard passed
+        run: |
+          result="${{ needs.navshard.result }}"
+          echo "navigation shards: $result"
+          test "$result" = "success"

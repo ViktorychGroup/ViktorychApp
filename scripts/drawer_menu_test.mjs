@@ -3,7 +3,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { runScripts, sharedStaticServer } from "./smoke_runtime.mjs";
+import { sharedStaticServer } from "./smoke_runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -208,7 +208,7 @@ async function main() {
   const port = server.address().port;
   const browser = await chromium.launch({ headless: true, channel: "chrome" });
   try {
-    await Promise.all(SIZES.map(async (size) => {
+    for (const size of SIZES) {
       const context = await browser.newContext({ viewport: { width: size.width, height: size.height } });
       const page = await context.newPage();
       await page.addInitScript(() => {
@@ -227,18 +227,16 @@ async function main() {
       } finally {
         await context.close();
       }
-    }));
+    }
     console.log("drawer menu ok");
-    /* The menu's Customize row opens the Customize page; its own check runs here so CI covers it. */
-    const [pz, desk, lai, laiSetup] = await runScripts(path.join(root, "scripts"), ["customize_page_test.mjs", "desktop_app_test.mjs", "local_ai_page_test.mjs", "local_ai_setup_test.mjs"]);
-    if (pz !== 0) fail("customize page check failed");
-    // The installed desktop app checks ride along here so the smoke workflow runs them.
-    if (desk !== 0) fail("desktop app check failed");
-    if (lai !== 0) fail("local ai page check failed");
-    if (laiSetup !== 0) fail("local ai setup check failed");
   } finally {
     await browser.close();
     server.close();
+  }
+  const { spawnSync } = await import("node:child_process");
+  for (const name of ["customize_page_test.mjs", "desktop_app_test.mjs", "local_ai_page_test.mjs", "local_ai_setup_test.mjs"]) {
+    const child = spawnSync(process.execPath, [path.join(root, "scripts", name)], { stdio: "inherit", env: process.env });
+    if (child.status !== 0) fail(name + " failed");
   }
 }
 

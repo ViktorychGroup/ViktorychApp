@@ -257,10 +257,9 @@ async function main() {
   const browser = await chromium.launch({ headless: true, channel: "chrome" });
   try {
     const port = server.address().port;
-    const jobs = [];
-    for (const lang of ["en", "es"]) for (const size of SIZES) jobs.push(() => check(browser, port, size, lang));
-    const lanes = Array.from({ length: 2 }, async () => { while (jobs.length) await jobs.shift()(); });
-    await Promise.all(lanes);
+    for (const lang of ["en", "es"]) {
+      for (const size of SIZES) await check(browser, port, size, lang);
+    }
     console.log("display names ok");
   } finally {
     await browser.close();

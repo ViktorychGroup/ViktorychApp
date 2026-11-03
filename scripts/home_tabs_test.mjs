@@ -179,14 +179,14 @@ async function main() {
   const port = server.address().port;
   const browser = await chromium.launch({ headless: true, channel: "chrome" });
   try {
-    await Promise.all(SIZES.map(async (size) => {
+    for (const size of SIZES) {
       const opened = await openHome(browser, port, size, false);
       try {
         await check(opened.page, size.name, false);
       } finally {
         await opened.context.close();
       }
-    }));
+    }
     const reduced = await openHome(browser, port, SIZES[0], true);
     try {
       await check(reduced.page, "reduced", true);

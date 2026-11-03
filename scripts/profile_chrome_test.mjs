@@ -3,7 +3,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { runScripts, sharedStaticServer } from "./smoke_runtime.mjs";
+import { sharedStaticServer } from "./smoke_runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -160,14 +160,14 @@ async function main() {
   const port = server.address().port;
   const browser = await chromium.launch({ headless: true, channel: "chrome" });
   try {
-    await Promise.all(SIZES.map(async (size) => {
+    for (const size of SIZES) {
       const opened = await openProfile(browser, port, size);
       try {
         await check(opened.page, size.name);
       } finally {
         await opened.context.close();
       }
-    }));
+    }
     console.log("profile chrome ok");
   } finally {
     await browser.close();
@@ -175,12 +175,11 @@ async function main() {
   }
   if (process.exitCode) return;
   // @mention suggestions ride along so the smoke workflow runs them.
-  const [mentions, friendState, myDevices, feedsPage, feedRequests] = await runScripts(dir, ["mention_suggest_test.mjs", "friend_state_test.mjs", "my_devices_test.mjs", "feeds_page_test.mjs", "feed_requests_approve_test.mjs"]);
-  if (mentions !== 0) process.exitCode = 1;
-  if (friendState !== 0) process.exitCode = 1;
-  if (myDevices !== 0) process.exitCode = 1;
-  if (feedsPage !== 0) process.exitCode = 1;
-  if (feedRequests !== 0) process.exitCode = 1;
+  const { spawnSync } = await import("node:child_process");
+  for (const name of ["mention_suggest_test.mjs", "friend_state_test.mjs", "my_devices_test.mjs", "feeds_page_test.mjs", "feed_requests_approve_test.mjs"]) {
+    const child = spawnSync(process.execPath, [path.join(dir, name)], { stdio: "inherit", env: process.env });
+    if (child.status !== 0) process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {

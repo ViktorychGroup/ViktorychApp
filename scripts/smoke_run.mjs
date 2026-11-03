@@ -130,10 +130,34 @@ const PAGE_STEPS = [
     weight: 40, needs: ["built", "pw149", "ffmpeg"],
     paths: [file("x_video_play.mjs"), /^app\.js$/]
   }),
-  step("signup", "node scripts/signup_flow_test.mjs", {
-    weight: 280, needs: ["pw", "browser", "worker"], timing: true,
+  step("signup-sizes", "SIGNUP_PART=sizes node scripts/signup_flow_test.mjs", {
+    weight: 200, needs: ["pw", "browser", "worker"], timing: true,
+    paths: [file("signup_flow_test.mjs"), /^accounts\.js$/, /^worker\/src\//, ...APP]
+  }),
+  step("signup-flows", "SIGNUP_PART=flows node scripts/signup_flow_test.mjs", {
+    weight: 200, needs: ["pw", "browser", "worker"], timing: true,
     paths: [file("signup_flow_test.mjs"), file("tv_short_pair_test.mjs"), /^accounts\.js$/, /^worker\/src\//, ...APP]
   }),
+  step("community-home", "node scripts/community_home_test.mjs", { needs: ["pw", "browser"], paths: [file("community_home_test.mjs")] }),
+  step("communities-hub", "node scripts/communities_hub_test.mjs", { needs: ["pw", "browser"], paths: [file("communities_hub_test.mjs")] }),
+  step("own-post", "node scripts/own_post_test.mjs", { needs: ["pw", "browser"], paths: [file("own_post_test.mjs")] }),
+  step("post-page", "node scripts/post_page_test.mjs", { needs: ["pw", "browser"], paths: [file("post_page_test.mjs")] }),
+  step("music-dock", "node scripts/music_dock_test.mjs", { needs: ["pw", "browser"], paths: [file("music_dock_test.mjs")] }),
+  step("video-fallback", "node scripts/video_fallback_test.mjs", { needs: ["pw", "browser"], paths: [file("video_fallback_test.mjs")] }),
+  step("device-guard", "node scripts/device_guard_test.mjs", { needs: ["pw", "browser"], paths: [file("device_guard_test.mjs")] }),
+  step("usernames", "node scripts/usernames_settings_test.mjs", { weight: 80, needs: ["pw", "browser"], paths: [file("usernames_settings_test.mjs")] }),
+  step("display-names", "node scripts/display_names_test.mjs", { needs: ["pw", "browser"], paths: [file("display_names_test.mjs")] }),
+  step("settings-assistant", "node scripts/settings_assistant_test.mjs", { needs: ["pw", "browser"], paths: [file("settings_assistant_test.mjs")] }),
+  step("nostr-settings", "node scripts/nostr_settings_test.mjs", { needs: ["pw", "browser"], paths: [file("nostr_settings_test.mjs")] }),
+  step("games-mobile", "node scripts/games_mobile_test.mjs", { needs: ["pw", "browser"], paths: [file("games_mobile_test.mjs")] }),
+  step("live-translate", "node scripts/live_translate_test.mjs", { needs: ["pw", "browser"], paths: [file("live_translate_test.mjs")] }),
+  step("friend-p2p", "node scripts/friend_p2p_test.mjs", { needs: ["pw", "browser"], paths: [file("friend_p2p_test.mjs")] }),
+  step("communities-instant", "node scripts/communities_instant_test.mjs", { needs: ["pw", "browser"], paths: [file("communities_instant_test.mjs")] }),
+  step("routes-instant", "node scripts/routes_instant_test.mjs", { needs: ["pw", "browser"], paths: [file("routes_instant_test.mjs")] }),
+  step("profile-by-name", "node scripts/profile_by_name_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_by_name_test.mjs")] }),
+  step("communities-rows", "node scripts/communities_rows_test.mjs", { needs: ["pw", "browser"], paths: [file("communities_rows_test.mjs")] }),
+  step("friend-privacy", "node scripts/friend_privacy_test.mjs", { needs: ["pw", "browser"], paths: [file("friend_privacy_test.mjs")] }),
+  step("foryou-communities", "node scripts/foryou_communities_test.mjs", { needs: ["pw", "browser"], paths: [file("foryou_communities_test.mjs")] }),
   step("device", "node scripts/device_test.js", { paths: [file("device_test.js"), /^device\.js$/] }),
   step("translate", "node scripts/translate_test.js", { paths: [file("translate_test.js")] }),
   step("ondevice-ai", "node scripts/ondevice_ai_test.js", { paths: [file("ondevice_ai_test.js")] }),
@@ -186,20 +210,38 @@ const NAV_STEPS = [
 const SHARDS = {
   checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you"],
   site: ["about-layout", "points-layout", "stories-layout", "assemble-site", "smoke-site", "smoke-mirror", "yt-embed", "x-video", "ios", "live"],
-  ui: ["sw-update", "notifications", "profile", "pill-fit", "drawer", "sidebar", "privacy"],
+  "ui-fast": ["sw-update", "notifications", "pill-fit", "sidebar", "privacy"],
+  "ui-profile": ["profile"],
+  "ui-drawer": ["drawer"],
   home: ["home-tabs"],
-  compose: ["compose-ai", "compose-page"],
-  signup: ["signup"]
+  "compose-core": ["compose-ai", "compose-page"],
+  "compose-a": ["community-home", "communities-hub", "own-post", "post-page"],
+  "compose-b": ["music-dock", "video-fallback", "device-guard", "usernames"],
+  "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile"],
+  "compose-d": ["live-translate", "friend-p2p", "communities-instant", "routes-instant"],
+  "compose-e": ["profile-by-name", "communities-rows", "friend-privacy", "foryou-communities"],
+  "signup-sizes": ["signup-sizes"],
+  "signup-flows": ["signup-flows"]
 };
 
-const SHARD_JOBS = { checks: 4, site: 3, ui: 2, home: 1, compose: 1, signup: 1 };
+const NAV_SHARDS = {
+  "nav-reach": ["home-reach"],
+  "nav-shell": ["nav-custom", "bottom-nav", "dock", "profile-tabs-order", "profile-tabs"],
+  "nav-layout": ["landscape", "phone-resize", "profile-layout", "menu-pages"],
+  "nav-pages": ["about-layout", "points-layout", "stories-layout", "ios"]
+};
 
 const REQUIRED_PAGE = [
   "action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n",
   "about-layout", "points-layout", "telegram-stories", "stories", "stories-layout",
   "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "profile",
-  "home-tabs", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video", "signup",
-  "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live"
+  "home-tabs", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
+  "signup-sizes", "signup-flows",
+  "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
+  "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback",
+  "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
+  "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name",
+  "communities-rows", "friend-privacy", "foryou-communities"
 ];
 
 export function stepsFor(suite) {
@@ -218,7 +260,7 @@ export function selectChanged(files, steps) {
 }
 
 export function shardSteps(name, steps) {
-  const ids = SHARDS[name];
+  const ids = SHARDS[name] || NAV_SHARDS[name];
   if (!ids) throw new Error("unknown shard " + name);
   const byId = new Map(steps.map((item) => [item.id, item]));
   return ids.map((id) => {
@@ -394,6 +436,7 @@ function selftest() {
     if (!sharded.has(id)) throw new Error("step is not in a shard " + id);
   }
   if (sharded.size !== REQUIRED_PAGE.length) throw new Error("a shard lists a step twice or an extra step");
+  for (const name of Object.keys(NAV_SHARDS)) shardSteps(name, NAV_STEPS);
   const narrow = selectChanged(["scripts/pill_fit_test.mjs"], PAGE_STEPS).map((item) => item.id);
   if (!narrow.includes("pill-fit")) throw new Error("changed mode missed pill-fit");
   if (narrow.includes("signup")) throw new Error("changed mode pulled signup for a pill test");
@@ -417,12 +460,9 @@ async function main() {
   const suite = arg("--suite", "page");
   const shard = arg("--shard", "");
   const jobsFlag = arg("--jobs", "");
-  const jobs = jobsFlag ? Number(jobsFlag) : (shard ? (SHARD_JOBS[shard] || 2) : 3);
+  const jobs = jobsFlag ? Number(jobsFlag) : (shard ? 1 : 3);
   let steps = stepsFor(suite);
-  if (shard) {
-    if (suite === "nav") throw new Error("--shard is for the page suite");
-    steps = shardSteps(shard, steps);
-  }
+  if (shard) steps = shardSteps(shard, steps);
   if (process.argv.includes("--changed")) {
     if (shard) throw new Error("--changed is local; CI passes --shard and runs the whole shard");
     const files = changedFiles();
@@ -473,10 +513,11 @@ async function main() {
     ...process.env,
     SMOKE_ORIGIN: origin,
     SMOKE_CDP: "",
+    SMOKE_RUNNER: "1",
     SMOKE_PLAYWRIGHT_CORE: realCore,
     PLAYWRIGHT_CORE: wrapper
   };
-  const limit = jobs > 0 ? jobs : Math.max(1, steps.length);
+  const limit = shard || suite === "nav" ? 1 : (jobs > 0 ? jobs : 1);
   const started = Date.now();
   let failed = 0;
   const runOne = async (item) => {
@@ -490,10 +531,10 @@ async function main() {
     return code;
   };
   try {
-    // A job that contains a timing check runs one script at a time.
-    // Timing checks themselves never share the runner with anything else.
+    // Every CI shard runs one script at a time. A timing check also waits
+    // until the other scripts in that run have finished.
     const timingJob = steps.some((item) => item.timing);
-    const runLimit = timingJob ? 1 : limit;
+    const runLimit = (shard || suite === "nav" || timingJob) ? 1 : limit;
     const rest = steps.filter((item) => !item.timing).sort((a, b) => b.weight - a.weight);
     const timing = steps.filter((item) => item.timing);
     const results = [];

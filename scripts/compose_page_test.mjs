@@ -181,18 +181,12 @@ async function main() {
     child.on("close", (code) => resolve(code));
   });
   const riderNames = ["community_home_test.mjs", "communities_hub_test.mjs", "own_post_test.mjs", "post_page_test.mjs", "music_dock_test.mjs", "video_fallback_test.mjs", "device_guard_test.mjs", "usernames_settings_test.mjs", "display_names_test.mjs", "settings_assistant_test.mjs", "nostr_settings_test.mjs", "games_mobile_test.mjs", "live_translate_test.mjs", "friend_p2p_test.mjs", "communities_instant_test.mjs", "routes_instant_test.mjs", "profile_by_name_test.mjs", "communities_rows_test.mjs", "friend_privacy_test.mjs", "foryou_communities_test.mjs"];
-  const riderCap = 5;
+  // The shard runner starts each of these on its own. A direct run still
+  // does them, one after another, so nothing is skipped.
   const riders = (async () => {
-    const results = new Array(riderNames.length);
-    let cursor = 0;
-    const worker = async () => {
-      while (cursor < riderNames.length) {
-        const index = cursor;
-        cursor += 1;
-        results[index] = await ride(riderNames[index]);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(riderCap, riderNames.length) }, () => worker()));
+    if (process.env.SMOKE_RUNNER === "1") return riderNames.map(() => 0);
+    const results = [];
+    for (const name of riderNames) results.push(await ride(name));
     return results;
   })();
   try {
