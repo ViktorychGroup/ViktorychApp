@@ -10,8 +10,9 @@
     html, body { margin: 0; background: #000; color: #e7e9ea; }
     body { font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, "Noto Sans Devanagari", "Nirmala UI", "Mangal", "Kohinoor Devanagari", "Devanagari Sangam MN", Arial, sans-serif; }
     html[data-wall="1"] #app, html[data-wall="1"] #hover, html[data-wall="1"] #pull, html[data-wall="1"] #new-posts, html[data-wall="1"] #offline, html[data-wall="1"] #update, html[data-wall="1"] #viewer, html[data-wall="1"] #stories, html[data-wall="1"] #toast, html[data-wall="1"] #dock-root { display: none !important; }
-    #account-layer { display: none; }
-    html[data-wall="1"] #account-layer { display: block; }
+    /* Hide only the static landing. Profile and sign-in dialogs use this layer too. */
+    #account-layer > .boot-land { display: none; }
+    html[data-wall="1"] #account-layer > .boot-land { display: block; }
     .boot-land { background: #000; color: #e7e9ea; min-height: 100vh; }
     .boot-land .land-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; background: #000; border-bottom: 1px solid #2f3336; padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top)); }
     .boot-land .land-brand { display: flex; align-items: center; margin: 4px 8px 4px 4px; color: #e7e9ea; text-decoration: none; font-weight: 800; font-size: 18px; line-height: 24px; }
