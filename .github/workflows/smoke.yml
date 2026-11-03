@@ -5,12 +5,14 @@ on:
     paths-ignore:
       - "**/*.md"
       - "docs/**"
+      - ".github/workflows/smoke-docs.yml"
   push:
     branches:
       - main
     paths-ignore:
       - "**/*.md"
       - "docs/**"
+      - ".github/workflows/smoke-docs.yml"
       - ".github/workflows/actions-cleanup.once"
       - ".github/workflows/actions-cleanup.yml"
       - "scripts/actions_cleanup.py"
@@ -84,7 +86,7 @@ jobs:
   smoke:
     name: smoke
     needs: shard
-    if: always() && !cancelled()
+    if: always() && !cancelled() && needs.shard.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

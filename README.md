@@ -1,3 +1,7 @@
+# ViktorychApp
+
+How to work on this repo, for the next person or agent: [docs/STATUS.md](docs/STATUS.md#how-to-work-on-this-repo).
+
 <!--
 # ViktorychApp
 
