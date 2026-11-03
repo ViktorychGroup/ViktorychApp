@@ -960,7 +960,7 @@
     var conn = nav.connection || null;
     var saverOn = settings.saveData === true;
     if (conn && !saverOn) {
-      var slow = /^(slow-2g|2g|3g)$/.test(String(conn.effectiveType || ""));
+      var slow = /^(slow-2g|2g)$/.test(String(conn.effectiveType || ""));
       var cell = conn.type === "cellular";
       out["mobile-data"] = cell || slow || conn.saveData ? { level: "info", vars: { slow: slow && !cell, saveData: !!conn.saveData && !cell && !slow } } : null;
     } else out["mobile-data"] = null;

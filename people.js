@@ -661,8 +661,12 @@
         return !!liveCard;
       });
     }
+    const nk = root.ViktorychNick;
+    const shownName = nk && who && who.handle ? nk.name(who.platform || "x", who.handle, person.name || person.id || "") : (person.name || person.id || "");
     const top = root.ViktorychProfile && root.ViktorychProfile.top ? root.ViktorychProfile.top({
-      name: person.name || person.id || "",
+      name: shownName,
+      original: person.name || person.id || "",
+      personId: person.id,
       platform: (who && who.platform) || "x",
       handle: (who && who.handle) || "",
       feedId: base.id || "",
@@ -680,7 +684,7 @@
           ${follow}
         </div>
       </div>
-      <h1 class="pname">${esc(person.name || person.id)}</h1>
+      <h1 class="pname">${esc(shownName)}${nk && nk.button && who && who.handle ? nk.button(who.platform || "x", who.handle, person.name || person.id || "", person.id) : ""}</h1>
       ${chipHtml(person)}
       ${bio}
       ${countHtml(person)}

@@ -195,7 +195,9 @@
     return String((doc && doc.title) || (row && row.title) || name);
   }
   function communityLabel(name) {
-    return isForum(name) ? communityTitle(name) : "r/" + name;
+    var raw = isForum(name) ? communityTitle(name) : "r/" + name;
+    var nk = (typeof window !== "undefined" ? window.ViktorychNick : null);
+    return nk && name ? nk.name(isForum(name) ? "forum" : "reddit", isForum(name) ? name : "r/" + name, raw) : raw;
   }
   function forumUrl(name) {
     var doc = state.docs && state.docs[name];
@@ -1522,7 +1524,7 @@
               (owner() ? '<button type="button" class="cm-btn-join" data-cm="visibility" data-sub="' + esc(name) + '" data-vis="' + esc((bag && bag.visibility) || "public") + '"><span>' + esc((bag && bag.visibility) === "private" ? tr("Private community") : (bag && bag.visibility) === "restricted" ? tr("Restricted community") : tr("Public community")) + '</span></button>' : "") +
             '</div>' +
           '</div>' +
-          '<h1 class="cm-hero-title">' + (forum ? esc(title) : "r/" + esc(name)) + forumBadge(name) + '</h1>' +
+          '<h1 class="cm-hero-title">' + esc(communityLabel(name)) + forumBadge(name) + ((typeof window !== "undefined" ? window.ViktorychNick : null) && window.ViktorychNick.button ? window.ViktorychNick.button(forum ? "forum" : "reddit", forum ? name : "r/" + name, forum ? title : "r/" + name) : "") + '</h1>' +
           '<div class="cm-hero-meta">' +
             '<div class="cm-facepile"><span class="cm-face-dot d1"></span><span class="cm-face-dot d2"></span><span class="cm-face-dot d3"></span></div>' +
             '<span><b>' + esc(count(doc.subscribers || (forum ? 0 : 2800000))) + '</b> ' + esc(memberLabel) + '</span>' +

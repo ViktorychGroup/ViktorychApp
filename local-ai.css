@@ -311,3 +311,99 @@ html[data-motion="reduce"] .lai-dots i { animation: none; }
   .lai-tab { flex: 0 0 auto; }
   .lai-qs { max-height: 34dvh; }
 }
+
+/* ---------- first-run setup ----------
+   Laid out like X's own sign-up steps: a 600px card on a dimmed backdrop,
+   a 53px header with back on the left and the logo in the middle, 31px/800
+   titles, full-width 52px pill buttons in the accent colour, and X settings
+   rows (15px label, 13px grey line, radio or checkbox on the right). On
+   phones the card is a bottom sheet. Theme and accent come from the app. */
+.lai-su-slot { display: none; }
+.lai.is-setup .lai-su-slot { display: block; position: absolute; inset: 0; z-index: 40; }
+.lai.is-setup .lai-side, .lai.is-setup .lai-scrim, .lai.is-setup .lai-main { visibility: hidden; }
+.lai-su { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: rgba(91, 112, 131, 0.4); }
+html[data-theme="default"] .lai-su { background: rgba(0, 0, 0, 0.4); }
+.lai-su-bg { display: none; }
+.lai-su-card { position: relative; display: flex; flex-direction: column; width: min(600px, 100%); max-height: min(650px, 90vh); max-height: min(650px, 90dvh); min-height: min(400px, 90dvh); background: var(--bg); color: var(--text); border-radius: 16px; overflow: auto; overscroll-behavior: contain; box-shadow: 0 0 15px rgba(255, 255, 255, 0.2), 0 0 3px 1px rgba(255, 255, 255, 0.15); }
+html[data-theme="default"] .lai-su-card { box-shadow: 0 0 15px rgba(101, 119, 134, 0.2), 0 0 3px 1px rgba(101, 119, 134, 0.15); }
+.lai-su-grab { display: none; }
+.lai-su-head { position: sticky; top: 0; z-index: 1; display: grid; grid-template-columns: 56px 1fr 56px; align-items: center; height: 53px; padding: 0 8px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); }
+.lai-su-head .lai-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: var(--text); text-decoration: none; }
+.lai-su-head .lai-icon:hover { background: var(--lai-hover); }
+.lai-su-logo { justify-self: center; color: var(--text); }
+.lai-su-logo svg { width: 32px; height: 32px; }
+.lai-su-count { margin: 0 0 4px; font-size: 13px; font-weight: 700; color: var(--lai-sub); }
+.lai-su-steps { display: flex; gap: 4px; padding: 0 32px; }
+.lai-su-steps i { flex: 1; height: 4px; border-radius: 4px; background: var(--lai-bar-line); }
+.lai-su-steps i.on { background: var(--lai-accent); }
+.lai-su-body { flex: 1; padding: 20px 32px 8px; }
+.lai-su-body h1 { margin: 0 0 8px; font-size: 31px; line-height: 36px; font-weight: 800; letter-spacing: -0.01em; outline: none; overflow-wrap: anywhere; }
+.lai-su-lead { margin: 0 0 20px; font-size: 15px; line-height: 20px; color: var(--lai-sub); }
+.lai-su-points { list-style: none; margin: 0; padding: 0; }
+.lai-su-points li { display: flex; flex-direction: column; gap: 2px; padding: 12px 0; border-bottom: 1px solid var(--lai-bar-line); }
+.lai-su-points li:last-child { border-bottom: 0; }
+.lai-su-points b { font-size: 15px; font-weight: 700; }
+.lai-su-points span { font-size: 15px; line-height: 20px; color: var(--lai-sub); }
+.lai-su-sec { margin: 20px 0 4px; font-size: 20px; font-weight: 800; }
+.lai-su-facts { margin: 0 0 4px; border: 1px solid var(--lai-bar-line); border-radius: 16px; overflow: hidden; }
+.lai-su-facts div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--lai-bar-line); font-size: 15px; }
+.lai-su-facts div:last-child { border-bottom: 0; }
+.lai-su-facts dt { color: var(--lai-sub); }
+.lai-su-facts dd { margin: 0; font-weight: 700; text-align: right; }
+.lai-su-opts { display: flex; flex-direction: column; margin: 0 -32px; }
+.lai-su-opt { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 12px 32px; border: 0; background: none; text-align: left; cursor: pointer; }
+.lai-su-opt:hover { background: var(--lai-hover); }
+.lai-su-opt:focus-visible { outline: 2px solid var(--lai-accent); outline-offset: -2px; }
+.lai-su-opt-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lai-su-opt-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; font-weight: 400; }
+.lai-su-opt.on .lai-su-opt-name { font-weight: 700; }
+.lai-su-opt-sub { font-size: 13px; line-height: 16px; color: var(--lai-sub); }
+.lai-su-opt-size { font-size: 13px; line-height: 16px; color: var(--lai-sub); font-weight: 700; }
+.lai-su-radio { flex: none; width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--lai-sub); position: relative; }
+.lai-su-radio.is-on { border-color: var(--lai-accent); }
+.lai-su-radio.is-on::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--lai-accent); }
+.lai-su-opt .lai-cb { flex: none; }
+.lai-su-prog { padding: 16px; border: 1px solid var(--lai-bar-line); border-radius: 16px; }
+.lai-su-prog-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 15px; }
+.lai-su-prog-top b { font-variant-numeric: tabular-nums; }
+.lai-su-prog .lai-prog-track { height: 6px; border-radius: 6px; background: var(--lai-bar-line); overflow: hidden; }
+.lai-su-prog .lai-prog-track i { display: block; height: 100%; background: var(--lai-accent); border-radius: 6px; transition: width .2s linear; }
+.lai-su-mb { margin: 8px 0 0; font-size: 13px; color: var(--lai-sub); font-variant-numeric: tabular-nums; }
+.lai-su-warn { margin: 12px 0 0; padding: 12px 16px; border-radius: 12px; background: rgba(255, 173, 31, 0.14); font-size: 15px; line-height: 20px; }
+.lai-su-note { margin: 12px 0 0; font-size: 13px; line-height: 16px; color: var(--lai-sub); }
+.lai-su-ok { width: 56px; height: 56px; margin: 4px 0 16px; border-radius: 50%; display: grid; place-items: center; background: var(--lai-accent); color: #fff; }
+.lai-su-ok svg { width: 30px; height: 30px; }
+.lai-su-spin { width: 32px; height: 32px; margin: 24px auto; border-radius: 50%; border: 3px solid var(--lai-bar-line); border-top-color: var(--lai-accent); animation: lai-su-spin .8s linear infinite; }
+@keyframes lai-su-spin { to { transform: rotate(360deg); } }
+.lai-su-chips { justify-content: flex-start; margin-top: 16px; }
+.lai-su-chips .lai-chip { flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lai-su-head, .lai-su-steps, .lai-su-foot { flex-shrink: 0; }
+.lai-su-foot { position: sticky; bottom: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 32px 24px; background: var(--bg); }
+.lai-su-btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 52px; padding: 0 32px; border-radius: 9999px; border: 1px solid transparent; background: var(--lai-accent); color: #fff; font-size: 17px; font-weight: 700; cursor: pointer; transition: filter .15s; }
+.lai-su-btn:hover { filter: brightness(0.92); }
+.lai-su-btn.ghost { background: transparent; color: var(--text); border-color: color-mix(in srgb, var(--text) 30%, transparent); }
+.lai-su-btn.ghost:hover { background: var(--lai-hover); filter: none; }
+.lai-su-btn:focus-visible, .lai-su-link:focus-visible { outline: 2px solid var(--lai-accent); outline-offset: 2px; }
+.lai-su-link { align-self: center; border: 0; background: none; padding: 4px 8px; color: var(--lai-accent); font-size: 15px; cursor: pointer; }
+.lai-su-link:hover { text-decoration: underline; }
+.lai-menu-again { border-top: 1px solid var(--lai-bar-line); }
+.lai-side-foot button.lai-side-link { border: 0; background: none; text-align: left; cursor: pointer; width: 100%; }
+@media (max-width: 699px) {
+  .lai-su-chips { order: 0; flex-wrap: wrap; overflow: visible; margin: 16px 0 0; padding: 0; }
+  .lai-su { place-items: end stretch; padding: 0; }
+  .lai-su-bg { display: grid; place-items: center; position: absolute; left: 0; right: 0; top: 0; height: 22dvh; color: var(--text); }
+  .lai-su-bg-mark svg { width: 56px; height: 56px; }
+  .lai-su-card { width: 100%; max-height: 88dvh; min-height: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.25); animation: lai-su-up .24s ease-out; }
+  .lai-su-grab { display: block; width: 36px; height: 4px; margin: 8px auto 0; border-radius: 4px; background: var(--lai-bar-line); flex: none; }
+  .lai-su-head { height: 48px; }
+  .lai-su-logo svg { width: 26px; height: 26px; }
+  .lai-su-steps { padding: 0 16px; }
+  .lai-su-body { padding: 16px 16px 8px; }
+  .lai-su-body h1 { font-size: 23px; line-height: 28px; }
+  .lai-su-opts { margin: 0 -16px; }
+  .lai-su-opt { padding: 12px 16px; }
+  .lai-su-foot { padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .lai-su-btn { min-height: 44px; font-size: 15px; }
+}
+@keyframes lai-su-up { from { transform: translateY(24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .lai-su-card, .lai-su-spin { animation: none; } }
