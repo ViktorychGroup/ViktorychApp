@@ -12,7 +12,7 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **This file.** Every pull request updates `docs/STATUS.md`: what merged, what is live, the paused roadmap, the current plan, the working rules and the owner to-dos.
 
-**CI.** Page smoke is sharded and finishes in about 2.5 minutes. Locally, `scripts/smoke-all.sh` runs those scripts in parallel (`--jobs` sets how many at once; `--shard` runs one job). A pull request or a push to main that only touches `**/*.md` and `docs/**` skips Page smoke. A skipped required check counts as passing. Fix the root cause of a failure. Never weaken a test, drop an assertion or skip a check to make CI green, except by moving a still-failing part into a later pull request as described above.
+**CI.** Page smoke is sharded and finishes in about 2.5 minutes. Locally, `scripts/smoke-all.sh` runs those scripts in parallel (`--jobs` sets how many at once; `--shard` runs one job). A pull request that only touches `**/*.md` and `docs/**` does not run that suite. `.github/workflows/smoke-docs.yml` still reports the required check named `smoke` and succeeds, so the pull request can merge. A pull request that also changes code runs the real Page smoke workflow as well, and that result must pass. Fix the root cause of a failure. Never weaken a test, drop an assertion or skip a check to make CI green, except by moving a still-failing part into a later pull request as described above.
 
 **Merge.** Squash-merge only when every check is success or skipped and the pull request is clean. Pin the merge to the head commit (`gh pr merge <n> --squash --match-head-commit <sha>`). After a merge to main, rebase or merge main into any open pull request whose state becomes dirty.
 
@@ -45,7 +45,7 @@ A reload to `#/settings` could keep the Home heading, so Log out was missing. Wh
 
 ## Page smoke on docs-only changes
 
-Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. `smoke` is a required check. A skipped run counts as passing.
+Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. The required check is still named `smoke`. `.github/workflows/smoke-docs.yml` is the stub for that case: it runs only when a pull request changes `**/*.md` or `docs/**`, its job name is `smoke`, and it prints `docs-only: page smoke not needed` and succeeds. The real Page smoke workflow is unchanged. A pull request that changes code and docs runs both. The real suite still has to pass.
 
 ## Paused roadmap
 
