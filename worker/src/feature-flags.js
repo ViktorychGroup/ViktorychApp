@@ -29,6 +29,9 @@ export const FEATURES = {
   // Friends master switch per account (Settings > Privacy > Friends). On by
   // default. Off: every account reads as Friends on and the setting is hidden.
   friends_off: { paths: ["/v1/friends/settings"] },
+  // Owner account inspector (Cuentas): owner-only account details for
+  // moderation. On by default; off hides the owner view and its routes.
+  owner_inspector: { paths: ["/v1/owner/inspector"] },
   // Linked profiles merged into the account's own profile: their posts join
   // its timeline and their old pages redirect there. On by default. Off:
   // linked profiles stay listed but keep their own pages.

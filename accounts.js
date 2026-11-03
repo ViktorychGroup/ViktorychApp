@@ -1956,7 +1956,8 @@ var numberNote = form.passkey
       blog: tr("There is no separate blog. What you see here is the app."),
       developers: tr("After you sign in, Settings can export and import the data on this device.")
     };
-    return '<p class="acct-sub">' + esc(copy[legalKey] || tr("Not affiliated with X.")) + "</p>";
+    var ownerNote = legalKey === "privacy" || legalKey === "terms" ? '<p class="acct-sub">' + esc(tr("The site owner can see account details, including private usernames, for moderation. Each look is logged.")) + "</p>" : "";
+    return '<p class="acct-sub">' + esc(copy[legalKey] || tr("Not affiliated with X.")) + "</p>" + ownerNote;
   }
   function wallTheme() {
     var mode = document.documentElement.getAttribute("data-theme") || "lightsout";
