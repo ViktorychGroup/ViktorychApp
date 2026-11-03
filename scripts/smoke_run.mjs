@@ -221,7 +221,6 @@ const SHARDS = {
   "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile"],
   "compose-d": ["live-translate", "friend-p2p", "communities-instant", "routes-instant"],
   "compose-e": ["profile-by-name", "communities-rows", "friend-privacy", "foryou-communities"],
-  "signup-sizes": ["signup-sizes"],
   "signup-flows": ["signup-flows"]
 };
 
@@ -237,7 +236,7 @@ const REQUIRED_PAGE = [
   "about-layout", "points-layout", "telegram-stories", "stories", "stories-layout",
   "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "profile",
   "home-tabs", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
-  "signup-sizes", "signup-flows",
+  "signup-flows",
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
   "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
