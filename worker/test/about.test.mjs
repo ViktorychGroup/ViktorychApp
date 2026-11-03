@@ -65,6 +65,13 @@ function texts(pack) {
   return out;
 }
 
+/* The birth year must not appear in the words a person can read. The rest
+   of a notification response is cursors and ids, and a millisecond clock
+   contains the digits 1990 on its own. */
+function birthdayWords(body) {
+  return ((body && body.items) || []).filter((item) => item && (item.kind === "birthday" || item.kind === "birthday_self")).map((item) => [item.handle, item.name, item.text, item.hash].join(" ")).join("\n");
+}
+
 test("audience matrix hides fields the viewer cannot see", () => {
   const stranger = { owner: false, follows: false, followsYou: false, friends: false, blocked: false, viewerId: "000000000002" };
   const follower = { owner: false, follows: true, followsYou: false, friends: false, blocked: false, viewerId: "000000000002" };
@@ -244,7 +251,7 @@ test("birthday reminders honor privacy, the year, opt-out, and the time zone", a
   const fayBirthday = (fayNotes.body.items || []).filter((item) => item.kind === "birthday");
   assert.equal(fayBirthday.length, 1);
   assert.equal(fayBirthday[0].handle, "user_e");
-  assert.equal(JSON.stringify(fayNotes.body).includes("1990"), false);
+  assert.equal(birthdayWords(fayNotes.body).includes("1990"), false);
 
   const gusNotes = await call("/v1/notifications", { ip: "203.0.113.91", token: gus.token });
   assert.equal((gusNotes.body.items || []).some((item) => item.kind === "birthday" || item.kind === "birthday_self"), false);
@@ -252,11 +259,12 @@ test("birthday reminders honor privacy, the year, opt-out, and the time zone", a
   assert.equal((halNotes.body.items || []).some((item) => item.kind === "birthday"), false);
   const eveNotes = await call("/v1/notifications", { ip: "203.0.113.93", token: eve.token });
   assert.equal((eveNotes.body.items || []).some((item) => item.kind === "birthday_self"), true);
-  assert.equal(JSON.stringify(eveNotes.body).includes("1990"), false);
+  assert.equal(birthdayWords(eveNotes.body).includes("1990"), false);
 
   const list = await upcomingBirthdays(bindings, { public_id: fay.account.publicId }, day);
   assert.equal(list.upcoming.some((item) => item.handle === "user_e" && item.inDays === 0), true);
-  assert.equal(JSON.stringify(list).includes("1990"), false);
+  assert.equal(list.upcoming.some((item) => item.year != null), false);
+  assert.equal(JSON.stringify(list.upcoming.map((item) => [item.handle, item.name, item.month, item.day])).includes("1990"), false);
   const strangerList = await upcomingBirthdays(bindings, { public_id: gus.account.publicId }, day);
   assert.equal(strangerList.upcoming.some((item) => item.handle === "user_e"), false);
 
@@ -296,7 +304,7 @@ test("birthday reminders honor privacy, the year, opt-out, and the time zone", a
   });
   const today = await call("/v1/about?handle=user_e", { ip: "203.0.113.99", token: fay.token });
   assert.equal(today.body.birthdayToday, true);
-  assert.equal(JSON.stringify(today.body).includes("1990"), false);
+  assert.equal(texts(today.body).join("\n").includes("1990"), false);
   const closed = await call("/v1/about?handle=user_e", { ip: "203.0.113.100", token: gus.token });
   assert.equal(closed.body.birthdayToday, false);
   assert.equal(JSON.stringify(closed.body).includes(month + "-" + date), false);

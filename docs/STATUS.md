@@ -1,6 +1,81 @@
 # Status snapshot
 
-Written 2026-10-30, about 10:00 CET (09:00 UTC). Main was at `f353f771` and the latest D1 migration was `0102_regone_social.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it, and update this file in a small PR after a big session.
+Written 2026-11-03 (UTC). Main is `e4f38df3`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+
+## Merged today
+
+- **#531** Shorts re-enabled (owner-only): viewer cap, on-device stream-copy recording, native frame grab, playback fallback, TikTok follow placement. Squash merge `904144017f5260ab140efdeee40cab1357e4f72f`. Live on both sites (`version.json` matched that sha, watchdog HTTP 200).
+- **#532** A new community folder keeps its typed name when the page redraws, so Create still makes the folder. Squash merge `eb6cee2deb532bbf4f31f35e042fd9fe67277d39`. Its pull-request Page smoke passed. Main's own Page smoke for that commit was still running when this note was written.
+- **#537** The blue toast stays fixed and moves above an open info or achievement alert, so Undo stays tappable. Squash merge `e4f38df3`.
+
+## Toast and alerts
+
+The blue toast stays fixed, so it does not push the page. When an info or achievement alert is open, the toast moves up until it sits clear of that card, on every viewport. Undo and the other toast buttons stay tappable.
+
+## Birthday reminders
+
+A birthday note is sent only to someone who still follows the celebrant. Each follower has their own note key, so one person's push id cannot collide with another's and drop or mis-file the write. The birth year stays out of the note's words. The reminder test checks those words. It does not search the whole JSON, because the sync cursor is a millisecond timestamp and that clock sometimes contains the digits `1990`.
+
+## Settings while the feed loads
+
+Opening Settings while the feed is still loading paints Settings, not the Home skeleton. A saved Home screen is not restored under another address. Sign-in reloads once, so the next page can finish loading. Log out on that page stays reachable.
+
+## Page smoke on docs-only changes
+
+Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. `smoke` is a required check. A skipped run counts as passing.
+
+## Paused roadmap
+
+Do not start these unless the owner asks.
+
+- **PR 2.** 3D view, Join with my camera (including No frame), real-frames-only slow motion. No interpolation, no synthetic frames.
+- **PR 3.** X-style Past recordings rebuild, shared player features, full screen, zoom preserved everywhere.
+
+## Speed plan
+
+Branch `cursor/faster-first-load-bb60` has uncommitted work. Not pushed. Audit baseline on a phone profile (390x844, 4G, CPU slowed 4x):
+
+- Cold first visit: LCP 7–10s, about 1.86 MB downloaded (111 JS files, 1,558 KB of JS), TTI about 10s, 454 KB of unused JS.
+- Warm visit (service worker): about 0.5s.
+- Back-to-Home route switch: about 320ms (a full page rebuild).
+- CLS 0.17 from an alert toast.
+
+| Item | State |
+| --- | --- |
+| 1. Signed-out fast path (landing scripts only until a session exists, then load the full app) | Started in the working tree, not verified |
+| 2. Load only the active language pack; `i18n.js` already fetches a pack when the language changes | Started in the working tree |
+| 3. Defer music, TV, Discord, NFT, Nostr, mesh, gifts, games chrome and similar until idle, unless a deep link needs them | Started in the working tree |
+| 4. Home updates in place (target back-to-Home under 100ms on 4x CPU) | Not started |
+| 5. Register the service worker from `index.html`; cache the core shell first | Started in the working tree (early register + core files first in the precache queue) |
+| 6. Split `app.js` into a stable core plus route chunks | Not started. Risky. Ship the rest if it cannot pass reliably |
+| 7. Image sizes / aspect-ratio, fixed alert toast, lazy lower landing images | Avatars gained `aspect-ratio`. Toast and achievement alerts were already `position: fixed`. Landing images already had width, height and `loading="lazy"` |
+
+`scripts/boot_budget.mjs` fails if the signed-out script set grows past 960 KB. Current set is about 915 KB (mostly `accounts.js` and `i18n/en.js`). Before/after Lighthouse numbers are not measured yet.
+
+## Working rules
+
+- Run the full check suite locally before every push.
+- Stop after 2 failed CI rounds on a PR and report the check, the error and the diagnosis. Do not retry blindly.
+- Fix app bugs in the app. Do not weaken tests.
+- The handle guard is never weakened. No usernames, handles or account IDs in the public repo.
+- Do not edit `.github/`. Workflow changes go in `docs/owner-patches/`.
+- Owner gate: confirm the site is live and main's checks are green before opening the next PR.
+- Update `docs/STATUS.md` at the end of every PR.
+
+## Owner TODO
+
+Enable the four TikTok workflows by hand. Steps: `docs/owner-patches/tiktok-workflows-enable.md`.
+
+- TikTok added accounts
+- TikTok live
+- TikTok record
+- TikTok live upload
+
+They stay `disabled_manually`. The watchdog warning for the live workflow being off is expected until then.
+
+## Previous snapshot (2026-10-30)
+
+Written 2026-10-30, about 10:00 CET (09:00 UTC). Main was at `f353f771` and the latest D1 migration on that day was `0102_regone_social.sql`. Recheck every open PR below before acting on it.
 
 ## Fast tests
 

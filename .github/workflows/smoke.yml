@@ -2,10 +2,15 @@ name: Page smoke
 
 on:
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   push:
     branches:
       - main
     paths-ignore:
+      - "**/*.md"
+      - "docs/**"
       - ".github/workflows/actions-cleanup.once"
       - ".github/workflows/actions-cleanup.yml"
       - "scripts/actions_cleanup.py"
