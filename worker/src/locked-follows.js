@@ -523,9 +523,6 @@ export async function handleLockedFollows(request, env, path, url, deps) {
           if (priv && !have.has(id)) {
             accounts.push(deps.feedCard(id, row.snapshot));
             have.add(id);
-          } else if (!priv) {
-            const at = accounts.findIndex((card) => card && card.id === id);
-            if (at >= 0) accounts.splice(at, 1);
           }
         });
       } catch (err) { /* the manual locks still show */ }
