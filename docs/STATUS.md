@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main is `5b6f084d`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main is `bfa052eb`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -24,6 +24,8 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 ## Merged today
 
+- **#542** Shorts still downloads with the app, and that arrival no longer repaints an open page. Squash merge `bfa052eb`.
+- **#541** Shorts loads with the app so the owner page check can see it. Squash merge `b22d61e4`.
 - **#535** Faster first load: signed-out visits load the landing set only. Squash merge `5b6f084d`. Live after its deploy.
 - **#536** Page smoke is split into parallel jobs of about 2.5 minutes. Squash merge `2dc8cf77`.
 - **#531** Shorts re-enabled (owner-only): viewer cap, on-device stream-copy recording, native frame grab, playback fallback, TikTok follow placement. Squash merge `904144017f5260ab140efdeee40cab1357e4f72f`. Live on both sites (`version.json` matched that sha, watchdog HTTP 200).
@@ -53,6 +55,12 @@ Do not start these unless the owner asks.
 
 - **PR 2.** 3D view, Join with my camera (including No frame), real-frames-only slow motion. No interpolation, no synthetic frames.
 - **PR 3.** X-style Past recordings rebuild, shared player features, full screen, zoom preserved everywhere.
+
+## Shorts on the first load
+
+The live site was serving the new build while `version.json` still named the previous one, because the owner page check never saw the Shorts module. Shorts waited on an idle preload that starts eight seconds after the app, and the check stops about eleven seconds after the load event. That preload now starts with the app. It still stays unloaded when the server switch is off. The YouTube embed helper is the same file as before this load change.
+
+The first version of that preload repainted the whole page when Shorts arrived. On a phone, opening a corner drawer and then narrowing the window scrolled the timeline (the navigation check saw 783px). Shorts still downloads with the app, and that arrival no longer repaints. Opening the Shorts page still paints.
 
 ## Speed
 

@@ -30961,6 +30961,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   });
   setTimeout(deviceHello, 6000);
   syncServerFeatures();
+  /* The owner page check looks for Shorts within a few seconds of the load
+     event. An idle preload that waits eight seconds, then for an idle
+     callback, missed that window once the first load got faster. Start the
+     download with the app, but quietly: a repaint when the file arrives
+     was moving the page under an open phone drawer. The server off-switch
+     still skips it. Opening Shorts still paints, because that call is not
+     quiet. */
+  if (window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure("shorts", true);
   setTimeout(() => {
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();

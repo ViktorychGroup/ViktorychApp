@@ -153,7 +153,7 @@
   }
 
   window.ViktorychLazy = {
-    ensure: function (name) { return ensure(name, false); },
+    ensure: function (name, silent) { return ensure(name, !!silent); },
     preload: preload,
     serverOff: serverOff
   };
