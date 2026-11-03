@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main was `2dc8cf77` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main was `5b6f084d` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## Merged today
 
@@ -31,6 +31,10 @@ Do not start these unless the owner asks.
 
 - **PR 2.** 3D view, Join with my camera (including No frame), real-frames-only slow motion. No interpolation, no synthetic frames.
 - **PR 3.** X-style Past recordings rebuild, shared player features, full screen, zoom preserved everywhere.
+
+## Shorts on the first load
+
+The live site was serving the new build while `version.json` still named the previous one, because the owner page check never saw the Shorts module. Shorts waited on an idle preload that starts eight seconds after the app, and the check stops about eleven seconds after the load event. That preload now starts with the app. It still stays unloaded when the server switch is off. The YouTube embed helper is the same file as before this load change.
 
 ## Speed
 
