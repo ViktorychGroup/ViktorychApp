@@ -45,7 +45,7 @@ A reload to `#/settings` could keep the Home heading, so Log out was missing. Wh
 
 ## Page smoke on docs-only changes
 
-Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. The required check is still named `smoke`. `.github/workflows/smoke-docs.yml` is the stub for that case: it runs only when a pull request changes `**/*.md` or `docs/**`, its job name is `smoke`, and it prints `docs-only: page smoke not needed` and succeeds. The real Page smoke workflow is unchanged. A pull request that changes code and docs runs both. The real suite still has to pass.
+Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. The required check is still named `smoke`. `.github/workflows/smoke-docs.yml` is the stub for that case: it runs only when a pull request changes `**/*.md` or `docs/**`, its job name is `smoke`, and it prints `docs-only: page smoke not needed` and succeeds. The real Page smoke workflow is unchanged. A pull request that changes code and docs runs both. The real suite still has to pass. A docs-only change does not.
 
 ## Paused roadmap
 
