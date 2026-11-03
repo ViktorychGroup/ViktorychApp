@@ -31,7 +31,8 @@
     comments: {},
     commentPromises: {},
     loading: {},
-    docAt: {}
+    docAt: {},
+    folderDraft: ""
   };
 
   /* Local-first: every list, community and thread paints from the device
@@ -1013,8 +1014,9 @@
       "</div></div>";
   }
   function folderForm(id, value) {
+    var shown = value || (!id && state.folderDraft) || "";
     return '<form class="cm-folder-form" data-cm="folder-save" data-folder="' + esc(id || "") + '">' +
-      '<input name="name" maxlength="40" required placeholder="' + esc(tr("Folder name")) + '" aria-label="' + esc(tr("Folder name")) + '" value="' + esc(value || "") + '">' +
+      '<input name="name" maxlength="40" required placeholder="' + esc(tr("Folder name")) + '" aria-label="' + esc(tr("Folder name")) + '" value="' + esc(shown) + '">' +
       '<button type="submit">' + esc(id ? tr("Save") : tr("Create")) + "</button>" +
       '<button type="button" data-cm="folder-cancel">' + esc(tr("Cancel")) + "</button></form>";
   }
@@ -1123,8 +1125,8 @@
       render();
       return true;
     }
-    if (act === "folder-new") { state.folderEdit = "new"; render(); focusFolderInput(); return true; }
-    if (act === "folder-cancel") { state.folderEdit = ""; render(); return true; }
+    if (act === "folder-new") { state.folderEdit = "new"; state.folderDraft = ""; render(); focusFolderInput(); return true; }
+    if (act === "folder-cancel") { state.folderEdit = ""; state.folderDraft = ""; render(); return true; }
     if (act === "folder-rename") { state.folderEdit = el.dataset.folder || ""; render(); focusFolderInput(); return true; }
     if (act === "folder-toggle") {
       state.openFolders = state.openFolders || {};
@@ -1180,8 +1182,10 @@
   }
   function saveFolderForm(form) {
     var input = form.querySelector("input");
-    var name = String(input && input.value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 40);
+    var typed = (input && input.value) || (!form.dataset.folder && state.folderDraft) || "";
+    var name = String(typed).replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 40);
     if (!name) return;
+    state.folderDraft = "";
     var bag = readFolders();
     var id = form.dataset.folder;
     var folder = id ? folderById(bag, id) : null;
@@ -2171,6 +2175,11 @@
     var el = event.target.closest("[data-cm]");
     if (!el) return;
     var act = el.dataset.cm;
+    if (act === "folder-save") {
+      var folderInput = el.querySelector("input");
+      if (folderInput && !String(folderInput.value || "").trim() && !el.dataset.folder && state.folderDraft) folderInput.value = state.folderDraft;
+      return;
+    }
     if (tabClick(act, el)) {
       if (act !== "ed-stop") event.preventDefault();
       event.stopPropagation();
@@ -2402,6 +2411,10 @@
   }, true);
 
   document.addEventListener("input", function (event) {
+    var folderInput = event.target.closest && event.target.closest(".cm-folder-form input");
+    if (folderInput && !(folderInput.closest("form") && folderInput.closest("form").dataset.folder)) {
+      state.folderDraft = folderInput.value;
+    }
     var field = event.target.closest("[data-cm='ed-name'], [data-cm='ed-q']");
     if (field) {
       editorInput(field);
