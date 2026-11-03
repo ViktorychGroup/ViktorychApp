@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main is `d1e84bbd`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main is `3a6f2de1`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -20,7 +20,15 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
-**Current state.** #544 puts Home back immediately when you return to it and is on main (`2fd7f0da`). #542 stopped a Shorts download from repainting an open page. This pull request paints the signed-out landing from the HTML. Still open after that: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs) and lazy-loaded music. The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
+**Current state.** #544 puts Home back immediately and is the live `version.json` (`2fd7f0da`). #546 reads the DevTools port Chrome actually opens and is on main as `3a6f2de1`. This pull request paints the signed-out landing from the HTML. Still open after that: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs) and lazy-loaded music. The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
+
+## Version publish
+
+Sync feeds on `d1e84bbd` deployed the service worker, then `pages-mirror` failed at `node scripts/smoke_page.mjs --site _mirror` with `Chrome did not open a debugger`. The log only had dbus noise after the old fixed wait, so `publish-version` was skipped. Installed apps keep the update screen because `version.json` still names `2fd7f0d` until a later deploy publishes. Each launch now uses a fresh profile, `--no-sandbox`, `--disable-dev-shm-usage`, and `--remote-debugging-port=0`. The check reads the port from Chrome's stderr (`DevTools listening on ws://…`) or from `DevToolsActivePort`, waits up to 30 seconds, and tries the launch at most three times. A page assertion that fails is not retried.
+
+Main's Page smoke run 41735261194 failed `shard-ui-fast` on privacy. The log line is `locator.scrollIntoViewIfNeeded: Element is not attached to the DOM` at `scripts/external_following_test.mjs:170`, then `external following checks failed`. That failure is not part of the landing paint.
+
+The phone signup flow was run five times locally on the 390×844 size after the static landing. The autoplay choice saved every time. A later CI run reported `phone full: autoplay choice did not save` once; the same shard had passed on the previous run of this change.
 
 ## Merged today
 

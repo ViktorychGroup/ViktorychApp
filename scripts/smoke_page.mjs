@@ -5,8 +5,7 @@
    once with saved data from before the presence deploy. */
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
-import net from "node:net";
-import { mkdtempSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
 
@@ -176,15 +175,31 @@ async function waitForAssets(pageUrl, tries) {
   throw new Error(last);
 }
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-  });
+// A loaded runner often answers past the old 10s poll, and Chrome may bind a
+// port other than the one we asked for. Read the port it actually opened.
+const LAUNCH_ATTEMPTS = 3;
+const LAUNCH_WAIT_MS = 30000;
+
+function debuggerPort(text) {
+  const match = String(text || "").match(/DevTools listening on ws:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):(\d+)/);
+  if (!match) return 0;
+  const port = Number(match[1]);
+  return port > 0 && port < 65536 ? port : 0;
+}
+
+function activePort(dir) {
+  try {
+    const line = readFileSync(join(dir, "DevToolsActivePort"), "utf8").split(/\r?\n/, 1)[0].trim();
+    if (!/^\d+$/.test(line)) return 0;
+    const port = Number(line);
+    return port > 0 && port < 65536 ? port : 0;
+  } catch (err) {
+    return 0;
+  }
+}
+
+function killChrome(chrome) {
+  try { chrome.kill("SIGKILL"); } catch (err) { /* already gone */ }
 }
 
 function cdpSocket(wsUrl) {
@@ -215,6 +230,55 @@ function cdpSocket(wsUrl) {
   return { ws, send, events, opened };
 }
 
+async function launchChrome() {
+  const dir = mkdtempSync(join(tmpdir(), "viktorych-smoke-"));
+  const bin = chromeBin();
+  let log = "";
+  const chrome = spawn(bin, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--remote-allow-origins=*",
+    "--remote-debugging-port=0",
+    `--user-data-dir=${dir}`,
+    "about:blank"
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+  chrome.on("error", () => { /* spawn failure is reported when the port never opens */ });
+  const take = (chunk) => {
+    log += chunk.toString();
+    if (log.length > 16000) log = log.slice(-8000);
+  };
+  if (chrome.stdout) chrome.stdout.on("data", take);
+  if (chrome.stderr) chrome.stderr.on("data", take);
+  const deadline = Date.now() + LAUNCH_WAIT_MS;
+  let ver = null;
+  let port = 0;
+  while (Date.now() < deadline) {
+    if (chrome.exitCode !== null) break;
+    port = debuggerPort(log) || activePort(dir);
+    if (port) {
+      try {
+        const parsed = JSON.parse(await get(`http://127.0.0.1:${port}/json/version`));
+        if (parsed && parsed.webSocketDebuggerUrl) {
+          ver = parsed;
+          break;
+        }
+      } catch (err) { /* announced, not accepting yet */ }
+    }
+    await sleep(200);
+  }
+  if (!ver) {
+    killChrome(chrome);
+    try { rmSync(dir, { recursive: true, force: true }); } catch (err) { /* profile still locked */ }
+    const detail = log.trim().slice(-800);
+    throw new Error("Chrome did not open a debugger (" + bin + ")" + (detail ? "\n" + detail : ""));
+  }
+  return { port, chrome, dir, ver };
+}
+
 async function openSession() {
   if (process.env.SMOKE_CDP) {
     const port = Number(new URL(process.env.SMOKE_CDP).port);
@@ -223,40 +287,26 @@ async function openSession() {
     await browser.opened;
     return { port, browser, external: true };
   }
-  const dir = mkdtempSync(join(tmpdir(), "viktorych-smoke-"));
-  const port = await freePort();
-  const logPath = join(dir, "chrome.log");
-  const logFd = openSync(logPath, "a");
-  const bin = chromeBin();
-  const chrome = spawn(bin, [
-    "--headless=new",
-    "--disable-gpu",
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-    "--no-first-run",
-    "--remote-allow-origins=*",
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${dir}`,
-    "about:blank"
-  ], { stdio: ["ignore", logFd, logFd] });
-  let ver = null;
-  for (let i = 0; i < 50; i++) {
+  let last = null;
+  for (let attempt = 1; attempt <= LAUNCH_ATTEMPTS; attempt++) {
+    let launched = null;
     try {
-      ver = JSON.parse(await get(`http://127.0.0.1:${port}/json/version`));
-      break;
+      launched = await launchChrome();
+      const browser = cdpSocket(launched.ver.webSocketDebuggerUrl);
+      await browser.opened;
+      return { port: launched.port, browser, chrome: launched.chrome, dir: launched.dir, external: false };
     } catch (err) {
-      await sleep(200);
+      last = err;
+      if (launched) {
+        killChrome(launched.chrome);
+        try { rmSync(launched.dir, { recursive: true, force: true }); } catch (cleanErr) { /* profile still locked */ }
+      }
+      const message = err && err.message ? err.message : String(err);
+      if (!/did not open a debugger/.test(message) || attempt === LAUNCH_ATTEMPTS) throw err;
+      console.log("chrome launch " + attempt + " did not open a debugger, retrying");
     }
   }
-  if (!ver) {
-    try { chrome.kill("SIGKILL"); } catch (err) { /* already gone */ }
-    let detail = "";
-    try { detail = readFileSync(logPath, "utf8").trim().slice(-800); } catch (err) { detail = ""; }
-    throw new Error("Chrome did not open a debugger (" + bin + ")" + (detail ? "\n" + detail : ""));
-  }
-  const browser = cdpSocket(ver.webSocketDebuggerUrl);
-  await browser.opened;
-  return { port, browser, chrome, dir, external: false };
+  throw last;
 }
 
 async function closeSession(session) {
@@ -429,14 +479,7 @@ async function main() {
     // shows up again on every one of up to three fresh-profile attempts, so a
     // one-off flake cannot hold version.json back for hours.
     const attempts = Math.max(1, Number(arg("--attempts", live && !site ? "3" : "1")) || 1);
-    let session = null;
-    try {
-      session = await openSession();
-    } catch (err) {
-      const message = err && err.message ? err.message : String(err);
-      if (!/did not open a debugger/.test(message)) throw err;
-      session = await openSession();
-    }
+    const session = await openSession();
     try {
       const found = await Promise.all(runs.map(async (run) => {
         let kept = null;
