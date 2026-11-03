@@ -21431,6 +21431,52 @@ if (STATE.histClear) {
     else requestAnimationFrame(run);
   }
 
+  /* The newest address wins. A paint that started on Home can finish after
+     the hash has already moved to Settings; that paint must not stay, and a
+     hashchange that was skipped (sign-in still settling, or a newer
+     navigation) asks for one more render of the hash that is current. */
+  let routePaintState = { token: 0, painted: "#/" };
+  let routeFollowQueued = false;
+  function routePaintMismatch(paintedHash, liveHash) {
+    return String(paintedHash || "#/") !== String(liveHash || "#/");
+  }
+  function routePaintDecision(state, event) {
+    const live = String((event && event.hash) || "#/");
+    const prev = state && typeof state === "object" ? state : { token: 0, painted: "#/" };
+    if (event && event.type === "hash") {
+      return { token: (prev.token || 0) + 1, painted: prev.painted || "#/", live: live, render: true, reason: "hash" };
+    }
+    if (event && event.type === "finish") {
+      if (event.token != null && event.token !== prev.token) {
+        return { token: prev.token || 0, painted: prev.painted || "#/", live: live, render: true, reason: "stale" };
+      }
+      const painted = String(event.paintedHash || "#/");
+      const mismatch = routePaintMismatch(painted, live);
+      return { token: prev.token || 0, painted: painted, live: live, render: mismatch, reason: mismatch ? "mismatch" : "ok" };
+    }
+    return { token: prev.token || 0, painted: prev.painted || "#/", live: live, render: routePaintMismatch(prev.painted, live), reason: "check" };
+  }
+  function followRoute() {
+    const decision = routePaintDecision(routePaintState, { type: "check", hash: location.hash || "#/" });
+    if (!decision.render || routeFollowQueued) return;
+    routeFollowQueued = true;
+    setTimeout(() => {
+      routeFollowQueued = false;
+      const again = routePaintDecision(routePaintState, { type: "check", hash: location.hash || "#/" });
+      if (!again.render) return;
+      render();
+    }, 0);
+  }
+  function noteRoutePaint(paintedHash) {
+    routePaintState = routePaintDecision(routePaintState, {
+      type: "finish",
+      token: routePaintState.token,
+      paintedHash: paintedHash,
+      hash: location.hash || "#/"
+    });
+    if (routePaintState.render) followRoute();
+  }
+
   function render(opts) {
     if (!renderQ) return renderNow(opts);
     if (renderDeferred(opts)) return;
@@ -21453,6 +21499,9 @@ if (STATE.histClear) {
     } else if (bare === "#/drive" || bare.startsWith("#/drive/")) {
       history.replaceState(null, "", location.pathname + location.search + "#/storage" + bare.slice("#/drive".length) + (qCut >= 0 ? hashNow.slice(qCut) : ""));
     }
+    const hashAtStart = location.hash || "#/";
+    let paintedHash = hashAtStart;
+    let applied = false;
     const gen = (STATE.renderGen = (STATE.renderGen || 0) + 1);
     let route = parseRoute();
     if (route.name === "spaces" && window.Spaces && window.Spaces.__shell && window.Spaces.start && !(window.ViktorychAccounts && window.ViktorychAccounts.blocking && window.ViktorychAccounts.blocking())) window.Spaces.start();
@@ -21535,6 +21584,12 @@ if (STATE.histClear) {
     const transition = false && routeChanged && !reduced;
     const apply = () => {
       if (gen !== STATE.renderGen) return;
+      const liveNow = location.hash || "#/";
+      if (liveNow !== hashAtStart) {
+        route = parseRoute();
+        paintedHash = liveNow;
+      }
+      applied = true;
       if (STATE.snapTop) y = 0;
       else if (STATE.holdY != null) y = STATE.holdY;
       else if (!(opts && Object.prototype.hasOwnProperty.call(opts, "y"))) y = window.scrollY;
@@ -21686,6 +21741,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       apply();
       endRoute();
     }
+    if (applied) noteRoutePaint(paintedHash);
+    else followRoute();
   }
 
   function toast(message) {
@@ -25765,7 +25822,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     scrollFreeze = true;
   }, true);
   window.addEventListener("hashchange", () => {
-    if (window.ViktorychAccounts?.blocking?.()) return;
+    routePaintState = routePaintDecision(routePaintState, { type: "hash", hash: location.hash || "#/" });
+    if (window.ViktorychAccounts?.blocking?.()) {
+      followRoute();
+      return;
+    }
     showPill(pendingPillPosts());
     const nextHash = location.hash || "#/";
     const prevHash = lastKey || "";
@@ -25825,9 +25886,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     // new view renders right after that paint instead of inside the click.
     paintNavNow(nextRoute);
     if (y > 0) restoreWhenTall(key, y);
-    const token = ++routeRenderToken;
+    const token = routePaintState.token;
     afterNextPaint(() => {
-      if (token !== routeRenderToken) return;
+      if (token !== routePaintState.token) {
+        followRoute();
+        return;
+      }
       render({
         y: y,
         done: () => {
@@ -25840,7 +25904,6 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     });
   });
 
-  let routeRenderToken = 0;
   function afterNextPaint(fn) {
     let ran = false;
     const go = () => { if (ran) return; ran = true; fn(); };

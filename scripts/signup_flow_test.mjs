@@ -145,16 +145,24 @@ function signedInSession() {
 }
 
 async function logOut(page) {
-  // Log out is part of the signed-in account block. Wait until that session
-  // is stored, then scroll the live button into view and press it. A cached
-  // or half-drawn settings screen must not count.
+  // Log out lives on the settings page. A full reload to that address can
+  // lose the race with the sign-in reload and leave Home on screen under
+  // the settings address. Move the hash after the session exists so the
+  // page paints Settings, then press the button that is on screen.
   await page.waitForFunction(signedInSession(), null, { timeout: 20000 });
-  const onSettings = /#\/settings\/?$/.test(new URL(page.url()).hash || "");
-  if (!onSettings) await openPage(page, "/#/settings");
-  // The menu row is in the settings list. The account block repeats it at
-  // the bottom. Press whichever one is on screen, in the same turn it appears.
+  await page.evaluate(() => {
+    const want = "#/settings";
+    const title = document.querySelector("#app h1");
+    const onSettings = (location.hash || "") === want && title && title.textContent.trim() === "Settings";
+    if (!onSettings) {
+      if ((location.hash || "") !== want) location.hash = want;
+      else window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }
+  });
   const ready = await page.waitForFunction(() => {
     if (window.__didLogout) return true;
+    const title = document.querySelector("#app h1");
+    if (!title || title.textContent.trim() !== "Settings") return false;
     const nodes = [...document.querySelectorAll("#app [data-acct='logout']")];
     const el = nodes.find((node) => node.getBoundingClientRect().height > 0) || nodes[0];
     if (!el || !el.isConnected) return false;
@@ -178,18 +186,13 @@ async function logOut(page) {
       try {
         built = window.ViktorychAccounts && window.ViktorychAccounts.settingsHtml ? window.ViktorychAccounts.settingsHtml() : "missing";
       } catch (err) { builtErr = String(err && err.message || err); }
-      const text = app ? app.innerText.slice(0, 500) : "";
       return {
         signed: signed,
         attached: !!(el && el.isConnected),
         hash: location.hash,
-        acct: !!document.querySelector(".acct-settings"),
-        notSignedIn: text.indexOf("Not signed in") >= 0,
-        heading: (app && app.querySelector("h1, h2") && app.querySelector("h1, h2").textContent) || "",
-        text: text,
-        builtHasLogout: built.indexOf("data-acct=\"logout\"") >= 0,
-        builtErr: builtErr,
-        builtHead: built.slice(0, 180)
+        heading: (app && app.querySelector("h1") && app.querySelector("h1").textContent) || "",
+        builtHasLogout: typeof built === "string" && built.indexOf("data-acct=\"logout\"") >= 0,
+        builtErr: builtErr
       };
     });
     throw new Error("settings never showed Log out (" + page.url() + ") " + JSON.stringify(why));
@@ -979,6 +982,7 @@ async function firstRun(page) {
   await page.getByText("Could not sign in.").waitFor({ timeout: 20000 });
   await page.keyboard.press("Escape");
   await openLogin(page);
+  const reloaded = page.waitForEvent("load", { timeout: 20000 }).catch(() => null);
   const loggedIn = await page.evaluate(() => {
     const number = JSON.parse(sessionStorage.getItem("viktorychapp-signup-number") || "null");
     const input = document.querySelector("#acct-accountNumber");
@@ -989,17 +993,18 @@ async function firstRun(page) {
     return /^\d{16}$/.test(String(number || ""));
   });
   if (!loggedIn) notes.push("saved number was not available for sign-in");
-  // "Your account" is also the signed-out settings heading, and "No posts yet"
-  // can sit in a hidden feed. Neither one means the login finished. Leave
-  // this page only after the session is stored and the wall is gone, so the
-  // navigation cannot drop the sign-in before Settings can show Log out.
+  await reloaded;
+  // Sign-in always reloads onto Home. Wait for that load before opening
+  // Settings, or the reload lands on top of the settings address and Home
+  // stays on screen with no Log out button.
   const back = await page.waitForFunction(() => {
     try {
       const session = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
       if (!session || !session.token || !session.account) return false;
     } catch (err) { return false; }
     if (document.documentElement.getAttribute("data-wall") === "1") return false;
-    return true;
+    const h1 = document.querySelector("#app h1");
+    return !!(h1 && h1.textContent.trim() === "Home");
   }, null, { timeout: 20000 }).then(() => true, () => false);
   if (!back) {
     notes.push("sign-in did not open the app (" + loginStatus + ")");
