@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main is `eb6cee2deb532bbf4f31f35e042fd9fe67277d39`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main is `c0f334236ffd372465acc4a262089b6e0e2001eb`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## Merged today
 
@@ -13,7 +13,7 @@ A birthday note is sent only to someone who still follows the celebrant. Each fo
 
 ## Router render race
 
-Still open. After a reload to `#/settings` the address can be settings while the heading stays Home, so Log out is missing. A first attempt painted Settings during boot, before `DOMContentLoaded`, and the phone sign-up navigation to `#/settings` then timed out. That attempt is not in this pull request. `app.js` matches main. The follow-up keeps at most one corrective re-render per hash change, and that re-render is asynchronous and does not run during boot.
+A reload to `#/settings` could keep the Home heading, so Log out was missing. While the feed was loading, Settings was painted as the Home skeleton, and a Home frame that had already started could still be committed after the address moved. Every route uses the same rule, including the screen Sign up opens from. A commit whose route is not the current `location.hash` is discarded. After the document has loaded, the current address is built and committed once. Before `DOMContentLoaded` that second build does not run, because it kept the phone reload from finishing. One corrective render can follow, on a later frame, and only once for that hash change. A render is not dropped on the floor, so the new view still gets attached.
 
 ## Page smoke on docs-only changes
 

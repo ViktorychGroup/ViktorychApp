@@ -20578,7 +20578,7 @@ if (STATE.histClear) {
         return pageHead(tr("Notifications")) + `<div class="notes-state error-box" data-notes-state="error"><h2>${esc(tr("Notifications aren’t available"))}</h2><p>${esc(tr("Reload the page."))}</p><button class="retry" type="button" data-act="notes-retry">${esc(tr("Retry"))}</button></div>`;
       }
     }
-    if (STATE.loading) {
+    if (homeLoadingShell(route, STATE.loading)) {
       return `<div class="topbar"><div class="page-head"><h1>${tr("Home")}</h1></div></div>` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("");
     }
     if (STATE.error && route.name === "home") {
@@ -21434,9 +21434,36 @@ if (STATE.histClear) {
   /* The newest address wins. A paint that started on Home can finish after
      the hash has already moved to Settings; that paint must not stay, and a
      hashchange that was skipped (sign-in still settling, or a newer
-     navigation) asks for one more render of the hash that is current. */
+     navigation) asks for one more render of the hash that is current.
+     The loading skeleton is Home only, so Settings is not painted as Home
+     while the feed is still arriving. */
+  function homeLoadingShell(route, loading) {
+    return !!(loading && route && route.name === "home");
+  }
+  /* Checked at commit time. A newer render, or a hash move while this frame
+     was built, drops the frame. The replacement is one async render. */
+  function commitFrameDecision(frame, live) {
+    const token = frame && frame.token;
+    const builtHash = frame && frame.builtHash != null ? String(frame.builtHash) : "#/";
+    const renderGen = live && live.renderGen;
+    const hash = live && live.hash != null ? String(live.hash) : "#/";
+    if (token !== renderGen) return { commit: false, reason: "stale-token", hash: hash };
+    if (builtHash !== hash) return { commit: false, reason: "stale-hash", hash: hash };
+    return { commit: true, reason: "ok", hash: hash };
+  }
   let routePaintState = { token: 0, painted: "#/" };
   let routeFollowQueued = false;
+  let routeCorrectiveToken = -1;
+  let routeCorrectiveWait = false;
+  /* Deferred scripts run while readyState is already "interactive", and
+     DOMContentLoaded has not fired yet. A render in that window blocks the
+     load event the sign-up test waits for. */
+  let routeDomReady = typeof document !== "undefined" && document.readyState === "complete";
+  if (typeof document !== "undefined" && !routeDomReady) {
+    const markReady = () => { routeDomReady = true; };
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(markReady);
+    else document.addEventListener("DOMContentLoaded", markReady, { once: true });
+  }
   function routePaintMismatch(paintedHash, liveHash) {
     return String(paintedHash || "#/") !== String(liveHash || "#/");
   }
@@ -21457,15 +21484,37 @@ if (STATE.histClear) {
     return { token: prev.token || 0, painted: prev.painted || "#/", live: live, render: routePaintMismatch(prev.painted, live), reason: "check" };
   }
   function followRoute() {
+    const token = routePaintState.token || 0;
+    if (routeCorrectiveToken === token) return;
     const decision = routePaintDecision(routePaintState, { type: "check", hash: location.hash || "#/" });
-    if (!decision.render || routeFollowQueued) return;
+    if (!decision.render) return;
+    /* One corrective render per hash change, after the document has loaded,
+       and never on this stack. A render during boot blocked DOMContentLoaded. */
+    if (!routeDomReady) {
+      if (routeCorrectiveWait) return;
+      routeCorrectiveWait = true;
+      const go = () => {
+        routeCorrectiveWait = false;
+        routeDomReady = true;
+        followRoute();
+      };
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go, { once: true });
+      else if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => queueMicrotask(go));
+      else queueMicrotask(go);
+      return;
+    }
+    routeCorrectiveToken = token;
+    if (routeFollowQueued) return;
     routeFollowQueued = true;
-    setTimeout(() => {
+    const run = () => {
       routeFollowQueued = false;
+      if ((routePaintState.token || 0) !== token) return;
       const again = routePaintDecision(routePaintState, { type: "check", hash: location.hash || "#/" });
       if (!again.render) return;
       render();
-    }, 0);
+    };
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => queueMicrotask(run));
+    else queueMicrotask(run);
   }
   function noteRoutePaint(paintedHash) {
     routePaintState = routePaintDecision(routePaintState, {
@@ -21478,6 +21527,10 @@ if (STATE.histClear) {
   }
 
   function render(opts) {
+    if (!routeDomReady && parseRoute().name !== "home") {
+      followRoute();
+      return;
+    }
     if (!renderQ) return renderNow(opts);
     if (renderDeferred(opts)) return;
     if (!opts && renderQ.opts) opts = renderQ.opts;
@@ -21515,7 +21568,7 @@ if (STATE.histClear) {
     syncHomeFromQuery(route);
     const currentTab = route.name === "home" ? (route.tab || "foryou") : "";
     if (!(route.name === "home" && STATE.tabMenu === currentTab)) STATE.tabMenu = null;
-    const nextKey = routeScrollKey();
+    let nextKey = routeScrollKey();
     const routeChanged = !!STATE.scrollKey && STATE.scrollKey !== nextKey;
     /* A render that runs after the hash moved but before the hashchange
        handler (a fetch or module repaint landing in that gap, common on slow
@@ -21584,19 +21637,30 @@ if (STATE.histClear) {
     const transition = false && routeChanged && !reduced;
     const apply = () => {
       if (gen !== STATE.renderGen) return;
-      const liveNow = location.hash || "#/";
-      if (liveNow !== hashAtStart) {
-        route = parseRoute();
-        paintedHash = liveNow;
-      }
-      applied = true;
       if (STATE.snapTop) y = 0;
       else if (STATE.holdY != null) y = STATE.holdY;
       else if (!(opts && Object.prototype.hasOwnProperty.call(opts, "y"))) y = window.scrollY;
-      /* The shell swap used to throw away every horizontal row. Tab rows are
-         patched in place; every other row, including the live pills, gets its
-         scrollLeft written back. Presence then paints dots on the new shell. */
-      commitApp(shell(localFirstView(route, view(route)), route) + (window.ProfileGifts && window.ProfileGifts.overlay ? window.ProfileGifts.overlay() : ""));
+      /* Build the page. If the address moved while it was built, discard
+         that frame and build the current hash once. A newer render still
+         wins and is not committed over. Any further correction is one async
+         render from followRoute, never another pass here. */
+      let html = "";
+      let decision = null;
+      const passes = routeDomReady ? 2 : 1;
+      for (let pass = 0; pass < passes; pass++) {
+        if (gen !== STATE.renderGen) return;
+        const builtHash = location.hash || "#/";
+        route = parseRoute();
+        const token = STATE.renderGen;
+        html = shell(localFirstView(route, view(route)), route) + (window.ProfileGifts && window.ProfileGifts.overlay ? window.ProfileGifts.overlay() : "");
+        decision = commitFrameDecision({ token: token, builtHash: builtHash }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
+        if (!decision || decision.reason !== "stale-hash") break;
+      }
+      if (!decision || !decision.commit) return;
+      commitApp(html);
+      applied = true;
+      paintedHash = decision.hash;
+      nextKey = routeScrollKey();
       paintProfileChrome();
       schedulePublicPosts();
       hydratePublicMedia();
@@ -30399,7 +30463,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       STATE.settings = loadSettings();
       if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
       STATE.loading = false;
-      render({ reset: true });
+      if (!routeDomReady && parseRoute().name !== "home") followRoute();
+      else render({ reset: true });
       markHome("home-snapshot-paint");
       scheduleDeviceIndex();
       if (STATE.pendingFeed) showPill(pendingPillPosts());
@@ -30408,7 +30473,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       STATE.loading = false;
     } else {
       STATE.loading = true;
-      render();
+      if (!routeDomReady && parseRoute().name !== "home") followRoute();
+      else render();
     }
     flushBookmarkQueue();
     // Saved custom tab posts load from this device at once, not after the catalog.
