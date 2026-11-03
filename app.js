@@ -21541,6 +21541,83 @@ if (STATE.histClear) {
     if (routePaintState.render) followRoute();
   }
 
+  /* Home is parked as live DOM when you leave it. Coming back puts that DOM
+     back before any new posts are woven in, so the click is not blocked by
+     a full rebuild. A newer address still wins: a parked frame is used only
+     when commitFrameDecision says this render is the current hash. */
+  let homePark = null;
+  let homeRefreshTimer = 0;
+  function homeStamp(route) {
+    const data = STATE.data;
+    const list = data && data.posts;
+    const n = list ? list.length : 0;
+    const s = STATE.settings || {};
+    const count = (obj) => (obj ? Object.keys(obj).length : 0);
+    return [
+      route.tab || "foryou",
+      route.query ? route.query.toString() : "",
+      STATE.loading ? 1 : 0,
+      STATE.error ? 1 : 0,
+      n,
+      n ? String((list[0] && list[0].id) || "") : "",
+      n > 1 ? String((list[n - 1] && list[n - 1].id) || "") : "",
+      count(s.likes),
+      count(s.reposts),
+      count(s.bookmarks),
+      (s.follows || []).length,
+      (s.mutedWords || []).length,
+      (s.mutedAccounts || []).length,
+      (s.lists || []).length,
+      s.appearance || "",
+      s.navLayout || "",
+      document.documentElement.lang || "",
+      document.documentElement.getAttribute("data-theme") || "",
+      document.documentElement.getAttribute("data-fs") || "",
+      ARCHIVE.posts.length
+    ].join("|");
+  }
+  function parkHomeDom() {
+    if (!homePark || !homePark.live) return;
+    const app = document.getElementById("app");
+    if (!app || !app.firstChild) { homePark.live = false; return; }
+    const frag = document.createDocumentFragment();
+    scrollLock = true;
+    while (app.firstChild) frag.appendChild(app.firstChild);
+    scrollLock = false;
+    frag.querySelectorAll("video, audio").forEach((el) => { try { el.pause(); } catch (err) { /* already stopped */ } });
+    homePark.frag = frag;
+    homePark.y = window.scrollY || 0;
+    homePark.live = false;
+  }
+  function restoreHomeDom() {
+    const app = document.getElementById("app");
+    if (!app || !homePark || !homePark.frag) return false;
+    scrollLock = true;
+    while (app.firstChild) app.removeChild(app.firstChild);
+    app.appendChild(homePark.frag);
+    scrollLock = false;
+    homePark.frag = null;
+    homePark.live = true;
+    return true;
+  }
+  function scheduleHomeRefresh(delayMs) {
+    clearTimeout(homeRefreshTimer);
+    const start = () => {
+      homeRefreshTimer = 0;
+      if (renderHeld()) { scheduleHomeRefresh(200); return; }
+      const routeNow = parseRoute();
+      if (routeNow.name !== "home" || !homePark || !homePark.live) return;
+      if (homeStamp(routeNow) === homePark.stamp) return;
+      homePark.force = true;
+      render();
+    };
+    if (delayMs) homeRefreshTimer = setTimeout(start, delayMs);
+    else {
+      const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+      raf(() => raf(start));
+    }
+  }
+
   function render(opts) {
     if (!routeDomReady && parseRoute().name !== "home") {
       followRoute();
@@ -21662,18 +21739,49 @@ if (STATE.histClear) {
          render from followRoute, never another pass here. */
       let html = "";
       let decision = null;
-      const passes = routeDomReady ? 2 : 1;
-      for (let pass = 0; pass < passes; pass++) {
-        if (gen !== STATE.renderGen) return;
-        const builtHash = location.hash || "#/";
-        route = parseRoute();
-        const token = STATE.renderGen;
-        html = shell(localFirstView(route, view(route)), route) + (window.ProfileGifts && window.ProfileGifts.overlay ? window.ProfileGifts.overlay() : "");
-        decision = commitFrameDecision({ token: token, builtHash: builtHash }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
-        if (!decision || decision.reason !== "stale-hash") break;
+      route = parseRoute();
+      const stamp = route.name === "home" ? homeStamp(route) : "";
+      decision = commitFrameDecision({ token: STATE.renderGen, builtHash: location.hash || "#/" }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
+      const parkedAway = !!(decision && decision.commit && route.name === "home" && homePark && !homePark.live && homePark.frag);
+      if (parkedAway && restoreHomeDom()) {
+        y = SCROLLS[routeScrollKey()] || homePark.y || 0;
+        STATE.holdY = y;
+        applied = true;
+        paintedHash = decision.hash;
+        nextKey = routeScrollKey();
+        STATE.scrollKey = nextKey;
+        lastKey = location.hash || "#/";
+        document.title = withUnreadTitle(routeTitle(route, "", "", ""));
+        if (window.SIntelMusic && window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(route);
+        window.scrollTo(0, y);
+        if (homePark.stamp !== stamp) scheduleHomeRefresh(350);
+        return;
+      } else if (decision && decision.commit && route.name === "home" && homePark && homePark.live && homePark.stamp !== stamp && !homePark.force && !inUserInput()) {
+        scheduleHomeRefresh(0);
+        applied = true;
+        paintedHash = decision.hash;
+        nextKey = routeScrollKey();
+        STATE.scrollKey = nextKey;
+        lastKey = location.hash || "#/";
+        return;
+      } else {
+        const passes = routeDomReady ? 2 : 1;
+        for (let pass = 0; pass < passes; pass++) {
+          if (gen !== STATE.renderGen) return;
+          const builtHash = location.hash || "#/";
+          route = parseRoute();
+          const token = STATE.renderGen;
+          html = shell(localFirstView(route, view(route)), route) + (window.ProfileGifts && window.ProfileGifts.overlay ? window.ProfileGifts.overlay() : "");
+          decision = commitFrameDecision({ token: token, builtHash: builtHash }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
+          if (!decision || decision.reason !== "stale-hash") break;
+        }
+        if (!decision || !decision.commit) return;
+        if (homePark && homePark.force) homePark.force = false;
+        if (homePark && homePark.live && route.name !== "home") parkHomeDom();
+        if (route.name === "home" && homePark && homePark.stamp !== stamp) homePark = null;
+        commitApp(html);
+        if (route.name === "home") homePark = { stamp: route.name === "home" ? homeStamp(route) : stamp, live: true, frag: null, y: window.scrollY || 0 };
       }
-      if (!decision || !decision.commit) return;
-      commitApp(html);
       applied = true;
       paintedHash = decision.hash;
       nextKey = routeScrollKey();
@@ -25852,10 +25960,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     window.addEventListener(type, () => { if (restoreTarget) stopRestore(); }, { passive: true, capture: true });
   });
   let scrollFreeze = false;
+  let scrollLock = false;
   window.addEventListener("scroll", () => {
     if (pageY() <= 4) STATE.snapTop = false;
     if (parseRoute().name === "home" && pageY() >= 40) homeRead = true;
-    if (routing || scrollFreeze || !STATE.scrollKey) return;
+    if (scrollLock || routing || scrollFreeze || !STATE.scrollKey) return;
     SCROLLS[STATE.scrollKey] = window.scrollY;
     if (window.ViktorychLocal) window.ViktorychLocal.noteScroll(STATE.scrollKey, window.scrollY, SCROLLS);
     const route = parseRoute();
