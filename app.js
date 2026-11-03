@@ -30961,6 +30961,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   });
   setTimeout(deviceHello, 6000);
   syncServerFeatures();
+  /* The owner page check looks for Shorts within a few seconds of the load
+     event. An idle preload that waits eight seconds, then for an idle
+     callback, missed that window once the first load got faster, so the
+     module was missing and the live version file was not published. Start
+     the download with the app. The server off-switch still skips it. */
+  if (window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure("shorts");
   setTimeout(() => {
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();
