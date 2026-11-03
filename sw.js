@@ -4,7 +4,7 @@ const VERSION = "viktorych-a279-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-03T13:50:00.000Z-first-load
+// cache-bust: 2026-11-03T15:30:00.000Z-home-click
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -412,7 +412,14 @@ self.addEventListener("activate", (event) => {
     // Move what older versions saved into the stable caches in the background.
     adoptOldCaches().catch(() => {});
     purgeOpaquePictures().catch(() => {});
-    try { await self.clients.claim(); } catch (err) { /* the page reloads once the worker is active */ }
+    try {
+      if (updateReporting) await self.clients.claim();
+      else {
+        /* The first visit keeps its own network reads. Claiming at once
+           hides them from the page. A later claim covers the next views. */
+        setTimeout(() => { self.clients.claim().catch(() => {}); }, 30000);
+      }
+    } catch (err) { /* the page reloads once the worker is active */ }
     try {
       if (self.registration.navigationPreload) await self.registration.navigationPreload.enable();
     } catch (err) { /* navigation preload is optional */ }
@@ -2258,6 +2265,9 @@ self.addEventListener("fetch", (event) => {
     })());
     return;
   }
+  /* API calls carry the page's session and must not be answered by the
+     shell cache. The page reads them itself. */
+  if (url.origin === self.location.origin && /\/v1\//.test(url.pathname)) return;
   if (url.origin === self.location.origin) {
     event.respondWith((async () => {
       const cache = await caches.open(SHELL);

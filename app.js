@@ -21129,6 +21129,29 @@ if (STATE.histClear) {
     return true;
   }
 
+  /* A click back to Home must paint the parked page before any new posts are
+     woven in. The weave waits until the browser is idle so the click itself
+     stays quick. */
+  let homeRefreshTimer = 0;
+  function scheduleHomeRefresh() {
+    clearTimeout(homeRefreshTimer);
+    homeRefreshTimer = setTimeout(() => {
+      homeRefreshTimer = 0;
+      const run = () => {
+        if (renderHeld()) { scheduleHomeRefresh(); return; }
+        const routeNow = parseRoute();
+        if (routeNow.name !== "home" || !homePark || !homePark.live) return;
+        if (homeStamp(routeNow) === homePark.stamp) return;
+        /* Keep the parked page until this render actually paints. A render
+           that waits for the pointer must not throw the parked copy away. */
+        homePark.force = true;
+        render();
+      };
+      if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 800 });
+      else setTimeout(run, 48);
+    }, 350);
+  }
+
   function commitApp(html) {
     const app = document.getElementById("app");
     if (!app) return;
@@ -21675,16 +21698,25 @@ if (STATE.histClear) {
          scrollLeft written back. Presence then paints dots on the new shell.
          An unchanged Home is the parked DOM, put back in place. */
       const stamp = route.name === "home" ? homeStamp(route) : "";
-      const comingBack = !!(route.name === "home" && routeChanged && homePark && !homePark.live && homePark.frag && homePark.stamp === stamp);
-      if (comingBack && restoreHomeDom()) {
+      const parkedAway = !!(route.name === "home" && homePark && !homePark.live && homePark.frag);
+      if (parkedAway && restoreHomeDom()) {
         y = SCROLLS[nextKey] || homePark.y || 0;
         STATE.scrollKey = nextKey;
         lastKey = location.hash || "#/";
-        const backName = route.name === "user" ? ((STATE.liveUsers[liveKey(route.platform, route.handle)] || {}).profile || {}).name : "";
-        document.title = withUnreadTitle(routeTitle(route, backName, "", ""));
+        document.title = withUnreadTitle(routeTitle(route, "", "", ""));
         window.scrollTo(0, y);
+        if (homePark.stamp !== stamp) scheduleHomeRefresh();
         return;
       }
+      /* Already showing the parked Home. A background refresh (posts that
+         arrived while the pointer was down) must not rebuild on this turn. */
+      if (route.name === "home" && homePark && homePark.live && homePark.stamp !== stamp && !homePark.force && !inUserInput()) {
+        scheduleHomeRefresh();
+        STATE.scrollKey = nextKey;
+        lastKey = location.hash || "#/";
+        return;
+      }
+      if (homePark && homePark.force) homePark.force = false;
       if (homePark && homePark.live && route.name !== "home") parkHomeDom();
       if (route.name === "home" && homePark && homePark.stamp !== stamp) homePark = null;
       commitApp(shell(localFirstView(route, view(route)), route) + (window.ProfileGifts && window.ProfileGifts.overlay ? window.ProfileGifts.overlay() : ""));
