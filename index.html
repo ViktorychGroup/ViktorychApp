@@ -828,37 +828,6 @@
         if (hashIs("#/mesh") || hash.indexOf("#/settings/mesh") === 0) names.push("mesh-chat.js");
         return names;
       }
-      /* Deep link: these files are not in the idle template. They are inserted
-         before app.js, in order, so the first paint is the real page. */
-      function eagerRouteSpecs() {
-        var specs = [];
-        function push(src, kind) {
-          if (specs.some(function (s) { return s.src === src; })) return;
-          specs.push({ src: src, kind: kind || "classic" });
-        }
-        if (hashIs("#/ai")) {
-          push("settings-registry.js");
-          push("local-ai.js");
-          push("local-ai-ui.js");
-          push("local-ai.css", "css");
-        }
-        if (hashIs("#/shorts")) { push("shorts.js"); push("shorts.css", "css"); }
-        if (hashIs("#/games")) { push("games.js"); push("games.css", "css"); }
-        if (hashIs("#/tv")) { push("tv-page.js"); push("tv-page.css", "css"); }
-        if (hashIs("#/link-tv")) { push("vendor/qrcode-1.4.4.js"); push("tv-pair.js"); push("tv-pair.css", "css"); }
-        if (hashIs("#/send-to-tv")) { push("send-tv.js"); push("send-tv.css", "css"); }
-        if (hashIs("#/communities")) { push("communities.js"); push("communities.css", "css"); }
-        if (hashIs("#/contacts")) { push("contacts-ui.js"); push("contacts.css", "css"); }
-        if (hashIs("#/vault")) push("vault.css", "css");
-        if (hashIs("#/packages")) push("packages.css", "css");
-        if (hashIs("#/storage") || hashIs("#/drive")) push("drive.css", "css");
-        if (/^#\/messages\/(?:s|join)\//.test(hashPath())) {
-          push("servers-voice.js");
-          push("servers-ui.js");
-          push("servers.css", "css");
-        }
-        return specs;
-      }
       function injectIdle(list) {
         list.forEach(function (node) {
           var ref = assetRef(node);
@@ -968,32 +937,6 @@
               nodes = before.slice(0, at).concat(around).concat(before.slice(at));
               void seenEager;
             }
-          }
-          var have = {};
-          nodes.forEach(function (node) { have[assetRef(node)] = 1; });
-          links.forEach(function (node) { have[assetRef(node)] = 1; });
-          var extra = [];
-          eagerRouteSpecs().forEach(function (spec) {
-            if (have[spec.src]) return;
-            have[spec.src] = 1;
-            if (spec.kind === "css") {
-              var link = document.createElement("link");
-              link.rel = "stylesheet";
-              link.setAttribute("href", spec.src);
-              links.push(link);
-              return;
-            }
-            var el = document.createElement("script");
-            el.setAttribute("src", spec.src);
-            if (spec.kind === "module") el.type = "module";
-            extra.push(el);
-          });
-          if (extra.length) {
-            var appAt = nodes.length;
-            for (var ei = 0; ei < nodes.length; ei++) {
-              if (assetRef(nodes[ei]) === "app.js") { appAt = ei; break; }
-            }
-            nodes.splice.apply(nodes, [appAt, 0].concat(extra));
           }
         }
         if (!links.length && !nodes.length) return;

@@ -40,7 +40,7 @@ Pull request #535 keeps the load-time work only. Phone profile 390×844, 4G, CPU
 | Warm landing | about 0.5s | LCP 564ms, FCP 412ms |
 | CLS | 0.17 from the alert toast | 0 |
 
-Signed-out visits load the landing set only. Only the active language pack downloads. Music, TV, Discord, gifts, Nostr and nearby chat load when opened, and a direct link loads that page's scripts in order before the first paint. The service worker registers from `index.html` and fills its cache after the first screen. Landing images reserve their size, and the alert toast is fixed so it does not push the page. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
+Signed-out visits load the landing set only. Only the active language pack downloads. Music, TV, Discord, gifts, Nostr and nearby chat load when that page is opened, and again while idle. The service worker registers from `index.html` and fills its cache after the first screen. Landing images reserve their size, and the alert toast is fixed so it does not push the page. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
 
 Parked pages, in-place list updates, and restoring scroll after a rebuild are not in this pull request. They go in a later, smaller one. Navigation matches main.
 
