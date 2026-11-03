@@ -9,9 +9,16 @@ Written 2026-11-03 (UTC). Main is `eb6cee2deb532bbf4f31f35e042fd9fe67277d39`. La
 
 ## Router render race
 
-Main's Page smoke was failing in the phone sign-up flow: the address became `#/settings` while the main column stayed on Home, so Log out was never in the document. A paint that had already started for Home finished after the hash moved, and a hash change during sign-in could be dropped.
+Page smoke failed again in the phone sign-up flow (pull request #533, docs only, so the same app code as main). After a reload to `#/settings` the address was settings, the heading stayed Home, and Log out was not in the page. Signing in was fine. `settingsHtml()` still contained Log out, so the account was ready and the settings page was simply never what got committed.
 
-The fix is on main (inside #531). A generation token makes the newest hash win. When a render finishes, if the address and the painted route differ, the page renders again. Regression test: `scripts/route_paint_test.mjs` (runs at the start of the Accounts test). After that fix, main's Page smoke got past Sign-up. The next failure on `90414401` was the communities folder form (fixed by #532).
+Two causes:
+
+- While the feed was loading, `view()` returned the Home skeleton for every route it had not already handled, including Settings. That paint was recorded against `#/settings`, so a later check thought the page already matched the address.
+- The render generation was checked before the HTML was built. A Home frame that had already started could still commit after a newer render had painted Settings.
+
+The Home skeleton now runs only for Home. A restored screen that is not Home is rendered immediately instead of waiting for the catalog. At commit time a frame is kept only when its token is still the newest and `location.hash` is still the hash that frame was built for. Otherwise that frame is dropped and the current address is rendered. Regression test: `scripts/route_paint_test.mjs`.
+
+Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. `smoke` is a required check. A skipped run counts as passing.
 
 ## Paused roadmap
 
