@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Photos and Files (files/). -->
+<resources>
+    <string name="photos_label">ViktorychTV फ़ोटो</string>
+    <string name="files_label">ViktorychTV फ़ाइलें</string>
+    <string name="fl_title">फ़ाइलें</string>
+    <string name="fl_downloads">डाउनलोड</string>
+    <string name="fl_this_tv">यह टीवी</string>
+    <string name="fl_usb">USB ड्राइव</string>
+    <string name="fl_no_app">इस टीवी पर कोई ऐप यह फ़ाइल नहीं खोलता</string>
+    <string name="fl_need_access">यहां देखने के लिए इस टीवी और USB ड्राइव पर फ़ोटो, वीडियो और संगीत की अनुमति दें।</string>
+    <string name="fl_allow">अनुमति दें</string>
+    <string name="fl_app_settings">ऐप सेटिंग खोलें</string>
+    <string name="fl_loading">लोड हो रहा है…</string>
+    <string name="fl_nothing">कोई स्टोरेज नहीं मिला। USB ड्राइव लगाएं या जांचें कि वह जुड़ा है।</string>
+    <string name="fl_empty">यह फ़ोल्डर खाली है, या इसमें सिर्फ़ वे फ़ाइलें हैं जिन्हें टीवी निजी रखता है।</string>
+    <string name="ph_title">फ़ोटो</string>
+    <string name="ph_all">सभी</string>
+    <string name="ph_empty">अभी कोई फ़ोटो या वीडियो नहीं। तस्वीरों वाली USB ड्राइव लगाएं या इस टीवी पर कुछ सेव करें।</string>
+    <string name="ph_play_video">चलाने के लिए OK दबाएं</string>
+    <string name="ph_slideshow_on">स्लाइडशो: OK या बैक से रुकेगा</string>
+    <string name="ph_slideshow_hint">बाएं और दाएं से आगे-पीछे, नीचे या प्ले से स्लाइडशो</string>
+    <string name="def_photos">फ़ोटो</string>
+    <string name="def_photos_desc">इस टीवी और USB ड्राइव की हर फ़ोटो और वीडियो, नए पहले, एल्बम के साथ। बाएं और दाएं से आगे-पीछे, प्ले से स्लाइडशो, वीडियो प्लेयर में खुलते हैं।</string>
+    <string name="def_photos_pending">दूसरे ऐप की फ़ोटो: ViktorychTV फ़ोटो चुनें और हमेशा चुनें</string>
+    <string name="def_photos_open">फ़ोटो खोलें</string>
+    <string name="def_photos_off">फ़ोटो का इस्तेमाल बंद करें</string>
+    <string name="def_files">फ़ाइलें</string>
+    <string name="def_files_desc">डाउनलोड, इस टीवी का स्टोरेज और USB ड्राइव। फ़ोल्डर, फ़ोटो, वीडियो, संगीत और ऐप फ़ाइलें खोलें। सिर्फ़ पढ़ने के लिए: कुछ भी हटाया या खिसकाया नहीं जाता।</string>
+    <string name="def_files_open">फ़ाइलें खोलें</string>
+    <string name="def_files_off">फ़ाइलों का इस्तेमाल बंद करें</string>
+</resources>

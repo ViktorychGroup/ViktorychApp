@@ -13,6 +13,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import app.viktorych.tv.R;
+import app.viktorych.tv.files.FilesDefaults;
 import app.viktorych.tv.ime.KeyboardDefaults;
 import app.viktorych.tv.player.MediaDefaults;
 import app.viktorych.tv.search.SearchDefaults;
@@ -143,6 +144,32 @@ public class DefaultsActivity extends Activity {
         search.setOnFocusChangeListener((v, f) -> { if (f) showSearchDetails(); });
         list.addView(search, gap());
 
+        // Photos (files/GalleryActivity, PhotoActivity).
+        boolean photosOn = FilesDefaults.photosEnabled(this);
+        View photos = row(R.drawable.fl_photos, getString(R.string.def_photos),
+            getString(photosOn ? R.string.def_on : R.string.def_off), photosOn);
+        photos.setOnClickListener(v -> {
+            boolean was = FilesDefaults.photosEnabled(this);
+            FilesDefaults.enablePhotos(this, true);
+            if (was) FilesDefaults.openPhotos(this);
+            else { render(); focusRow(5); }
+        });
+        photos.setOnFocusChangeListener((v, f) -> { if (f) showPhotosDetails(); });
+        list.addView(photos, gap());
+
+        // Files (files/FilesActivity).
+        boolean filesOn = FilesDefaults.filesEnabled(this);
+        View files = row(R.drawable.fl_files, getString(R.string.def_files),
+            getString(filesOn ? R.string.def_on : R.string.def_off), filesOn);
+        files.setOnClickListener(v -> {
+            boolean was = FilesDefaults.filesEnabled(this);
+            FilesDefaults.enableFiles(this, true);
+            if (was) FilesDefaults.openFiles(this);
+            else { render(); focusRow(6); }
+        });
+        files.setOnFocusChangeListener((v, f) -> { if (f) showFilesDetails(); });
+        list.addView(files, gap());
+
         setContentView(root);
         if (guideFor) showGuide(); else showHomeDetails(on);
         String want = getIntent() == null ? null : getIntent().getStringExtra("focus");
@@ -150,6 +177,8 @@ public class DefaultsActivity extends Activity {
         else if ("player".equals(want)) { player.requestFocus(); getIntent().removeExtra("focus"); }
         else if ("keyboard".equals(want)) { keyboard.requestFocus(); getIntent().removeExtra("focus"); }
         else if ("search".equals(want)) { search.requestFocus(); getIntent().removeExtra("focus"); }
+        else if ("photos".equals(want)) { photos.requestFocus(); getIntent().removeExtra("focus"); }
+        else if ("files".equals(want)) { files.requestFocus(); getIntent().removeExtra("focus"); }
         else home.requestFocus();
     }
 
@@ -241,6 +270,41 @@ public class DefaultsActivity extends Activity {
                 SearchDefaults.enable(this, false);
                 render();
                 focusRow(4);
+            });
+        }
+        side.addView(col);
+    }
+
+    private void showPhotosDetails() {
+        side.removeAllViews();
+        LinearLayout col = sideColumn();
+        col.addView(Ui.icon(this, R.drawable.fl_photos, 40, Ui.TEXT), new LinearLayout.LayoutParams(d(40), d(40)));
+        addSideText(col, getString(R.string.def_photos), 20, Ui.TEXT, 16);
+        addSideText(col, getString(R.string.def_photos_desc), 13, Ui.TEXT_DIM, 10);
+        if (FilesDefaults.photosEnabled(this)) {
+            if (!FilesDefaults.isDefaultPhotos(this)) addSideText(col, getString(R.string.def_photos_pending), 13, 0xFF8AB4F8, 14);
+            sideButton(col, getString(R.string.def_photos_open), () -> FilesDefaults.openPhotos(this));
+            sideButton(col, getString(R.string.def_photos_off), () -> {
+                FilesDefaults.enablePhotos(this, false);
+                render();
+                focusRow(5);
+            });
+        }
+        side.addView(col);
+    }
+
+    private void showFilesDetails() {
+        side.removeAllViews();
+        LinearLayout col = sideColumn();
+        col.addView(Ui.icon(this, R.drawable.fl_files, 40, Ui.TEXT), new LinearLayout.LayoutParams(d(40), d(40)));
+        addSideText(col, getString(R.string.def_files), 20, Ui.TEXT, 16);
+        addSideText(col, getString(R.string.def_files_desc), 13, Ui.TEXT_DIM, 10);
+        if (FilesDefaults.filesEnabled(this)) {
+            sideButton(col, getString(R.string.def_files_open), () -> FilesDefaults.openFiles(this));
+            sideButton(col, getString(R.string.def_files_off), () -> {
+                FilesDefaults.enableFiles(this, false);
+                render();
+                focusRow(6);
             });
         }
         side.addView(col);

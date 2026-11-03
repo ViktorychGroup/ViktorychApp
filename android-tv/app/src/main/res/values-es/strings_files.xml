@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Photos and Files (files/). -->
+<resources>
+    <string name="photos_label">Fotos ViktorychTV</string>
+    <string name="files_label">Archivos ViktorychTV</string>
+    <string name="fl_title">Archivos</string>
+    <string name="fl_downloads">Descargas</string>
+    <string name="fl_this_tv">Esta TV</string>
+    <string name="fl_usb">Unidad USB</string>
+    <string name="fl_no_app">Ninguna app de esta TV abre este archivo</string>
+    <string name="fl_need_access">Permite el acceso a fotos, vídeos y música de esta TV y de las unidades USB para verlos aquí.</string>
+    <string name="fl_allow">Permitir acceso</string>
+    <string name="fl_app_settings">Abrir ajustes de la app</string>
+    <string name="fl_loading">Cargando…</string>
+    <string name="fl_nothing">No se encontró almacenamiento. Conecta una unidad USB o comprueba que esté montada.</string>
+    <string name="fl_empty">Esta carpeta está vacía o solo tiene archivos que la TV mantiene privados.</string>
+    <string name="ph_title">Fotos</string>
+    <string name="ph_all">Todas</string>
+    <string name="ph_empty">Aún no hay fotos ni vídeos. Conecta una unidad USB con imágenes o guarda algunas en esta TV.</string>
+    <string name="ph_play_video">Pulsa OK para reproducir</string>
+    <string name="ph_slideshow_on">Presentación: OK o Atrás la detiene</string>
+    <string name="ph_slideshow_hint">Izquierda y derecha pasan fotos; abajo o reproducir inicia una presentación</string>
+    <string name="def_photos">Fotos</string>
+    <string name="def_photos_desc">Todas las fotos y vídeos de esta TV y de las unidades USB, de más nuevo a más antiguo, con álbumes. Izquierda y derecha pasan fotos, reproducir inicia una presentación y los vídeos se abren en el reproductor.</string>
+    <string name="def_photos_pending">Fotos de otras apps: elige Fotos ViktorychTV y luego Siempre</string>
+    <string name="def_photos_open">Abrir Fotos</string>
+    <string name="def_photos_off">Dejar de usar Fotos</string>
+    <string name="def_files">Archivos</string>
+    <string name="def_files_desc">Descargas, el almacenamiento de esta TV y las unidades USB. Abre carpetas, fotos, vídeo, música y archivos de apps. Solo lectura: no se mueve ni se borra nada.</string>
+    <string name="def_files_open">Abrir Archivos</string>
+    <string name="def_files_off">Dejar de usar Archivos</string>
+</resources>

@@ -1,7 +1,7 @@
 {
-  "versionCode": 7,
-  "versionName": "1.6.0",
+  "versionCode": 8,
+  "versionName": "1.7.0",
   "apk": "tv/ViktorychTV.apk",
   "release": "https://github.com/ViktorychGroup/ViktorychApp/releases/latest/download/ViktorychTV.apk",
-  "notes": "New, optional: a keyboard made for the remote, with emoji and voice typing, and feed search from a search screen or the TV's own search. Turn them on in Make ViktorychTV your default. The player, screensaver and the app itself work as before."
+  "notes": "New, optional: Photos, for every photo and video on the TV and USB drives with albums and a slideshow, and Files, for Downloads, the TV's storage and USB drives. Turn them on in Make ViktorychTV your default. Everything else works as before."
 }

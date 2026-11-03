@@ -18,6 +18,11 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <!-- Optional Photos and Files (files/): asked for only when one of them is opened. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <queries>
         <intent>
@@ -433,6 +438,56 @@
             android:authorities="app.viktorych.tv.search"
             android:enabled="false"
             android:exported="true" />
+
+        <!-- Optional Photos and Files (files/). Off until chosen on the defaults screen;
+             the home screen (launcher/) lists them once they are on. -->
+        <activity
+            android:name=".files.GalleryActivity"
+            android:enabled="false"
+            android:exported="false"
+            android:label="@string/photos_label"
+            android:icon="@drawable/fl_photos"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="app.viktorych.tv.category.TOOL" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".files.PhotoActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/photos_label"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".files.FilesActivity"
+            android:enabled="false"
+            android:exported="false"
+            android:label="@string/files_label"
+            android:icon="@drawable/fl_files"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="app.viktorych.tv.category.TOOL" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name=".files.ShareProvider"
+            android:authorities="app.viktorych.tv.files"
+            android:enabled="false"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
     </application>
 </manifest>

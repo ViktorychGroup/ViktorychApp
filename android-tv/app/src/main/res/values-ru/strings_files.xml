@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Photos and Files (files/). -->
+<resources>
+    <string name="photos_label">Фото ViktorychTV</string>
+    <string name="files_label">Файлы ViktorychTV</string>
+    <string name="fl_title">Файлы</string>
+    <string name="fl_downloads">Загрузки</string>
+    <string name="fl_this_tv">Этот телевизор</string>
+    <string name="fl_usb">USB-накопитель</string>
+    <string name="fl_no_app">На этом телевизоре нет приложения для этого файла</string>
+    <string name="fl_need_access">Разрешите доступ к фото, видео и музыке на телевизоре и USB-накопителях, чтобы видеть их здесь.</string>
+    <string name="fl_allow">Разрешить доступ</string>
+    <string name="fl_app_settings">Открыть настройки приложения</string>
+    <string name="fl_loading">Загрузка…</string>
+    <string name="fl_nothing">Хранилище не найдено. Подключите USB-накопитель или проверьте, что он подключён.</string>
+    <string name="fl_empty">Папка пуста или содержит только файлы, которые телевизор не показывает.</string>
+    <string name="ph_title">Фото</string>
+    <string name="ph_all">Все</string>
+    <string name="ph_empty">Пока нет фото и видео. Подключите USB-накопитель со снимками или сохраните их на телевизор.</string>
+    <string name="ph_play_video">Нажмите OK для просмотра</string>
+    <string name="ph_slideshow_on">Слайд-шоу: OK или «Назад» останавливает</string>
+    <string name="ph_slideshow_hint">Влево и вправо листают, вниз или «Воспроизвести» запускает слайд-шоу</string>
+    <string name="def_photos">Фото</string>
+    <string name="def_photos_desc">Все фото и видео на телевизоре и USB-накопителях, сначала новые, с альбомами. Влево и вправо листают, «Воспроизвести» запускает слайд-шоу, видео открываются в плеере.</string>
+    <string name="def_photos_pending">Фото из других приложений: выберите «Фото ViktorychTV» и «Всегда»</string>
+    <string name="def_photos_open">Открыть Фото</string>
+    <string name="def_photos_off">Не использовать Фото</string>
+    <string name="def_files">Файлы</string>
+    <string name="def_files_desc">Загрузки, память телевизора и USB-накопители. Открывайте папки, фото, видео, музыку и файлы приложений. Только чтение: ничего не перемещается и не удаляется.</string>
+    <string name="def_files_open">Открыть Файлы</string>
+    <string name="def_files_off">Не использовать Файлы</string>
+</resources>

@@ -172,4 +172,21 @@ for (const [name, ua] of Object.entries(UAS)) {
   assert.ok(!manifest.includes("android.permission.RECORD_AUDIO"), "voice typing goes through the system recognizer, not our own microphone access");
 }
 
+{
+  // Optional Photos and Files (TV app 1.7.0+): ship turned off, the file provider is never
+  // exported, and the app only reads storage (no write or manage-all-files access).
+  const manifest = fs.readFileSync(path.join(ROOT, "android-tv/app/src/main/AndroidManifest.xml"), "utf8");
+  for (const name of ["GalleryActivity", "PhotoActivity", "FilesActivity"]) {
+    const a = new RegExp(`<activity[^>]*files\\.${name}[^>]*>`).exec(manifest);
+    assert.ok(a && a[0].includes('android:enabled="false"'), `${name} ships turned off`);
+  }
+  const share = /<provider[^>]*files\.ShareProvider[^>]*>/.exec(manifest);
+  assert.ok(share && share[0].includes('android:enabled="false"') && share[0].includes('android:exported="false"') && share[0].includes('android:grantUriPermissions="true"'), "the file provider ships off, unexported, per-file grants only");
+  assert.ok(!/WRITE_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE/.test(manifest), "Files and Photos are read only");
+  for (const name of ["GalleryActivity", "FilesActivity"]) {
+    const a = new RegExp(`<activity[^>]*files\\.${name}[^>]*>`).exec(manifest);
+    assert.ok(a[0].includes('android:exported="false"'), `${name} opens only from our own home and defaults screens`);
+  }
+}
+
 console.log("tv boot checks passed");

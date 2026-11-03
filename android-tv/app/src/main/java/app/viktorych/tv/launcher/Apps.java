@@ -31,6 +31,8 @@ final class Apps {
         }
     }
 
+    static final String TOOL = "app.viktorych.tv.category.TOOL";
+
     private Apps() {}
 
     static Map<String, App> load(Context c) {
@@ -38,6 +40,9 @@ final class Apps {
         Map<String, App> out = new LinkedHashMap<>();
         Intent tv = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
         List<ResolveInfo> list = new ArrayList<>(pm.queryIntentActivities(tv, 0));
+        // Our own optional screens (Photos, Files) once they are switched on.
+        Intent tools = new Intent(Intent.ACTION_MAIN).addCategory(TOOL).setPackage(c.getPackageName());
+        list.addAll(pm.queryIntentActivities(tools, 0));
         for (ResolveInfo r : list) {
             ActivityInfo a = r.activityInfo;
             if (a == null) continue;

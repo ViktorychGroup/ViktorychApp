@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Photos and Files (files/). -->
+<resources>
+    <string name="photos_label">ViktorychTV Photos</string>
+    <string name="files_label">ViktorychTV Files</string>
+    <string name="fl_title">Files</string>
+    <string name="fl_downloads">Downloads</string>
+    <string name="fl_this_tv">This TV</string>
+    <string name="fl_usb">USB drive</string>
+    <string name="fl_no_app">No app on this TV opens this file</string>
+    <string name="fl_need_access">Allow access to photos, videos and music on this TV and USB drives to see them here.</string>
+    <string name="fl_allow">Allow access</string>
+    <string name="fl_app_settings">Open app settings</string>
+    <string name="fl_loading">Loading…</string>
+    <string name="fl_nothing">No storage found. Plug in a USB drive or check that one is mounted.</string>
+    <string name="fl_empty">This folder is empty, or holds only files this TV keeps private.</string>
+    <string name="ph_title">Photos</string>
+    <string name="ph_all">All</string>
+    <string name="ph_empty">No photos or videos yet. Plug in a USB drive with pictures, or save some to this TV.</string>
+    <string name="ph_play_video">Press OK to play</string>
+    <string name="ph_slideshow_on">Slideshow: OK or Back stops</string>
+    <string name="ph_slideshow_hint">Left and right step through, down or play starts a slideshow</string>
+    <string name="def_photos">Photos</string>
+    <string name="def_photos_desc">Every photo and video on this TV and on USB drives, newest first, with albums. Left and right step through, play starts a slideshow, videos open in the player.</string>
+    <string name="def_photos_pending">Photos from other apps: pick ViktorychTV Photos and choose Always</string>
+    <string name="def_photos_open">Open Photos</string>
+    <string name="def_photos_off">Stop using Photos</string>
+    <string name="def_files">Files</string>
+    <string name="def_files_desc">Downloads, this TV\'s storage and USB drives. Open folders, photos, video, music and app files. Read only: nothing is moved or deleted.</string>
+    <string name="def_files_open">Open Files</string>
+    <string name="def_files_off">Stop using Files</string>
+</resources>
