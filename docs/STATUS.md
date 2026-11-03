@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main was `b22d61e4` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main was `bfa052eb` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## Merged today
 
@@ -31,6 +31,10 @@ Do not start these unless the owner asks.
 
 - **PR 2.** 3D view, Join with my camera (including No frame), real-frames-only slow motion. No interpolation, no synthetic frames.
 - **PR 3.** X-style Past recordings rebuild, shared player features, full screen, zoom preserved everywhere.
+
+## Back to Home
+
+Leaving Home keeps the page that was on screen. Coming back puts that page back immediately, then weaves in posts that arrived while you were away. A background refresh while Home is already showing waits for the next frame, so it does not block a click. Measured with the feed-load click check (desktop, CPU slowed 4×, feeds held for 3 seconds): back to Home was 32ms, 34ms and 29ms. Before the parked page, the same last click was about 310–340ms. The Following list, community scroll, and the music player still load the way they do on main.
 
 ## Shorts on the first load
 
