@@ -33,6 +33,8 @@ export const FEATURES = {
   // its timeline and their old pages redirect there. On by default. Off:
   // linked profiles stay listed but keep their own pages.
   merged_profiles: { paths: ["/v1/identities/merged"] },
+  // Private custom names for accounts from other networks. On by default.
+  ext_nicknames: { paths: ["/v1/nicknames/external"] },
   // Off until the owner turns it on: NIP-05 names and post links to Nostr events.
   nostr: { paths: ["/v1/nostr", "/.well-known/nostr.json"], defaultOff: true },
   // Off until the owner turns it on and sets NFT_CONTRACT: optional gift NFTs.

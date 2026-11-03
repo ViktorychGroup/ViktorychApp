@@ -238,7 +238,10 @@
 
   function nameHtml(group, item) {
     if (group === "communities") return esc(item.id);
-    return esc(item.n || item.h) + (item.v && host && host.badge ? host.badge(item.v) : "");
+    var raw = item.n || item.h;
+    var nk = root.ViktorychNick;
+    if (nk && item.h) raw = nk.name(item.p || "app", item.h, raw);
+    return esc(raw) + (item.v && host && host.badge ? host.badge(item.v) : "");
   }
 
   function rowHtml(group, item) {

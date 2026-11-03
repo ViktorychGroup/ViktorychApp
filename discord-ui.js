@@ -745,7 +745,7 @@
       const day = showDay ? '<div class="dmsg-day"><span>' + esc(formatDay(row)) + "</span></div>" : "";
       const color = hexColor(row.color);
       const head = fresh
-        ? '<div class="dmsg-head"><span class="dmsg-name"' + (color ? ' style="color:' + color + '"' : "") + ">" + esc(row.name) + '</span><time datetime="' + esc(row.date) + '">' + esc(formatClock(row)) + "</time></div>"
+        ? '<div class="dmsg-head"><span class="dmsg-name"' + (color ? ' style="color:' + color + '"' : "") + ">" + esc(row.authorId && (typeof window !== "undefined" ? window.ViktorychNick : null) ? window.ViktorychNick.name("discord", String(row.authorId), row.name) : row.name) + '</span><time datetime="' + esc(row.date) + '">' + esc(formatClock(row)) + "</time></div>"
         : "";
       const gutter = fresh ? avatarHtml(row) : "";
       prev = row;
