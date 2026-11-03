@@ -4,7 +4,7 @@ const VERSION = "viktorych-a279-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-03T12:50:51.000Z-folder-draft
+// cache-bust: 2026-11-03T17:35:00.000Z-sw-waiting
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -1709,6 +1709,27 @@ async function doPrecache(report, generation, signal) {
   }
 }
 
+/* The new worker is installed and waiting. skipWaiting can be missed when
+   this worker entered waiting before the page was listening, and one call
+   is not always enough while the old worker is still busy. Ask again until
+   this worker is active, then claim clients so the page hears it. */
+async function activateWaiting() {
+  for (let waited = 0; waited < 60000; waited += 500) {
+    if (self.registration.active === self.serviceWorker) {
+      try { await self.clients.claim(); } catch (err) { /* the page reloads once we are active */ }
+      const info = versionInfo();
+      if (updateReporting) broadcast({ type: "update-ready", version: info.version, sha: info.sha, built: info.built });
+      return;
+    }
+    if (self.registration.waiting !== self.serviceWorker && self.registration.installing !== self.serviceWorker) return;
+    try { await self.skipWaiting(); } catch (err) { /* ask again on the next pass */ }
+    if (updateReporting) broadcastProgress({ step: "activate" }, true);
+    await wait(500);
+  }
+  if (self.registration.active === self.serviceWorker) return;
+  throw shellError("", "timeout");
+}
+
 async function runApply(fresh) {
   updateReporting = true;
   // A nudge with fresh:false must not abort a download that is already
@@ -1720,15 +1741,7 @@ async function runApply(fresh) {
     const state = await task;
     if (generation !== precacheGeneration) return;
     broadcastProgress({ step: "install", files: state.files, totalFiles: state.totalFiles, bytes: state.bytes, totalBytes: state.totalBytes }, true);
-    await self.skipWaiting();
-    // Activation can be held up by the old worker. If this worker is still
-    // waiting after a while, say so, and Retry asks again.
-    for (let waited = 0; waited < 20000; waited += 500) {
-      if (generation !== precacheGeneration || self.registration.active === self.serviceWorker || self.registration.waiting !== self.serviceWorker) return;
-      await wait(500);
-    }
-    if (generation !== precacheGeneration || self.registration.waiting !== self.serviceWorker) return;
-    throw shellError("", "timeout");
+    await activateWaiting();
   } catch (err) {
     if (generation !== precacheGeneration || (err && err.reason === "replaced")) return;
     updateReporting = false;
@@ -1861,8 +1874,14 @@ self.addEventListener("message", (event) => {
     })());
     return;
   }
-  if (data.type === "apply-update" || data.type === "skip-waiting") {
-    event.waitUntil(runApply(data.type === "skip-waiting" || data.fresh !== false));
+  if (data.type === "skip-waiting") {
+    // The page found this worker already waiting. Take over now. Do not
+    // start the download again: that aborts the attempt that is in flight.
+    event.waitUntil(activateWaiting());
+    return;
+  }
+  if (data.type === "apply-update") {
+    event.waitUntil(runApply(data.fresh !== false));
     return;
   }
   if (data.type === "ru_mode") {

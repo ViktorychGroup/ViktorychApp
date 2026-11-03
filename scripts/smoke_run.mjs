@@ -210,7 +210,8 @@ const NAV_STEPS = [
 const SHARDS = {
   checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you"],
   site: ["about-layout", "points-layout", "stories-layout", "assemble-site", "smoke-site", "smoke-mirror", "yt-embed", "x-video", "ios", "live"],
-  "ui-fast": ["sw-update", "notifications", "pill-fit", "sidebar", "privacy"],
+  "ui-fast": ["notifications", "pill-fit", "sidebar", "privacy"],
+  sw: ["sw-update"],
   "ui-profile": ["profile"],
   "ui-drawer": ["drawer"],
   home: ["home-tabs"],

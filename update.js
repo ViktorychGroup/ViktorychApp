@@ -625,6 +625,38 @@
     if (!state.suppressAutoFallback && shouldFallback(state.failures)) fallbackReload();
   }
 
+  /* The worker can be waiting before this page listens for
+     controllerchange, and one skipWaiting can be lost while the old worker
+     is busy. Keep asking the waiting worker to take over, and finish if the
+     controller is already the new build. */
+  function watchActivation(attempt) {
+    var ticks = 0;
+    var timer = setInterval(function () {
+      if (applying !== attempt || state.reloaded || (state.phase !== "working" && state.phase !== "error")) {
+        clearInterval(timer);
+        return;
+      }
+      ticks += 1;
+      if (ticks > 40) { clearInterval(timer); return; }
+      var lookup = navigator.serviceWorker && navigator.serviceWorker.getRegistration ? navigator.serviceWorker.getRegistration() : Promise.resolve(null);
+      lookup.then(function (reg) {
+        if (applying !== attempt || !reg) return null;
+        state.reg = reg;
+        if (reg.waiting) {
+          state.waiting = reg.waiting;
+          try { reg.waiting.postMessage({ type: "skip-waiting" }); } catch (err) { /* the next tick asks again */ }
+        }
+        return readControllerSha();
+      }).then(function (sha) {
+        if (applying !== attempt || !sha || !state.remoteSha) return;
+        if (sha === state.remoteSha) {
+          clearInterval(timer);
+          finishUpdate();
+        }
+      }).catch(function () {});
+    }, 3000);
+  }
+
   function finishUpdate() {
     if (state.reloaded) return;
     state.reloaded = true;
@@ -688,13 +720,14 @@
       if (worker) {
         state.waiting = worker;
         armStall();
+        watchActivation(attempt);
         // Files nearby devices already hold for this version go into a cache
         // the worker reuses by hash. Bounded and skipped without peers.
         var pool = window.ViktorychPool;
         var prefill = pool && pool.prefillShell ? Promise.resolve().then(function () { return pool.prefillShell(); }).catch(function () { return 0; }) : Promise.resolve(0);
         prefill.then(function () {
           if (applying !== attempt) return;
-          worker.postMessage({ type: "apply-update" });
+          try { worker.postMessage({ type: "apply-update" }); } catch (err) { /* watchActivation asks again */ }
         });
         return;
       }
@@ -1085,7 +1118,7 @@
     navigator.serviceWorker.addEventListener("message", function (event) { onWorkerMessage(event.data || {}); });
     navigator.serviceWorker.addEventListener("controllerchange", function () {
       askVersion();
-      if (state.expectingController) finishUpdate();
+      if (state.expectingController || state.phase === "working") finishUpdate();
     });
     var attach = function (reg) { if (reg) watch(reg); };
     navigator.serviceWorker.getRegistration().then(attach).catch(function () {});

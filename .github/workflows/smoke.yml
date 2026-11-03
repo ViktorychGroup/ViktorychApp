@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [checks, site, ui-fast, ui-profile, ui-drawer, home, compose-core, compose-a, compose-b, compose-c, compose-d, compose-e, signup-sizes, signup-flows]
+        shard: [checks, site, sw, ui-fast, ui-profile, ui-drawer, home, compose-core, compose-a, compose-b, compose-c, compose-d, compose-e, signup-sizes, signup-flows]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
