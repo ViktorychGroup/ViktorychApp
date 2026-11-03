@@ -3,6 +3,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { sharedStaticServer } from "./smoke_runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -23,6 +24,8 @@ function mime(file) {
 }
 
 function startServer() {
+  const shared = sharedStaticServer();
+  if (shared) return Promise.resolve(shared);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
     let rel = decodeURIComponent(url.pathname);
@@ -152,20 +155,21 @@ async function main() {
       await context.close();
     }
     console.log("home reach ok");
-    // The Explore nav check rides along here so it runs in the nav workflow.
-    const { spawnSync } = await import("node:child_process");
-    const explore = spawnSync(process.execPath, [path.join(root, "scripts", "explore_nav_test.mjs")], { stdio: "inherit", env: process.env });
-    if (explore.status !== 0) throw new Error("explore nav check failed");
-    const features = spawnSync(process.execPath, [path.join(root, "scripts", "home_features_test.mjs")], { stdio: "inherit", env: process.env });
-    if (features.status !== 0) throw new Error("home features check failed");
-    const serverOff = spawnSync(process.execPath, [path.join(root, "scripts", "server_off_test.mjs")], { stdio: "inherit", env: process.env });
-    if (serverOff.status !== 0) throw new Error("server off check failed");
-    const feedInput = spawnSync(process.execPath, [path.join(root, "scripts", "feed_load_input_test.mjs")], { stdio: "inherit", env: process.env });
-    if (feedInput.status !== 0) throw new Error("feed load input check failed");
   } finally {
     await browser.close();
     server.close();
   }
+  // Ride-alongs start after this browser is gone. The feed-load timing
+  // check is last, with nothing else running.
+  const { spawnSync } = await import("node:child_process");
+  const explore = spawnSync(process.execPath, [path.join(root, "scripts", "explore_nav_test.mjs")], { stdio: "inherit", env: process.env });
+  if (explore.status !== 0) throw new Error("explore nav check failed");
+  const features = spawnSync(process.execPath, [path.join(root, "scripts", "home_features_test.mjs")], { stdio: "inherit", env: process.env });
+  if (features.status !== 0) throw new Error("home features check failed");
+  const serverOff = spawnSync(process.execPath, [path.join(root, "scripts", "server_off_test.mjs")], { stdio: "inherit", env: process.env });
+  if (serverOff.status !== 0) throw new Error("server off check failed");
+  const feedInput = spawnSync(process.execPath, [path.join(root, "scripts", "feed_load_input_test.mjs")], { stdio: "inherit", env: process.env });
+  if (feedInput.status !== 0) throw new Error("feed load input check failed");
 }
 
 main().catch((err) => {

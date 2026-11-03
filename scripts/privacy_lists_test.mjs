@@ -2,10 +2,10 @@
    with the privacy screen off and on. The cover is an overlay only while
    the window is in the background. Placeholders only. */
 import http from "node:http";
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { runScripts, sharedStaticServer } from "./smoke_runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -26,6 +26,8 @@ function mime(file) {
 }
 
 function startServer() {
+  const shared = sharedStaticServer();
+  if (shared) return Promise.resolve(shared);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
     let rel = decodeURIComponent(url.pathname);
@@ -347,8 +349,8 @@ async function main() {
   if (process.exitCode) fail("privacy list checks failed");
   console.log("privacy lists ok");
   // External Following / Followers pages ride along here (same browser setup).
-  const ext = spawnSync(process.execPath, [path.join(root, "scripts", "external_following_test.mjs")], { stdio: "inherit", env: process.env });
-  if (ext.status !== 0) fail("external following checks failed");
+  const [ext] = await runScripts(path.join(root, "scripts"), ["external_following_test.mjs"]);
+  if (ext !== 0) fail("external following checks failed");
 }
 
 main().catch((err) => {

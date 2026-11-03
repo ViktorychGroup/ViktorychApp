@@ -563,12 +563,18 @@
     state.opens = readJson(local(), OPENS_KEY) || {};
     if (!Array.isArray(state.queue)) state.queue = [];
     var app = typeof document !== "undefined" ? document.getElementById("app") : null;
-    if (saved && saved.html && app && !app.childElementCount) {
+    var live = typeof location !== "undefined" ? (location.hash || "#/") : "#/";
+    var savedHash = saved && saved.hash ? String(saved.hash) : "";
+    /* A deep link such as #/settings must not be covered by the Home
+       screen saved last time. Home still restores, and then may adopt
+       the saved address below. */
+    var canPaint = !!(saved && saved.html && (defaultRoute(live) || !savedHash || savedHash === live));
+    if (canPaint && app && !app.childElementCount) {
       app.innerHTML = saved.html;
       document.documentElement.classList.add("is-restored");
       state.restored = true;
       state.screen = saved;
-    } else if (saved && saved.html && app && app.childElementCount && document.documentElement.classList.contains("is-restored")) {
+    } else if (canPaint && app && app.childElementCount && document.documentElement.classList.contains("is-restored")) {
       state.restored = true;
       state.screen = saved;
     }
@@ -1108,6 +1114,10 @@
     warmMedia: warmMedia,
     warmOpens: warmOpens,
     wasRestored: wasRestored,
+    screenHash: function () {
+      var screen = state.screen || readJson(local(), SCREEN_KEY);
+      return screen && screen.hash ? String(screen.hash) : "";
+    },
     restoreEarly: restoreEarly,
     wipe: wipe,
     swr: {

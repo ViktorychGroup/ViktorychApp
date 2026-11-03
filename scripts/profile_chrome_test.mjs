@@ -3,6 +3,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { sharedStaticServer } from "./smoke_runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -23,6 +24,8 @@ function mime(file) {
 }
 
 function startServer() {
+  const shared = sharedStaticServer();
+  if (shared) return Promise.resolve(shared);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
     let rel = decodeURIComponent(url.pathname);
@@ -151,6 +154,7 @@ async function check(page, label) {
 }
 
 async function main() {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
   const chromium = await loadPlaywright();
   const server = await startServer();
   const port = server.address().port;
@@ -169,23 +173,16 @@ async function main() {
     await browser.close();
     server.close();
   }
-}
-
-main().then(async () => {
   if (process.exitCode) return;
   // @mention suggestions ride along so the smoke workflow runs them.
   const { spawnSync } = await import("node:child_process");
-  const mentions = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "mention_suggest_test.mjs")], { stdio: "inherit", env: process.env });
-  if (mentions.status !== 0) process.exitCode = 1;
-  const friendState = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "friend_state_test.mjs")], { stdio: "inherit", env: process.env });
-  if (friendState.status !== 0) process.exitCode = 1;
-  const myDevices = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "my_devices_test.mjs")], { stdio: "inherit", env: process.env });
-  if (myDevices.status !== 0) process.exitCode = 1;
-  const feedsPage = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "feeds_page_test.mjs")], { stdio: "inherit", env: process.env });
-  if (feedsPage.status !== 0) process.exitCode = 1;
-  const feedRequests = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "feed_requests_approve_test.mjs")], { stdio: "inherit", env: process.env });
-  if (feedRequests.status !== 0) process.exitCode = 1;
-}).catch((err) => {
+  for (const name of ["mention_suggest_test.mjs", "friend_state_test.mjs", "my_devices_test.mjs", "feeds_page_test.mjs", "feed_requests_approve_test.mjs"]) {
+    const child = spawnSync(process.execPath, [path.join(dir, name)], { stdio: "inherit", env: process.env });
+    if (child.status !== 0) process.exitCode = 1;
+  }
+}
+
+main().catch((err) => {
   console.error(err && err.message ? err.message : err);
   process.exitCode = 1;
 });

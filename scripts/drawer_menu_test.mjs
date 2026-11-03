@@ -3,7 +3,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { sharedStaticServer } from "./smoke_runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -24,6 +24,8 @@ function mime(file) {
 }
 
 function startServer() {
+  const shared = sharedStaticServer();
+  if (shared) return Promise.resolve(shared);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
     let rel = decodeURIComponent(url.pathname);
@@ -227,19 +229,14 @@ async function main() {
       }
     }
     console.log("drawer menu ok");
-    /* The menu's Customize row opens the Customize page; its own check runs here so CI covers it. */
-    const pz = spawnSync(process.execPath, [path.join(root, "scripts", "customize_page_test.mjs")], { stdio: "inherit", env: process.env });
-    if (pz.status !== 0) fail("customize page check failed");
-    // The installed desktop app checks ride along here so the smoke workflow runs them.
-    const desk = spawnSync(process.execPath, [path.join(root, "scripts", "desktop_app_test.mjs")], { stdio: "inherit", env: process.env });
-    if (desk.status !== 0) fail("desktop app check failed");
-    const lai = spawnSync(process.execPath, [path.join(root, "scripts", "local_ai_page_test.mjs")], { stdio: "inherit", env: process.env });
-    if (lai.status !== 0) fail("local ai page check failed");
-    const laiSetup = spawnSync(process.execPath, [path.join(root, "scripts", "local_ai_setup_test.mjs")], { stdio: "inherit", env: process.env });
-    if (laiSetup.status !== 0) fail("local ai setup check failed");
   } finally {
     await browser.close();
     server.close();
+  }
+  const { spawnSync } = await import("node:child_process");
+  for (const name of ["customize_page_test.mjs", "desktop_app_test.mjs", "local_ai_page_test.mjs", "local_ai_setup_test.mjs"]) {
+    const child = spawnSync(process.execPath, [path.join(root, "scripts", name)], { stdio: "inherit", env: process.env });
+    if (child.status !== 0) fail(name + " failed");
   }
 }
 

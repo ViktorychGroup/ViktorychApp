@@ -605,7 +605,11 @@
              localfirst.js would put the same copy back a few seconds later;
              sign-out and account deletion clear it. The wall never gets it. */
           var acct = read("viktorychapp-account-v1");
-          if (acct && acct.token && document.documentElement.getAttribute("data-wall") !== "1") paintScreen(read("viktorych-screen-v1"));
+          var saved = read("viktorych-screen-v1");
+          var hash = location.hash || "#/";
+          var savedHash = saved && saved.hash || "";
+          var home = !hash || hash === "#" || hash === "#/" || hash === "#/home" || hash.indexOf("#/home/") === 0 || hash.indexOf("#/?") === 0;
+          if (acct && acct.token && document.documentElement.getAttribute("data-wall") !== "1" && (home || !savedHash || savedHash === hash)) paintScreen(saved);
           return;
         }
         if (paintScreen(read("viktorych-screen-v1"))) return;

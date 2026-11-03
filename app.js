@@ -21360,7 +21360,13 @@ if (STATE.histClear) {
     setTimeout(() => {
       renderQ.scheduled = false;
       if (!renderQ.pending) return;
-      if (renderHeld()) return;
+      /* A flush that gives up while a press is held used to drop the
+         render. If pointerup never arrives, Settings stays on the old
+         screen. Ask again; renderHeld() lets it through after the cap. */
+      if (renderHeld()) {
+        scheduleRenderFlush();
+        return;
+      }
       const queued = renderQ.opts;
       renderQ.flushing = true;
       try { render(queued || undefined); } finally { renderQ.flushing = false; }
@@ -21391,6 +21397,7 @@ if (STATE.histClear) {
       const el = event.target && event.target.closest ? event.target.closest(PRESS_SEL) : null;
       pressRec = el ? { el: el, sig: pressSig(el) } : null;
     }, true);
+    document.addEventListener("pointercancel", () => releaseRenderHold(), true);
     document.addEventListener("pointerup", (event) => {
       if (!event.isTrusted) return;
       const rec = pressRec;
@@ -21516,10 +21523,11 @@ if (STATE.histClear) {
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => queueMicrotask(run));
     else queueMicrotask(run);
   }
+  let paintToken = 0;
   function noteRoutePaint(paintedHash) {
     routePaintState = routePaintDecision(routePaintState, {
       type: "finish",
-      token: routePaintState.token,
+      token: paintToken,
       paintedHash: paintedHash,
       hash: location.hash || "#/"
     });
@@ -21553,6 +21561,7 @@ if (STATE.histClear) {
       history.replaceState(null, "", location.pathname + location.search + "#/storage" + bare.slice("#/drive".length) + (qCut >= 0 ? hashNow.slice(qCut) : ""));
     }
     const hashAtStart = location.hash || "#/";
+    paintToken = routePaintState.token;
     let paintedHash = hashAtStart;
     let applied = false;
     const gen = (STATE.renderGen = (STATE.renderGen || 0) + 1);
@@ -30362,6 +30371,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     } catch (err) { /* periodic sync still covers installed Chrome and Edge */ }
   });
 
+  function homeAddress(hash) {
+    const h = hash || "#/";
+    return h === "#" || h === "#/" || h === "#/home" || h.indexOf("#/home/") === 0 || h.indexOf("#/?") === 0 || h.indexOf("#/home?") === 0;
+  }
+  function savedScreenHash() {
+    const local = window.ViktorychLocal;
+    if (!local || !local.screenHash) return "";
+    try { return String(local.screenHash() || ""); } catch (err) { return ""; }
+  }
+
   async function boot() {
     holdDeviceFeeds();
     syncRuVisitorGeo();
@@ -30469,9 +30488,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       scheduleDeviceIndex();
       if (STATE.pendingFeed) showPill(pendingPillPosts());
       ensureVideoOwners();
-    } else if (painted || document.querySelector("#app [data-boot-card]")) {
+    } else if (homeAddress(location.hash) && (painted || document.querySelector("#app [data-boot-card]"))) {
+      /* Home can keep the restored timeline until the catalog arrives. */
+      STATE.loading = false;
+    } else if (painted && savedScreenHash() === (location.hash || "#/")) {
       STATE.loading = false;
     } else {
+      /* A restored Home screen must not stay under #/settings. Paint the
+         address that is open now; the catalog fills Home in later. */
       STATE.loading = true;
       if (!routeDomReady && parseRoute().name !== "home") followRoute();
       else render();
@@ -30597,7 +30621,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         STATE.error = null;
         if (!navigator.onLine) setOffline(true);
         render();
-      } else if (window.ViktorychLocal && window.ViktorychLocal.wasRestored()) {
+      } else if (window.ViktorychLocal && window.ViktorychLocal.wasRestored() && (!savedScreenHash() || savedScreenHash() === (location.hash || "#/") || homeAddress(location.hash))) {
         STATE.error = null;
         if (!navigator.onLine) setOffline(true);
       } else {
