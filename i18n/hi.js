@@ -6040,5 +6040,6 @@ SI18n.addPack("hi", {
   "Dragon status": "ड्रैगन स्टेटस",
   "Gem status": "रत्न स्टेटस",
   "Unicorn status": "यूनिकॉर्न स्टेटस",
-  "Crown status": "मुकुट स्टेटस"
+  "Crown status": "मुकुट स्टेटस",
+  "Couldn’t do that. Try again.": "यह नहीं हो सका। फिर से कोशिश करें।"
 });

@@ -6052,5 +6052,6 @@ SI18n.addPack("ru", {
   "Dragon status": "Статус «Дракон»",
   "Gem status": "Статус «Самоцвет»",
   "Unicorn status": "Статус «Единорог»",
-  "Crown status": "Статус «Корона»"
+  "Crown status": "Статус «Корона»",
+  "Couldn’t do that. Try again.": "Не получилось. Попробуй ещё раз."
 });
