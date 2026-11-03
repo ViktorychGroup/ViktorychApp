@@ -3220,7 +3220,11 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const lead = tgKey && accountToken() && (stored ? !mirrorKey(stored) : (!first || oePast(first) || (post && post.platform === "tiktok")));
     const tg = tgKey ? (lead ? tgLead(tgKey, stills.slice(1), first) : ` data-tg="${esc(tgKey)}"${stills.slice(1).length ? ` data-tg-alts="${esc(stills.slice(1).join(","))}"` : ""}`) : "";
     const src = lead ? "" : ` src="${esc(first)}"`;
-    const img = `<img decoding="async" class="${cls}${face}"${src}${tg} alt="" referrerpolicy="no-referrer" data-pi="0" data-avatar="${esc(pack.avatar)}" data-falls="${esc(JSON.stringify(pack.urls))}">`;
+    const pw = Math.round(Number(media && media.width) || 0);
+    const ph = Math.round(Number(media && media.height) || 0);
+    const posterDim = pw > 0 && ph > 0 ? ` width="${pw}" height="${ph}"` : "";
+    const posterSet = src ? imageSrcset(first) : "";
+    const img = `<img decoding="async" class="${cls}${face}"${src}${posterDim}${posterSet}${tg} alt="" referrerpolicy="no-referrer" data-pi="0" data-avatar="${esc(pack.avatar)}" data-falls="${esc(JSON.stringify(pack.urls))}">`;
     /* Save data on mobile data: the poster waits for Wi-Fi or a tap. */
     return cls === "vposter" && holdMedia(first) ? dataSaver().holdAttrs(img) : img;
   }
@@ -4130,7 +4134,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       const priority = first ? ` fetchpriority="high"` : ` fetchpriority="low"`;
       const srcAttr = lead ? "" : ` src="${esc(src)}"${src === rawSrc ? imageSrcset(src) : ""}`;
       const framed = n === 1 ? frameAttrs(post, m) : { attr: "", cls: "" };
-      let img = `<img${srcAttr}${refresh}${tgAttr}${sourceAttr} alt="${esc(m.alt || "")}" loading="${loading}" decoding="async"${priority} referrerpolicy="no-referrer">`;
+      const mw = Math.round(Number(m.width) || 0);
+      const mh = Math.round(Number(m.height) || 0);
+      const dimAttr = mw > 0 && mh > 0 ? ` width="${mw}" height="${mh}"` : "";
+      let img = `<img${srcAttr}${dimAttr}${refresh}${tgAttr}${sourceAttr} alt="${esc(m.alt || "")}" loading="${loading}" decoding="async"${priority} referrerpolicy="no-referrer">`;
       const hold = holdMedia(lead ? tgKey : src) ? ` data-ds-hold="1" data-ds-label="${esc(tr("Tap to load"))}"` : "";
       if (hold) img = dataSaver().holdAttrs(img);
       return `<div class="tile${framed.cls || ""}"${hold} data-act="view" data-id="${esc((post && post.id) || "")}" data-mi="${index}"${framed.attr || ""}>${img}${alt}</div>`;

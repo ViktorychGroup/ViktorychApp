@@ -4,13 +4,24 @@ const VERSION = "viktorych-a279-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-03T21:02:00.000Z-page-smoke
+// cache-bust: 2026-11-03T21:15:00.000Z-load-only
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
 let playToken = "";
 let isRuVisitor = false;
-importScripts("./shared/mirror.js?" + VERSION, "./storage.js?" + VERSION, "./shared/home-fresh.js?" + VERSION, "./i18n.js?" + VERSION, "./i18n/en.js?" + VERSION, "./i18n/ru.js?" + VERSION, "./i18n/es.js?" + VERSION, "./i18n/hi.js?" + VERSION, "./codec.js?" + VERSION, "./media-opfs.js?" + VERSION, "./notif-privacy.js?" + VERSION);
+importScripts("./shared/mirror.js?" + VERSION, "./storage.js?" + VERSION, "./shared/home-fresh.js?" + VERSION, "./i18n.js?" + VERSION, "./i18n/en.js?" + VERSION, "./codec.js?" + VERSION, "./media-opfs.js?" + VERSION, "./notif-privacy.js?" + VERSION);
+const loadedPacks = { en: true };
+function ensurePack(code) {
+  if (loadedPacks[code]) return;
+  try {
+    if (code === "ru") importScripts("./i18n/ru.js?" + VERSION);
+    else if (code === "es") importScripts("./i18n/es.js?" + VERSION);
+    else if (code === "hi") importScripts("./i18n/hi.js?" + VERSION);
+    else return;
+    loadedPacks[code] = true;
+  } catch (err) { /* English strings stay until the pack can be fetched */ }
+}
 function tr(key, vars) {
   var fn = (typeof self !== "undefined" && self.t) ? self.t : null;
   return fn ? fn(key, vars) : key;
@@ -23,7 +34,10 @@ async function ensureUiLang() {
   try {
     const db = await idb();
     const savedLang = await idbGet(db, "ui-lang");
-    if ((savedLang === "en" || savedLang === "ru" || savedLang === "es" || savedLang === "hi") && self.SI18n) self.SI18n.setLang(savedLang);
+    if (savedLang === "en" || savedLang === "ru" || savedLang === "es" || savedLang === "hi") {
+      ensurePack(savedLang);
+      if (self.SI18n) self.SI18n.setLang(savedLang);
+    }
   } catch (err) { /* English until the page sends a language */ }
 }
 async function brandManifestResponse(response) {
@@ -269,6 +283,30 @@ const SHELL_FILES = [
   "./shared/pool-scheduler.js",
   "./shared/device-performance.js"
 ];
+/* The first visit activates after these files. The rest of SHELL_FILES is
+   cached when the page asks, once the browser is idle. */
+const SHELL_CORE = [
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./landing.css",
+  "./customize.css",
+  "./accounts.css",
+  "./accounts.config.js",
+  "./i18n.js",
+  "./device-seal.js",
+  "./shared/ios.js",
+  "./shared/tv-boot.js",
+  "./shared/short-link.js",
+  "./privacy-screen.js",
+  "./shared/lazy-modules.js",
+  "./shared/mirror.js",
+  "./favicon.svg",
+  "./favicon.ico",
+  "./manifest.webmanifest",
+  "./logo/viktorychapp.svg",
+  "./logo/viktorychapp-short.svg"
+];
 
 let updateReporting = false;
 let shellTask = null;
@@ -348,19 +386,9 @@ self.addEventListener("install", (event) => {
     // the update and download the shell with a real progress count.
     // The first visit has no active worker, so the shell is cached quietly.
     if (self.registration.active) return;
-    // The page may prime the same download. A newer attempt must not reject
-    // this install; wait for the attempt that is still running.
-    let task = precacheShell(false, false);
-    for (;;) {
-      try {
-        await task;
-        break;
-      } catch (err) {
-        if (!err || err.reason !== "replaced" || !shellTask || shellTask === task) throw err;
-        task = shellTask;
-      }
-    }
-    if (self.registration.active) return;
+    // Take control immediately. The shell download (core files first, then
+    // the rest) starts when the page is idle, so this install does not hold
+    // the next navigation behind a long precache.
     await self.skipWaiting();
   })());
 });
@@ -384,7 +412,14 @@ self.addEventListener("activate", (event) => {
     // Move what older versions saved into the stable caches in the background.
     adoptOldCaches().catch(() => {});
     purgeOpaquePictures().catch(() => {});
-    try { await self.clients.claim(); } catch (err) { /* the page reloads once the worker is active */ }
+    try {
+      if (updateReporting) await self.clients.claim();
+      else {
+        /* The first visit keeps its own network reads. Claiming at once
+           hides them from the page. A later claim covers the next views. */
+        setTimeout(() => { self.clients.claim().catch(() => {}); }, 30000);
+      }
+    } catch (err) { /* the page reloads once the worker is active */ }
     try {
       if (self.registration.navigationPreload) await self.registration.navigationPreload.enable();
     } catch (err) { /* navigation preload is optional */ }
@@ -1334,20 +1369,21 @@ function precacheDelay(attempt) {
   return Math.min(8000, 500 * (2 ** (attempt - 1)));
 }
 
-function precacheShell(report, fresh) {
+function precacheShell(report, fresh, mode) {
   // The first visit and a prime share one download. Retry starts a new one
   // and drops a download that already failed or is still hanging.
-  if (!fresh && shellTask) return shellTask;
+  if (!fresh && shellTask && shellTask.mode === (mode || "all")) return shellTask;
   if (precacheAbort) {
     try { precacheAbort.abort("replaced"); } catch (err) { /* the previous attempt already stopped */ }
   }
   const controller = new AbortController();
   precacheAbort = controller;
   const generation = ++precacheGeneration;
-  const task = doPrecache(report, generation, controller.signal).finally(() => {
+  const task = doPrecache(report, generation, controller.signal, mode || "all").finally(() => {
     if (shellTask === task) shellTask = null;
   });
   task.generation = generation;
+  task.mode = mode || "all";
   shellTask = task;
   return task;
 }
@@ -1633,7 +1669,7 @@ async function shellReadyState() {
   } catch (err) { return null; }
 }
 
-async function doPrecache(report, generation, signal) {
+async function doPrecache(report, generation, signal, mode) {
   const done = await shellReadyState();
   if (done) {
     progressState = { files: Number(done.files) || 0, totalFiles: Number(done.totalFiles) || 0, bytes: Number(done.bytes) || 0, totalBytes: Number(done.totalBytes) || 0 };
@@ -1648,7 +1684,10 @@ async function doPrecache(report, generation, signal) {
   const cache = await caches.open(stagingName);
   cache.name = stagingName;
   const skip = await offFeatureFiles();
-  const files = SHELL_FILES.filter((path) => skip.indexOf(path) < 0);
+  const coreOnly = mode === "core";
+  let files = SHELL_FILES.filter((path) => skip.indexOf(path) < 0);
+  files.sort((a, b) => (SHELL_CORE.indexOf(a) >= 0 ? 0 : 1) - (SHELL_CORE.indexOf(b) >= 0 ? 0 : 1));
+  if (coreOnly) files = files.filter((path) => SHELL_CORE.indexOf(path) >= 0);
   const state = { files: 0, totalFiles: files.length, bytes: 0, totalBytes: 0, reused: 0, fetched: 0, reuse: null };
   let manifest = await loadShellManifest(signal);
   const relation = manifestRelation(manifest);
@@ -1694,7 +1733,9 @@ async function doPrecache(report, generation, signal) {
     }));
     ok = true;
     const summary = { files: state.files, totalFiles: state.totalFiles, bytes: state.bytes, totalBytes: state.totalBytes };
-    try { await live.put(SHELL_READY, new Response(JSON.stringify(summary), { headers: { "Content-Type": "application/json" } })); } catch (err) { /* the next apply checks the files again */ }
+    if (!coreOnly) {
+      try { await live.put(SHELL_READY, new Response(JSON.stringify(summary), { headers: { "Content-Type": "application/json" } })); } catch (err) { /* the next apply checks the files again */ }
+    }
     console.info("shell update ready", "reused " + state.reused, "downloaded " + state.fetched);
     progressState = { files: state.files, totalFiles: state.totalFiles, bytes: state.bytes, totalBytes: state.totalBytes };
     return progressState;
@@ -1761,6 +1802,10 @@ function gameBusy() {
 
 self.addEventListener("message", (event) => {
   const data = event.data || {};
+  if (data.type === "precache-idle") {
+    event.waitUntil(precacheShell(false, false, "all").catch(() => {}));
+    return;
+  }
   if (data.type === "game-busy") {
     gameBusyUntil = data.on ? Date.now() + 3 * 60 * 1000 : 0;
     return;
@@ -1985,6 +2030,7 @@ self.addEventListener("message", (event) => {
       if (typeof data.notifyAll === "boolean") await idbSet(db, "notify-all", data.notifyAll);
       if (data.uiLang === "en" || data.uiLang === "ru" || data.uiLang === "es" || data.uiLang === "hi") {
         await idbSet(db, "ui-lang", data.uiLang);
+        ensurePack(data.uiLang);
         if (self.SI18n) self.SI18n.setLang(data.uiLang);
       }
       if (data.tiktokLock && typeof data.tiktokLock === "object") {
@@ -2194,6 +2240,9 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(refreshData(request));
     return;
   }
+  /* Community catalogs are read by the page. The worker must not answer
+     them, or a local stand-in for those files never arrives. */
+  if (url.origin === self.location.origin && /\/data\/communities\//.test(url.pathname)) return;
   if (isData(url)) {
     event.respondWith(staleWhileRevalidate(request));
     return;
@@ -2235,6 +2284,9 @@ self.addEventListener("fetch", (event) => {
     })());
     return;
   }
+  /* API calls carry the page's session and must not be answered by the
+     shell cache. The page reads them itself. */
+  if (url.origin === self.location.origin && /\/v1\//.test(url.pathname)) return;
   if (url.origin === self.location.origin) {
     event.respondWith((async () => {
       const cache = await caches.open(SHELL);

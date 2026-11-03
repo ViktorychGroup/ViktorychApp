@@ -609,6 +609,14 @@
     el.setAttribute("role", alert && (notice.variant === "critical" || notice.variant === "limit") ? "alert" : "status");
     el.setAttribute("aria-live", alert && (notice.variant === "critical" || notice.variant === "limit") ? "assertive" : "polite");
     el.innerHTML = alert ? popHtml(notice) : achHtml(notice);
+    if (el.style) {
+      el.style.position = "fixed";
+      el.style.left = "50%";
+      el.style.bottom = "calc(32px + env(safe-area-inset-bottom, 0px))";
+      el.style.zIndex = "95";
+      el.style.margin = "0";
+      el.style.maxWidth = "min(520px, calc(100vw - 24px))";
+    }
     document.body.appendChild(el);
     var cur = { notice: notice, el: el, timers: [] };
     achCurrent = cur;

@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main is `39623360`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main was `2dc8cf77` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## Merged today
 
@@ -32,26 +32,19 @@ Do not start these unless the owner asks.
 - **PR 2.** 3D view, Join with my camera (including No frame), real-frames-only slow motion. No interpolation, no synthetic frames.
 - **PR 3.** X-style Past recordings rebuild, shared player features, full screen, zoom preserved everywhere.
 
-## Speed plan
+## Speed
 
-Branch `cursor/faster-first-load-bb60` has uncommitted work. Not pushed. Audit baseline on a phone profile (390x844, 4G, CPU slowed 4x):
+Pull request #535 keeps the load-time work only. Phone profile 390×844, 4G, CPU slowed 4×.
 
-- Cold first visit: LCP 7–10s, about 1.86 MB downloaded (111 JS files, 1,558 KB of JS), TTI about 10s, 454 KB of unused JS.
-- Warm visit (service worker): about 0.5s.
-- Back-to-Home route switch: about 320ms (a full page rebuild).
-- CLS 0.17 from an alert toast.
+| | Before | After |
+| --- | --- | --- |
+| Cold signed-out landing | LCP 7–10s, about 1.86 MB, 111 JS files (1,558 KB of JS), TTI about 10s | LCP 8.8s on the landing paragraph, FCP 3.6s, 21 JS files (1,083 KB of JS), about 1.5 MB |
+| Warm landing | about 0.5s | LCP 564ms, FCP 412ms |
+| CLS | 0.17 from the alert toast | 0 |
 
-| Item | State |
-| --- | --- |
-| 1. Signed-out fast path (landing scripts only until a session exists, then load the full app) | Started in the working tree, not verified |
-| 2. Load only the active language pack; `i18n.js` already fetches a pack when the language changes | Started in the working tree |
-| 3. Defer music, TV, Discord, NFT, Nostr, mesh, gifts, games chrome and similar until idle, unless a deep link needs them | Started in the working tree |
-| 4. Home updates in place (target back-to-Home under 100ms on 4x CPU) | Not started |
-| 5. Register the service worker from `index.html`; cache the core shell first | Started in the working tree (early register + core files first in the precache queue) |
-| 6. Split `app.js` into a stable core plus route chunks | Not started. Risky. Ship the rest if it cannot pass reliably |
-| 7. Image sizes / aspect-ratio, fixed alert toast, lazy lower landing images | Avatars gained `aspect-ratio`. Toast and achievement alerts were already `position: fixed`. Landing images already had width, height and `loading="lazy"` |
+Signed-out visits load the landing set only. Only the active language pack downloads. The service worker registers from `index.html` and fills its cache after the first screen. Landing images reserve their size, and the alert toast is fixed so it does not push the page. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
 
-`scripts/boot_budget.mjs` fails if the signed-out script set grows past 960 KB. Current set is about 915 KB (mostly `accounts.js` and `i18n/en.js`). Before/after Lighthouse numbers are not measured yet.
+Music, TV, Discord, gifts, Nostr and nearby chat load with the first page, the same way they do on main. Loading those later is a separate follow-up pull request. Parked pages, in-place list updates, and restoring scroll after a rebuild are also not in this pull request. Navigation, including the phone route commit, matches main.
 
 ## Working rules
 
@@ -80,7 +73,7 @@ Written 2026-10-30, about 10:00 CET (09:00 UTC). Main was at `f353f771` and the 
 
 ## Fast tests
 
-This branch includes main through `#538`. Page smoke is split into parallel CI jobs. Each job runs its scripts one at a time, and viewport checks inside a script run one at a time. The service-worker update check has its own job and runs with nothing else. The required check is still named `smoke`; it passes only when every shard passes.
+This branch includes main through `#536`. Page smoke is split into parallel CI jobs. Each job runs its scripts one at a time, and viewport checks inside a script run one at a time. The service-worker update check has its own job and runs with nothing else. The required check is still named `smoke`; it passes only when every shard passes.
 
 Follow-up: the phone sign-up viewport check (`scripts/signup_flow_test.mjs`, the same Sign-up and first-run step main's Page smoke runs, with no part flag and no assertion changes) is not in these shards. On a phone it still stops at "Sign up never opened the welcome step". That is a route bug for a separate pull request. `signup-flows` stays in this one. Locally, from the repo root:
 

@@ -154,10 +154,12 @@
   padding: 10px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
 }
+.land-block { content-visibility: auto; contain-intrinsic-size: auto 520px; }
 .land-device img {
   display: block;
   width: 100%;
   height: auto;
+  aspect-ratio: 414 / 896;
   border-radius: 26px;
   background: #000;
 }
