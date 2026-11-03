@@ -2439,6 +2439,15 @@ var numberNote = form.passkey
       loadOnboarding().then(function (onb) { if (onb && !readSession()) onb.start(onbDoc.stage, onbDoc.step || 0); });
     }
   }
+  function reloadSignedOut() {
+    var next = location.pathname + location.search;
+    try {
+      history.replaceState(null, "", next);
+      location.reload();
+    } catch (err) {
+      location.replace(next);
+    }
+  }
   function finishAuth() {
     var back = "";
     try {
@@ -2447,9 +2456,17 @@ var numberNote = form.passkey
     } catch (err) { back = ""; }
     if (!back || back.charAt(0) !== "#") back = "#/";
     document.documentElement.removeAttribute("data-wall");
-    try { history.pushState({ signed: 1 }, "", location.pathname + location.search); } catch (err) { /* the reload still navigates */ }
-    location.replace(location.pathname + location.search + back);
-    location.reload();
+    // One navigation. location.replace() and location.reload() in the same
+    // turn cancel each other, and the next page never reaches
+    // DOMContentLoaded (Settings stays on the previous screen, or the
+    // address never finishes loading).
+    var next = location.pathname + location.search + back;
+    try {
+      history.replaceState({ signed: 1 }, "", next);
+      location.reload();
+    } catch (err) {
+      location.replace(next);
+    }
   }
   function readLang() {
     try {
@@ -3616,8 +3633,7 @@ function signupPayload() {
       var done = function () {
         Promise.all([wiping, keyGone]).then(function () {
           if (wipeAll && seal && seal.wipeAll) { seal.wipeAll({ reason: "wiped" }); return; }
-          location.replace(location.pathname + location.search);
-          location.reload();
+          reloadSignedOut();
         });
       };
       if (!token || !hasApi()) { done(); return; }
@@ -3626,8 +3642,7 @@ function signupPayload() {
       removeStored("account-v1");
       tellSW(false, "signout");
       if (wipeAll && window.ViktorychSeal) { window.ViktorychSeal.wipeAll({ reason: "wiped" }); return; }
-      location.replace(location.pathname + location.search);
-      location.reload();
+      reloadSignedOut();
     });
   }
   function fitImage(file, edge, maxChars) {
@@ -6755,8 +6770,7 @@ function signupPayload() {
     else if (act === "deleted-done") {
       try { sessionStorage.removeItem(DELETED_KEY); } catch (err) { /* the next load shows sign-in */ }
       document.documentElement.removeAttribute("data-wall");
-      location.replace(location.pathname + location.search);
-      location.reload();
+      reloadSignedOut();
     }
     else if (act === "add-channel") addBackupChannel();
     else if (act === "remove-channel") removeBackupChannel(acct.dataset.index);

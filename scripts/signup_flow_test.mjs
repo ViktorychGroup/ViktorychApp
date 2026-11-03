@@ -701,6 +701,10 @@ async function openPage(page, path) {
       last = err;
       const text = String(err && err.message || err);
       if (text.indexOf("interrupted by another navigation") < 0) throw err;
+      // The winning navigation may already show this address while its
+      // document is still the previous page. Wait until that load settles
+      // before treating the address as open.
+      await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
       const here = page.url();
       if (path && here.indexOf(path.replace(/^\//, "")) >= 0) return;
       await page.waitForTimeout(150);

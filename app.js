@@ -20578,7 +20578,11 @@ if (STATE.histClear) {
         return pageHead(tr("Notifications")) + `<div class="notes-state error-box" data-notes-state="error"><h2>${esc(tr("Notifications aren’t available"))}</h2><p>${esc(tr("Reload the page."))}</p><button class="retry" type="button" data-act="notes-retry">${esc(tr("Retry"))}</button></div>`;
       }
     }
-    if (STATE.loading) {
+    /* The skeleton is the home timeline waiting for feeds.json. Other
+       routes, including Settings, paint themselves while that load runs.
+       Leaving this above them showed Home under a settings address until
+       the catalog finished, and a slow catalog left it there. */
+    if (route.name === "home" && STATE.loading) {
       return `<div class="topbar"><div class="page-head"><h1>${tr("Home")}</h1></div></div>` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("");
     }
     if (STATE.error && route.name === "home") {
@@ -21360,7 +21364,13 @@ if (STATE.histClear) {
     setTimeout(() => {
       renderQ.scheduled = false;
       if (!renderQ.pending) return;
-      if (renderHeld()) return;
+      /* A flush that gives up while a press is held used to drop the
+         render. If pointerup never arrives, Settings stays on the old
+         screen. Ask again; renderHeld() lets it through after the cap. */
+      if (renderHeld()) {
+        scheduleRenderFlush();
+        return;
+      }
       const queued = renderQ.opts;
       renderQ.flushing = true;
       try { render(queued || undefined); } finally { renderQ.flushing = false; }
@@ -21391,6 +21401,7 @@ if (STATE.histClear) {
       const el = event.target && event.target.closest ? event.target.closest(PRESS_SEL) : null;
       pressRec = el ? { el: el, sig: pressSig(el) } : null;
     }, true);
+    document.addEventListener("pointercancel", () => releaseRenderHold(), true);
     document.addEventListener("pointerup", (event) => {
       if (!event.isTrusted) return;
       const rec = pressRec;
@@ -21467,10 +21478,11 @@ if (STATE.histClear) {
       render();
     }, 0);
   }
+  let paintToken = 0;
   function noteRoutePaint(paintedHash) {
     routePaintState = routePaintDecision(routePaintState, {
       type: "finish",
-      token: routePaintState.token,
+      token: paintToken,
       paintedHash: paintedHash,
       hash: location.hash || "#/"
     });
@@ -21500,6 +21512,7 @@ if (STATE.histClear) {
       history.replaceState(null, "", location.pathname + location.search + "#/storage" + bare.slice("#/drive".length) + (qCut >= 0 ? hashNow.slice(qCut) : ""));
     }
     const hashAtStart = location.hash || "#/";
+    paintToken = routePaintState.token;
     let paintedHash = hashAtStart;
     let applied = false;
     const gen = (STATE.renderGen = (STATE.renderGen || 0) + 1);
@@ -30298,6 +30311,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     } catch (err) { /* periodic sync still covers installed Chrome and Edge */ }
   });
 
+  function homeAddress(hash) {
+    const h = hash || "#/";
+    return h === "#" || h === "#/" || h === "#/home" || h.indexOf("#/home/") === 0 || h.indexOf("#/?") === 0 || h.indexOf("#/home?") === 0;
+  }
+  function savedScreenHash() {
+    const local = window.ViktorychLocal;
+    if (!local || !local.screenHash) return "";
+    try { return String(local.screenHash() || ""); } catch (err) { return ""; }
+  }
+
   async function boot() {
     holdDeviceFeeds();
     syncRuVisitorGeo();
@@ -30404,9 +30427,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       scheduleDeviceIndex();
       if (STATE.pendingFeed) showPill(pendingPillPosts());
       ensureVideoOwners();
-    } else if (painted || document.querySelector("#app [data-boot-card]")) {
+    } else if (homeAddress(location.hash) && (painted || document.querySelector("#app [data-boot-card]"))) {
+      /* Home can keep the restored timeline until the catalog arrives. */
+      STATE.loading = false;
+    } else if (painted && savedScreenHash() === (location.hash || "#/")) {
       STATE.loading = false;
     } else {
+      /* A restored Home screen must not stay under #/settings. Paint the
+         address that is open now; the catalog fills Home in later. */
       STATE.loading = true;
       render();
     }
@@ -30531,7 +30559,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         STATE.error = null;
         if (!navigator.onLine) setOffline(true);
         render();
-      } else if (window.ViktorychLocal && window.ViktorychLocal.wasRestored()) {
+      } else if (window.ViktorychLocal && window.ViktorychLocal.wasRestored() && (!savedScreenHash() || savedScreenHash() === (location.hash || "#/") || homeAddress(location.hash))) {
         STATE.error = null;
         if (!navigator.onLine) setOffline(true);
       } else {
