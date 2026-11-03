@@ -2,6 +2,18 @@
 
 Written 2026-10-30, about 10:00 CET (09:00 UTC). Main was at `f353f771` and the latest D1 migration was `0102_regone_social.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it, and update this file in a small PR after a big session.
 
+## Fast tests
+
+Page smoke is split into parallel shards. The required check is still named `smoke`; it passes only when every shard passes. Locally, from the repo root:
+
+```sh
+scripts/smoke-all.sh
+scripts/smoke-all.sh --jobs 4
+scripts/smoke-all.sh --changed
+```
+
+`--jobs` is how many scripts run at once. `--changed` runs the scripts that cover files changed since `origin/main`. A file that is not in that map runs the full suite. CI does not use `--changed`. Worker tests run with `node --test` concurrency 4: `cd worker && npm test`.
+
 ## Live on main (recent)
 
 - Newsletters as posts: follow Substack, Beehiiv, Buttondown, Ghost, Medium, Mailchimp archives or any RSS site (#359).

@@ -3,6 +3,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { runScripts, sharedStaticServer } from "./smoke_runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const longName = "🚀 A very long custom feed name that must stay whole on the tab row";
@@ -24,6 +25,8 @@ function mime(file) {
 }
 
 function startServer() {
+  const shared = sharedStaticServer();
+  if (shared) return Promise.resolve(shared);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
     let rel = decodeURIComponent(url.pathname);
@@ -170,19 +173,20 @@ async function check(page, label, reduced) {
 }
 
 async function main() {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
   const chromium = await loadPlaywright();
   const server = await startServer();
   const port = server.address().port;
   const browser = await chromium.launch({ headless: true, channel: "chrome" });
   try {
-    for (const size of SIZES) {
+    await Promise.all(SIZES.map(async (size) => {
       const opened = await openHome(browser, port, size, false);
       try {
         await check(opened.page, size.name, false);
       } finally {
         await opened.context.close();
       }
-    }
+    }));
     const reduced = await openHome(browser, port, SIZES[0], true);
     try {
       await check(reduced.page, "reduced", true);
@@ -194,16 +198,14 @@ async function main() {
     await browser.close();
     server.close();
   }
+  // These two run together, after the browser work. The boot timing check
+  // needs the machine, so it does not run beside the page above.
+  const [boot, tabs] = await runScripts(dir, ["boot_speed_test.mjs", "custom_tab_reload_test.mjs"]);
+  if (boot !== 0) process.exitCode = 1;
+  if (tabs !== 0) process.exitCode = 1;
 }
 
-main().then(async () => {
-  if (process.exitCode) return;
-  const { spawnSync } = await import("node:child_process");
-  const boot = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "boot_speed_test.mjs")], { stdio: "inherit", env: process.env });
-  if (boot.status !== 0) process.exitCode = 1;
-  const tabs = spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), "custom_tab_reload_test.mjs")], { stdio: "inherit", env: process.env });
-  if (tabs.status !== 0) process.exitCode = 1;
-}).catch((err) => {
+main().catch((err) => {
   console.error(err && err.message ? err.message : err);
   process.exitCode = 1;
 });

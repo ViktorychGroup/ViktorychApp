@@ -32,6 +32,13 @@ const VIEWPORTS = [
 let pageOrigin = "";
 let worker = null;
 let ipCounter = 1;
+let workerChain = Promise.resolve();
+
+function withWorker(task) {
+  const run = workerChain.then(task, task);
+  workerChain = run.then(() => {}, () => {});
+  return run;
+}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -63,11 +70,11 @@ function startServer() {
         for (const name of ["content-type", "authorization", "accept", "x-viktorych-intent"]) {
           if (req.headers[name]) headers[name] = req.headers[name];
         }
-        const upstream = await worker.dispatchFetch("https://accounts.test" + url.pathname + url.search, {
+        const upstream = await withWorker(() => worker.dispatchFetch("https://accounts.test" + url.pathname + url.search, {
           method: req.method,
           headers,
           body: req.method === "GET" || req.method === "HEAD" ? undefined : body
-        });
+        }));
         const out = Buffer.from(await upstream.arrayBuffer());
         res.writeHead(upstream.status, {
           "content-type": upstream.headers.get("content-type") || "application/json",
@@ -1179,27 +1186,80 @@ await bindings.DATA.put("feeds.json", JSON.stringify({
   ],
   posts: []
 }));
+async function runViewport(browser, viewport) {
+  const notes = [];
+  const { context, page, problems } = await openFresh(browser, viewport);
+  try {
+    const ms = await gotoFresh(page);
+    console.log(viewport.name + " " + viewport.width + "x" + viewport.height + " first-screen " + ms + "ms");
+    if (ms > 8000) notes.push(viewport.name + ": first screen took " + ms + "ms");
+    notes.push(...await layoutPass(page, viewport));
+    if (viewport.name === "phone") notes.push(...await firstRun(page));
+    notes.push(...problems.map((p) => viewport.name + " pageerror: " + p.slice(0, 180)));
+  } catch (err) {
+    notes.push(viewport.name + " failed: " + redact(err && err.stack || err).slice(0, 1200));
+  } finally {
+    await context.close();
+  }
+  return notes;
+}
+
+async function runNamed(browser, item) {
+  const notes = [];
+  // A renderer crash is the browser, not the app (seen once locally on a
+  // busy machine); that run starts over once in a new context.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { context, page, problems } = await openFresh(browser, item.viewport, item.reduced ? { reducedMotion: "reduce" } : {});
+    let crashed = false;
+    page.on("crash", () => { crashed = true; });
+    try {
+      await gotoFresh(page);
+      const started = Date.now();
+      notes.push(...await item.run(page, item.viewport));
+      console.log(item.name + " " + item.viewport.width + "x" + item.viewport.height + " " + (Date.now() - started) + "ms");
+      notes.push(...problems.map((p) => item.name + " pageerror: " + p.slice(0, 180)));
+    } catch (err) {
+      if (crashed && attempt === 0) {
+        console.log(item.name + ": the page crashed, running it again");
+        notes.length = 0;
+        continue;
+      }
+      notes.push(item.name + " failed: " + redact(err && err.stack || err).slice(0, 1200));
+    } finally {
+      await context.close().catch(() => {});
+    }
+    break;
+  }
+  return notes;
+}
+
+async function pool(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      out[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 const browser = await launch();
 const failures = [];
+const { spawn } = await import("node:child_process");
+const tvShort = spawn(process.execPath, [path.join(root, "scripts", "tv_short_pair_test.mjs")], { cwd: root, env: process.env, stdio: "inherit" });
+const tvShortDone = new Promise((resolve) => tvShort.on("close", (code) => resolve(code == null ? 1 : code)));
 try {
-  for (const viewport of process.env.ONLY ? [] : VIEWPORTS) {
-    const { context, page, problems } = await openFresh(browser, viewport);
-    try {
-      const ms = await gotoFresh(page);
-      console.log(viewport.name + " " + viewport.width + "x" + viewport.height + " first-screen " + ms + "ms");
-      if (ms > 8000) failures.push(viewport.name + ": first screen took " + ms + "ms");
-      failures.push(...await layoutPass(page, viewport));
-      if (viewport.name === "phone") failures.push(...await firstRun(page));
-      failures.push(...problems.map((p) => viewport.name + " pageerror: " + p.slice(0, 180)));
-    } catch (err) {
-      failures.push(viewport.name + " failed: " + redact(err && err.stack || err).slice(0, 1200));
-    } finally {
-      await context.close();
-    }
+  const tasks = [];
+  if (!process.env.ONLY) {
+    for (const viewport of VIEWPORTS) tasks.push({ kind: "viewport", viewport });
   }
-  failures.push(...await tvAskFlow(browser));
+  tasks.push({ kind: "tv" });
   // The whole step flow at phone and desktop size, the quick path at both,
-  // and both motion settings.
+  // and both motion settings. Viewports run together, each in its own context.
   const runs = [
     { name: "phone full", viewport: VIEWPORTS[0], run: fullFlow },
     { name: "desktop full", viewport: VIEWPORTS[3], run: fullFlow },
@@ -1210,27 +1270,15 @@ try {
     { name: "reduced motion", viewport: VIEWPORTS[0], reduced: true, run: (page) => motionPass(page, true) }
   ];
   for (const item of runs.filter((r) => !process.env.ONLY || process.env.ONLY.split(",").includes(r.name))) {
-    // A renderer crash is the browser, not the app (seen once locally on a
-    // busy machine); that run starts over once in a new context.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const { context, page, problems } = await openFresh(browser, item.viewport, item.reduced ? { reducedMotion: "reduce" } : {});
-      let crashed = false;
-      page.on("crash", () => { crashed = true; });
-      try {
-        await gotoFresh(page);
-        const started = Date.now();
-        failures.push(...await item.run(page, item.viewport));
-        console.log(item.name + " " + item.viewport.width + "x" + item.viewport.height + " " + (Date.now() - started) + "ms");
-        failures.push(...problems.map((p) => item.name + " pageerror: " + p.slice(0, 180)));
-      } catch (err) {
-        if (crashed && attempt === 0) { console.log(item.name + ": the page crashed, running it again"); continue; }
-        failures.push(item.name + " failed: " + redact(err && err.stack || err).slice(0, 1200));
-      } finally {
-        await context.close().catch(() => {});
-      }
-      break;
-    }
+    tasks.push({ kind: "run", item });
   }
+  const limit = Math.max(1, Number(process.env.SMOKE_SIGNUP_POOL || 4));
+  const lists = await pool(tasks, limit, async (task) => {
+    if (task.kind === "viewport") return runViewport(browser, task.viewport);
+    if (task.kind === "tv") return tvAskFlow(browser);
+    return runNamed(browser, task.item);
+  });
+  for (const list of lists) failures.push(...list);
 } finally {
   await browser.close();
   server.close();
@@ -1238,13 +1286,14 @@ try {
 }
 if (failures.length) {
   console.error(failures.join("\n"));
+  const code = await tvShortDone;
+  if (code !== 0) console.error("tv short pair check failed");
   process.exit(1);
 }
 console.log("signup flow ok");
 
-// Ride-along (workflow files are not edited): TV sign-in on the short address.
+// Ride-along: TV sign-in on the short address. It runs beside the flows above.
 {
-  const { spawnSync } = await import("node:child_process");
-  const tvShort = spawnSync(process.execPath, [path.join(root, "scripts", "tv_short_pair_test.mjs")], { cwd: root, env: process.env, stdio: "inherit" });
-  if (tvShort.status !== 0) process.exit(1);
+  const tvShortCode = await tvShortDone;
+  if (tvShortCode !== 0) process.exit(1);
 }

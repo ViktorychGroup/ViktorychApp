@@ -71,39 +71,18 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Cache Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('worker/package-lock.json') }}
+          restore-keys: |
+            ms-playwright-${{ runner.os }}-
       - uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
         with:
           chrome-version: stable
-      - name: Sidebar customization
-        run: node scripts/nav_custom_test.js
-      - name: Bottom navigation and phone landscape
-        run: node scripts/bottom_nav_test.mjs
-
-      - name: Home stays reachable on a phone
-        run: |
-          npm install --prefix /tmp/pw --no-fund --no-audit playwright-core
-          PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node scripts/home_reach_test.mjs
-
-      - name: Profile tabs can be reordered
-        run: |
-          node scripts/profile_tabs_order_test.js
-          PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node scripts/profile_tabs_test.mjs
-      - name: Corner drawers
-        run: node scripts/dock_test.js
-      - name: Landscape layout
-        run: |
-          npm install --prefix /tmp/landscape-pw playwright-core
-          PLAYWRIGHT_CORE=/tmp/landscape-pw/node_modules/playwright-core/index.js node scripts/landscape_layout_test.mjs
-          PLAYWRIGHT_CORE=/tmp/landscape-pw/node_modules/playwright-core/index.js node scripts/phone_resize_test.mjs
-          PLAYWRIGHT_CORE=/tmp/landscape-pw/node_modules/playwright-core/index.js node scripts/profile_layout_test.mjs
-          PLAYWRIGHT_CORE=/tmp/landscape-pw/node_modules/playwright-core/index.js node scripts/menu_pages_test.mjs
-          PLAYWRIGHT_CORE=/tmp/landscape-pw/node_modules/playwright-core/index.js node scripts/about_layout_test.mjs
-          PLAYWRIGHT_CORE=/tmp/landscape-pw/node_modules/playwright-core/index.js node scripts/points_layout_test.mjs
-          PLAYWRIGHT_CORE=/tmp/landscape-pw/node_modules/playwright-core/index.js node scripts/stories_layout_test.mjs
-      - name: iOS WebKit layout
-        run: |
-          npm install --prefix /tmp/pw-ios-nav --no-fund --no-audit playwright
-          cd /tmp/pw-ios-nav && npx playwright install --with-deps webkit
-          cd "${GITHUB_WORKSPACE}"
-          PLAYWRIGHT_CORE=/tmp/pw-ios-nav/node_modules/playwright-core/index.js node scripts/ios_webkit_test.mjs
+      - name: Navigation checks
+        run: bash scripts/smoke-all.sh --suite nav --jobs 3

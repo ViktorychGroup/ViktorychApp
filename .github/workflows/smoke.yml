@@ -21,9 +21,14 @@ permissions:
   contents: read
 
 jobs:
-  smoke:
+  shard:
+    name: shard-${{ matrix.shard }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [checks, site, ui, home, compose, signup]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -32,6 +37,24 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Cache Playwright browsers
+        if: matrix.shard != 'checks'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('worker/package-lock.json') }}
+          restore-keys: |
+            ms-playwright-${{ runner.os }}-
+
+      - name: Cache worker modules
+        if: matrix.shard == 'signup'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: worker/node_modules
+          key: worker-modules-${{ runner.os }}-${{ hashFiles('worker/package-lock.json') }}
 
       - name: Chrome
         run: |
@@ -41,106 +64,27 @@ jobs:
           fi
           google-chrome --version
 
-      - name: Action bar spacing
-        run: node scripts/action_bar_test.js
-
-      - name: Build the shell and fail if a referenced file is missing
-        run: |
-          python3 scripts/assemble_site.py --selftest
-          python3 scripts/r2_catalog.py --selftest
-          python3 scripts/catalog_migrate.py --selftest
-          python3 scripts/handle_guard.py --selftest
-          python3 scripts/check_i18n.py
-          node scripts/about_layout_test.mjs
-          node scripts/points_layout_test.mjs
-          python3 scripts/telegram_stories.py --selftest
-          node scripts/stories_test.js
-          node scripts/stories_layout_test.mjs
-          python3 scripts/assemble_site.py --site _site
-          python3 scripts/cf_pages_prepare.py --site _site --out _mirror
-
-      - name: Load the built site fresh and with old saved data
-        run: node scripts/smoke_page.mjs --site _site
-
-      - name: Load the Pages upload fresh and with old saved data
-        run: node scripts/smoke_page.mjs --site _mirror
-
-      # One Playwright install for every browser step below (they used to
-      # install it five times). The other prefixes are links to this one.
-      - name: Playwright
-        id: pw
-        run: |
-          for i in 1 2 3; do npm install --prefix /tmp/pw --no-fund --no-audit playwright && break; sleep 10; done
-          for p in pw-signup pw-compose pw-ios pw-live; do ln -sfn /tmp/pw /tmp/$p; done
-          echo "v=$(node -p "require('/tmp/pw/node_modules/playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
-
-      - name: Cache the WebKit browser
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: ms-playwright-webkit-${{ runner.os }}-${{ steps.pw.outputs.v }}
-
-      - name: Service worker update
-        run: |
-          PLAYWRIGHT_MJS=/tmp/pw/node_modules/playwright-core/index.js node scripts/sw_update_test.mjs
-
-      - name: Notifications list is never blank
-        run: PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node scripts/notifications_page_test.mjs
-
-      - name: Profile banner actions
-        run: PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node scripts/profile_chrome_test.mjs
-
-      - name: Home tabs and pills
-        run: PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node scripts/home_tabs_test.mjs
-
-      - name: Pill text fits inside the pill
-        run: PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node scripts/pill_fit_test.mjs
-
-      - name: Drawer menu can be customized
-        run: PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node scripts/drawer_menu_test.mjs
-
-      - name: Desktop keeps one sidebar
-        run: PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node scripts/one_sidebar_test.mjs
-
-      - name: Following rows stay visible with the privacy screen off or on
-        run: PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core/index.js node scripts/privacy_lists_test.mjs
-
-      - name: YouTube embed plays muted on desktop and mobile
-        run: node scripts/yt_embed_smoke.mjs --root _site
-
-      - name: X video falls back to the official embed
+      - name: ffmpeg
+        if: matrix.shard == 'site'
         run: |
           if ! command -v ffmpeg >/dev/null; then
             sudo apt-get update
             sudo apt-get install -y ffmpeg
           fi
-          npm install --no-save --prefix "${RUNNER_TEMP:-/tmp}/pw" playwright-core@1.49.1
-          PLAYWRIGHT_CORE="${RUNNER_TEMP:-/tmp}/pw/node_modules/playwright-core/index.mjs" node scripts/x_video_play.mjs --root _site
 
-      - name: Sign-up and first-run
-        run: |
-          npm ci --prefix worker --no-fund --no-audit
-          PLAYWRIGHT_CORE=/tmp/pw-signup/node_modules/playwright-core/index.js node scripts/signup_flow_test.mjs
+      - name: Run shard
+        run: bash scripts/smoke-all.sh --shard ${{ matrix.shard }}
 
-      - name: On-device AI
+  # The required check stays named smoke. It passes only when every shard passed.
+  smoke:
+    name: smoke
+    needs: shard
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every shard passed
         run: |
-          node scripts/device_test.js
-          node scripts/translate_test.js
-          node scripts/ondevice_ai_test.js
-          node scripts/dock_test.js
-          node scripts/for_you_test.mjs
-
-      - name: Composer writing tools
-        run: |
-          PLAYWRIGHT_CORE=/tmp/pw-compose/node_modules/playwright-core/index.js node scripts/compose_ai_test.mjs
-          PLAYWRIGHT_CORE=/tmp/pw-compose/node_modules/playwright-core/index.js node scripts/compose_page_test.mjs
-
-      - name: iOS WebKit layout
-        run: |
-          cd /tmp/pw-ios && npx playwright install --with-deps webkit
-          cd "${GITHUB_WORKSPACE}"
-          PLAYWRIGHT_CORE=/tmp/pw-ios/node_modules/playwright-core/index.js node scripts/ios_webkit_test.mjs
-
-      - name: Peer-to-peer live
-        run: |
-          PLAYWRIGHT_CORE=/tmp/pw-live/node_modules/playwright-core/index.js node scripts/live_page_test.mjs
+          result="${{ needs.shard.result }}"
+          echo "shard result: $result"
+          test "$result" = "success"
