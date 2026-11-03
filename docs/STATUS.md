@@ -1,9 +1,31 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main was `2dc8cf77` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main is `5b6f084d`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+
+## How to work on this repo
+
+Any person or agent can take over from this section. Rules for shipping, checks and merges are here. Longer history is in `docs/HANDOFF.md`. The agent guide is `AGENTS.md`.
+
+**Shipping.** Ship the part that already passes. If one part keeps failing CI, drop it from the pull request and redo it later as its own pull request. Do not loop on the same red check. After a split, parts that already passed only need the quick checks: `node --check` on the scripts you touched, `python3 scripts/check_i18n.py`, `python3 scripts/assemble_site.py --selftest`, `python3 scripts/handle_guard.py --selftest`, and `python3 scripts/secret_scan.py --staged`.
+
+**One change per pull request.** One fix per pull request. Do not bundle a doc change, a workflow change and a product fix in the same pull request.
+
+**This file.** Every pull request updates `docs/STATUS.md`: what merged, what is live, the paused roadmap, the current plan, the working rules and the owner to-dos.
+
+**CI.** Page smoke is sharded and finishes in about 2.5 minutes. Locally, `scripts/smoke-all.sh` runs those scripts in parallel (`--jobs` sets how many at once; `--shard` runs one job). A pull request or a push to main that only touches `**/*.md` and `docs/**` skips Page smoke. A skipped required check counts as passing. Fix the root cause of a failure. Never weaken a test, drop an assertion or skip a check to make CI green, except by moving a still-failing part into a later pull request as described above.
+
+**Merge.** Squash-merge only when every check is success or skipped and the pull request is clean. Pin the merge to the head commit (`gh pr merge <n> --squash --match-head-commit <sha>`). After a merge to main, rebase or merge main into any open pull request whose state becomes dirty.
+
+**Verify live.** After a merge, the published `version.json` shows main's commit, and the accounts watchdog returns HTTP 200. If a deploy fails on a transient Cloudflare API error (for example error 10013), the owner re-runs the failed jobs, Accounts first and then Sync feeds. Agent tokens cannot re-run Actions.
+
+**Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
+
+**Current state.** #535 (faster first load) is live after its deploy. #536 (faster tests) and #538 (phone route fix) are live. Next is the in-app navigation speed pull request, then the phone sign-up welcome-step fix (`scripts/signup_flow_test.mjs` with no part flag and no assertion changes; it is not in the sharded jobs), then a static landing for cold LCP and lazy-loaded music. The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
 
 ## Merged today
 
+- **#535** Faster first load: signed-out visits load the landing set only. Squash merge `5b6f084d`. Live after its deploy.
+- **#536** Page smoke is split into parallel jobs of about 2.5 minutes. Squash merge `2dc8cf77`.
 - **#531** Shorts re-enabled (owner-only): viewer cap, on-device stream-copy recording, native frame grab, playback fallback, TikTok follow placement. Squash merge `904144017f5260ab140efdeee40cab1357e4f72f`. Live on both sites (`version.json` matched that sha, watchdog HTTP 200).
 - **#532** A new community folder keeps its typed name when the page redraws, so Create still makes the folder. Squash merge `eb6cee2deb532bbf4f31f35e042fd9fe67277d39`. Its pull-request Page smoke passed. Main's own Page smoke for that commit was still running when this note was written.
 - **#537** The blue toast stays fixed and moves above an open info or achievement alert, so Undo stays tappable. Squash merge `e4f38df3`.
@@ -48,8 +70,8 @@ Music, TV, Discord, gifts, Nostr and nearby chat load with the first page, the s
 
 ## Working rules
 
-- Run the full check suite locally before every push.
-- Stop after 2 failed CI rounds on a PR and report the check, the error and the diagnosis. Do not retry blindly.
+- Shipping, CI and merge rules are in [How to work on this repo](#how-to-work-on-this-repo).
+- Run the full check suite locally before every push. After a split, parts that already passed only need the quick checks listed above.
 - Fix app bugs in the app. Do not weaken tests.
 - The handle guard is never weakened. No usernames, handles or account IDs in the public repo.
 - Do not edit `.github/`. Workflow changes go in `docs/owner-patches/`.
@@ -147,6 +169,7 @@ scripts/smoke-all.sh --changed
 
 ## Where to look next
 
+- How to take over: [How to work on this repo](#how-to-work-on-this-repo).
 - Rules and how to ship: `AGENTS.md`.
 - History and merge-queue details: `docs/HANDOFF.md`.
 - Opening the repo in Antigravity and starter prompts: `docs/ANTIGRAVITY.md`.
