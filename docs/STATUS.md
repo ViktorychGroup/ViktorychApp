@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main was `e4f38df3` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main was `39623360` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## Merged today
 
@@ -17,7 +17,7 @@ A birthday note is sent only to someone who still follows the celebrant. Each fo
 
 ## Router render race
 
-Still open. After a reload to `#/settings` the address can be settings while the heading stays Home, so Log out is missing. A first attempt painted Settings during boot, before `DOMContentLoaded`, and the phone sign-up navigation to `#/settings` then timed out. That attempt is not in this pull request. `app.js` matches main. The follow-up keeps at most one corrective re-render per hash change, and that re-render is asynchronous and does not run during boot.
+A reload to `#/settings` could keep the Home heading, so Log out was missing. While the feed was loading, Settings was painted as the Home skeleton, and a Home frame that had already started could still be committed after the address moved. Every route uses the same rule, including the screen Sign up opens from. A commit whose route is not the current `location.hash` is discarded. After the document has loaded, the current address is built and committed once. Before `DOMContentLoaded` that second build does not run, because it kept the phone reload from finishing. One corrective render can follow, on a later frame, and only once for that hash change. A render is not dropped on the floor, so the new view still gets attached.
 
 ## Page smoke on docs-only changes
 
@@ -40,9 +40,9 @@ Pull request #535 keeps the load-time work only. Phone profile 390×844, 4G, CPU
 | Warm landing | about 0.5s | LCP 564ms, FCP 412ms |
 | CLS | 0.17 from the alert toast | 0 |
 
-Signed-out visits load the landing set only. Only the active language pack downloads. TV, Discord, gifts, Nostr and nearby chat load when that page is opened, and again while idle. Music stays with the first load so the player keeps working as you move around. The service worker registers from `index.html` and fills its cache after the first screen. Landing images reserve their size, and the alert toast is fixed so it does not push the page. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
+Signed-out visits load the landing set only. Only the active language pack downloads. TV, Discord, gifts, Nostr and nearby chat load when that page is opened, and again while idle. The service worker registers from `index.html` and fills its cache after the first screen. Landing images reserve their size, and the alert toast is fixed so it does not push the page. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
 
-Parked pages, in-place list updates, and restoring scroll after a rebuild are not in this pull request. They go in a later, smaller one. Navigation matches main.
+Music loads with the first page, the same way it does on main. Loading the player later is a separate follow-up pull request. Parked pages, in-place list updates, and restoring scroll after a rebuild are also not in this pull request. Navigation, including the phone route commit, matches main.
 
 ## Working rules
 

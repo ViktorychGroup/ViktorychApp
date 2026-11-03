@@ -21,8 +21,8 @@
     contacts: { classic: true, scripts: ["contacts-ui.js", "contacts.css"] },
     localai: { classic: true, scripts: ["settings-registry.js", "local-ai.js", "local-ai-ui.js", "local-ai.css"] },
     /* Loaded with the page only when that screen is open. Idle time fetches
-       the rest one by one so the first visit stays small. */
-    music: { classic: true, scripts: ["ytm.js", "music.js", "music.css"] },
+       the rest one by one so the first visit stays small. Music stays in the
+       first load, same as main. */
     discord: { classic: true, scripts: ["discord-ui.js", "discord-picks.js", "discord-local.js", "discord-key-helper.js", "discord-ui.css", "discord-local.css", "discord-key-helper.css"] },
     gifts: { classic: true, modules: ["shared/gift-catalog.js", "shared/store-catalog.js"], scripts: ["gifts-ui.js", "nft-ui.js", "gifts.css"] },
     nostr: { classic: true, scripts: ["nostr.js"] },
