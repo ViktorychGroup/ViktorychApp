@@ -5843,5 +5843,20 @@ SI18n.addPack("hi", {
   "Who can see my friendship with {name}": "{name} के साथ मेरी दोस्ती कौन देख सकता है",
   "Hidden from others · owner view": "दूसरों से छिपा · मालिक का व्यू",
   "Owner view": "मालिक का व्यू",
-  "You see every friendship here, including ones hidden from others. Each view is logged.": "आप यहाँ हर दोस्ती देखते हैं, दूसरों से छिपी दोस्तियाँ भी। हर व्यू लॉग किया जाता है।"
-});
+  "You see every friendship here, including ones hidden from others. Each view is logged.": "आप यहाँ हर दोस्ती देखते हैं, दूसरों से छिपी दोस्तियाँ भी। हर व्यू लॉग किया जाता है।",
+  "Set custom name": "अपना नाम रखें",
+  "Only you see this name. It shows everywhere this account appears.": "यह नाम सिर्फ़ आपको दिखता है। यह अकाउंट जहाँ भी दिखे, वहाँ यही नाम दिखेगा।",
+  "Use for all their linked accounts": "इनके सभी जुड़े अकाउंट पर इस्तेमाल करें",
+  "Reset to: {name}": "वापस करें: {name}",
+  "Custom name saved": "नाम सेव हो गया",
+  "Name reset": "नाम वापस किया गया",
+  "Custom names": "अपने रखे नाम",
+  "Lets people give any account, from any network, a private name only they see.": "किसी भी नेटवर्क के किसी भी अकाउंट को ऐसा निजी नाम दें जो सिर्फ़ आपको दिखे।",
+  "Linked accounts": "जुड़े अकाउंट",
+  "All their linked accounts": "इनके सभी जुड़े अकाउंट",
+  "Add a custom name": "कस्टम नाम जोड़ें",
+  "Accounts here": "यहाँ के अकाउंट",
+  "Accounts on other networks": "दूसरे नेटवर्क के अकाउंट",
+  "Set a custom name from any profile's menu.": "किसी भी प्रोफ़ाइल के मेन्यू से नाम रखें।",
+  "Network": "नेटवर्क",
+  "That account name isn't valid.": "यह अकाउंट नाम सही नहीं है।"});

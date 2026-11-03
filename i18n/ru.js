@@ -5855,5 +5855,20 @@ SI18n.addPack("ru", {
   "Who can see my friendship with {name}": "Кто видит мою дружбу с {name}",
   "Hidden from others · owner view": "Скрыто от других · вид владельца",
   "Owner view": "Вид владельца",
-  "You see every friendship here, including ones hidden from others. Each view is logged.": "Здесь вы видите все дружбы, включая скрытые от других. Каждый просмотр записывается в журнал."
-});
+  "You see every friendship here, including ones hidden from others. Each view is logged.": "Здесь вы видите все дружбы, включая скрытые от других. Каждый просмотр записывается в журнал.",
+  "Set custom name": "Задать своё имя",
+  "Only you see this name. It shows everywhere this account appears.": "Это имя видите только вы. Оно показывается везде, где появляется этот аккаунт.",
+  "Use for all their linked accounts": "Использовать для всех связанных аккаунтов",
+  "Reset to: {name}": "Вернуть: {name}",
+  "Custom name saved": "Имя сохранено",
+  "Name reset": "Имя сброшено",
+  "Custom names": "Свои имена",
+  "Lets people give any account, from any network, a private name only they see.": "Позволяет дать любому аккаунту из любой сети личное имя, которое видите только вы.",
+  "Linked accounts": "Связанные аккаунты",
+  "All their linked accounts": "Все связанные аккаунты",
+  "Add a custom name": "Добавить своё имя",
+  "Accounts here": "Аккаунты здесь",
+  "Accounts on other networks": "Аккаунты в других сетях",
+  "Set a custom name from any profile's menu.": "Задайте имя в меню любого профиля.",
+  "Network": "Сеть",
+  "That account name isn't valid.": "Неверное имя аккаунта."});

@@ -1811,7 +1811,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -1896,7 +1896,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       feed_requests: [tr("Source requests"), tr("Only you add accounts and feeds. Others press the same buttons to send you a request you allow, block or ban.")],
       friends_off: [tr("Friends switch"), tr("Lets each person turn Friends off: no friend requests, no friends lists, counts or online status.")],
       local_ai: [tr("Local AI"), tr("The Local AI page that changes settings from plain words. Models run on each person's device; nothing is sent to us.")],
-      local_ai_setup: [tr("Local AI setup"), tr("Everyone sets up Local AI once before the chat opens: device check, model download, a quick test and preferences. Off opens the chat straight away.")]
+      local_ai_setup: [tr("Local AI setup"), tr("Everyone sets up Local AI once before the chat opens: device check, model download, a quick test and preferences. Off opens the chat straight away.")],
+      ext_nicknames: [tr("Custom names"), tr("Lets people give any account, from any network, a private name only they see.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -2095,6 +2096,47 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (feed && feed.handle) return profileHash(feed.platform, feed.handle);
     return userHash(platform, handle);
   }
+  /* Private custom names (nicknames.js). Keys: the account as the feed knows
+     it (platform plus handle, channel id or feed id) first, so a name set on
+     one account wins, then the merged person, so one name covers them all. */
+  function nickOn() { return !!window.ViktorychNicknames && !serverOffList().includes("ext_nicknames"); }
+  function nickAliases(platform, handle) {
+    const N = window.ViktorychNicknames;
+    const p = String(platform || "x");
+    const h = String(handle || "").replace(/^@/, "");
+    const keys = [];
+    const add = (pl, id) => { const key = N.keyOf(pl, id); if (key && keys.indexOf(key) < 0) keys.push(key); };
+    add(p, h);
+    let feed = null;
+    try { feed = catalogAccount(p, h) || (p.indexOf(":") < 0 ? feedById(p + ":" + h) : null); } catch (err) { feed = null; }
+    if (feed) {
+      add(feed.platform || p, feed.handle);
+      if (feed.channelId) add(feed.platform || p, feed.channelId);
+      if (feed.id && String(feed.id).indexOf(":") > 0) add(String(feed.id).slice(0, String(feed.id).indexOf(":")), String(feed.id).slice(String(feed.id).indexOf(":") + 1));
+    }
+    if (window.FeedsPeople && window.FeedsPeople.match) {
+      const person = window.FeedsPeople.match(p, h) || (feed ? window.FeedsPeople.match(feed.platform, feed.handle) : null);
+      if (person && person.id) keys.push("person:" + String(person.id).toLowerCase());
+    }
+    return keys;
+  }
+  function nickName(platform, handle, fallback) {
+    if (!nickOn() || !handle) return fallback || "";
+    return window.ViktorychNicknames.nameFor(platform, handle, fallback);
+  }
+  /* "platform:handle" ids used by hover cards and feed rows. */
+  function nickById(id, fallback) {
+    const text = String(id || "");
+    const cut = text.indexOf(":");
+    return cut > 0 ? nickName(text.slice(0, cut), text.slice(cut + 1), fallback) : (fallback || "");
+  }
+  /* The small pencil beside a profile name that opens "Set custom name". */
+  function nickEditButton(platform, handle, original, personId) {
+    if (!nickOn() || !handle) return "";
+    if (String(platform || "") === "app" && !(window.ViktorychAccounts && window.ViktorychAccounts.token && window.ViktorychAccounts.token())) return "";
+    return `<button class="nick-pen" type="button" data-act="nick-edit" data-platform="${esc(platform || "x")}" data-handle="${esc(String(handle).replace(/^@/, ""))}" data-original="${esc(original || "")}"${personId ? ` data-person="${esc(personId)}"` : ""} aria-label="${esc(tr("Set custom name"))}" data-tooltip="${esc(tr("Set custom name"))}"><svg class="nick-pen-ico" viewBox="0 0 24 24" aria-hidden="true">${LINE.pencil}</svg></button>`;
+  }
+  window.ViktorychNick = { name: nickName, byId: nickById, button: nickEditButton };
   /* Community Notes: the post ref the Worker and the X mirror use. */
   function cnRef(post) {
     if (!post) return "";
@@ -6395,7 +6437,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<div class="quote"${open}>
       <div class="quote-head">
         ${avatar(quoted.avatar, quoted.author || quoted.handle, isOrgVerified(asQuoted, quoted) ? "sq" : "")}
-        <span class="name">${esc(quoted.author || quoted.handle || tr("Post noun"))}${badge(quoted.verifiedType)}</span>
+        <span class="name">${esc(nickName(platform, quoted.handle, quoted.author || quoted.handle || tr("Post noun")))}${badge(quoted.verifiedType)}</span>
         ${quotedHandle ? `<span class="handle">@${esc(quotedHandle)}</span>` : ""}
         ${quoted.date ? `<span class="dot">·</span><span class="time">${esc(relTime(quoted.date))}</span>` : ""}
       </div>
@@ -9516,7 +9558,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         ${avatar(face.avatar, post.author || post.handle, isOrgVerified(post, face) ? "sq" : "")}
         <div class="post-main">
           <div class="byline">
-            <a class="name" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}">${esc(post.author || post.handle || tr("Post noun"))}${badge(face.verified)}</a>${affSlot(post)}
+            <a class="name" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}">${esc(nickName(post.platform, post.handle, post.author || post.handle || tr("Post noun")))}${badge(face.verified)}</a>${affSlot(post)}
             ${tombHandle ? `<a class="handle" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + post.handle)}">@${esc(tombHandle)}</a>` : ""}
             ${when}
             ${sourceBadge(post.platform)}
@@ -9561,7 +9603,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<div class="reply-context">
       <div class="quote-head">
         ${avatar(parent.avatar, parent.author || parent.handle)}
-        <span class="name">${esc(parent.author || parent.handle || tr("Post noun"))}</span>
+        <span class="name">${esc(nickName(parent.platform, parent.handle, parent.author || parent.handle || tr("Post noun")))}</span>
         ${parentHandle ? `<span class="handle">@${esc(parentHandle)}</span>` : ""}
       </div>
       ${text ? `<div class="quote-text">${esc(text.slice(0, 220))}</div>` : ""}
@@ -9918,7 +9960,7 @@ const here = parseRoute();
     const shown = opts.parentShown ? mentionless(displayPost(post)) : replyBody(displayPost(post));
     const dest = articleOf(post) ? articleHash(post) : (post.watch ? watchHash(post) : statusHash(post));
     const who = creator ? (post.profileHandle || creator.channelId || creator.handle || post.handle) : (post.profileHandle || post.handle);
-    const displayName = creator ? (creator.name || post.author || post.handle) : (post.author || post.handle);
+    const displayName = nickName(creator ? (creator.platform || post.platform) : post.platform, who, creator ? (creator.name || post.author || post.handle) : (post.author || post.handle));
     const displayHandle = internalPostHandle(creator ? (post.handle || creator.handle || "") : (post.handle || ""), post, creator);
     // Community mirror authors have no profile here: their links open the community.
     const whoHref = post.cmMirror ? "#/communities/" + encodeURIComponent(post.community.name) : accountHash(post.platform, who);
@@ -9933,7 +9975,7 @@ const here = parseRoute();
     const community = post.community && post.community.name && !opts.parentShown
       ? `<div class="repost-line community-line">${icon("communities")}<a data-act="stop" href="#/communities/${encodeURIComponent(post.community.name)}/${encodeURIComponent(post.community.rootId || post.id)}">${esc(post.community.label || communityName(post.community.name))}</a></div>`
       : (redditSub(post) && !opts.parentShown
-        ? `<div class="repost-line community-line">${icon("communities")}<a data-act="stop" href="#/communities/${encodeURIComponent(redditSub(post))}">${esc("r/" + redditSub(post))}</a></div>`
+        ? `<div class="repost-line community-line">${icon("communities")}<a data-act="stop" href="#/communities/${encodeURIComponent(redditSub(post))}">${esc(nickName("reddit", "r/" + redditSub(post), "r/" + redditSub(post)))}</a></div>`
         : "");
     return `<article class="post${continues ? " continues" : ""}${mode === "reply" ? " reply-card" : ""}" data-post="${esc(post.id)}" data-kind="${esc(post.kind || "post")}" data-date="${esc(post.date || "")}"${open}${hydrate}${cardHeightStyle(post.id)}>
       ${community}
@@ -10586,7 +10628,7 @@ const here = parseRoute();
     const rows = people.map((f) => `<div class="who-row">
       <a class="who-main" href="${esc(accountHash(f.platform, f.channelId || f.handle))}" data-card="${esc(f.id)}">
         ${avatar(f.avatar, f.name)}
-        <span class="who-copy"><span class="name">${esc(f.name)}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle)} ${sourceBadge(f.platform)}</span></span>
+        <span class="who-copy"><span class="name">${esc(nickName(f.platform, f.channelId || f.handle, f.name))}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle)} ${sourceBadge(f.platform)}</span></span>
       </a>
       ${followButtonClean(f.id)}
     </div>`).join("");
@@ -14016,7 +14058,9 @@ const here = parseRoute();
       handle: String(o.handle || "").replace(/^@/, ""),
       feedId: String(o.feedId || ""),
       url: String(o.url || ""),
-      own: !!o.own
+      own: !!o.own,
+      original: String(o.original || o.name || ""),
+      personId: String(o.personId || "")
     };
     const name = esc(o.name || o.handle || tr("Profile"));
     const count = o.count ? `<div class="profile-chrome-count">${esc(o.count)}</div>` : "";
@@ -14064,6 +14108,9 @@ const here = parseRoute();
       rows.push(`<a class="bell-choice" href="#/feeds"><span class="bell-choice-label">${esc(tr("View in Feeds"))}</span></a>`);
     }
     if (menu === "more") {
+      if (!target.own && target.handle && nickOn() && (target.platform !== "app" || (window.ViktorychAccounts && window.ViktorychAccounts.token && window.ViktorychAccounts.token()))) {
+        rows.push(profileSheetRow("nick-edit", tr("Set custom name"), `data-platform="${esc(target.platform || "x")}" data-handle="${esc(target.handle)}" data-original="${esc(target.original || target.name || "")}"${target.personId ? ` data-person="${esc(target.personId)}"` : ""}`));
+      }
       rows.push(profileSheetRow("share", tr("Share"), `data-kind="profile" data-id="${esc(target.feedId || link)}"`));
       if (!target.own && (target.feedId || target.handle)) rows.push(profileSheetRow("profile-mute", tr("Mute"), `data-id="${esc(target.feedId || (target.platform + ":" + target.handle))}"`));
       if (!target.own && (target.feedId || target.handle) && target.platform !== "app") rows.push(profileSheetRow("busy-menu", tr("Posting volume"), `data-key="${esc(target.feedId || ((target.platform || "x") + ":" + String(target.handle || "").toLowerCase()))}" data-name="${esc(target.name || "")}" data-handle="${esc(target.handle || "")}" data-platform="${esc(target.platform || "x")}"`));
@@ -14152,7 +14199,8 @@ const here = parseRoute();
     );
     const more = tab && row.cursor[tab] && !row.saved ? `<div id="live-more" class="live-more">${row.paging === tab ? tr("Loading…") : ""}</div>` : "";
     return `${profileTop({
-      name: profile.name || profile.handle,
+      name: nickName(profile.platform, profile.handle, profile.name || profile.handle),
+      original: profile.name || profile.handle,
       platform: profile.platform,
       handle: profile.handle,
       feedId: liveFollowId(profile),
@@ -14170,7 +14218,7 @@ const here = parseRoute();
           <a class="outline" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(externalProfile(profile))}" aria-label="${esc(openLabel(profile.platform))}">${esc(profileLinkLabel(profile.platform))}</a>
         </div>
       </div>
-      <h1 class="pname">${esc(profile.name || profile.handle)}${badge(profile.verifiedType)}</h1>
+      <h1 class="pname">${esc(nickName(profile.platform, profile.handle, profile.name || profile.handle))}${badge(profile.verifiedType)}${nickEditButton(profile.platform, profile.handle, profile.name || profile.handle)}</h1>
       ${shown ? `<div class="phandle">@${esc(shown)}</div>` : ""}
       ${addedNote(catalogFeed(profile) || profile)}
       ${bioBlock(profile)}
@@ -14219,7 +14267,7 @@ const here = parseRoute();
     const appId = String(row.id || "").startsWith("app:") ? String(row.id).slice(4) : "";
     let face = avatar(row.avatar, row.name || row.handle, "", row.avatarFace);
     if (/^\d{12}$/.test(appId) && window.ViktorychPresence) face = window.ViktorychPresence.wrap(appId, face);
-    return `<div class="connect-row"><a class="who-main" href="${esc(connectTarget(row))}">${face}<span class="who-copy"><span class="name">${esc(row.name || row.handle || row.id)}${badge(row.verifiedType)}</span>${affSlot(row)}<span class="handle">${handle}</span>${bio}</span></a>${button}</div>`;
+    return `<div class="connect-row"><a class="who-main" href="${esc(connectTarget(row))}">${face}<span class="who-copy"><span class="name">${esc(appId ? nickName("app", row.handle, row.name || row.handle || row.id) : (row.platform && row.handle ? nickName(row.platform, row.handle, row.name || row.handle || row.id) : nickById(row.id, row.name || row.handle || row.id)))}${badge(row.verifiedType)}</span>${affSlot(row)}<span class="handle">${handle}</span>${bio}</span></a>${button}</div>`;
   }
 
   function connectionsHash(route, tab) {
@@ -14563,7 +14611,8 @@ const here = parseRoute();
     }).join("");
     if (STATE.profileQuery) list = list.filter(profileQueryMatch);
     return `${profileTop({
-      name: feed.name || feed.handle,
+      name: nickName(feed.platform, feed.handle, feed.name || feed.handle),
+      original: feed.name || feed.handle,
       platform: feed.platform,
       handle: feed.handle,
       feedId: feed.id,
@@ -14581,7 +14630,7 @@ const here = parseRoute();
           <a class="outline" target="_blank" rel="noopener noreferrer" href="${esc(externalProfile(feed))}" aria-label="${esc(tr("View on {platform}", { platform: PLATFORM[feed.platform] || tr("Web") }))}">${esc(profileLinkLabel(feed.platform))}</a>
         </div>
       </div>
-      <h1 class="pname">${esc(feed.name || feed.handle)}${badge(feed.verifiedType)}</h1>
+      <h1 class="pname">${esc(nickName(feed.platform, feed.handle, feed.name || feed.handle))}${badge(feed.verifiedType)}${nickEditButton(feed.platform, feed.handle, feed.name || feed.handle)}</h1>
       <div class="phandle">@${esc(feed.handle)}</div>
       ${addedNote(feed)}
       ${bioBlock(feed)}
@@ -14685,7 +14734,7 @@ const here = parseRoute();
     const face = authorFace(post);
     const statusHandle = internalPostHandle(post.handle || "", post);
     const names = `<div>
-            <a class="name" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(post.author || "")}${badge(face.verified)}</a>${affSlot(post)}
+            <a class="name" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(nickName(post.platform, post.handle, post.author || ""))}${badge(face.verified)}</a>${affSlot(post)}
             <a class="handle" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">@${esc(statusHandle)}</a>
           </div>
           <span class="status-end">${postSourceBadges(post)}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}${statusMenu(post)}</span>`;
@@ -14856,7 +14905,7 @@ const here = parseRoute();
     }
     const lq = String(q || "").trim().toLowerCase();
     const started = Date.now();
-    const accounts = lq ? shownFeeds(feeds()).filter((f) => !matchesMute(STATE.settings.mutedAccounts, f.handle, f.platform, f.id) && ((f.name || "") + " " + (f.handle || "") + " " + (f.aliases || "") + " " + (f.bio || "")).toLowerCase().includes(lq)) : [];
+    const accounts = lq ? shownFeeds(feeds()).filter((f) => !matchesMute(STATE.settings.mutedAccounts, f.handle, f.platform, f.id) && ((f.name || "") + " " + (f.handle || "") + " " + (f.aliases || "") + " " + (f.bio || "") + " " + nickName(f.platform, f.channelId || f.handle, "")).toLowerCase().includes(lq)) : [];
     const found = lq ? posts().filter((p) => !hiddenPost(p) && postHay(p).toLowerCase().includes(lq)).sort(byStamp) : [];
     const top = found.slice().sort((a, b) => exploreHeat(b) - exploreHeat(a) || byStamp(a, b));
     if (dev && dev.featureOn(dev.read(), "search", dev.signals())) dev.noteStat("local", "search", dev.measureBytes({ accounts: accounts, posts: found }), Math.max(0, Date.now() - started));
@@ -14939,7 +14988,7 @@ const here = parseRoute();
     if (accounts.length) {
       html += `<div class="gsuggest-label">${tr("Accounts")}</div>`;
       accounts.forEach((f) => {
-        html += `<a class="gsuggest-pick" data-pick data-act="explore-account" data-q="${esc(f.handle || f.name || "")}" href="${esc(accountHash(f.platform, f.channelId || f.handle))}">${avatar(f.avatar, f.name)}<span class="gsuggest-copy"><span class="name">${esc(f.name || f.handle || "")}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle || "")}</span></span></a>`;
+        html += `<a class="gsuggest-pick" data-pick data-act="explore-account" data-q="${esc(f.handle || f.name || "")}" href="${esc(accountHash(f.platform, f.channelId || f.handle))}">${avatar(f.avatar, f.name)}<span class="gsuggest-copy"><span class="name">${esc(nickName(f.platform, f.channelId || f.handle, f.name || f.handle || ""))}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle || "")}</span></span></a>`;
       });
     }
     if (trends.length) {
@@ -15323,7 +15372,7 @@ const here = parseRoute();
     const pill = added ? `<span class="added-pill">${tr("Added")}</span>` : "";
     const follow = followButtonClean(f.id);
     const actions = (pill || remove) ? `<span class="row-actions">${pill}${follow}${remove}</span>` : follow;
-    return `<div class="acct-row"><a class="who-main" href="${esc(accountHash(f.platform, f.channelId || f.handle))}" data-card="${esc(f.id)}">${avatar(f.avatar, f.name)}<span class="who-copy"><span class="name">${esc(f.name)}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle)}</span>${addedNote(f)}</span></a>${actions}</div>`;
+    return `<div class="acct-row"><a class="who-main" href="${esc(accountHash(f.platform, f.channelId || f.handle))}" data-card="${esc(f.id)}">${avatar(f.avatar, f.name)}<span class="who-copy"><span class="name">${esc(nickName(f.platform, f.channelId || f.handle, f.name))}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle)}</span>${addedNote(f)}</span></a>${actions}</div>`;
   }
 
   function feedsView() {
@@ -16194,7 +16243,7 @@ const here = parseRoute();
       <div class="xa-author">
         <a href="${esc(accountHash(post.platform, who))}" data-card="${esc((post.platform || "x") + ":" + who)}" aria-label="${esc(post.author || who || tr("Profile"))}">${avatar(face.avatar || post.avatar, post.author)}</a>
         <div class="who">
-          <a class="name" href="${esc(accountHash(post.platform, who))}" data-card="${esc((post.platform || "x") + ":" + who)}">${esc(post.author || who)}${badge(face.verified || post.verifiedType)}</a>${affSlot(post)}
+          <a class="name" href="${esc(accountHash(post.platform, who))}" data-card="${esc((post.platform || "x") + ":" + who)}">${esc(nickName(post.platform, who, post.author || who))}${badge(face.verified || post.verifiedType)}</a>${affSlot(post)}
           ${who ? `<a class="handle" href="${esc(accountHash(post.platform, who))}">@${esc(who)}</a>` : ""}
         </div>
         ${who ? followButtonClean(followId) : ""}
@@ -16525,7 +16574,7 @@ const here = parseRoute();
   }
 
   function noteTitle(note) {
-    const who = esc((note && (note.name || note.handle)) || tr("Someone"));
+    const who = esc((note && note.handle && note.kind !== "package" ? nickName(note.platform || "app", note.handle, note.name || note.handle) : (note && (note.name || note.handle))) || tr("Someone"));
     const kind = note && note.kind;
     const others = Number(note && note.others) || 0;
     if (kind === "like" && others > 0) return tr("{name} and {n} others liked your post", { name: who, n: others });
@@ -16559,7 +16608,7 @@ const here = parseRoute();
     if (kind === "feed_request") return tr("Source request: {name}", { name: who });
     if (kind === "feed_approved") return tr("Source request approved: {name}", { name: who });
     if (kind === "feed_rejected") return tr("Source request not approved: {name}", { name: who });
-    return tr("New post notifications for @{handle}", { handle: who });
+    return tr("New post notifications for @{handle}", { handle: esc((note && (note.handle || note.name)) || tr("Someone")) });
   }
 
   function noteBody(note) {
@@ -18335,7 +18384,7 @@ if (STATE.histClear) {
       const q = (STATE.draft.q || "").toLowerCase();
       const rows = feeds().filter((f) => !q || (f.name + " " + f.handle).toLowerCase().includes(q)).map((f) => {
         const on = (list.members || []).includes(f.id);
-        return `<div class="acct-row">${avatar(f.avatar, f.name)}<span class="who-copy"><span class="name">${esc(f.name)}${affSlot(f)}</span><span class="handle">@${esc(f.handle)}</span></span><button class="follow${on ? " following" : ""}" data-act="${on ? "member-remove" : "member-add"}" data-id="${esc(f.id)}">${on ? ("<span class='f'" + ">" + tr("Member") + "<" + "/span><span class='u'" + ">" + tr("Remove") + "<" + "/span>") : tr("Add")}</button></div>`;
+        return `<div class="acct-row">${avatar(f.avatar, f.name)}<span class="who-copy"><span class="name">${esc(nickName(f.platform, f.channelId || f.handle, f.name))}${affSlot(f)}</span><span class="handle">@${esc(f.handle)}</span></span><button class="follow${on ? " following" : ""}" data-act="${on ? "member-remove" : "member-add"}" data-id="${esc(f.id)}">${on ? ("<span class='f'" + ">" + tr("Member") + "<" + "/span><span class='u'" + ">" + tr("Remove") + "<" + "/span>") : tr("Add")}</button></div>`;
       }).join("");
       return `<div class="modal-back"><div class="modal" role="dialog">
         <div class="modal-head"><button class="icon-btn" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${tr("Manage members")}</h2></div>
@@ -18987,7 +19036,7 @@ if (STATE.histClear) {
     if (!name) return `<div class="repost-line">${icon("repost")}<span>${tr("Reposted")}</span></div>`;
     const platform = by.platform || post.platform || "x";
     const who = by.channelId || by.handle || "";
-    const label = tr("{name} reposted", { name: esc(by.name || by.handle) });
+    const label = tr("{name} reposted", { name: esc(who ? nickName(platform, who, by.name || by.handle) : (by.name || by.handle)) });
     if (!who) return `<div class="repost-line">${icon("repost")}<span>${label}</span></div>`;
     return `<div class="repost-line">${icon("repost")}<a data-act="stop" data-card="${esc(platform + ":" + who)}" href="${esc(accountHash(platform, who))}">${label}</a></div>`;
   }
@@ -19006,7 +19055,7 @@ if (STATE.histClear) {
     return `<div class="quote"${open}>
       <div class="quote-head">
         ${avatar(by.avatar, by.name || by.handle)}
-        <span class="name">${esc(by.name || by.handle || tr("Repost"))}</span>
+        <span class="name">${esc(who ? nickName(platform, who, by.name || by.handle || tr("Repost")) : (by.name || by.handle || tr("Repost")))}</span>
         ${byHandle ? `<span class="handle">@${esc(byHandle)}</span>` : ""}
       </div>
       <div class="quote-text">${esc(text)}</div>
@@ -19225,7 +19274,7 @@ if (STATE.histClear) {
     const profile = accountHash(platform, who);
     const cardId = platform + ":" + who;
     const dest = watchHash(post);
-    const name = creator.name || post.author || post.handle || "";
+    const name = nickName(platform, who, creator.name || post.author || post.handle || "");
     const banner = repostBanner(post);
     const quote = repostQuote(post);
     const byline = `<div class="yt-by"><a data-act="stop" href="${esc(profile)}" data-card="${esc(cardId)}">${esc(name)}</a>${badge(creator.verifiedType || post.verifiedType)}</div><div class="yt-sub">${esc(videoMeta(post))}</div>`;
@@ -19540,7 +19589,7 @@ if (STATE.histClear) {
     const href = comment.channelId ? accountHash("youtube", comment.channelId) : "";
     const cardId = comment.channelId ? ` data-card="youtube:${esc(comment.channelId)}"` : "";
     const face = href ? `<a href="${esc(href)}"${cardId} aria-label="${esc(comment.author || comment.handle || tr("Profile"))}">${avatar(comment.avatar, comment.author || comment.handle)}</a>` : avatar(comment.avatar, comment.author || comment.handle);
-    const name = href ? `<a class="name" href="${esc(href)}"${cardId}>${esc(comment.author || comment.handle || "")}</a>` : esc(comment.author || comment.handle || "");
+    const name = href ? `<a class="name" href="${esc(href)}"${cardId}>${esc(nickName("youtube", comment.channelId, comment.author || comment.handle || ""))}</a>` : esc(comment.author || comment.handle || "");
     return `<div class="yt-c">
       ${face}
       <div class="yt-c-main">
@@ -19631,7 +19680,7 @@ if (STATE.histClear) {
           <h1 class="watch-title">${esc(post.title || post.text || "")}</h1>
           <div class="watch-chan">
             <a data-card="${esc((creator.platform || post.platform) + ":" + (creator.channelId || creator.handle))}" href="${esc(accountHash(creator.platform || post.platform, creator.channelId || creator.handle))}" aria-label="${esc(creator.name || post.author || tr("Channel"))}">${avatar(creator.avatar || post.avatar, creator.name || post.author)}</a>
-            <div class="watch-who"><a class="name" data-card="${esc((creator.platform || post.platform) + ":" + (creator.channelId || creator.handle))}" href="${esc(accountHash(creator.platform || post.platform, creator.channelId || creator.handle))}">${esc(creator.name || post.author || "")}${badge(creator.verifiedType || post.verifiedType)}</a><div class="yt-sub">${esc(subs)}</div></div>
+            <div class="watch-who"><a class="name" data-card="${esc((creator.platform || post.platform) + ":" + (creator.channelId || creator.handle))}" href="${esc(accountHash(creator.platform || post.platform, creator.channelId || creator.handle))}">${esc(nickName(creator.platform || post.platform, creator.channelId || creator.handle, creator.name || post.author || ""))}${badge(creator.verifiedType || post.verifiedType)}</a><div class="yt-sub">${esc(subs)}</div></div>
             ${followButtonClean(creator.id, true)}
           </div>
           <div class="pills">
@@ -19840,7 +19889,7 @@ if (STATE.histClear) {
       <div class="ava-col"><a data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author || post.handle, isOrgVerified(post, face) ? "sq" : "")}</a><div class="thread-line"></div></div>
       <div class="ancestor-main">
         <div class="byline">
-          <a class="name" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(post.author || post.handle)}${badge(face.verified)}</a>
+          <a class="name" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(nickName(post.platform, post.handle, post.author || post.handle))}${badge(face.verified)}</a>
           <a class="handle" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">@${esc(ancHandle)}</a>
           <span class="dot">·</span>
           <a class="time" data-act="stop" href="${esc(statusHash(post))}">${esc(relTime(post.date))}</a>
@@ -25153,7 +25202,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       face = window.ViktorychPresence.wrap(pid, face);
       seen = window.ViktorychPresence.linesHtml(pid);
     }
-    box.innerHTML = `<div class="hcard">${banner}<div class="hbody"><div class="pava-row">${face}${followButtonClean(id)}</div><div class="name" style="font-weight:800;margin-top:8px">${esc(profile.name || profile.handle || "")}${badge(profile.verifiedType)}${affSlot({ publicId: presenceIdOf(profile) })}</div>${handle ? `<div class="phandle">@${esc(handle)}</div>` : ""}${seen}${profile.bio ? `<div class="hbio">${esc(profile.bio)}</div>` : ""}${audienceCounts(profile)}</div></div>`;
+    box.innerHTML = `<div class="hcard">${banner}<div class="hbody"><div class="pava-row">${face}${followButtonClean(id)}</div><div class="name" style="font-weight:800;margin-top:8px">${esc(nickName(profile.platform, profile.handle, profile.name || profile.handle || ""))}${badge(profile.verifiedType)}${affSlot({ publicId: presenceIdOf(profile) })}</div>${handle ? `<div class="phandle">@${esc(handle)}</div>` : ""}${seen}${profile.bio ? `<div class="hbio">${esc(profile.bio)}</div>` : ""}${audienceCounts(profile)}</div></div>`;
     const left = Math.min(rect.left, window.innerWidth - 320);
     box.style.left = Math.max(8, left) + "px";
     box.style.top = (rect.bottom + 8) + "px";
@@ -29780,10 +29829,26 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         render: render
       });
     }
+    if (window.ViktorychNicknames) {
+      window.ViktorychNicknames.bind({
+        token: function () { return window.ViktorychAccounts && window.ViktorychAccounts.token ? window.ViktorychAccounts.token() : ""; },
+        account: function () { return window.ViktorychAccounts && window.ViktorychAccounts.account ? window.ViktorychAccounts.account() : null; },
+        api: function (path, opts) { return window.ViktorychAccounts && window.ViktorychAccounts.call ? window.ViktorychAccounts.call(path, opts) : Promise.resolve({ status: 503 }); },
+        enabled: function () { return !serverOffList().includes("ext_nicknames"); },
+        aliases: nickAliases,
+        refreshAccount: function (handle) { if (window.ViktorychAccounts && window.ViktorychAccounts.ensureProfile) window.ViktorychAccounts.ensureProfile(handle); },
+        closeMenus: function () { if (STATE.profileMenu || STATE.menu) { STATE.profileMenu = null; STATE.menu = null; render(); } },
+        toast: toast,
+        render: render
+      });
+    }
     if (window.ViktorychUsernames) {
       window.ViktorychUsernames.bind({
         token: function () { return window.ViktorychAccounts && window.ViktorychAccounts.token ? window.ViktorychAccounts.token() : ""; },
         api: function (path, opts) { return window.ViktorychAccounts && window.ViktorychAccounts.call ? window.ViktorychAccounts.call(path, opts) : Promise.resolve({ status: 503 }); },
+        platformGlyph: platformGlyph,
+        platformName: function (p) { return PLATFORM[p] || ""; },
+        nickEnabled: nickOn,
         render: render
       });
     }

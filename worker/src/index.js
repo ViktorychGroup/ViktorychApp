@@ -1244,6 +1244,7 @@ async function handleProfileGet(request, env, handle) {
     account.handle = seen.handle;
     if (seen.hidden) account.handleHidden = true;
     const shown = await viewerDisplay(env, request, row.public_id, viewer ? viewer.public_id : "", account.displayName);
+    if (shown.nickname) account.originalName = shown.original || account.handle || "";
     account.displayName = shown.hidden ? (account.handle || "") : shown.name;
     if (shown.hidden) account.displayNameHidden = true;
     if (shown.nickname) account.nickname = shown.nickname;
@@ -5937,7 +5938,7 @@ async function route(request, env, ctx) {
   if (path === "/v1/friends/decline" && request.method === "POST") return handleFriendAction(request, env, "decline");
   if (path === "/v1/friends/cancel" && request.method === "POST") return handleFriendAction(request, env, "cancel");
   if (path === "/v1/friends/remove" && request.method === "POST") return handleFriendAction(request, env, "remove");
-  if (path === "/v1/nicknames" || path === "/v1/usernames/friend-name" || path === "/v1/usernames/mentions") {
+  if (path === "/v1/nicknames" || path === "/v1/nicknames/external" || path === "/v1/usernames/friend-name" || path === "/v1/usernames/mentions") {
     return handleNameRules(request, env, path, { json, readJson, rateHit, limited, sessionAccount, invalidate: (e, id) => invalidate(e, "p:" + id) });
   }
   if (path === "/v1/display-names" || path.startsWith("/v1/display-names/")) {
