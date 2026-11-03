@@ -7,20 +7,17 @@ Written 2026-11-03 (UTC). Main is `eb6cee2deb532bbf4f31f35e042fd9fe67277d39`. La
 - **#531** Shorts re-enabled (owner-only): viewer cap, on-device stream-copy recording, native frame grab, playback fallback, TikTok follow placement. Squash merge `904144017f5260ab140efdeee40cab1357e4f72f`. Live on both sites (`version.json` matched that sha, watchdog HTTP 200).
 - **#532** A new community folder keeps its typed name when the page redraws, so Create still makes the folder. Squash merge `eb6cee2deb532bbf4f31f35e042fd9fe67277d39`. Its pull-request Page smoke passed. Main's own Page smoke for that commit was still running when this note was written.
 
+## Birthday reminders
+
+A birthday note is sent only to someone who still follows the celebrant. Each follower has their own note key, so one person's push id cannot collide with another's and drop or mis-file the write. The birth year stays out of the note's words. The reminder test checks those words. It does not search the whole JSON, because the sync cursor is a millisecond timestamp and that clock sometimes contains the digits `1990`.
+
 ## Router render race
 
-Page smoke failed again in the phone sign-up flow (pull request #533, docs only, so the same app code as main). After a reload to `#/settings` the address was settings, the heading stayed Home, and Log out was not in the page. Signing in was fine. `settingsHtml()` still contained Log out, so the account was ready and the settings page was simply never what got committed.
+Still open. After a reload to `#/settings` the address can be settings while the heading stays Home, so Log out is missing. A first attempt painted Settings during boot, before `DOMContentLoaded`, and the phone sign-up navigation to `#/settings` then timed out. That attempt is not in this pull request. `app.js` matches main. The follow-up keeps at most one corrective re-render per hash change, and that re-render is asynchronous and does not run during boot.
 
-Two causes:
-
-- While the feed was loading, `view()` returned the Home skeleton for every route it had not already handled, including Settings. That paint was recorded against `#/settings`, so a later check thought the page already matched the address.
-- The render generation was checked before the HTML was built. A Home frame that had already started could still commit after a newer render had painted Settings.
-
-The Home skeleton now runs only for Home. A restored screen that is not Home is rendered immediately instead of waiting for the catalog. At commit time a frame is kept only when its token is still the newest and `location.hash` is still the hash that frame was built for. Otherwise that frame is dropped and the current address is rendered. Regression test: `scripts/route_paint_test.mjs`.
+## Page smoke on docs-only changes
 
 Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. `smoke` is a required check. A skipped run counts as passing.
-
-The Accounts check then failed in the birthday reminder test: the whole notification JSON was searched for the digits `1990`, and the sync cursor is a millisecond timestamp that sometimes contains those digits. The birth year is still kept out of the note's words. Each follower's birthday note now has its own idempotency key, and a note is sent only when that account still follows the celebrant.
 
 ## Paused roadmap
 

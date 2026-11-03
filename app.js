@@ -20578,7 +20578,7 @@ if (STATE.histClear) {
         return pageHead(tr("Notifications")) + `<div class="notes-state error-box" data-notes-state="error"><h2>${esc(tr("Notifications aren’t available"))}</h2><p>${esc(tr("Reload the page."))}</p><button class="retry" type="button" data-act="notes-retry">${esc(tr("Retry"))}</button></div>`;
       }
     }
-    if (homeLoadingShell(route, STATE.loading)) {
+    if (STATE.loading) {
       return `<div class="topbar"><div class="page-head"><h1>${tr("Home")}</h1></div></div>` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("");
     }
     if (STATE.error && route.name === "home") {
@@ -21434,24 +21434,7 @@ if (STATE.histClear) {
   /* The newest address wins. A paint that started on Home can finish after
      the hash has already moved to Settings; that paint must not stay, and a
      hashchange that was skipped (sign-in still settling, or a newer
-     navigation) asks for one more render of the hash that is current.
-     The loading skeleton is Home only. Settings and every other route paint
-     their own page while the feed is still arriving, or a reload to
-     #/settings stays on Home and the paint is recorded as if it matched. */
-  function homeLoadingShell(route, loading) {
-    return !!(loading && route && route.name === "home");
-  }
-  /* Checked at commit time, not when the HTML started building. A newer
-     render, or a hash move while this frame was built, drops the frame. */
-  function commitFrameDecision(frame, live) {
-    const token = frame && frame.token;
-    const builtHash = frame && frame.builtHash != null ? String(frame.builtHash) : "#/";
-    const renderGen = live && live.renderGen;
-    const hash = live && live.hash != null ? String(live.hash) : "#/";
-    if (token !== renderGen) return { commit: false, reason: "stale-token", hash: hash };
-    if (builtHash !== hash) return { commit: false, reason: "stale-hash", hash: hash };
-    return { commit: true, reason: "ok", hash: hash };
-  }
+     navigation) asks for one more render of the hash that is current. */
   let routePaintState = { token: 0, painted: "#/" };
   let routeFollowQueued = false;
   function routePaintMismatch(paintedHash, liveHash) {
@@ -21532,7 +21515,7 @@ if (STATE.histClear) {
     syncHomeFromQuery(route);
     const currentTab = route.name === "home" ? (route.tab || "foryou") : "";
     if (!(route.name === "home" && STATE.tabMenu === currentTab)) STATE.tabMenu = null;
-    let nextKey = routeScrollKey();
+    const nextKey = routeScrollKey();
     const routeChanged = !!STATE.scrollKey && STATE.scrollKey !== nextKey;
     /* A render that runs after the hash moved but before the hashchange
        handler (a fetch or module repaint landing in that gap, common on slow
@@ -21601,30 +21584,19 @@ if (STATE.histClear) {
     const transition = false && routeChanged && !reduced;
     const apply = () => {
       if (gen !== STATE.renderGen) return;
+      const liveNow = location.hash || "#/";
+      if (liveNow !== hashAtStart) {
+        route = parseRoute();
+        paintedHash = liveNow;
+      }
+      applied = true;
       if (STATE.snapTop) y = 0;
       else if (STATE.holdY != null) y = STATE.holdY;
       else if (!(opts && Object.prototype.hasOwnProperty.call(opts, "y"))) y = window.scrollY;
       /* The shell swap used to throw away every horizontal row. Tab rows are
          patched in place; every other row, including the live pills, gets its
-         scrollLeft written back. Presence then paints dots on the new shell.
-         Build the page, then commit only if this render is still the newest
-         and the address is still the one the HTML was built for. */
-      for (let attempt = 0; attempt < 2; attempt++) {
-        if (gen !== STATE.renderGen) return;
-        const builtHash = location.hash || "#/";
-        route = parseRoute();
-        const token = STATE.renderGen;
-        const html = shell(localFirstView(route, view(route)), route) + (window.ProfileGifts && window.ProfileGifts.overlay ? window.ProfileGifts.overlay() : "");
-        const decision = commitFrameDecision({ token: token, builtHash: builtHash }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
-        if (decision.reason === "stale-token") return;
-        if (!decision.commit) continue;
-        commitApp(html);
-        applied = true;
-        paintedHash = decision.hash;
-        break;
-      }
-      if (!applied) return;
-      nextKey = routeScrollKey();
+         scrollLeft written back. Presence then paints dots on the new shell. */
+      commitApp(shell(localFirstView(route, view(route)), route) + (window.ProfileGifts && window.ProfileGifts.overlay ? window.ProfileGifts.overlay() : ""));
       paintProfileChrome();
       schedulePublicPosts();
       hydratePublicMedia();
@@ -30434,9 +30406,6 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       ensureVideoOwners();
     } else if (painted || document.querySelector("#app [data-boot-card]")) {
       STATE.loading = false;
-      /* A restored Home screen must not stay up under a different address
-         while the catalog request is still out. */
-      if (parseRoute().name !== "home") render();
     } else {
       STATE.loading = true;
       render();

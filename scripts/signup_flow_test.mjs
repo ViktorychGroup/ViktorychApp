@@ -27,7 +27,7 @@ const VIEWPORTS = [
   { name: "phone-landscape", width: 844, height: 390 },
   { name: "tablet", width: 820, height: 1180 },
   { name: "desktop", width: 1280, height: 800 }
-].filter((viewport) => !process.env.SIGNUP_PHONE || viewport.name === "phone");
+];
 
 let pageOrigin = "";
 let worker = null;
@@ -121,10 +121,6 @@ async function openFresh(browser, viewport, extra = {}) {
     permissions: ["clipboard-read", "clipboard-write", "notifications"]
   });
   const page = await context.newPage();
-  if (process.env.CPU_RATE) {
-    const cdp = await context.newCDPSession(page);
-    await cdp.send("Emulation.setCPUThrottlingRate", { rate: Number(process.env.CPU_RATE) || 4 });
-  }
   const problems = [];
   page.on("pageerror", (err) => problems.push(redact(err && err.message || err)));
   return { context, page, problems };
@@ -1201,7 +1197,7 @@ try {
       await context.close();
     }
   }
-  if (!process.env.SIGNUP_PHONE) failures.push(...await tvAskFlow(browser));
+  failures.push(...await tvAskFlow(browser));
   // The whole step flow at phone and desktop size, the quick path at both,
   // and both motion settings.
   const runs = [
@@ -1213,7 +1209,7 @@ try {
     { name: "motion", viewport: VIEWPORTS[3], run: (page) => motionPass(page, false) },
     { name: "reduced motion", viewport: VIEWPORTS[0], reduced: true, run: (page) => motionPass(page, true) }
   ];
-  for (const item of runs.filter((r) => !process.env.SIGNUP_PHONE && (!process.env.ONLY || process.env.ONLY.split(",").includes(r.name)))) {
+  for (const item of runs.filter((r) => !process.env.ONLY || process.env.ONLY.split(",").includes(r.name))) {
     // A renderer crash is the browser, not the app (seen once locally on a
     // busy machine); that run starts over once in a new context.
     for (let attempt = 0; attempt < 2; attempt++) {
