@@ -38,45 +38,43 @@
     } catch (err) { /* the page can be mid-navigation; the next render picks it up */ }
   }
 
+  /* One file at a time, in the listed order. A page that paints before its
+     planner (Local AI) or its module (a deep link) would show a shell that
+     cannot answer. Classic scripts also set async=false so a direct visit
+     that already inserted them still runs them before app.js. */
   function loadScripts(name, list, classic, done) {
-    var left = list.length;
-    if (!left) { done(); return; }
-    list.forEach(function (src) {
+    var i = 0;
+    function step() {
+      if (i >= list.length) { done(); return; }
+      var src = list[i++];
       var isStyle = /\.css(\?|$)/i.test(src);
       var already = isStyle
         ? document.querySelector('link[rel="stylesheet"][href="' + src + '"]')
         : document.querySelector('script[src="' + src + '"]');
-      if (already) { left -= 1; if (left === 0) done(); return; }
+      if (already) { step(); return; }
+      if (!isStyle && !classic) {
+        dynamicImport(new URL(src, document.baseURI).href).then(step, step);
+        return;
+      }
       var tag;
       if (isStyle) {
         tag = document.createElement("link");
         tag.rel = "stylesheet";
         tag.href = src;
-      } else if (classic) {
-        tag = document.createElement("script");
-        tag.src = src;
       } else {
-        dynamicImport(new URL(src, document.baseURI).href).then(function () {
-          left -= 1;
-          if (left === 0) done();
-        }, function () {
-          left -= 1;
-          if (left === 0) done();
-        });
-        return;
+        tag = document.createElement("script");
+        tag.async = false;
+        tag.src = src;
       }
-      tag.onload = function () {
-        left -= 1;
-        if (left === 0) done();
-      };
+      tag.onload = step;
       tag.onerror = function () {
-        delete loads[name];
-        left -= 1;
-        if (left === 0) done();
+        if (!isStyle) delete loads[name];
+        step();
       };
       if (isStyle) document.head.appendChild(tag);
       else document.body.appendChild(tag);
-    });
+    }
+    step();
   }
 
   function loadOne(name, entry) {

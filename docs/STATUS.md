@@ -37,7 +37,7 @@ Pull request #535. Phone profile 390×844, 4G, CPU slowed 4×.
 | Back to Home | 310–340ms | 33ms when the parked page is unchanged |
 | CLS | 0.17 from the alert toast | 0 |
 
-Signed-out visits load the landing set only. Only the active language pack downloads. Music, TV, Discord, gifts, Nostr and nearby chat load when opened, and again while idle. A click back to Home paints the parked page immediately; posts that arrived during the click are woven in after the pointer is up. Posts that arrive while first-run setup is open wait in the new-posts pill, so Home is still empty when setup closes. The service worker registers from `index.html` and fills its cache after the first screen. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
+Signed-out visits load the landing set only. Only the active language pack downloads. Music, TV, Discord, gifts, Nostr and nearby chat load when opened, and again while idle. A click back to Home paints the parked page immediately; posts that arrived during the click are woven in after the pointer is up. Opening a page directly (Local AI, Shorts, Games, TV, Communities, and the other on-demand pages) loads that page's scripts, in order, before the first paint. Posts that arrive while first-run setup is open wait in the new-posts pill, so Home is still empty when setup closes. The service worker registers from `index.html` and fills its cache after the first screen. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
 
 ## Working rules
 
