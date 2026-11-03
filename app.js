@@ -27495,10 +27495,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
 
   function scheduleIdleReload() {
     if (STATE.idleReload) return;
+    if (window.ViktorychUpdate && window.ViktorychUpdate.blocksReload && window.ViktorychUpdate.blocksReload()) return;
     if (readStored(sessionStorage, "sw-reload") === "1") return;
     STATE.idleReload = true;
     let timer = 0;
     const go = () => {
+      if (window.ViktorychUpdate && window.ViktorychUpdate.blocksReload && window.ViktorychUpdate.blocksReload()) return;
       if (readStored(sessionStorage, "sw-reload") === "1") return;
       const busy = [...document.querySelectorAll("video")].some((video) => video && !video.paused && !video.ended) || !!(window.Spaces && window.Spaces.playing && window.Spaces.playing()) || !!(window.SIntelMusic && window.SIntelMusic.playing && window.SIntelMusic.playing());
       if ((busy && document.visibilityState === "visible") || gameBusy()) {
@@ -29812,9 +29814,6 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     setOffline(!navigator.onLine);
     const updateGo = document.getElementById("update-go");
     if (updateGo) updateGo.addEventListener("click", () => location.reload());
-    setTimeout(() => {
-      if (!STATE.idleReload) removeStored(sessionStorage, "sw-reload");
-    }, 8000);
     if ("serviceWorker" in navigator) {
       const armServiceWorker = () => {
         const worker = navigator.serviceWorker.controller;
@@ -29825,6 +29824,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       navigator.serviceWorker.addEventListener("controllerchange", () => {
         armServiceWorker();
         if (!hadController) { hadController = true; return; }
+        if (window.ViktorychUpdate && window.ViktorychUpdate.blocksReload && window.ViktorychUpdate.blocksReload()) return;
         if (window.ViktorychUpdate && window.ViktorychUpdate.onControllerChange) {
           window.ViktorychUpdate.onControllerChange();
           return;

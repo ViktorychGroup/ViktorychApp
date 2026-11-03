@@ -513,6 +513,41 @@ async function testVersionMismatchIdle(browser) {
   console.log("a version.json mismatch stayed idle");
 }
 
+/* The live loop: service worker c2b9cb09, version.json still 3a6f2de. */
+async function testLiveLag(browser) {
+  const sw = "c2b9cb0959b7a68187171bda4af3af0fd596d274";
+  const manifest = "3a6f2de18453d5416d9ed99ab622047825a105db";
+  const { server, state, url } = await startServer();
+  state.version = sw;
+  state.built = "2026-11-03T23:25:36Z";
+  const opened = await openAt(browser, url, sw);
+  try {
+    state.version = manifest;
+    state.built = "2026-11-03T23:13:36Z";
+    state.swSha = sw;
+    state.swBuilt = "2026-11-03T23:25:36Z";
+    await opened.page.reload({ waitUntil: "domcontentloaded" });
+    await waitControlled(opened.page);
+    const sha = await assertStaysIdle(opened.page, 2000, "live version.json lag");
+    assert(sha === sw, "the live lag changed the service worker");
+    let extra = 0;
+    opened.page.on("framenavigated", () => { extra += 1; });
+    await opened.page.evaluate(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      window.ViktorychUpdate.onControllerChange();
+      window.ViktorychUpdate.poke();
+    });
+    await opened.page.waitForTimeout(1200);
+    assert(extra === 0, "the live lag reloaded the page");
+    const shown = await shownState(opened.page);
+    assert(!shown.visible && !shown.error, "the live lag showed the update screen");
+  } finally {
+    await opened.context.close();
+    server.close();
+  }
+  console.log("live version.json lag did not reload");
+}
+
 /* What's new is one sheet per build: it comes back for a new build, and not
    for one the device already dismissed. */
 async function testNotesOnce(browser) {
@@ -596,6 +631,7 @@ const browser = await chromium.launch({
 });
 try {
   await testVersionMismatchIdle(browser);
+  await testLiveLag(browser);
   await testNotesOnce(browser);
   await testCleanUpdate(browser);
   await testRetryRecovers(browser);

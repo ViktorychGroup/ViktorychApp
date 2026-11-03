@@ -174,6 +174,34 @@
     return true;
   }
 
+  /* version.json names a different build than the service worker that is
+     running. That difference is not an update and must not reload the page. */
+  function versionMismatch(remoteSha, controllerSha) {
+    var remote = normSha(remoteSha);
+    var controller = normSha(controllerSha);
+    return !!(remote && controller && remote !== controller);
+  }
+
+  /* A version.json older than the running worker, or one with no build time,
+     must not reload that worker. A newer manifest can still ship a new build. */
+  function staleManifest(remoteSha, controllerSha, remoteBuilt, currentBuilt) {
+    if (!versionMismatch(remoteSha, controllerSha)) return false;
+    var remoteTime = isoBuilt(remoteBuilt);
+    var localTime = isoBuilt(currentBuilt);
+    if (!remoteTime || !localTime) return true;
+    return remoteTime <= localTime;
+  }
+
+  /* True when a reload would repeat this service-worker build, or would
+     reload it only because version.json is older. */
+  function blocksReload(remoteSha, controllerSha, buildId, sessionBuild, localBuild, remoteBuilt, currentBuilt) {
+    var build = normSha(buildId);
+    var controller = normSha(controllerSha);
+    if (!build) return true;
+    if (build === controller && staleManifest(remoteSha, controller, remoteBuilt, currentBuilt)) return true;
+    return !reloadAllowed(build, sessionBuild, localBuild);
+  }
+
   /* A What's new sheet is shown once per build. seen is the list already shown. */
   function shouldShowNotes(sha, seen) {
     var target = normSha(sha);
@@ -277,6 +305,11 @@
     sha = normSha(state.heardSha);
     var controller = normSha(state.currentSha);
     if (!sha || !controller || !state.waiting) return;
+    if (staleManifest(state.remoteSha, controller, state.remoteBuilt, state.currentBuilt)) {
+      state.pending = false;
+      paint();
+      return;
+    }
     var fresh = offerMismatch(controller, state.remoteSha, sha, appliedSha(), state.remoteBuilt, state.currentBuilt) && !reloadSpent(sha);
     if (!fresh) {
       if (!applying && state.phase === "offer") {
@@ -578,6 +611,7 @@
     var box = ensure();
     var look = presentation(state, Date.now());
     if (state.quiet && look === "toast") look = "idle";
+    if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) look = "idle";
     if (updateBlocked() && look !== "idle" && look !== "pill") {
       if (state.ready && state.pending) state.deferApply = true;
       look = "idle";
@@ -688,6 +722,7 @@
   }
 
   function offer() {
+    if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) return;
     state.pending = true;
     if (state.phase !== "working" && state.phase !== "done" && state.phase !== "error") state.phase = "offer";
     paint();
@@ -889,8 +924,9 @@
     if (applying || state.reloaded || state.critical || state.forced) return;
     if (!state.ready || !state.pending || state.phase === "error" || state.phase === "working") return;
     if (updateBlocked()) { state.deferApply = true; return; }
+    if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) return;
     var sha = normSha(state.pendingSha);
-    if (!sha || reloadSpent(sha)) return;
+    if (!sha || sha === normSha(state.currentSha) || reloadSpent(sha)) return;
     state.deferApply = false;
     state.silent = true;
     applyNow(true);
@@ -1066,15 +1102,16 @@
       return;
     }
     var sha = normSha(state.pendingSha) || normSha(state.currentSha);
+    if (blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) return;
     reloadTimer = setTimeout(function () {
       reloadTimer = 0;
-      if (updateBlocked()) {
+      if (updateBlocked() || blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) {
         state.deferApply = true;
         state.reloaded = false;
         return;
       }
-      if (sha && !markReload(sha)) return;
-      if (sha) queueUpdatedToast(sha);
+      if (!markReload(sha)) return;
+      queueUpdatedToast(sha);
       var worker = navigator.serviceWorker && navigator.serviceWorker.controller;
       if (worker) {
         try { worker.postMessage({ type: "update-reloading" }); } catch (err) { /* the worker reloads the page if this one does not */ }
@@ -1398,8 +1435,9 @@
 
   function hardReload() {
     if (updateBlocked()) { state.deferApply = true; return; }
-    var sha = normSha(state.pendingSha) || normSha(state.currentSha) || normSha(state.remoteSha);
-    if (sha && !markReload(sha)) return;
+    var sha = normSha(state.pendingSha) || normSha(state.currentSha);
+    if (blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) return;
+    if (!markReload(sha)) return;
     captureState();
     state.expectingController = false;
     var worker = navigator.serviceWorker && navigator.serviceWorker.controller;
@@ -1422,14 +1460,14 @@
   function onControllerChange() {
     askVersion();
     if (state.reloaded) return;
+    if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) return;
     if (!(state.expectingController || state.phase === "working" || state.phase === "done")) return;
-    var remote = normSha(state.remoteSha);
-    var current = normSha(state.currentSha);
-    var pending = normSha(state.pendingSha);
-    // The worker that is already running is the build. A version.json sha
-    // that names something else must not reload the page again.
-    if (!state.expectingController && remote && current && remote !== current && (!pending || pending === current)) return;
+    if (blocksReload(state.remoteSha, state.currentSha, state.pendingSha || state.currentSha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) return;
     finishUpdate();
+  }
+
+  function blocksReloadNow() {
+    return blocksReload(state.remoteSha, state.currentSha, state.pendingSha || state.currentSha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt);
   }
 
   function poke() {
@@ -1515,6 +1553,10 @@
     presentation: presentation,
     shouldShowNotes: shouldShowNotes,
     shouldDeferApply: shouldDeferApply,
+    versionMismatch: versionMismatch,
+    staleManifest: staleManifest,
+    blocksReloadFor: blocksReload,
+    blocksReload: blocksReloadNow,
     showReleaseNotes: showReleaseNotes,
     onControllerChange: onControllerChange,
     shouldOfferReset: shouldOfferReset,
