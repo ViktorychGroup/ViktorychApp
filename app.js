@@ -25822,11 +25822,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     scrollFreeze = true;
   }, true);
   window.addEventListener("hashchange", () => {
-    routePaintState = routePaintDecision(routePaintState, { type: "hash", hash: location.hash || "#/" });
-    if (window.ViktorychAccounts?.blocking?.()) {
-      followRoute();
-      return;
-    }
+    if (window.ViktorychAccounts?.blocking?.()) return;
     showPill(pendingPillPosts());
     const nextHash = location.hash || "#/";
     const prevHash = lastKey || "";
@@ -25886,6 +25882,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     // new view renders right after that paint instead of inside the click.
     paintNavNow(nextRoute);
     if (y > 0) restoreWhenTall(key, y);
+    routePaintState = routePaintDecision(routePaintState, { type: "hash", hash: location.hash || "#/" });
     const token = routePaintState.token;
     afterNextPaint(() => {
       if (token !== routePaintState.token) {
