@@ -18176,6 +18176,12 @@ const here = parseRoute();
     const keysRow = (window.OwnerKeys && window.OwnerKeys.visible && window.OwnerKeys.visible()) || window.DiscordLocal || (window.NzlayKeys && window.NzlayKeys.enabled())
       ? settingsRow("#/settings/keys", tr("Connected keys"), tr("Keys from your own accounts stay encrypted."))
       : "";
+    let accountBlock = "";
+    try {
+      accountBlock = window.ViktorychAccounts && window.ViktorychAccounts.settingsHtml ? window.ViktorychAccounts.settingsHtml() : "";
+    } catch (err) {
+      accountBlock = "";
+    }
     return settingsHead(tr("Settings"), "") + settingsSearchHtml() + localAiEntryHtml() + `<div class="set-block set-main-note"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}><p class="phandle">${esc(tr("Follows, Lists, custom tabs, likes, bookmarks, and history stay in this browser."))}</p></div><div class="set-list set-main-list"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}>
       ${settingsRow("#/customize", tr("Customize"), tr("Theme, colour, text size, profile pictures and your feed, all in one place."))}
       ${settingsRow("#/settings/accessibility", tr("Accessibility, display and languages"), tr("Manage how {app} looks and which language it uses.", { app: productName("app") }))}
@@ -18198,7 +18204,8 @@ const here = parseRoute();
       ${settingsRow("#/settings/resources", tr("Additional resources"))}
       ${isStandalone() ? "" : `<button class="set-row" type="button" data-act="install"><span class="set-copy"><b>${esc(tr("Install app"))}</b><span class="set-sub">${esc(tr("Add it to your Home Screen or desktop."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button>`}
       ${accountToken() ? `<button class="set-row" type="button" data-act="run-setup"><span class="set-copy"><b>${esc(tr("Run setup again"))}</b><span class="set-sub">${esc(tr("Privacy, look, alerts, install and follows."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button>` : ""}
-    </div>${settingsSearchOut()}` + (window.ViktorychAccounts && window.ViktorychAccounts.settingsHtml ? window.ViktorychAccounts.settingsHtml() : "");
+      ${accountToken() ? `<button class="set-row" type="button" data-acct="logout"><span class="set-copy"><b>${esc(tr("Log out"))}</b></span></button>` : ""}
+    </div>${settingsSearchOut()}` + accountBlock;
   }
 
   const DRAWER_LOCKED = ["home", "settings", "logout", "customize"];
@@ -20457,8 +20464,9 @@ if (STATE.histClear) {
      placeholder and this device has the last screen of that page, paint that
      screen now; the live render replaces it in place when data arrives. Each
      finished screen is saved (bounded, least recently used first out, wiped on
-     sign-out). Pages that hold secrets, private lists or live media are never saved. */
-  const SNAP_SKIP = { vault: 1, drive: 1, storage: 1, packages: 1, games: 1, shorts: 1, watch: 1, spaces: 1, compose: 1, lock: 1, sourcelists: 1, feedrequests: 1 };
+     sign-out). Pages that hold secrets, private lists, live media, or Settings
+     (Log out and the account id) are never saved. */
+  const SNAP_SKIP = { vault: 1, drive: 1, storage: 1, packages: 1, games: 1, shorts: 1, watch: 1, spaces: 1, compose: 1, lock: 1, sourcelists: 1, feedrequests: 1, settings: 1 };
   function routeLoading(html) {
     if (!html) return true;
     if (html.indexOf('class="tab-loading"') >= 0 || html.indexOf('role="progressbar"') >= 0) return true;

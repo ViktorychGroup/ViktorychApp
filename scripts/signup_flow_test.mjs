@@ -135,22 +135,65 @@ async function gotoFresh(page) {
   return firstScreen;
 }
 
+function signedInSession() {
+  return `(() => {
+    try {
+      const session = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+      return !!(session && session.token && session.account);
+    } catch (err) { return false; }
+  })()`;
+}
+
 async function logOut(page) {
-  // A sign-in that is still settling can bounce the first settings visit
-  // (seen on CI runners), so open settings again before giving up.
-  for (let attempt = 0; ; attempt++) {
-    const found = await page.locator("[data-acct='logout']").waitFor({ state: "attached", timeout: 8000 }).then(() => true, () => false);
-    if (found) break;
-    if (attempt >= 2) throw new Error("settings never showed Log out (" + page.url() + ")");
-    await openPage(page, "/#/settings");
+  // Log out is part of the signed-in account block. Wait until that session
+  // is stored, then scroll the live button into view and press it. A cached
+  // or half-drawn settings screen must not count.
+  await page.waitForFunction(signedInSession(), null, { timeout: 20000 });
+  const onSettings = /#\/settings\/?$/.test(new URL(page.url()).hash || "");
+  if (!onSettings) await openPage(page, "/#/settings");
+  // The menu row is in the settings list. The account block repeats it at
+  // the bottom. Press whichever one is on screen, in the same turn it appears.
+  const ready = await page.waitForFunction(() => {
+    if (window.__didLogout) return true;
+    const nodes = [...document.querySelectorAll("#app [data-acct='logout']")];
+    const el = nodes.find((node) => node.getBoundingClientRect().height > 0) || nodes[0];
+    if (!el || !el.isConnected) return false;
+    el.scrollIntoView({ block: "center", inline: "nearest" });
+    el.click();
+    window.__didLogout = true;
+    return true;
+  }, null, { timeout: 15000 }).then(() => true, () => false);
+  await page.evaluate(() => { window.__didLogout = false; });
+  if (!ready) {
+    const why = await page.evaluate(() => {
+      let signed = false;
+      try {
+        const session = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+        signed = !!(session && session.account);
+      } catch (err) { signed = false; }
+      const el = document.querySelector("[data-acct='logout']");
+      const app = document.getElementById("app");
+      let built = "";
+      let builtErr = "";
+      try {
+        built = window.ViktorychAccounts && window.ViktorychAccounts.settingsHtml ? window.ViktorychAccounts.settingsHtml() : "missing";
+      } catch (err) { builtErr = String(err && err.message || err); }
+      const text = app ? app.innerText.slice(0, 500) : "";
+      return {
+        signed: signed,
+        attached: !!(el && el.isConnected),
+        hash: location.hash,
+        acct: !!document.querySelector(".acct-settings"),
+        notSignedIn: text.indexOf("Not signed in") >= 0,
+        heading: (app && app.querySelector("h1, h2") && app.querySelector("h1, h2").textContent) || "",
+        text: text,
+        builtHasLogout: built.indexOf("data-acct=\"logout\"") >= 0,
+        builtErr: builtErr,
+        builtHead: built.slice(0, 180)
+      };
+    });
+    throw new Error("settings never showed Log out (" + page.url() + ") " + JSON.stringify(why));
   }
-  // Log out sits far below the phone viewport, and settings redraws while
-  // federation status loads. Scrolling, or clicking a node resolved earlier,
-  // misses the handler. Click the button that is in the document now.
-  await page.evaluate(() => {
-    const el = document.querySelector("[data-acct='logout']");
-    if (el) el.click();
-  });
 }
 
 // Right after a log out the sign-in wall can draw once more while the
@@ -946,9 +989,17 @@ async function firstRun(page) {
     return /^\d{16}$/.test(String(number || ""));
   });
   if (!loggedIn) notes.push("saved number was not available for sign-in");
+  // "Your account" is also the signed-out settings heading, and "No posts yet"
+  // can sit in a hidden feed. Neither one means the login finished. Leave
+  // this page only after the session is stored and the wall is gone, so the
+  // navigation cannot drop the sign-in before Settings can show Log out.
   const back = await page.waitForFunction(() => {
-    const text = document.body ? document.body.innerText : "";
-    return /Your account/.test(text) || /No posts yet/.test(text);
+    try {
+      const session = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+      if (!session || !session.token || !session.account) return false;
+    } catch (err) { return false; }
+    if (document.documentElement.getAttribute("data-wall") === "1") return false;
+    return true;
   }, null, { timeout: 20000 }).then(() => true, () => false);
   if (!back) {
     notes.push("sign-in did not open the app (" + loginStatus + ")");
