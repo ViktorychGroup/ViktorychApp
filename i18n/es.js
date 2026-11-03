@@ -6058,5 +6058,15 @@ SI18n.addPack("es", {
   "Viewer cap": "Límite de espectadores",
   "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.": "Pausa un directo, incluida la reproducción, cuando lo miran más personas que este número. Desactivado deja todos los directos en marcha.",
   "Restart recording when the count drops": "Volver a grabar cuando baje el número",
-  "Live paused: over {count} viewers": "Directo en pausa: más de {count} espectadores"
+  "Live paused: over {count} viewers": "Directo en pausa: más de {count} espectadores",
+  "Record this live": "Grabar este directo",
+  "Stop and save": "Parar y guardar",
+  "Saved on this device": "Guardado en este dispositivo",
+  "Could not save that recording. Try again.": "No se pudo guardar esa grabación. Inténtalo de nuevo.",
+  "Save frame": "Guardar fotograma",
+  "Burst": "Ráfaga",
+  "Pick the frames to keep": "Elige los fotogramas que quieres guardar",
+  "Save selected": "Guardar seleccionados",
+  "Live frame grab": "Captura de un directo",
+  "A camera button on a live saves a full-size still, or a short burst, on this device.": "Un botón de cámara en un directo guarda una foto a tamaño completo, o una ráfaga corta, en este dispositivo."
 });

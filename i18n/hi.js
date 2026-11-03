@@ -6045,5 +6045,15 @@ SI18n.addPack("hi", {
   "Viewer cap": "दर्शक सीमा",
   "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.": "जब इससे ज़्यादा लोग देख रहे हों तो लाइव को रोकें, चलना भी। बंद होने पर हर लाइव चलता रहता है।",
   "Restart recording when the count drops": "संख्या घटने पर रिकॉर्डिंग फिर शुरू करें",
-  "Live paused: over {count} viewers": "लाइव रुका: {count} से ज़्यादा दर्शक"
+  "Live paused: over {count} viewers": "लाइव रुका: {count} से ज़्यादा दर्शक",
+  "Record this live": "इस लाइव को रिकॉर्ड करें",
+  "Stop and save": "रोकें और सहेजें",
+  "Saved on this device": "इस डिवाइस पर सहेजा गया",
+  "Could not save that recording. Try again.": "वह रिकॉर्डिंग सहेज नहीं सकी। फिर से कोशिश करें।",
+  "Save frame": "फ़्रेम सहेजें",
+  "Burst": "लगातार फ़्रेम",
+  "Pick the frames to keep": "रखने के लिए फ़्रेम चुनें",
+  "Save selected": "चुने हुए सहेजें",
+  "Live frame grab": "लाइव फ़्रेम",
+  "A camera button on a live saves a full-size still, or a short burst, on this device.": "लाइव पर कैमरा बटन इस डिवाइस पर पूरा फ़्रेम या एक छोटी श्रृंखला सहेजता है।"
 });

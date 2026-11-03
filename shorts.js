@@ -2788,6 +2788,151 @@
     return { video: video, hls: player, at: at };
   }
 
+  var localCopy = null;
+  function recordPrefs() {
+    try {
+      var row = JSON.parse(localStorage.getItem("viktorych_live_record") || "{}");
+      return { auto: row.auto === true, server: row.server === true };
+    } catch (err) { return { auto: false, server: false }; }
+  }
+  function saveRecordPrefs(next) {
+    var row = { auto: next.auto === true, server: next.server === true };
+    try { localStorage.setItem("viktorych_live_record", JSON.stringify(row)); } catch (err) { /* the tap still records */ }
+    var base = apiBase();
+    if (!base || !hooks.token()) return;
+    fetch(base + "/v1/owner/live-record", {
+      method: "POST",
+      headers: Object.assign({ "content-type": "application/json" }, authHeaders()),
+      body: JSON.stringify({ server: row.server, auto: false })
+    }).catch(function () {});
+  }
+  function frameGrabOn() {
+    if (!ownerHere()) return false;
+    try {
+      var list = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]");
+      return !(Array.isArray(list) && list.indexOf("live_frame_grab") >= 0);
+    } catch (err) { return true; }
+  }
+  function downloadBytes(bytes, name, type) {
+    var blob = new Blob([bytes], { type: type || "application/octet-stream" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  function copySegments(handle, info) {
+    var Copy = window.LiveCopy;
+    if (!Copy) return Promise.reject(new Error("copy"));
+    var source = Copy.bestSource(info);
+    if (!source || source.kind !== "hls") return Promise.reject(new Error("source"));
+    proxyHandle = handle;
+    return fetch(proxyUrl(source.url), { headers: authHeaders() }).then(function (res) {
+      if (!res || !res.ok) throw new Error("playlist");
+      return res.text();
+    }).then(function (text) {
+      var parsed = Copy.parseHls(text, source.url);
+      var plan = Copy.copyPlan(parsed);
+      if (!plan.ok) throw new Error("plan");
+      var urls = parsed.segments.slice();
+      if (plan.method === "concat-fmp4" && parsed.map) urls.unshift(parsed.map);
+      var chain = Promise.resolve([]);
+      urls.forEach(function (url) {
+        chain = chain.then(function (parts) {
+          return fetch(proxyUrl(url), { headers: authHeaders() }).then(function (res) {
+            if (!res || !res.ok) throw new Error("segment");
+            return res.arrayBuffer();
+          }).then(function (buf) {
+            parts.push(new Uint8Array(buf));
+            return parts;
+          });
+        });
+      });
+      return chain.then(function (parts) {
+        var bytes = plan.method === "concat-flv" ? Copy.concatFlv(parts) : Copy.concatBytes(parts);
+        downloadBytes(bytes, "live-" + foldHandle(handle) + "." + plan.ext, plan.ext === "mp4" ? "video/mp4" : "video/mp2t");
+      });
+    });
+  }
+  function grabStill(video) {
+    var Grab = window.LiveGrab;
+    var box = Grab ? Grab.frameBox(video) : { width: video && video.videoWidth, height: video && video.videoHeight };
+    if (!box.width || !box.height) return null;
+    var canvas = document.createElement("canvas");
+    canvas.width = box.width;
+    canvas.height = box.height;
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, box.width, box.height);
+    return canvas;
+  }
+  function savePng(canvas, name) {
+    if (!canvas || !canvas.toBlob) return;
+    canvas.toBlob(function (blob) {
+      if (!blob) return;
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    }, "image/png");
+  }
+  function showBurst(frames) {
+    var old = document.getElementById("shorts-burst");
+    if (old) old.remove();
+    var sheet = document.createElement("div");
+    sheet.id = "shorts-burst";
+    sheet.className = "shorts-burst";
+    sheet.innerHTML = "<p>" + hooks.esc(tr("Pick the frames to keep")) + "</p>" +
+      frames.map(function (frame, index) {
+        return '<label><input type="checkbox" checked data-i="' + index + '"></label>';
+      }).join("") +
+      '<button type="button" data-shorts="save-burst">' + hooks.esc(tr("Save selected")) + "</button>";
+    frames.forEach(function (frame, index) {
+      var box = document.createElement("span");
+      box.hidden = true;
+      box._full = frame.canvas;
+      box.setAttribute("data-full", String(index));
+      sheet.appendChild(box);
+    });
+    document.body.appendChild(sheet);
+    sheet.addEventListener("click", function (event) {
+      var button = event.target.closest && event.target.closest("[data-shorts='save-burst']");
+      if (!button) return;
+      sheet.querySelectorAll("input").forEach(function (input) {
+        if (!input.checked) return;
+        var box = sheet.querySelector('[data-full="' + input.getAttribute("data-i") + '"]');
+        if (box && box._full) savePng(box._full, "frame-" + input.getAttribute("data-i") + ".png");
+      });
+      sheet.remove();
+    });
+  }
+  function startBurst(video) {
+    var Grab = window.LiveGrab;
+    var count = Grab ? Grab.clampBurst(12) : 12;
+    var frames = [];
+    function step(now, meta) {
+      var canvas = grabStill(video);
+      var stamp = meta && meta.mediaTime != null ? meta.mediaTime : (video.currentTime || now);
+      if (canvas) frames.push({ canvas: canvas, timestamp: stamp });
+      count -= 1;
+      if (count <= 0) {
+        showBurst(Grab ? Grab.uniqueFrames(frames) : frames);
+        return;
+      }
+      if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(step);
+      else setTimeout(function () { step(Date.now(), { mediaTime: video.currentTime }); }, 50);
+    }
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(step);
+    else step(Date.now(), { mediaTime: video.currentTime });
+  }
+
   function openLive(handle) {
     handle = String(handle || "");
     if (!handle) return;
@@ -2815,7 +2960,10 @@
       '<div class="shorts-live-hud"><button type="button" data-shorts="close-live" aria-label="' + hooks.esc(tr("Close")) + '">×</button>' +
       '<span class="shorts-live-tag">' + hooks.esc(tr("LIVE")) + "</span>" +
       '<span class="shorts-live-q"></span>' +
-      '<button type="button" data-shorts="mute" aria-label="' + hooks.esc(sound ? tr("Mute") : tr("Unmute")) + '">' + hooks.icon(sound ? "vol" : "volOff") + "</button></div>" +
+      '<button type="button" data-shorts="mute" aria-label="' + hooks.esc(sound ? tr("Mute") : tr("Unmute")) + '">' + hooks.icon(sound ? "vol" : "volOff") + "</button>" +
+      '<button type="button" data-shorts="record-live">' + hooks.esc(tr("Record this live")) + "</button>" +
+      (frameGrabOn() ? '<button type="button" data-shorts="grab-frame">' + hooks.esc(tr("Save frame")) + '</button><button type="button" data-shorts="grab-burst">' + hooks.esc(tr("Burst")) + "</button>" : "") +
+      "</div>" +
       '<div class="shorts-live-foot"><b>@' + hooks.esc(handle) + "</b>" +
       '<span class="shorts-live-viewers"></span></div>';
     document.body.appendChild(root);
@@ -2842,6 +2990,35 @@
         event.preventDefault();
         sound = !sound;
         syncMute(button);
+      } else if (kind === "record-live") {
+        event.preventDefault();
+        if (localCopy) {
+          localCopy.stop = true;
+          button.textContent = tr("Record this live");
+          return;
+        }
+        localCopy = { stop: false };
+        button.textContent = tr("Stop and save");
+        refreshLive(handle, true).then(function (info) {
+          if (!info || info.capPaused) throw new Error("cap");
+          return copySegments(handle, info);
+        }).then(function () {
+          showLiveMessage(handle, tr("Saved on this device"));
+        }).catch(function () {
+          showLiveMessage(handle, tr("Could not save that recording. Try again."));
+        }).then(function () {
+          localCopy = null;
+          if (button) button.textContent = tr("Record this live");
+        });
+      } else if (kind === "grab-frame") {
+        event.preventDefault();
+        if (!frameGrabOn()) return;
+        var still = grabStill(video);
+        if (still) savePng(still, "frame.png");
+      } else if (kind === "grab-burst") {
+        event.preventDefault();
+        if (!frameGrabOn()) return;
+        startBurst(video);
       } else if (kind === "retry-live") {
         event.preventDefault();
         var againHandle = root.getAttribute("data-handle") || handle;
@@ -2896,6 +3073,10 @@
         if (!info) { finishFail(); return; }
         startStats(handle, info.roomId || "");
         if (info.capPaused) { holdOverCap(handle, info); return; }
+        if (recordPrefs().auto && !localCopy) {
+          localCopy = { stop: false };
+          copySegments(handle, info).catch(function () {}).then(function () { localCopy = null; });
+        }
         var viewers = root.querySelector(".shorts-live-viewers");
         if (viewers) viewers.textContent = info.viewers ? tn("watching", info.viewers, { count: hooks.formatCount(info.viewers, 1000) }) : "";
         var quality = root.querySelector(".shorts-live-q");
@@ -3247,21 +3428,25 @@
     if (!feed) return;
     var slides = feed.querySelectorAll(".shorts-slide");
     var current = activeVideo();
+    var prevSlide = null;
     var next = null;
     for (var n = 0; n < slides.length; n++) {
-      if (slides[n] === current && slides[n + 1] && slides[n + 1].getAttribute("data-kind") !== "live") next = slides[n + 1];
+      if (slides[n] !== current) continue;
+      if (slides[n - 1] && slides[n - 1].getAttribute("data-kind") !== "live") prevSlide = slides[n - 1];
+      if (slides[n + 1] && slides[n + 1].getAttribute("data-kind") !== "live") next = slides[n + 1];
     }
     for (var i = 0; i < slides.length; i++) {
       if (slides[i] !== current && slides[i]._zoom) slides[i]._zoom.reset();
       var video = slides[i].querySelector("video");
       if (!video || slides[i].getAttribute("data-kind") === "live") continue;
-      video.muted = !sound;
+      video.muted = true;
       if (slides[i] === current) {
         armSlide(slides[i], "auto");
         var play = video.play();
-        if (play && play.catch) play.catch(function () {});
-      } else if (slides[i] === next) {
-        armSlide(slides[i], "metadata");
+        if (play && play.then) play.then(function () { if (sound) video.muted = false; }).catch(function () {});
+        else if (play && play.catch) play.catch(function () {});
+      } else if (slides[i] === next || slides[i] === prevSlide) {
+        armSlide(slides[i], "auto");
         video.pause();
       } else stopSlide(slides[i]);
     }

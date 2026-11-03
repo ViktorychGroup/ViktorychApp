@@ -6055,5 +6055,15 @@ SI18n.addPack("en", {
   "Viewer cap": "Viewer cap",
   "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.": "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.",
   "Restart recording when the count drops": "Restart recording when the count drops",
-  "Live paused: over {count} viewers": "Live paused: over {count} viewers"
+  "Live paused: over {count} viewers": "Live paused: over {count} viewers",
+  "Record this live": "Record this live",
+  "Stop and save": "Stop and save",
+  "Saved on this device": "Saved on this device",
+  "Could not save that recording. Try again.": "Could not save that recording. Try again.",
+  "Save frame": "Save frame",
+  "Burst": "Burst",
+  "Pick the frames to keep": "Pick the frames to keep",
+  "Save selected": "Save selected",
+  "Live frame grab": "Live frame grab",
+  "A camera button on a live saves a full-size still, or a short burst, on this device.": "A camera button on a live saves a full-size still, or a short burst, on this device."
 });

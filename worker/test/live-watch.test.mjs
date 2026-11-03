@@ -3,6 +3,10 @@ import test from "node:test";
 import { admitRecord, fresh, needsUpload, recordingAllowed, shouldRememberLive, uploaderStale, watchDecision, watchHandles } from "../src/live-watch.js";
 import { allowRecord, nextPlayable, parseCap, proxyBlocked, sinkPaused, stepCap } from "../../shared/viewer-cap.js";
 import { after, chain, embedUrl } from "../../shared/shorts-play.js";
+import { bestSource, concatBytes, concatFlv, copyPlan, parseHls } from "../../shared/live-copy.js";
+import { clampBurst, frameBox, uniqueFrames } from "../../shared/live-grab.js";
+import { tiktokSaveProblems } from "../src/tiktok-save-health.js";
+import { FEATURES } from "../src/feature-flags.js";
 
 const NOW = Date.parse("2026-10-26T12:00:00Z");
 const ISO = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -175,4 +179,28 @@ test("a short tries the saved file, then the R2 copy, then the official embed", 
   assert.match(steps[2].url, /music_info=0/);
   assert.match(steps[2].url, /loop=1/);
   assert.equal(chain({ platform: "x", id: "1" }, {}).length, 0);
+});
+
+test("a live copy joins original segments and a grab stays the native frame", () => {
+  const playlist = parseHls("#EXTM3U\n#EXTINF:2,\nhttps://cdn.example/a.ts\n#EXTINF:2,\nseg.ts\n", "https://cdn.example/live.m3u8");
+  assert.deepEqual(playlist.segments, ["https://cdn.example/a.ts", "https://cdn.example/seg.ts"]);
+  const plan = copyPlan(playlist);
+  assert.equal(plan.ok, true);
+  assert.equal(plan.reencode, false);
+  assert.equal(plan.method, "concat-ts");
+  const joined = concatBytes([new Uint8Array([1, 2]), new Uint8Array([3])]);
+  assert.deepEqual(Array.from(joined), [1, 2, 3]);
+  const header = new Uint8Array(13);
+  header[0] = 0x46; header[1] = 0x4c; header[2] = 0x56; header[5] = 0; header[6] = 0; header[7] = 0; header[8] = 9; header[12] = 7;
+  const flv = concatFlv([header, header]);
+  assert.equal(flv[flv.length - 1], 7);
+  assert.equal(bestSource({ variants: [{ quality: "ld", hls: "https://cdn.example/l.m3u8" }, { quality: "origin", hls: "https://cdn.example/o.m3u8" }] }).url, "https://cdn.example/o.m3u8");
+  assert.equal(clampBurst(3), 10);
+  assert.equal(clampBurst(40), 30);
+  assert.equal(clampBurst(12), 12);
+  assert.deepEqual(frameBox({ videoWidth: 1080, videoHeight: 1920 }), { width: 1080, height: 1920, png: true, scaled: false });
+  assert.equal(uniqueFrames([{ timestamp: 1 }, { timestamp: 1 }, { timestamp: 2 }]).length, 2);
+  assert.equal(tiktokSaveProblems({ lines: ["TikTok save queue: 2 videos failed and will retry."] }).length, 1);
+  assert.equal(FEATURES.live_frame_grab.defaultOff, undefined);
+  assert.ok(FEATURES.shorts);
 });

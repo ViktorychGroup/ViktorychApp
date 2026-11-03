@@ -909,6 +909,13 @@ def extract() -> int:
         pause = pace_seconds()
         visited = 0
         tally = fresh_tally()
+        save_queue = {"jobs": {}}
+        try:
+            from tiktok_save_queue import empty as empty_save_queue
+            loaded = r2_json(cf, bucket, "backup/tiktok-save-queue.json", directory / "remote-save-queue.json")
+            save_queue = loaded if isinstance(loaded, dict) and isinstance(loaded.get("jobs"), dict) else empty_save_queue()
+        except Exception:
+            save_queue = {"jobs": {}}
         stored = store_catalog(cf, manifest, state, directory, links, limit, 0, pause, tally)
         stored = store_community_originals(directory, cf, manifest, state, links, limit, stored)
         for offset, account in enumerate(rotate(accounts, start)):
@@ -959,6 +966,19 @@ def extract() -> int:
                         log("[media-extract] reached the run cap")
                         stored = limit
                         break
+                    if account["platform"] == "tiktok":
+                        try:
+                            from tiktok_save_queue import enqueue as enqueue_save, mark as mark_save
+                            video_id = str(item["post"].get("statusId") or "")
+                            enqueue_save(save_queue, video_id, time.time(), str(item["post"].get("url") or ""))
+                            if result == "ok":
+                                mark_save(save_queue, video_id, "saved", time.time())
+                            elif result in {"fail", "failed", "error"}:
+                                mark_save(save_queue, video_id, "failed", time.time(), "error")
+                            elif videos_blocked:
+                                mark_save(save_queue, video_id, "blocked", time.time(), "blocked")
+                        except Exception:
+                            pass
                     if result == "ok":
                         stored += 1
                         links.append({"key": item["key"], "platform": account["platform"], "handle": account["handle"], "id": item["post"].get("statusId") or "", "probe": tb.probe_saved(item["video"]), "stats": item["stats"]})
@@ -1026,6 +1046,14 @@ def extract() -> int:
         log_tally(tally)
         log(tb.upload_summary(state))
         tb.log_d1_newest(cf)
+        try:
+            from tiktok_save_queue import backfill as backfill_save, health as save_health
+            known = [row.get("id") for row in links if row.get("platform") == "tiktok" and row.get("id")]
+            backfill_save(save_queue, known, time.time())
+            put_json(cf, bucket, "backup/tiktok-save-queue.json", save_queue)
+            put_json(cf, bucket, "backup/tiktok-save-health.json", save_health(save_queue, time.time()))
+        except Exception:
+            pass
         return 0
     except Exception as err:
         if "tally" in locals():

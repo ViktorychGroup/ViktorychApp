@@ -31,6 +31,8 @@ import { LOCKED_SQL_SCHEMA, FOLLOWING_COUNT_SQL, filterHash, lockedTargetSet, lo
 import { canSeePosts } from "./social.js";
 import { audienceSets, canSee, presentPost } from "./posts.js";
 import { redactPublicIds } from "../../shared/profile-privacy.js";
+import { tiktokFollowPrivate } from "../../shared/tiktok-lock.js";
+import { unlockedHandles } from "./tiktok-unlock.js";
 
 export const LOCKED_SCHEMA = LOCKED_SQL_SCHEMA.concat([
   "CREATE INDEX IF NOT EXISTS locked_follows_owner ON locked_follows(owner_id, created_at DESC)",
@@ -497,6 +499,36 @@ export async function handleLockedFollows(request, env, path, url, deps) {
         const snap = await env.DB.prepare("SELECT snapshot FROM account_follows WHERE follower_id = ? AND lower(target_id) = lower(?)").bind(me, id).first();
         accounts.push(deps.feedCard(id, snap && snap.snapshot));
       }
+    }
+    let appOwner = false;
+    try {
+      const who = await env.DB.prepare("SELECT owner FROM accounts WHERE public_id = ?").bind(me).first();
+      appOwner = !!(who && Number(who.owner) === 1);
+    } catch (err) { appOwner = false; }
+    if (appOwner) {
+      let shortsLocked = true;
+      try {
+        const flag = await env.DB.prepare("SELECT shorts_locked FROM notification_state WHERE public_id = ?").bind(me).first();
+        if (flag && Number(flag.shorts_locked) === 0) shortsLocked = false;
+      } catch (err) { shortsLocked = true; }
+      let unlocked = [];
+      try { unlocked = await unlockedHandles(env); } catch (err) { unlocked = []; }
+      const followViewer = { owner: true, locked: shortsLocked, unlocked: unlocked };
+      try {
+        const tiktoks = await env.DB.prepare("SELECT target_id AS id, snapshot FROM account_follows WHERE follower_id = ? AND lower(target_id) LIKE 'tiktok:%' LIMIT 500").bind(me).all();
+        const have = new Set(accounts.map((card) => card.id));
+        ((tiktoks && tiktoks.results) || []).forEach((row) => {
+          const id = String(row.id || "");
+          const priv = tiktokFollowPrivate({ platform: "tiktok", feedId: id, handle: id.slice("tiktok:".length) }, followViewer);
+          if (priv && !have.has(id)) {
+            accounts.push(deps.feedCard(id, row.snapshot));
+            have.add(id);
+          } else if (!priv) {
+            const at = accounts.findIndex((card) => card && card.id === id);
+            if (at >= 0) accounts.splice(at, 1);
+          }
+        });
+      } catch (err) { /* the manual locks still show */ }
     }
     return deps.json(200, redactPublicIds({ accounts }));
   }

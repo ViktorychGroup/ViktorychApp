@@ -6057,5 +6057,15 @@ SI18n.addPack("ru", {
   "Viewer cap": "Лимит зрителей",
   "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.": "Ставит эфир на паузу, вместе с воспроизведением, когда зрителей больше этого числа. «Выкл.» оставляет все эфиры включёнными.",
   "Restart recording when the count drops": "Снова записывать, когда число спадёт",
-  "Live paused: over {count} viewers": "Эфир на паузе: больше {count} зрителей"
+  "Live paused: over {count} viewers": "Эфир на паузе: больше {count} зрителей",
+  "Record this live": "Записать этот эфир",
+  "Stop and save": "Остановить и сохранить",
+  "Saved on this device": "Сохранено на этом устройстве",
+  "Could not save that recording. Try again.": "Не удалось сохранить эту запись. Попробуйте ещё раз.",
+  "Save frame": "Сохранить кадр",
+  "Burst": "Серия",
+  "Pick the frames to keep": "Выберите кадры, которые оставить",
+  "Save selected": "Сохранить выбранные",
+  "Live frame grab": "Кадр с эфира",
+  "A camera button on a live saves a full-size still, or a short burst, on this device.": "Кнопка камеры на эфире сохраняет полноразмерный кадр или короткую серию на этом устройстве."
 });
