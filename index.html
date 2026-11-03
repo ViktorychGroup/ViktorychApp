@@ -1,9 +1,42 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-land-static="1">
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <style>
+    /* First paint. The landing and the home skeleton are in the HTML, so the
+       largest text does not wait for the app. Same sizes as the real page. */
+    html, body { margin: 0; background: #000; color: #e7e9ea; }
+    body { font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, "Noto Sans Devanagari", "Nirmala UI", "Mangal", "Kohinoor Devanagari", "Devanagari Sangam MN", Arial, sans-serif; }
+    html[data-wall="1"] #app, html[data-wall="1"] #hover, html[data-wall="1"] #pull, html[data-wall="1"] #new-posts, html[data-wall="1"] #offline, html[data-wall="1"] #update, html[data-wall="1"] #viewer, html[data-wall="1"] #stories, html[data-wall="1"] #toast, html[data-wall="1"] #dock-root { display: none !important; }
+    #account-layer { display: none; }
+    html[data-wall="1"] #account-layer { display: block; }
+    .boot-land { background: #000; color: #e7e9ea; min-height: 100vh; }
+    .boot-land .land-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; background: #000; border-bottom: 1px solid #2f3336; padding: 8px 12px; padding-top: calc(8px + env(safe-area-inset-top)); }
+    .boot-land .land-brand { display: flex; align-items: center; margin: 4px 8px 4px 4px; color: #e7e9ea; text-decoration: none; font-weight: 800; font-size: 18px; line-height: 24px; }
+    .boot-land .land-mark { width: 28px; height: 28px; margin-right: 8px; display: block; }
+    .boot-land .land-bar-actions { display: flex; flex-wrap: wrap; align-items: center; margin: 4px; }
+    .boot-land .land-btn { display: inline-block; height: 36px; padding: 0 16px; border-radius: 999px; font: inherit; font-weight: 700; font-size: 15px; line-height: 34px; margin: 4px 0 4px 8px; cursor: pointer; -webkit-appearance: none; appearance: none; }
+    .boot-land .land-btn-fill { background: #1d9bf0; color: #fff; border: 1px solid #1d9bf0; }
+    .boot-land .land-btn-line { background: transparent; color: #e7e9ea; border: 1px solid #536471; }
+    .boot-land .land-hero { max-width: 1080px; margin: 0 auto; padding: 48px 24px 24px; }
+    .boot-land .land-kicker { margin: 0 0 8px; color: #1d9bf0; font-weight: 700; font-size: 15px; line-height: 20px; }
+    .boot-land h1 { margin: 0 0 12px; font-size: 56px; line-height: 64px; font-weight: 800; letter-spacing: -0.02em; animation: none; }
+    .boot-land .land-tag { margin: 0 0 12px; max-width: 640px; font-size: 24px; line-height: 32px; font-weight: 700; animation: none; }
+    .boot-land .land-lead { margin: 0 0 20px; max-width: 640px; color: #71767b; font-size: 17px; line-height: 24px; }
+    .boot-land .land-hero-actions { margin-top: 8px; }
+    .boot-land .land-hero-actions .land-btn { margin: 8px 8px 0 0; }
+    .boot-land .land-temp { display: block; margin-top: 16px; border: 0; background: none; color: #1d9bf0; font: inherit; font-size: 15px; cursor: pointer; padding: 0; }
+    .post.boot-card { padding: 12px 16px 8px; border-bottom: 1px solid #2f3336; }
+    .post.boot-card b { display: block; font-size: 15px; line-height: 20px; }
+    .post.boot-card p { margin: 4px 0 0; font-size: 15px; line-height: 20px; }
+    @media (max-width: 800px) {
+      .boot-land .land-hero { padding: 28px 16px 8px; }
+      .boot-land h1 { font-size: 40px; line-height: 46px; }
+      .boot-land .land-tag { font-size: 20px; line-height: 28px; }
+    }
+  </style>
   <meta name="format-detection" content="telephone=no">
   <script>
     /* Chrome and Edge fire beforeinstallprompt once, often before the app's
@@ -630,21 +663,31 @@
       window.addEventListener("scroll", note, { passive: true });
     })();
   </script>
-  <div id="account-layer"></div>
+  <div id="account-layer"><div class="x-shell land-page boot-land"><header class="land-bar"><a class="land-brand" href="./"><img class="land-mark" alt="" src="favicon.svg" width="28" height="28"><span data-boot="name">ViktorychApp</span></a><div class="land-bar-actions"><button class="land-btn land-btn-line" type="button" data-acct="login" data-boot="login">Log in</button><button class="land-btn land-btn-fill" type="button" data-acct="signup" data-boot="signup">Sign up</button></div></header><main><section class="land-hero x-land-copy"><p class="land-kicker" data-boot="name">ViktorychApp</p><h1 data-boot="name">ViktorychApp</h1><p class="land-tag" data-boot="tag">A home for posts, stories, and the people you choose.</p><p class="land-lead" data-boot="lead">The timeline, stories, notes, live video, and gifts. It runs in the browser and as an installed app.</p><div class="land-hero-actions"><button class="land-btn land-btn-line" type="button" data-acct="login" data-boot="login">Log in</button><button class="land-btn land-btn-fill" type="button" data-acct="signup" data-boot="signup">Sign up</button></div><button class="land-temp" type="button" data-acct="open-temp" data-boot="temp">Try a temporary account</button></section></main></div></div>
   <script>
     (function () {
-      if (document.documentElement.getAttribute("data-wall") !== "1") return;
       var root = document.getElementById("account-layer");
-      if (!root || root.childElementCount) return;
-      var lang = ({ ru: 1, es: 1, hi: 1 })[String(document.documentElement.lang).split("-")[0]] ? String(document.documentElement.lang).split("-")[0] : "en";
-      var pack = {
-        en: ["ViktorychApp", "A home for posts, stories, and the people you choose.", "Sign up", "Log in"],
-        es: ["ViktorychApp", "Un hogar para publicaciones, historias y las personas que eliges.", "Regístrate", "Entrar"],
-        ru: ["ВикторычАпп", "Дом для постов, историй и людей, которых вы выбираете.", "Регистрация", "Войти"],
-        hi: ["ViktorychApp", "पोस्ट, स्टोरीज़ और आपके चुने हुए लोगों का घर।", "साइन अप करें", "लॉग इन करें"]
-      };
-      var t = pack[lang];
-      root.innerHTML = '<div class="x-shell land-page boot-land"><header class="land-bar"><a class="land-brand" href="./"><img alt="" src="favicon.svg" width="28" height="28"><span>' + t[0] + '</span></a><div class="land-bar-actions"><button class="land-btn land-btn-line" type="button" data-acct="login">' + t[3] + '</button><button class="land-btn land-btn-fill" type="button" data-acct="signup">' + t[2] + '</button></div></header><main><section class="land-hero x-land-copy"><h1>' + t[0] + '</h1><p class="land-tag">' + t[1] + "</p></section></main></div>";
+      if (!root) return;
+      if (document.documentElement.getAttribute("data-wall") === "1") {
+        var lang = ({ ru: 1, es: 1, hi: 1 })[String(document.documentElement.lang).split("-")[0]] ? String(document.documentElement.lang).split("-")[0] : "en";
+        var pack = {
+          en: ["ViktorychApp", "A home for posts, stories, and the people you choose.", "Sign up", "Log in", "The timeline, stories, notes, live video, and gifts. It runs in the browser and as an installed app.", "Try a temporary account"],
+          es: ["ViktorychApp", "Un hogar para publicaciones, historias y las personas que eliges.", "Regístrate", "Entrar", "La cronología, las historias, las notas, el video en vivo y los regalos. Funciona en el navegador y como app instalada.", "Probar una cuenta temporal"],
+          ru: ["ВикторычАпп", "Дом для постов, историй и людей, которых вы выбираете.", "Регистрация", "Войти", "Лента, истории, заметки, прямой эфир и подарки. Работает в браузере и как установленное приложение.", "Попробовать временный аккаунт"],
+          hi: ["ViktorychApp", "पोस्ट, स्टोरीज़ और आपके चुने हुए लोगों का घर।", "साइन अप करें", "लॉग इन करें", "टाइमलाइन, स्टोरीज़, नोट्स, लाइव वीडियो और तोहफ़े। यह ब्राउज़र में और इंस्टॉल किए गए ऐप के रूप में चलता है।", "अस्थायी अकाउंट आज़माएँ"]
+        };
+        var t = pack[lang];
+        var set = function (key, text) {
+          var nodes = root.querySelectorAll('[data-boot="' + key + '"]');
+          for (var i = 0; i < nodes.length; i++) nodes[i].textContent = text;
+        };
+        set("name", t[0]);
+        set("tag", t[1]);
+        set("signup", t[2]);
+        set("login", t[3]);
+        set("lead", t[4]);
+        set("temp", t[5]);
+      }
       root.addEventListener("click", function (event) {
         var btn = event.target && event.target.closest ? event.target.closest("[data-acct]") : null;
         if (!btn || window.ViktorychAccounts) return;

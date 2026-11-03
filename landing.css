@@ -176,6 +176,11 @@
 .land-hero .land-tag {
   animation: land-rise 700ms ease both;
 }
+/* The first paint already showed this text. Do not fade it out on hydrate. */
+html[data-land-static] .land-hero h1,
+html[data-land-static] .land-hero .land-tag {
+  animation: none;
+}
 @supports (animation-timeline: view()) {
   .land-block {
     animation-name: land-rise;

@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main was `bfa052eb` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main was `2fd7f0da` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## Merged today
 
@@ -31,6 +31,10 @@ Do not start these unless the owner asks.
 
 - **PR 2.** 3D view, Join with my camera (including No frame), real-frames-only slow motion. No interpolation, no synthetic frames.
 - **PR 3.** X-style Past recordings rebuild, shared player features, full screen, zoom preserved everywhere.
+
+## Cold first paint
+
+Signed out, the landing text is in `index.html` with the critical layout in a style block, so the largest text does not wait for the app. The home skeleton (the two opening posts) is in the HTML too. The app replaces that shell when it is ready. Phone, 4G, CPU slowed 4×, signed out, gate on: largest text was 9.0s (the landing paragraph, after the app loaded). It is now 3.5s, the same moment as the first paint, and the layout shift score stayed 0. The music player and the update flow are unchanged.
 
 ## Back to Home
 
