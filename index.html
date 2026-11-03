@@ -670,17 +670,11 @@
     <link rel="stylesheet" href="people.css">
     <link rel="stylesheet" href="pymk.css">
     <link rel="stylesheet" href="friend-privacy.css">
-    <link rel="stylesheet" href="tv.css">
-    <link rel="stylesheet" href="discord-ui.css">
-    <link rel="stylesheet" href="discord-local.css">
-    <link rel="stylesheet" href="discord-key-helper.css">
     <link rel="stylesheet" href="spaces.css">
     <link rel="stylesheet" href="x-settings.css">
     <link rel="stylesheet" href="stories.css">
-    <link rel="stylesheet" href="music.css">
     <link rel="stylesheet" href="accounts.css">
     <link rel="stylesheet" href="locked-follows.css">
-    <link rel="stylesheet" href="gifts.css">
     <link rel="stylesheet" href="badges.css">
     <link rel="stylesheet" href="game-social.css">
     <link rel="stylesheet" href="setting-alerts.css">
@@ -711,11 +705,29 @@
     <script src="friends-pref.js" defer></script>
     <script src="linked-profiles.js" defer></script>
     <script src="friend-privacy-ui.js" defer></script>
-    <script src="tv.js" defer></script>
     <script src="split.js" defer></script>
     <script src="inbox.js" defer></script>
+  </template>
+  <template id="idle-scripts">
+    <link rel="stylesheet" href="tv.css">
+    <link rel="stylesheet" href="discord-ui.css">
+    <link rel="stylesheet" href="discord-local.css">
+    <link rel="stylesheet" href="discord-key-helper.css">
+    <link rel="stylesheet" href="music.css">
+    <link rel="stylesheet" href="gifts.css">
+    <script src="tv.js" defer></script>
     <script src="discord-ui.js" defer></script>
     <script src="discord-picks.js" defer></script>
+    <script src="discord-local.js" defer></script>
+    <script src="discord-key-helper.js" defer></script>
+    <script src="ytm.js" defer></script>
+    <script src="music.js" defer></script>
+    <script src="shared/gift-catalog.js" type="module"></script>
+    <script src="shared/store-catalog.js" type="module"></script>
+    <script src="gifts-ui.js" defer></script>
+    <script src="nft-ui.js" defer></script>
+    <script src="nostr.js" defer></script>
+    <script src="mesh-chat.js" defer></script>
   </template>
   <script src="shared/mirror.js" defer></script>
   <script src="shared/x-range.js" defer></script>
@@ -734,8 +746,6 @@
     <script src="audience-ui.js" defer></script>
     <script src="usernames-ui.js" defer></script>
     <script src="display-names-ui.js" defer></script>
-    <script src="ytm.js" defer></script>
-    <script src="music.js" defer></script>
     <script src="shared/handle-skeleton.js" type="module"></script>
     <script src="shared/reposts.js" type="module"></script>
     <script src="shared/lazy-modules.js" defer></script>
@@ -743,10 +753,6 @@
     <script src="friend-p2p.js" type="module"></script>
     <script src="peer-pool.js" type="module"></script>
     <script src="about-ui.js" defer></script>
-    <script src="gifts-ui.js" defer></script>
-    <script src="nft-ui.js" defer></script>
-    <script src="shared/gift-catalog.js" type="module"></script>
-    <script src="shared/store-catalog.js" type="module"></script>
     <script src="badges.js" defer></script>
     <script src="shared/regone.js" type="module"></script>
     <script src="game-social.js" defer></script>
@@ -763,14 +769,10 @@
     <script src="locked-follows.js" defer></script>
     <script src="mention-suggest.js" defer></script>
     <script src="settings-assistant.js" defer></script>
-    <script src="nostr.js" defer></script>
-    <script src="mesh-chat.js" defer></script>
     <script src="follow-lists.js" defer></script>
     <script src="owner-keys.js" defer></script>
-    <script src="discord-local.js" defer></script>
     <script src="nzlay-keys.js" defer></script>
     <script src="nzlay-forum.js" defer></script>
-    <script src="discord-key-helper.js" defer></script>
     <script src="yt-player.js" defer></script>
     <script src="update.js" defer></script>
     <script src="storage.js" defer></script>
@@ -799,6 +801,68 @@
   </template>
   <script>
     (function () {
+      function assetRef(node) {
+        return (node.getAttribute("src") || node.getAttribute("href") || "").replace(/^\.\//, "").split("?")[0];
+      }
+      function activeLang() {
+        var code = String(document.documentElement.lang || "en").split("-")[0];
+        return code === "ru" || code === "es" || code === "hi" ? code : "en";
+      }
+      function eagerIdleNames() {
+        var hash = String(location.hash || "");
+        var names = [];
+        var tv = document.documentElement.classList.contains("tv-on");
+        try { if (window.ViktorychTVMode && window.ViktorychTVMode.on) tv = true; } catch (err) {}
+        if (tv || hash.indexOf("#/tv") === 0 || hash.indexOf("#/linktv") === 0 || hash.indexOf("#/send-to-tv") === 0) names.push("tv.js", "tv.css");
+        if (hash.indexOf("#/music") === 0) names.push("ytm.js", "music.js", "music.css");
+        if (/^#\/messages(?=$|[/?])/.test(hash)) names.push("discord-ui.js", "discord-picks.js", "discord-local.js", "discord-key-helper.js", "discord-ui.css", "discord-local.css", "discord-key-helper.css");
+        if (hash.indexOf("#/store") === 0 || hash.indexOf("#/gifts") === 0 || hash.indexOf("#/points") === 0) names.push("shared/gift-catalog.js", "shared/store-catalog.js", "gifts-ui.js", "nft-ui.js", "gifts.css");
+        if (hash.indexOf("#/nostr") === 0 || hash.indexOf("#/settings/nostr") === 0) names.push("nostr.js");
+        if (hash.indexOf("#/mesh") === 0 || hash.indexOf("#/settings/mesh") === 0) names.push("mesh-chat.js");
+        return names;
+      }
+      function injectIdle(list) {
+        list.forEach(function (node) {
+          var ref = assetRef(node);
+          if (!ref) return;
+          if (node.tagName === "LINK") {
+            if (document.querySelector('link[rel="stylesheet"][href="' + node.getAttribute("href") + '"]')) return;
+            var link = document.createElement("link");
+            link.rel = "stylesheet";
+            link.href = node.getAttribute("href");
+            document.head.appendChild(link);
+            return;
+          }
+          if (document.querySelector('script[src="' + node.getAttribute("src") + '"]')) return;
+          var el = document.createElement("script");
+          var type = node.getAttribute("type");
+          if (type) el.type = type;
+          el.async = false;
+          el.src = node.getAttribute("src");
+          document.body.appendChild(el);
+        });
+      }
+      /* Register once the scripts for this visit have run. Signed out, that is
+         the landing set. Signed in, it is the core app, before feature files
+         that load while the browser is idle. The long shell download starts
+         later so it does not hold this navigation. */
+      function registerWorker() {
+        if (!("serviceWorker" in navigator) || registerWorker.done) return;
+        registerWorker.done = true;
+        try { navigator.serviceWorker.register("sw.js", { scope: "./", updateViaCache: "none" }).catch(function () {}); } catch (err) {}
+      }
+      if ("serviceWorker" in navigator) {
+        setTimeout(function () {
+          var ask = function () {
+            var worker = navigator.serviceWorker.controller;
+            var send = function (target) { try { if (target) target.postMessage({ type: "precache-idle" }); } catch (err) {} };
+            if (worker) { send(worker); return; }
+            navigator.serviceWorker.ready.then(function (reg) { send(reg && reg.active); }).catch(function () {});
+          };
+          if (window.requestIdleCallback) requestIdleCallback(ask, { timeout: 20000 });
+          else ask();
+        }, 90000);
+      }
       function mount() {
         var ids = ["late-scripts", "late-scripts-rest"];
         var links = [];
@@ -827,21 +891,48 @@
         }
         links = links.filter(wanted);
         nodes = nodes.filter(wanted);
-        if (!links.length && !nodes.length) return;
-        if (document.documentElement.getAttribute("data-wall") === "1") {
-          var first = ["i18n.js", "i18n/en.js", "i18n/ru.js", "i18n/es.js", "i18n/hi.js", "marks.js", "shared/handle-skeleton.js", "settings-sync.js", "data-saver.js", "accounts.js"];
-          function rank(node) {
-            var src = node.getAttribute("src") || "";
-            var at = first.indexOf(src.replace(/^\.\//, ""));
-            return at < 0 ? first.length : at;
+        var wall = document.documentElement.getAttribute("data-wall") === "1";
+        var idleLeft = [];
+        if (wall) {
+          /* Signed out: the landing page only. The full app loads on the next
+             visit, after a session exists. */
+          var allow = { "i18n.js": 1, "marks.js": 1, "accounts.js": 1, "shared/handle-skeleton.js": 1 };
+          allow["i18n/" + activeLang() + ".js"] = 1;
+          nodes = nodes.filter(function (node) { return !!allow[assetRef(node)]; });
+          links = links.filter(function (node) { return assetRef(node) === "accounts.css"; });
+        } else {
+          var idleTpl = document.getElementById("idle-scripts");
+          var eager = eagerIdleNames();
+          var eagerSet = {};
+          eager.forEach(function (name) { eagerSet[name] = 1; });
+          if (idleTpl && idleTpl.content && !idleTpl.dataset.mounted) {
+            idleTpl.dataset.mounted = "1";
+            Array.prototype.forEach.call(idleTpl.content.querySelectorAll("link, script"), function (node) {
+              if (!wanted(node)) return;
+              if (eagerSet[assetRef(node)]) {
+                if (node.tagName === "LINK") links.push(node);
+                else nodes.push(node);
+              } else idleLeft.push(node);
+            });
+            if (eager.length) {
+              var before = [];
+              var around = [];
+              var seenEager = false;
+              nodes.forEach(function (node) {
+                if (assetRef(node) === "app.js") seenEager = true;
+                if (eagerSet[assetRef(node)]) around.push(node);
+                else before.push(node);
+              });
+              var at = 0;
+              for (var i = 0; i < before.length; i++) {
+                if (assetRef(before[i]) === "app.js") { at = i; break; }
+              }
+              nodes = before.slice(0, at).concat(around).concat(before.slice(at));
+              void seenEager;
+            }
           }
-          nodes.sort(function (a, b) { return rank(a) - rank(b); });
-          links.sort(function (a, b) {
-            var aAcct = (a.getAttribute("href") || "").indexOf("accounts.css") >= 0 ? 0 : 1;
-            var bAcct = (b.getAttribute("href") || "").indexOf("accounts.css") >= 0 ? 0 : 1;
-            return aAcct - bAcct;
-          });
         }
+        if (!links.length && !nodes.length) return;
         links.forEach(function (node) {
           var el = document.createElement("link");
           el.rel = "stylesheet";
@@ -856,21 +947,16 @@
           left -= 1;
           if (left > 0) return;
           try { window.dispatchEvent(new Event("viktorych-late")); } catch (err) { /* the shell is already up */ }
+          registerWorker();
         }
-        /* Only the interface language in use downloads with the app. English
-           is the fallback and always loads; i18n.js fetches another pack if
-           the language changes later. A pack is skipped only when the saved
-           choice already rules it out. */
+        /* Only the language already chosen for this page. i18n.js fetches
+           another pack when the person switches. */
         var skipPack = {};
-        try {
-          var savedLang = localStorage.getItem("superintelapp-lang");
-          var sure = localStorage.getItem("viktorychapp-lang-user-picked") === "1" || !!localStorage.getItem("viktorychapp-account-v1") || !!localStorage.getItem("viktorychapp-accounts-session-v1");
-          if (savedLang === "en" || savedLang === "ru" || savedLang === "es" || savedLang === "hi") {
-            if (savedLang !== "es") skipPack["i18n/es.js"] = 1;
-            if (savedLang !== "hi") skipPack["i18n/hi.js"] = 1;
-            if (savedLang !== "ru" && sure) skipPack["i18n/ru.js"] = 1;
-          }
-        } catch (err) { /* private mode keeps every pack */ }
+        var keepLang = activeLang();
+        if (keepLang !== "en") skipPack["i18n/en.js"] = 1;
+        if (keepLang !== "ru") skipPack["i18n/ru.js"] = 1;
+        if (keepLang !== "es") skipPack["i18n/es.js"] = 1;
+        if (keepLang !== "hi") skipPack["i18n/hi.js"] = 1;
         var frag = document.createDocumentFragment();
         nodes.forEach(function (node) {
           var src = node.getAttribute("src");
@@ -884,8 +970,15 @@
           left += 1;
           frag.appendChild(el);
         });
-        if (!left) { left = 1; done(); return; }
-        document.body.appendChild(frag);
+        if (!wall && idleLeft.length) {
+          window.addEventListener("viktorych-late", function () {
+            var run = function () { injectIdle(idleLeft); };
+            if (window.requestIdleCallback) requestIdleCallback(run, { timeout: 8000 });
+            else setTimeout(run, 4000);
+          });
+        }
+        if (!left) { left = 1; done(); }
+        else document.body.appendChild(frag);
       }
       var started = false;
       var scheduled = false;

@@ -19,7 +19,15 @@
     inboxmail: { classic: true, scripts: ["inbox-mail.js", "inbox-sms.css", "inbox-mail.css"] },
     owner_inspector: { classic: true, scripts: ["owner-inspector.js", "owner-inspector.css"] },
     contacts: { classic: true, scripts: ["contacts-ui.js", "contacts.css"] },
-    localai: { classic: true, scripts: ["settings-registry.js", "local-ai.js", "local-ai-ui.js", "local-ai.css"] }
+    localai: { classic: true, scripts: ["settings-registry.js", "local-ai.js", "local-ai-ui.js", "local-ai.css"] },
+    /* Loaded with the page only when that screen is open. Idle time fetches
+       the rest one by one so the first visit stays small. */
+    music: { classic: true, scripts: ["ytm.js", "music.js", "music.css"] },
+    discord: { classic: true, scripts: ["discord-ui.js", "discord-picks.js", "discord-local.js", "discord-key-helper.js", "discord-ui.css", "discord-local.css", "discord-key-helper.css"] },
+    gifts: { classic: true, modules: ["shared/gift-catalog.js", "shared/store-catalog.js"], scripts: ["gifts-ui.js", "nft-ui.js", "gifts.css"] },
+    nostr: { classic: true, scripts: ["nostr.js"] },
+    mesh: { classic: true, scripts: ["mesh-chat.js"] },
+    tvshell: { classic: true, scripts: ["tv.js", "tv.css"] }
   };
   var loads = {};
   var preloadStarted = false;
@@ -30,14 +38,11 @@
     } catch (err) { /* the page can be mid-navigation; the next render picks it up */ }
   }
 
-  function loadOne(name, entry) {
-    var done, failed;
-    var promise = new Promise(function (resolve) { done = resolve; failed = resolve; });
-    var left = entry.scripts.length;
-    if (!left) { done(); return promise; }
-    entry.scripts.forEach(function (src) {
+  function loadScripts(name, list, classic, done) {
+    var left = list.length;
+    if (!left) { done(); return; }
+    list.forEach(function (src) {
       var isStyle = /\.css(\?|$)/i.test(src);
-      var pathname = src.replace(/[?#].*$/, "");
       var already = isStyle
         ? document.querySelector('link[rel="stylesheet"][href="' + src + '"]')
         : document.querySelector('script[src="' + src + '"]');
@@ -47,7 +52,7 @@
         tag = document.createElement("link");
         tag.rel = "stylesheet";
         tag.href = src;
-      } else if (entry.classic) {
+      } else if (classic) {
         tag = document.createElement("script");
         tag.src = src;
       } else {
@@ -56,7 +61,7 @@
           if (left === 0) done();
         }, function () {
           left -= 1;
-          if (left === 0) failed();
+          if (left === 0) done();
         });
         return;
       }
@@ -65,15 +70,26 @@
         if (left === 0) done();
       };
       tag.onerror = function () {
-        /* let the page render its fallback and let the next try load again */
         delete loads[name];
         left -= 1;
-        if (left === 0) failed();
+        if (left === 0) done();
       };
       if (isStyle) document.head.appendChild(tag);
       else document.body.appendChild(tag);
-      void pathname;
     });
+  }
+
+  function loadOne(name, entry) {
+    var done, failed;
+    var promise = new Promise(function (resolve) { done = resolve; failed = resolve; });
+    var mods = entry.modules || [];
+    var scripts = entry.scripts || [];
+    if (!mods.length && !scripts.length) { done(); return promise; }
+    /* Modules publish their globals. Classic scripts run after that. */
+    loadScripts(name, mods, false, function () {
+      loadScripts(name, scripts, !!entry.classic, function () { done(); });
+    });
+    void failed;
     return promise;
   }
 
@@ -105,11 +121,21 @@
 
   function ensure(name, silent) {
     if (!REGISTRY[name] || serverOff(name)) return Promise.resolve();
-    if (loads[name]) return loads[name];
-    loads[name] = loadOne(name, REGISTRY[name]).then(function () {
-      notify(name, silent);
+    var existing = loads[name];
+    if (existing) {
+      /* A quiet preload must not swallow a real visit to the page. */
+      if (!silent && existing.silent) {
+        existing.silent = false;
+        existing.then(function () { notify(name, false); });
+      }
+      return existing;
+    }
+    var task = loadOne(name, REGISTRY[name]).then(function () {
+      notify(name, !!task.silent);
     }, function () { /* offline or blocked; the page keeps its fallback */ });
-    return loads[name];
+    task.silent = !!silent;
+    loads[name] = task;
+    return task;
   }
 
   function preload(list) {

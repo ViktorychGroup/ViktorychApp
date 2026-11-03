@@ -2734,6 +2734,19 @@ button.show-replies {
   padding: 12px 16px;
   z-index: 40;
   font-weight: 700;
+  margin: 0;
+}
+/* Achievement and setting alerts are an overlay. This rule lives in the first
+   stylesheet so the card is fixed before badges.css arrives and never pushes
+   the page down. */
+.ach {
+  position: fixed;
+  left: 50%;
+  bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  z-index: 95;
+  width: max-content;
+  max-width: min(520px, calc(100vw - 24px));
+  margin: 0;
 }
 #hover { position: fixed; z-index: 25; width: 300px; }
 .hcard {

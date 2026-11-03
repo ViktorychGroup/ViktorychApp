@@ -52,7 +52,7 @@ try {
   await en.ctx.close();
 
   const ru = await visit("ru");
-  if (ru.packs.sort().join(",") !== "en,ru") fail("Russian boot downloaded " + ru.packs.join(","));
+  if (ru.packs.join(",") !== "ru") fail("Russian boot downloaded " + ru.packs.join(","));
   /* The pack is a late script, so the first posts can draw before it lands. */
   await ru.page.waitForFunction(() => window.SI18n.t("Home") !== "Home", null, { timeout: 10000 }).catch(() => {});
   const home = await ru.page.evaluate(() => window.SI18n.t("Home"));
@@ -60,7 +60,7 @@ try {
   await ru.ctx.close();
 
   const hi = await visit("hi");
-  if (hi.packs.sort().join(",") !== "en,hi") fail("Hindi boot downloaded " + hi.packs.join(","));
+  if (hi.packs.join(",") !== "hi") fail("Hindi boot downloaded " + hi.packs.join(","));
   await hi.page.waitForFunction(() => window.SI18n.t("Home") !== "Home", null, { timeout: 10000 }).catch(() => {});
   const hiHome = await hi.page.evaluate(() => ({ home: window.SI18n.t("Home"), lang: document.documentElement.lang, big: window.SI18n.formatInt(1234567) }));
   if (!/[\u0900-\u097F]/.test(hiHome.home)) fail("Hindi pack not applied");

@@ -1,6 +1,12 @@
 # Status snapshot
 
-Written 2026-10-30, about 10:00 CET (09:00 UTC). Main was at `f353f771` and the latest D1 migration was `0102_regone_social.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it, and update this file in a small PR after a big session.
+Written 2026-11-03. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it, and update this file in a small PR after a big session.
+
+## Speed (this branch)
+
+Signed-out visits load the landing page only (i18n.js, the active language pack, accounts.js and accounts.css). Other language packs load when the language changes. Music, TV, Discord, gifts, Nostr and nearby chat load when that screen is opened, and again in idle time. Home that has not changed is put back as live DOM instead of rebuilt. The service worker registers from index.html, caches a small core first, and caches the rest when the browser is idle. app.js stays one file: it is a single closure, and splitting it would risk every route.
+
+Baseline on a phone-sized window, slow CPU, cold load: LCP about 7–10s, about 1.86 MB, TTI about 10s. Warm load about 0.5s. Back to Home about 310–340ms. CLS about 0.17 from the alert toast. After numbers are in the pull request.
 
 ## Live on main (recent)
 

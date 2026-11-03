@@ -246,6 +246,7 @@
   const icon = (name) => name === "clock"
     ? `<svg class="clock" viewBox="0 0 24 24" aria-hidden="true">${LINE.clock}</svg>`
     : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PATH[name] || ""}"/></svg>`;
+  window.__VIKTORYCH_ICON_PATHS = PATH;
   if (window.SIntelMusic && window.SIntelMusic.install) window.SIntelMusic.install(PATH);
   // Shared with feature modules so their icons come from the same set as the app.
   window.ViktorychIcons = { has: (name) => !!PATH[name], svg: (name) => (PATH[name] || name === "clock" ? icon(name) : "") };
@@ -3220,7 +3221,11 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const lead = tgKey && accountToken() && (stored ? !mirrorKey(stored) : (!first || oePast(first) || (post && post.platform === "tiktok")));
     const tg = tgKey ? (lead ? tgLead(tgKey, stills.slice(1), first) : ` data-tg="${esc(tgKey)}"${stills.slice(1).length ? ` data-tg-alts="${esc(stills.slice(1).join(","))}"` : ""}`) : "";
     const src = lead ? "" : ` src="${esc(first)}"`;
-    const img = `<img decoding="async" class="${cls}${face}"${src}${tg} alt="" referrerpolicy="no-referrer" data-pi="0" data-avatar="${esc(pack.avatar)}" data-falls="${esc(JSON.stringify(pack.urls))}">`;
+    const pw = Math.round(Number(media && media.width) || 0);
+    const ph = Math.round(Number(media && media.height) || 0);
+    const posterDim = pw > 0 && ph > 0 ? ` width="${pw}" height="${ph}"` : "";
+    const posterSet = src ? imageSrcset(first) : "";
+    const img = `<img decoding="async" class="${cls}${face}"${src}${posterDim}${posterSet}${tg} alt="" referrerpolicy="no-referrer" data-pi="0" data-avatar="${esc(pack.avatar)}" data-falls="${esc(JSON.stringify(pack.urls))}">`;
     /* Save data on mobile data: the poster waits for Wi-Fi or a tap. */
     return cls === "vposter" && holdMedia(first) ? dataSaver().holdAttrs(img) : img;
   }
@@ -4130,7 +4135,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       const priority = first ? ` fetchpriority="high"` : ` fetchpriority="low"`;
       const srcAttr = lead ? "" : ` src="${esc(src)}"${src === rawSrc ? imageSrcset(src) : ""}`;
       const framed = n === 1 ? frameAttrs(post, m) : { attr: "", cls: "" };
-      let img = `<img${srcAttr}${refresh}${tgAttr}${sourceAttr} alt="${esc(m.alt || "")}" loading="${loading}" decoding="async"${priority} referrerpolicy="no-referrer">`;
+      const mw = Math.round(Number(m.width) || 0);
+      const mh = Math.round(Number(m.height) || 0);
+      const dimAttr = mw > 0 && mh > 0 ? ` width="${mw}" height="${mh}"` : "";
+      let img = `<img${srcAttr}${dimAttr}${refresh}${tgAttr}${sourceAttr} alt="${esc(m.alt || "")}" loading="${loading}" decoding="async"${priority} referrerpolicy="no-referrer">`;
       const hold = holdMedia(lead ? tgKey : src) ? ` data-ds-hold="1" data-ds-label="${esc(tr("Tap to load"))}"` : "";
       if (hold) img = dataSaver().holdAttrs(img);
       return `<div class="tile${framed.cls || ""}"${hold} data-act="view" data-id="${esc((post && post.id) || "")}" data-mi="${index}"${framed.attr || ""}>${img}${alt}</div>`;
@@ -20496,7 +20504,11 @@ if (STATE.histClear) {
   window.ViktorychRouteSnap = { loading: routeLoading };
 
   function view(route) {
-    if (route.name === "music") return (window.SIntelMusic && window.SIntelMusic.page(route)) || pageHead(productName("music")) + emptyBlock(tr("{music} isn’t available", { music: productName("music") }), tr("Reload the page."));
+    if (route.name === "music") {
+      if (window.SIntelMusic && window.SIntelMusic.page) return window.SIntelMusic.page(route);
+      ensureLazy("music");
+      return lazySkeleton(productName("music"));
+    }
     if (route.name === "contacts") {
       if (!featureOn("contacts")) return pageHead(tr("Contacts")) + emptyBlock(tr("Contacts"), tr("Contacts is turned off right now."));
       if (window.ViktorychContacts) return window.ViktorychContacts.page(route);
@@ -20538,8 +20550,11 @@ if (STATE.histClear) {
       if (!window.ViktorychVault) { ensureLazy("vault"); return lazySkeleton(tr("Vault")); }
       return pageHead(tr("Vault")) + emptyBlock(tr("Vault"), tr("Reload the page."));
     }
-    if (route.name === "points" && window.ProfileGifts) return window.ProfileGifts.pointsPage();
-    if (route.name === "store" && window.ProfileGifts) return window.ProfileGifts.storePage(route);
+    if (route.name === "points" || route.name === "store") {
+      if (!window.ProfileGifts) { ensureLazy("gifts"); return lazySkeleton(tr("Gifts")); }
+      if (route.name === "points") return window.ProfileGifts.pointsPage();
+      return window.ProfileGifts.storePage(route);
+    }
     if (route.name === "games") {
       const lazyHtml = window.ViktorychGames ? window.ViktorychGames.page(route) : "";
       if (lazyHtml) return lazyHtml;
@@ -20599,6 +20614,7 @@ if (STATE.histClear) {
     if (route.name === "spaces") return (window.Spaces && window.Spaces.page && window.Spaces.page(route)) || pageHead(tr("Space"), "", true) + emptyBlock(tr("This Space has ended"), tr("This Space isn’t available."));
     if (route.name === "live") return (window.ViktorychLive && window.ViktorychLive.page && window.ViktorychLive.page(route)) || pageHead(tr("Live"), "", true) + emptyBlock(tr("This live has ended"), tr("This live isn’t available."));
     if (route.name === "connections") return connectionsView(route);
+    if (route.name === "profile" || route.name === "user" || route.name === "person") ensureLazy("gifts");
     if (route.name === "profile") return profileView(route);
     if (route.name === "user") return userView(route);
     if (route.name === "status") return statusView(route);
@@ -20612,7 +20628,11 @@ if (STATE.histClear) {
     if (route.name === "article") return articleView(route);
     if (route.name === "subscriptions") return subsView(route);
     if (route.name === "watch") return watchView(route);
-    if (route.name === "settings") return settingsView();
+    if (route.name === "settings") {
+      ensureLazy("nostr");
+      ensureLazy("mesh");
+      return settingsView();
+    }
     if (route.name === "customize") return customizeView();
     if (route.name === "incoming") return incomingView();
     if (route.name === "messages" && nativeServerHash(location.hash)) {
@@ -20623,7 +20643,10 @@ if (STATE.histClear) {
     if (route.name === "messages" && route.sms) return inboxSmsView(route);
     if (route.name === "messages" && route.mail) return inboxMailView(route);
     if (route.name === "messages" && window.FeedsDiscord) return (window.ProfileGifts && window.ProfileGifts.dmBar ? window.ProfileGifts.dmBar() : "") + window.FeedsDiscord.page(route);
-    if (route.name === "messages") return (window.ProfileGifts && window.ProfileGifts.dmBar ? window.ProfileGifts.dmBar() : "") + notesView(tr("Inbox"), tr("Welcome to your inbox"), tr("Private conversations aren’t part of this reader."));
+    if (route.name === "messages") {
+      ensureLazy("discord");
+      return lazySkeleton(tr("Inbox"));
+    }
     if (route.name === "sources") return sourcesView();
     return homeView({ tab: "foryou", query: new URLSearchParams() });
   }
@@ -21050,6 +21073,60 @@ if (STATE.histClear) {
         node.replaceWith(span);
       });
     });
+  }
+
+  /* Home is parked as live DOM when you leave it. Coming back to the same
+     tab, with the same posts and settings, puts that DOM back instead of
+     building the whole page again. */
+  let homePark = null;
+  function homeStamp(route) {
+    const data = STATE.data;
+    const list = data && data.posts;
+    const n = list ? list.length : 0;
+    const s = STATE.settings || {};
+    const count = (obj) => (obj ? Object.keys(obj).length : 0);
+    return [
+      route.tab || "foryou",
+      route.query ? route.query.toString() : "",
+      STATE.loading ? 1 : 0,
+      STATE.error ? 1 : 0,
+      n,
+      n ? String((list[0] && list[0].id) || "") : "",
+      n > 1 ? String((list[n - 1] && list[n - 1].id) || "") : "",
+      count(s.likes),
+      count(s.reposts),
+      count(s.bookmarks),
+      (s.follows || []).length,
+      (s.mutedWords || []).length,
+      (s.mutedAccounts || []).length,
+      (s.lists || []).length,
+      s.appearance || "",
+      s.navLayout || "",
+      document.documentElement.lang || "",
+      document.documentElement.getAttribute("data-theme") || "",
+      document.documentElement.getAttribute("data-fs") || "",
+      ARCHIVE.posts.length
+    ].join("|");
+  }
+  function parkHomeDom() {
+    if (!homePark || !homePark.live) return;
+    const app = document.getElementById("app");
+    if (!app || !app.firstChild) { homePark.live = false; return; }
+    const frag = document.createDocumentFragment();
+    while (app.firstChild) frag.appendChild(app.firstChild);
+    frag.querySelectorAll("video, audio").forEach((el) => { try { el.pause(); } catch (err) { /* already stopped */ } });
+    homePark.frag = frag;
+    homePark.y = window.scrollY || 0;
+    homePark.live = false;
+  }
+  function restoreHomeDom() {
+    const app = document.getElementById("app");
+    if (!app || !homePark || !homePark.frag) return false;
+    while (app.firstChild) app.removeChild(app.firstChild);
+    app.appendChild(homePark.frag);
+    homePark.frag = null;
+    homePark.live = true;
+    return true;
   }
 
   function commitApp(html) {
@@ -21595,8 +21672,23 @@ if (STATE.histClear) {
       else if (!(opts && Object.prototype.hasOwnProperty.call(opts, "y"))) y = window.scrollY;
       /* The shell swap used to throw away every horizontal row. Tab rows are
          patched in place; every other row, including the live pills, gets its
-         scrollLeft written back. Presence then paints dots on the new shell. */
+         scrollLeft written back. Presence then paints dots on the new shell.
+         An unchanged Home is the parked DOM, put back in place. */
+      const stamp = route.name === "home" ? homeStamp(route) : "";
+      const comingBack = !!(route.name === "home" && routeChanged && homePark && !homePark.live && homePark.frag && homePark.stamp === stamp);
+      if (comingBack && restoreHomeDom()) {
+        y = SCROLLS[nextKey] || homePark.y || 0;
+        STATE.scrollKey = nextKey;
+        lastKey = location.hash || "#/";
+        const backName = route.name === "user" ? ((STATE.liveUsers[liveKey(route.platform, route.handle)] || {}).profile || {}).name : "";
+        document.title = withUnreadTitle(routeTitle(route, backName, "", ""));
+        window.scrollTo(0, y);
+        return;
+      }
+      if (homePark && homePark.live && route.name !== "home") parkHomeDom();
+      if (route.name === "home" && homePark && homePark.stamp !== stamp) homePark = null;
       commitApp(shell(localFirstView(route, view(route)), route) + (window.ProfileGifts && window.ProfileGifts.overlay ? window.ProfileGifts.overlay() : ""));
+      if (route.name === "home") homePark = { stamp: stamp, live: true, frag: null, y: window.scrollY || 0 };
       paintProfileChrome();
       schedulePublicPosts();
       hydratePublicMedia();
@@ -30860,6 +30952,19 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const info = event.detail || {};
     if (info.name === "shorts") bindShortsModule();
     if (info.name === "communities") bindCommunitiesModule();
+    if (info.name === "music" && window.SIntelMusic && !window.SIntelMusic.__shell) {
+      if (window.SIntelMusic.install && window.__VIKTORYCH_ICON_PATHS) window.SIntelMusic.install(window.__VIKTORYCH_ICON_PATHS);
+      window.SIntelMusic.__shell = true;
+      if (window.SIntelMusic.bind) {
+        window.SIntelMusic.bind({
+          render: function () { render(); },
+          toast: toast,
+          go: goHash,
+          repo: function () { return GITHUB_REPO; }
+        });
+      }
+      if (window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(parseRoute());
+    }
     if (!info.silent || (info.name === "servers" && parseRoute().name === "messages")) render();
   });
   setTimeout(deviceHello, 6000);
@@ -30867,7 +30972,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   setTimeout(() => {
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();
-      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers"];
+      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers", "music", "discord", "gifts", "nostr", "mesh", "tvshell"];
+      if (window.ViktorychTVMode && window.ViktorychTVMode.on) ensureLazy("tvshell");
       if (saver) saver.whenRoomy(() => window.ViktorychLazy.preload(list));
       else window.ViktorychLazy.preload(list);
     }
