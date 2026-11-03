@@ -1,8 +1,9 @@
-/* Full-screen update for the installed app. A new worker downloads its
-   files quietly in the background first; What's new shows only once they
-   are all in, so Update now just switches over. A failed background
-   download is never shown, it is tried again later. Drafts, the route, and
-   the scroll position are written down before the reload. */
+/* Update for the installed app. A new worker downloads its files in the
+   background. The running service worker build is the truth: a mismatch
+   with version.json is not an update, and each build is offered, applied
+   and reloaded at most once on a device. What's new is a small note. A
+   full-screen step is only for a critical update or a failed one. Drafts,
+   the route, and the scroll position are written down before the reload. */
 (function (root, factory) {
   var api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -21,6 +22,10 @@
   var LOG_KEY = "viktorychapp-update-log";
   var FALLBACK_KEY = "viktorychapp-update-fallback";
   var APPLIED_KEY = "viktorychapp-update-applied";
+  var OFFERED_KEY = "viktorychapp-update-offered";
+  var RELOAD_SHA_KEY = "viktorychapp-update-reload-sha";
+  var TOAST_KEY = "viktorychapp-update-toast";
+  var NOTES_SEEN_KEY = "viktorychapp-notes-seen";
   var RING = 2 * Math.PI * 44;
 
   function tr(key, vars) {
@@ -53,6 +58,7 @@
 
   function decide(s, now) {
     if (!s || !s.pending) return "idle";
+    if (s.silent && (s.phase === "working" || s.phase === "done")) return "idle";
     if (s.phase === "working" || s.phase === "done" || s.phase === "error") return "overlay";
     // The new version is still downloading in the background.
     if (s.ready === false) return "idle";
@@ -124,10 +130,9 @@
     return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(text) ? text : "";
   }
 
-  /* version.json only counts as an update when it is strictly newer than the
-     running build. Equal, older, or unknown build times stay idle, and a sha
-     this device already applied is never offered again. A real deploy still
-     shows up through the waiting service worker. */
+  /* version.json only counts as a newer published build when its time is
+     strictly newer. Equal, older, or unknown times stay idle. A file that
+     lags the running service worker is not an update. */
   function manifestPending(remoteSha, currentSha, remoteBuilt, currentBuilt, appliedSha) {
     if (!remoteSha || !currentSha || remoteSha === currentSha) return false;
     if (appliedSha && remoteSha === appliedSha) return false;
@@ -137,12 +142,124 @@
     return remote > local;
   }
 
-  function appliedSha() {
-    try { return String(localStorage.getItem(APPLIED_KEY) || "").toLowerCase(); } catch (err) { return ""; }
+  function normSha(value) {
+    var sha = String(value || "").trim().toLowerCase();
+    return /^[0-9a-f]{7,64}$/.test(sha) ? sha : "";
   }
 
-  function remotePending() {
-    return manifestPending(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt, appliedSha());
+  /* The running service worker is the only build that can open an update.
+     version.json lagging or merely differing from that worker never does.
+     A waiting worker is a real update once, unless it is only the stale
+     version.json sha (that would reload back and forth). */
+  function offerMismatch(controllerSha, remoteSha, waitingSha, appliedSha, remoteBuilt, currentBuilt) {
+    var controller = normSha(controllerSha);
+    var remote = normSha(remoteSha);
+    var waiting = normSha(waitingSha);
+    var applied = normSha(appliedSha);
+    if (applied && waiting && waiting === applied) return false;
+    if (!controller || !waiting || waiting === controller) return false;
+    if (remote && waiting === remote) {
+      var remoteTime = isoBuilt(remoteBuilt);
+      var localTime = isoBuilt(currentBuilt);
+      if (!remoteTime || !localTime || remoteTime <= localTime) return false;
+    }
+    return true;
+  }
+
+  /* One reload per build. Either store remembering the sha blocks another. */
+  function reloadAllowed(sha, sessionSha, localSha) {
+    var target = normSha(sha);
+    if (!target) return false;
+    if (normSha(sessionSha) === target || normSha(localSha) === target) return false;
+    return true;
+  }
+
+  /* A What's new sheet is shown once per build. seen is the list already shown. */
+  function shouldShowNotes(sha, seen) {
+    var target = normSha(sha);
+    if (!target) return false;
+    var list = seen || [];
+    var i;
+    for (i = 0; i < list.length; i++) if (normSha(list[i]) === target) return false;
+    return true;
+  }
+
+  function seenNotes() {
+    var list = [];
+    try { list = JSON.parse(readStore(localStorage, NOTES_SEEN_KEY) || "[]"); } catch (err) { list = []; }
+    if (!Array.isArray(list)) return [];
+    var out = [];
+    var i;
+    for (i = 0; i < list.length; i++) {
+      var sha = normSha(list[i]);
+      if (sha && out.indexOf(sha) < 0) out.push(sha);
+    }
+    return out;
+  }
+
+  function markNotesSeen(sha) {
+    sha = normSha(sha);
+    if (!sha || !shouldShowNotes(sha, seenNotes())) return;
+    var list = seenNotes();
+    list.push(sha);
+    if (list.length > 12) list = list.slice(-12);
+    writeStore(localStorage, NOTES_SEEN_KEY, JSON.stringify(list));
+  }
+
+  /* Full screen only for a critical offer, a forced one, or a failure.
+     A normal ready offer stays on the page. decide() itself stays the same. */
+  function presentation(s, now) {
+    var mode = decide(s, now);
+    if (mode !== "overlay") return mode;
+    if (s && s.phase === "offer" && !s.critical && !s.forced) return "toast";
+    return "blocking";
+  }
+
+  function appliedSha() {
+    try { return normSha(localStorage.getItem(APPLIED_KEY)); } catch (err) { return ""; }
+  }
+
+  function offeredList() {
+    var list = [];
+    try { list = JSON.parse(readStore(localStorage, OFFERED_KEY) || "[]"); } catch (err) { list = []; }
+    if (!Array.isArray(list)) return [];
+    var out = [];
+    var i;
+    for (i = 0; i < list.length; i++) {
+      var sha = normSha(list[i]);
+      if (sha && out.indexOf(sha) < 0) out.push(sha);
+    }
+    return out;
+  }
+
+  function hasOffered(sha) {
+    sha = normSha(sha);
+    return !!sha && offeredList().indexOf(sha) >= 0;
+  }
+
+  function rememberOffer(sha) {
+    sha = normSha(sha);
+    if (!sha || hasOffered(sha)) return;
+    var list = offeredList();
+    list.push(sha);
+    if (list.length > 12) list = list.slice(-12);
+    writeStore(localStorage, OFFERED_KEY, JSON.stringify(list));
+  }
+
+  function storedReloadSha(store) {
+    return normSha(readStore(store, RELOAD_SHA_KEY));
+  }
+
+  function reloadSpent(sha) {
+    return !reloadAllowed(sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage));
+  }
+
+  function markReload(sha) {
+    sha = normSha(sha);
+    if (!reloadAllowed(sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage))) return false;
+    writeStore(sessionStorage, RELOAD_SHA_KEY, sha);
+    writeStore(localStorage, RELOAD_SHA_KEY, sha);
+    return true;
   }
 
   /* Background download wait: 15s, 30s, 1m, 2m, then every 5 minutes. */
@@ -151,27 +268,41 @@
     return Math.min(5 * 60 * 1000, 15000 * Math.pow(2, Math.min(n, 5)));
   }
 
-  /* A waiting worker with the same sha as the running one only differs in
-     its build stamp: nothing to offer. Ask it over a private port; an older
-     worker that cannot answer falls back to the version.json check. */
+  /* A waiting worker is an update only when its build differs from the one
+     already running, and this device has not applied or reloaded it. Silence,
+     and a version.json sha that does not match that worker, stay idle. */
+  function reviewWaiting(sha) {
+    sha = normSha(sha || state.heardSha);
+    if (sha) state.heardSha = sha;
+    sha = normSha(state.heardSha);
+    var controller = normSha(state.currentSha);
+    if (!sha || !controller || !state.waiting) return;
+    var fresh = offerMismatch(controller, state.remoteSha, sha, appliedSha(), state.remoteBuilt, state.currentBuilt) && !reloadSpent(sha);
+    if (!fresh) {
+      if (!applying && state.phase === "offer") {
+        state.pending = false;
+        paint();
+      }
+      return;
+    }
+    var again = state.pending && state.pendingSha === sha;
+    state.pendingSha = sha;
+    state.pending = true;
+    if (!again) state.quiet = hasOffered(sha);
+    if (state.remoteSha && state.remoteSha !== sha) state.critical = false;
+    predownload(state.waiting);
+    paint();
+    if (state.quiet && state.ready) maybeSilentApply();
+  }
+
   function considerWaiting(worker) {
     if (!worker) return;
     state.waiting = worker;
-    var done = false;
-    function settle(sha) {
-      if (done) return;
-      done = true;
-      sha = String(sha || "").toLowerCase();
-      var fresh = sha ? (sha !== state.currentSha && sha !== appliedSha()) : remotePending();
-      if (fresh) { state.pending = true; predownload(worker); paint(); }
-      else if (!applying) { state.waiting = null; }
-    }
     try {
       var channel = new MessageChannel();
-      channel.port1.onmessage = function (event) { settle(event.data && event.data.sha); };
+      channel.port1.onmessage = function (event) { reviewWaiting(event.data && event.data.sha); };
       worker.postMessage({ type: "sw-version" }, [channel.port2]);
-      setTimeout(function () { settle(""); }, 1500);
-    } catch (err) { settle(""); }
+    } catch (err) { /* no answer: leave the open copy alone */ }
   }
 
   function shouldOfferReset(failures) {
@@ -228,6 +359,11 @@
     failureNoted: false,
     newerHops: 0,
     ready: false,
+    pendingSha: "",
+    heardSha: "",
+    quiet: false,
+    critical: false,
+    silent: false,
     preTries: 0,
     preBusy: false,
     preWorker: null,
@@ -289,6 +425,46 @@
     try { if (window.Spaces && window.Spaces.playing && window.Spaces.playing()) return true; } catch (err) { /* the player is optional */ }
     try { if (window.SIntelMusic && window.SIntelMusic.playing && window.SIntelMusic.playing()) return true; } catch (err) { /* music is optional */ }
     return false;
+  }
+
+  /* An open composer or modal, or text the person has typed, must keep the
+     update from applying or putting its sheet on screen. The apply waits
+     until that closes. */
+  function shouldDeferApply(flags) {
+    return !!(flags && (flags.modal || flags.typed));
+  }
+
+  function composerOpen() {
+    if (typeof document === "undefined" || !document.querySelector) return false;
+    var nodes = document.querySelectorAll(".xc-modal, .modal-back, .modal, [role='dialog'], [role='alertdialog']");
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!el || el.hidden) continue;
+      if (el.id === "upd-notes-sheet" || el.id === "upd-overlay" || el.id === "upd-root") continue;
+      if (el.closest && (el.closest("#upd-root") || el.closest("#upd-notes-sheet"))) continue;
+      return true;
+    }
+    return false;
+  }
+
+  function typedText() {
+    if (typeof document === "undefined" || !document.querySelectorAll) return false;
+    var nodes = document.querySelectorAll("textarea, input, [contenteditable='true']");
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!el || (el.closest && (el.closest("#upd-root") || el.closest("#upd-notes-sheet")))) continue;
+      var type = String((el.getAttribute && el.getAttribute("type")) || el.type || "").toLowerCase();
+      if (el.tagName === "INPUT" && type && ["text", "search", "url", "email", "tel", "password"].indexOf(type) < 0) continue;
+      var value = el.isContentEditable ? String(el.innerText || "") : String(el.value || "");
+      if (value.trim()) return true;
+    }
+    return false;
+  }
+
+  function updateBlocked() {
+    return shouldDeferApply({ modal: composerOpen(), typed: typedText() });
   }
 
   function typingBusy() {
@@ -359,7 +535,7 @@
     rootEl.querySelector("#upd-hard").addEventListener("click", hardReload);
     rootEl.querySelector("#upd-reset").addEventListener("click", resetAppData);
     document.addEventListener("keydown", function (event) {
-      if (event.key !== "Escape" || mode() !== "overlay" || state.phase !== "offer") return;
+      if (event.key !== "Escape" || mode() !== "overlay" || state.phase !== "offer" || updateBlocked()) return;
       event.preventDefault();
       event.stopPropagation();
       snooze();
@@ -400,14 +576,25 @@
   function paint() {
     if (!document.body) return;
     var box = ensure();
-    var shown = mode();
+    var look = presentation(state, Date.now());
+    if (state.quiet && look === "toast") look = "idle";
+    if (updateBlocked() && look !== "idle" && look !== "pill") {
+      if (state.ready && state.pending) state.deferApply = true;
+      look = "idle";
+    }
     var reduce = reducedMotion();
-    box.root.hidden = shown === "idle";
+    box.root.hidden = look === "idle";
     box.root.classList.toggle("upd-reduce", reduce);
     box.root.setAttribute("data-phase", state.phase);
-    document.body.classList.toggle("upd-open", shown === "overlay");
-    box.pill.hidden = shown !== "pill";
-    box.overlay.hidden = shown !== "overlay";
+    document.body.classList.toggle("upd-open", look === "blocking");
+    box.pill.hidden = look !== "pill";
+    box.overlay.hidden = look !== "toast" && look !== "blocking";
+    box.overlay.classList.toggle("upd-toast", look === "toast");
+    box.overlay.setAttribute("aria-modal", look === "blocking" ? "true" : "false");
+    if (look === "toast" && state.pendingSha) {
+      rememberOffer(state.pendingSha);
+      if (state.notes.length) markNotesSeen(state.pendingSha);
+    }
     box.pill.textContent = tr("App update");
     box.brand.textContent = tr("ViktorychApp");
     box.logo.alt = tr("ViktorychApp");
@@ -484,7 +671,7 @@
     box.reset.hidden = state.phase !== "error" || !shouldOfferReset(state.failures);
     box.reset.textContent = tr("Reset app data");
     box.overlay.setAttribute("aria-busy", state.phase === "working" ? "true" : "false");
-    if (shown === "overlay" && !box.go.hidden) {
+    if (look === "blocking" && !box.go.hidden) {
       var active = document.activeElement;
       if (!active || active === box.pill || !box.root.contains(active)) {
         try { box.go.focus(); } catch (err) { /* the button is still clickable */ }
@@ -538,6 +725,7 @@
       state.ready = true;
       state.preTries = 0;
       paint();
+      if (state.quiet) maybeSilentApply();
       return;
     }
     // shell-pending: the files are not all in yet. Nothing is shown.
@@ -657,11 +845,13 @@
     }, 3000);
   }
 
-  function finishUpdate() {
+  function finishUpdate(sha) {
     if (state.reloaded) return;
+    sha = normSha(sha) || normSha(state.pendingSha) || normSha(state.currentSha);
+    if (sha) state.pendingSha = sha;
     state.reloaded = true;
     state.expectingController = false;
-    var appliedNow = state.remoteSha || state.currentSha;
+    var appliedNow = sha || normSha(state.currentSha);
     if (appliedNow) writeStore(localStorage, APPLIED_KEY, appliedNow);
     state.failures = 0;
     state.failureNoted = false;
@@ -695,8 +885,24 @@
     });
   }
 
+  function maybeSilentApply() {
+    if (applying || state.reloaded || state.critical || state.forced) return;
+    if (!state.ready || !state.pending || state.phase === "error" || state.phase === "working") return;
+    if (updateBlocked()) { state.deferApply = true; return; }
+    var sha = normSha(state.pendingSha);
+    if (!sha || reloadSpent(sha)) return;
+    state.deferApply = false;
+    state.silent = true;
+    applyNow(true);
+  }
+
   function applyNow(auto) {
-    if (auto !== true) state.applyRetries = 0;
+    if (updateBlocked()) { state.deferApply = true; return; }
+    if (auto !== true) {
+      state.applyRetries = 0;
+      state.silent = false;
+    }
+    if (state.pendingSha) rememberOffer(state.pendingSha);
     var attempt = {};
     applying = attempt;
     state.pending = true;
@@ -748,13 +954,131 @@
     });
   }
 
-  function scheduleReload() {
-    if (reloadTimer) return;
-    var worker = navigator.serviceWorker && navigator.serviceWorker.controller;
-    if (worker) {
-      try { worker.postMessage({ type: "update-reloading" }); } catch (err) { /* the worker reloads the page if this one does not */ }
+  function queueUpdatedToast(sha) {
+    var notes = state.notes || [];
+    writeStore(sessionStorage, TOAST_KEY, JSON.stringify({ sha: normSha(sha), notes: notes.slice(0, 8) }));
+  }
+
+  function releaseLines(notes) {
+    var lines = [];
+    var i;
+    for (i = 0; i < (notes || []).length && lines.length < 8; i++) {
+      var text = String(notes[i] || "").replace(/\s+/g, " ").trim();
+      if (text) lines.push(text);
     }
+    return lines;
+  }
+
+  /* After the new build is applied. One sheet per sha: a bottom sheet on a
+     phone and a centered card on a desktop. Got it dismisses it. The page
+     underneath stays usable. */
+  function showReleaseNotes(sha, notes) {
+    sha = normSha(sha);
+    if (!shouldShowNotes(sha, seenNotes())) return false;
+    if (typeof document === "undefined" || !document.body) return false;
+    if (updateBlocked()) {
+      state.deferNotes = { sha: sha, notes: notes || [] };
+      return false;
+    }
+    state.deferNotes = null;
+    markNotesSeen(sha);
+    var previous = document.getElementById("upd-notes-sheet");
+    if (previous && previous.parentNode) previous.parentNode.removeChild(previous);
+    var lines = releaseLines(notes);
+    var root = document.createElement("div");
+    root.id = "upd-notes-sheet";
+    root.className = "upd-notes-sheet";
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "false");
+    root.setAttribute("aria-labelledby", "upd-notes-sheet-title");
+    var card = document.createElement("div");
+    card.className = "upd-sheet-card";
+    var title = document.createElement("h2");
+    title.id = "upd-notes-sheet-title";
+    title.className = "upd-sheet-title";
+    title.textContent = tr("What's new");
+    card.appendChild(title);
+    if (lines.length) {
+      var list = document.createElement("ul");
+      list.className = "upd-sheet-list";
+      var n;
+      for (n = 0; n < lines.length; n++) {
+        var item = document.createElement("li");
+        item.textContent = lines[n];
+        list.appendChild(item);
+      }
+      card.appendChild(list);
+    }
+    var go = document.createElement("button");
+    go.type = "button";
+    go.id = "upd-gotit";
+    go.className = "upd-sheet-go";
+    go.textContent = tr("Got it");
+    card.appendChild(go);
+    root.appendChild(card);
+    function closeSheet() {
+      document.removeEventListener("keydown", onKey, true);
+      if (root.parentNode) root.parentNode.removeChild(root);
+    }
+    function onKey(event) {
+      if (event.key !== "Escape" || !root.parentNode) return;
+      if (document.body.classList.contains("upd-open")) return;
+      event.preventDefault();
+      closeSheet();
+    }
+    go.addEventListener("click", closeSheet);
+    document.addEventListener("keydown", onKey, true);
+    document.body.appendChild(root);
+    return true;
+  }
+
+  function consumeUpdatedToast() {
+    var raw = readStore(sessionStorage, TOAST_KEY);
+    if (!raw) return;
+    try { sessionStorage.removeItem(TOAST_KEY); } catch (err) { /* shown once */ }
+    var payload = {};
+    try { payload = JSON.parse(raw) || {}; } catch (err) { payload = {}; }
+    var sha = normSha(payload.sha);
+    var notes = payload.notes || [];
+    var run = function () { showReleaseNotes(sha, notes); };
+    if (document.body) run();
+    else document.addEventListener("DOMContentLoaded", run);
+  }
+
+  function flushDeferredApply() {
+    if (updateBlocked()) return;
+    if (state.deferNotes && state.deferNotes.sha) {
+      var waiting = state.deferNotes;
+      state.deferNotes = null;
+      showReleaseNotes(waiting.sha, waiting.notes);
+    }
+    if (!state.deferApply) return;
+    state.deferApply = false;
+    if (state.phase === "done") scheduleReload();
+    else maybeSilentApply();
+  }
+
+  function scheduleReload() {
+    if (reloadTimer || state.reloaded === "reloading") return;
+    if (updateBlocked()) {
+      state.deferApply = true;
+      state.reloaded = false;
+      return;
+    }
+    var sha = normSha(state.pendingSha) || normSha(state.currentSha);
     reloadTimer = setTimeout(function () {
+      reloadTimer = 0;
+      if (updateBlocked()) {
+        state.deferApply = true;
+        state.reloaded = false;
+        return;
+      }
+      if (sha && !markReload(sha)) return;
+      if (sha) queueUpdatedToast(sha);
+      var worker = navigator.serviceWorker && navigator.serviceWorker.controller;
+      if (worker) {
+        try { worker.postMessage({ type: "update-reloading" }); } catch (err) { /* the worker reloads the page if this one does not */ }
+      }
       captureState();
       location.reload();
     }, reducedMotion() ? 350 : 900);
@@ -804,12 +1128,10 @@
   function onWorkerMessage(data) {
     data = data || {};
     if (data.type === "sw-version" && data.sha) {
-      state.currentSha = String(data.sha).toLowerCase();
+      state.currentSha = normSha(data.sha);
       state.currentBuilt = isoBuilt(data.built);
-      if (!(state.waiting && state.pending)) {
-        if (remotePending()) state.pending = true;
-        else if (state.phase === "offer") state.pending = false;
-      }
+      if (state.waiting) reviewWaiting(state.heardSha);
+      else if (state.phase === "offer" && (!state.pendingSha || state.pendingSha === state.currentSha)) state.pending = false;
       paint();
       return;
     }
@@ -818,9 +1140,9 @@
       return;
     }
     if (data.type === "update-ready") {
-      if (data.sha) state.currentSha = String(data.sha).toLowerCase();
+      if (data.sha) state.currentSha = normSha(data.sha);
       if (data.built) state.currentBuilt = isoBuilt(data.built);
-      if (state.expectingController || state.phase === "working" || state.phase === "done") finishUpdate();
+      if (state.expectingController || state.phase === "working" || state.phase === "done") finishUpdate(data.sha);
       return;
     }
     if (data.type === "shell-ready" || data.type === "shell-pending") {
@@ -930,21 +1252,38 @@
       if (!res || !res.ok) throw new Error("version");
       return res.json();
     }).then(function (doc) {
-      var sha = String(doc && doc.sha || "").toLowerCase();
-      if (!/^[0-9a-f]{7,64}$/.test(sha)) return;
+      if (!doc || typeof doc !== "object") {
+        if (!state.waiting && state.phase === "offer") state.pending = false;
+        paint();
+        return;
+      }
+      var sha = normSha(doc.sha);
+      if (!sha) {
+        if (!state.waiting && state.phase === "offer") state.pending = false;
+        paint();
+        return;
+      }
       state.remoteSha = sha;
-      state.remoteBuilt = isoBuilt(doc && doc.built);
+      state.remoteBuilt = isoBuilt(doc.built);
       state.notes = notesOf(doc);
-      state.short = String((doc && doc.short) || sha.slice(0, 7));
-      if (remotePending()) state.pending = true;
+      state.short = String(doc.short || sha.slice(0, 7));
+      var waiting = normSha(state.pendingSha);
+      state.critical = doc.critical === true && !!waiting && waiting === sha && offerMismatch(state.currentSha, sha, waiting, appliedSha(), state.remoteBuilt, state.currentBuilt);
+      // version.json lagging or differing from the running worker is not an offer.
+      if (!offerMismatch(state.currentSha, sha, waiting, appliedSha(), state.remoteBuilt, state.currentBuilt)) {
+        if (state.phase === "offer") state.pending = false;
+      }
       paint();
-    }).catch(function () { /* offline keeps the copy that is already open */ }).then(function () {
+    }).catch(function () {
+      if (!state.waiting && state.phase === "offer") state.pending = false;
+      paint();
+    }).then(function () {
       checking = false;
       if (applying) return;
       requestUpdate(state.reg).then(function (reg) {
-        // version.json can be newer than the sw.js the CDN still hands out
-        // for a few minutes. Offering then ended in an error, so the offer
-        // waits for the new worker and its files; each check asks again.
+        // version.json can lead or lag the worker that is actually running.
+        // The offer waits for a waiting worker with a new build; the file
+        // alone never opens one. A miss leaves the open copy alone.
         return reg;
       });
     });
@@ -1058,6 +1397,9 @@
   }
 
   function hardReload() {
+    if (updateBlocked()) { state.deferApply = true; return; }
+    var sha = normSha(state.pendingSha) || normSha(state.currentSha) || normSha(state.remoteSha);
+    if (sha && !markReload(sha)) return;
     captureState();
     state.expectingController = false;
     var worker = navigator.serviceWorker && navigator.serviceWorker.controller;
@@ -1077,6 +1419,19 @@
     return state.phase === "working" || state.phase === "done" || !!reloadTimer;
   }
 
+  function onControllerChange() {
+    askVersion();
+    if (state.reloaded) return;
+    if (!(state.expectingController || state.phase === "working" || state.phase === "done")) return;
+    var remote = normSha(state.remoteSha);
+    var current = normSha(state.currentSha);
+    var pending = normSha(state.pendingSha);
+    // The worker that is already running is the build. A version.json sha
+    // that names something else must not reload the page again.
+    if (!state.expectingController && remote && current && remote !== current && (!pending || pending === current)) return;
+    finishUpdate();
+  }
+
   function poke() {
     if (document.visibilityState === "hidden") return;
     if (state.waiting && state.pending && !state.ready && !state.preBusy && !applying) predownload(state.waiting);
@@ -1094,6 +1449,7 @@
       state.suppressAutoFallback = true;
       try { sessionStorage.removeItem(FALLBACK_KEY); } catch (err) { /* one fallback reload already happened */ }
     }
+    consumeUpdatedToast();
     var saved = pendingRestore;
     if (saved) {
       var stops = ["wheel", "touchmove", "keydown"];
@@ -1104,22 +1460,27 @@
       });
       setTimeout(clearRestore, 8000);
     }
-    document.addEventListener("visibilitychange", poke);
+    var sawHidden = false;
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") { sawHidden = true; maybeSilentApply(); }
+      else if (sawHidden) maybeSilentApply();
+      poke();
+    });
+    window.addEventListener("hashchange", function () { maybeSilentApply(); });
+    window.addEventListener("pagehide", function () { maybeSilentApply(); });
     document.addEventListener("focusin", refreshBusy);
-    document.addEventListener("focusout", function () { setTimeout(refreshBusy, 180); });
+    document.addEventListener("focusout", function () { setTimeout(function () { refreshBusy(); flushDeferredApply(); }, 180); });
+    document.addEventListener("click", function () { setTimeout(flushDeferredApply, 0); });
     document.addEventListener("play", refreshBusy, true);
     document.addEventListener("pause", refreshBusy, true);
     document.addEventListener("ended", refreshBusy, true);
-    setInterval(refreshBusy, 1500);
+    setInterval(function () { refreshBusy(); flushDeferredApply(); }, 1500);
     setInterval(function () {
       if (document.visibilityState !== "hidden" && claimCheck(Date.now())) checkRemote();
     }, CHECK_MS);
     if (!("serviceWorker" in navigator)) return;
     navigator.serviceWorker.addEventListener("message", function (event) { onWorkerMessage(event.data || {}); });
-    navigator.serviceWorker.addEventListener("controllerchange", function () {
-      askVersion();
-      if (state.expectingController || state.phase === "working") finishUpdate();
-    });
+    navigator.serviceWorker.addEventListener("controllerchange", function () { onControllerChange(); });
     var attach = function (reg) { if (reg) watch(reg); };
     navigator.serviceWorker.getRegistration().then(attach).catch(function () {});
     navigator.serviceWorker.ready.then(attach).catch(function () {});
@@ -1149,6 +1510,13 @@
     holdsReload: holdsReload,
     onWorkerMessage: onWorkerMessage,
     manifestPending: manifestPending,
+    offerMismatch: offerMismatch,
+    reloadAllowed: reloadAllowed,
+    presentation: presentation,
+    shouldShowNotes: shouldShowNotes,
+    shouldDeferApply: shouldDeferApply,
+    showReleaseNotes: showReleaseNotes,
+    onControllerChange: onControllerChange,
     shouldOfferReset: shouldOfferReset,
     shouldFallback: shouldFallback,
     safeFailure: safeFailure

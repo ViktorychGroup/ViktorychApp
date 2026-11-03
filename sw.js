@@ -4,7 +4,7 @@ const VERSION = "viktorych-a279-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-03T22:50:00.000Z-home-park
+// cache-bust: 2026-11-03T22:56:00.000Z-update-once
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -337,6 +337,22 @@ function versionInfo() {
   return { version: VERSION, sha: versionSha(VERSION), built: versionBuilt(BUILT) };
 }
 
+/* skipWaiting and clients.claim once per worker. Repeating them claimed the
+   page again and the open app reloaded a second time. */
+let skipOnce = null;
+let claimOnce = null;
+function requestSkip() {
+  if (self.registration.active === self.serviceWorker) return Promise.resolve();
+  if (skipOnce) return skipOnce;
+  skipOnce = self.skipWaiting().catch((err) => { skipOnce = null; throw err; });
+  return skipOnce;
+}
+function requestClaim() {
+  if (claimOnce) return claimOnce;
+  claimOnce = self.clients.claim().catch((err) => { claimOnce = null; throw err; });
+  return claimOnce;
+}
+
 function shellError(path, reason) {
   const err = new Error(reason || "network");
   err.reason = reason || "network";
@@ -389,7 +405,7 @@ self.addEventListener("install", (event) => {
     // Take control immediately. The shell download (core files first, then
     // the rest) starts when the page is idle, so this install does not hold
     // the next navigation behind a long precache.
-    await self.skipWaiting();
+    await requestSkip();
   })());
 });
 
@@ -413,11 +429,11 @@ self.addEventListener("activate", (event) => {
     adoptOldCaches().catch(() => {});
     purgeOpaquePictures().catch(() => {});
     try {
-      if (updateReporting) await self.clients.claim();
+      if (updateReporting) await requestClaim();
       else {
         /* The first visit keeps its own network reads. Claiming at once
            hides them from the page. A later claim covers the next views. */
-        setTimeout(() => { self.clients.claim().catch(() => {}); }, 30000);
+        setTimeout(() => { requestClaim().catch(() => {}); }, 30000);
       }
     } catch (err) { /* the page reloads once the worker is active */ }
     try {
@@ -426,18 +442,8 @@ self.addEventListener("activate", (event) => {
     const info = versionInfo();
     if (reloadClients) broadcast({ type: "update-ready", version: info.version, sha: info.sha, built: info.built });
     else broadcast({ type: "sw-version", version: info.version, sha: info.sha, built: info.built });
-    if (reloadClients) {
-      const scope = self.registration.scope;
-      setTimeout(() => {
-        self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-          clients.forEach((client) => {
-            if (!client || !client.navigate || reloadingClients.has(client.id)) return;
-            if (!client.url || client.url.indexOf(scope) !== 0) return;
-            client.navigate(client.url).catch(() => {});
-          });
-        }).catch(() => {});
-      }, 2500);
-    }
+    // The page reloads itself once. Navigating the client here as well
+    // loaded the new build twice.
   })());
 });
 
@@ -1755,15 +1761,15 @@ async function doPrecache(report, generation, signal, mode) {
    is not always enough while the old worker is still busy. Ask again until
    this worker is active, then claim clients so the page hears it. */
 async function activateWaiting() {
+  try { await requestSkip(); } catch (err) { /* one miss still waits out the activate below */ }
   for (let waited = 0; waited < 60000; waited += 500) {
     if (self.registration.active === self.serviceWorker) {
-      try { await self.clients.claim(); } catch (err) { /* the page reloads once we are active */ }
+      try { await requestClaim(); } catch (err) { /* the page reloads once we are active */ }
       const info = versionInfo();
       if (updateReporting) broadcast({ type: "update-ready", version: info.version, sha: info.sha, built: info.built });
       return;
     }
     if (self.registration.waiting !== self.serviceWorker && self.registration.installing !== self.serviceWorker) return;
-    try { await self.skipWaiting(); } catch (err) { /* ask again on the next pass */ }
     if (updateReporting) broadcastProgress({ step: "activate" }, true);
     await wait(500);
   }
@@ -1866,7 +1872,7 @@ self.addEventListener("message", (event) => {
     event.waitUntil((async () => {
       if (self.registration.active) return;
       await precacheShell(false, false);
-      await self.skipWaiting();
+      await requestSkip();
     })().catch(() => {}));
     return;
   }

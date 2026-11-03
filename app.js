@@ -29825,6 +29825,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       navigator.serviceWorker.addEventListener("controllerchange", () => {
         armServiceWorker();
         if (!hadController) { hadController = true; return; }
+        if (window.ViktorychUpdate && window.ViktorychUpdate.onControllerChange) {
+          window.ViktorychUpdate.onControllerChange();
+          return;
+        }
         if (window.ViktorychUpdate && window.ViktorychUpdate.holdsReload && window.ViktorychUpdate.holdsReload()) return;
         if (readStored(sessionStorage, "sw-reload") === "1") return;
         writeStored(sessionStorage, "sw-reload", "1");

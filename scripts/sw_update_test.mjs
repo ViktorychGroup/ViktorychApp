@@ -56,6 +56,9 @@ function startServer() {
   const state = {
     version: OLD,
     built: OLD_BUILT,
+    swSha: "",
+    swBuilt: "",
+    versionMissing: false,
     fail: null,
     css: [],
     manifest: false,
@@ -78,6 +81,11 @@ function startServer() {
     if (rel === "/") rel = "/index.html";
     const headers = { "cache-control": "no-store" };
     if (rel === "/version.json") {
+      if (state.versionMissing) {
+        res.writeHead(404, headers);
+        res.end("missing");
+        return;
+      }
       const body = JSON.stringify({
         name: "ViktorychApp",
         sha: state.version,
@@ -138,7 +146,9 @@ function startServer() {
       }
       let body = data;
       if (rel === "/sw.js") {
-        body = Buffer.from(data.toString("utf8").replaceAll("__SW_VERSION__", state.version).replaceAll("__SW_BUILT__", state.built));
+        const swSha = state.swSha || state.version;
+        const swBuilt = state.swBuilt || state.built;
+        body = Buffer.from(data.toString("utf8").replaceAll("__SW_VERSION__", swSha).replaceAll("__SW_BUILT__", swBuilt));
       }
       res.writeHead(200, { ...headers, "content-type": mime(file) });
       res.end(body);
@@ -173,7 +183,7 @@ async function waitControlled(page) {
   await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 60000 });
 }
 
-async function openApp(browser, url) {
+async function openAt(browser, url, expected) {
   const context = await browser.newContext({ serviceWorkers: "allow" });
   const page = await context.newPage();
   page.on("console", (msg) => {
@@ -183,8 +193,12 @@ async function openApp(browser, url) {
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await waitControlled(page);
   const sha = await shaOf(page);
-  assert(sha === OLD, "the first worker did not activate");
+  assert(sha === expected, "worker was " + sha + ", expected " + expected);
   return { context, page };
+}
+
+async function openApp(browser, url) {
+  return openAt(browser, url, OLD);
 }
 
 async function offerUpdate(page) {
@@ -427,12 +441,162 @@ async function testDeployMidDownload(browser) {
   console.log("a deploy mid-download moved the update to the newest build");
 }
 
+async function assertStaysIdle(page, ms, label) {
+  let navs = 0;
+  let watch = true;
+  const onNav = () => { if (watch) navs += 1; };
+  page.on("framenavigated", onNav);
+  const started = Date.now();
+  await page.evaluate(() => window.ViktorychUpdate.poke());
+  while (Date.now() - started < ms) {
+    const shown = await shownState(page);
+    assert(!shown.visible && !shown.error, label + " offered an update " + JSON.stringify(shown));
+    await page.waitForTimeout(250);
+  }
+  watch = false;
+  assert(navs === 0, label + " reloaded the page " + navs + " times");
+  return shaOf(page);
+}
+
+/* version.json lagging, leading, or matching the running worker must not
+   open an update or reload the page. A missing file stays idle too. */
+async function testVersionMismatchIdle(browser) {
+  const same = await startServer();
+  const opened = await openApp(browser, same.url);
+  try {
+    let sha = await assertStaysIdle(opened.page, 2000, "same sha");
+    assert(sha === OLD, "same sha left the worker");
+    same.state.version = NEW;
+    same.state.built = NEW_BUILT;
+    same.state.swSha = OLD;
+    same.state.swBuilt = OLD_BUILT;
+    sha = await assertStaysIdle(opened.page, 2500, "version.json newer than the worker");
+    assert(sha === OLD, "version.json newer than the worker changed the build");
+    same.state.versionMissing = true;
+    sha = await assertStaysIdle(opened.page, 1500, "missing version.json");
+    assert(sha === OLD, "missing version.json changed the build");
+  } finally {
+    await opened.context.close();
+    same.server.close();
+  }
+
+  const ahead = await startServer();
+  ahead.state.version = NEW;
+  ahead.state.built = NEW_BUILT;
+  const running = await openAt(browser, ahead.url, NEW);
+  try {
+    ahead.state.version = OLD;
+    ahead.state.built = OLD_BUILT;
+    ahead.state.swSha = NEW;
+    ahead.state.swBuilt = NEW_BUILT;
+    await running.page.reload({ waitUntil: "domcontentloaded" });
+    await waitControlled(running.page);
+    const sha = await assertStaysIdle(running.page, 2500, "worker newer than version.json");
+    assert(sha === NEW, "worker newer than version.json changed the build");
+    let extra = 0;
+    const onNav = () => { extra += 1; };
+    running.page.on("framenavigated", onNav);
+    await running.page.evaluate(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      window.ViktorychUpdate.onControllerChange();
+      window.ViktorychUpdate.poke();
+    });
+    await running.page.waitForTimeout(1500);
+    assert(extra === 0, "version.json older than the service worker reloaded the page");
+    const again = await shownState(running.page);
+    assert(!again.visible && !again.error, "version.json older than the service worker showed an update");
+    assert(await shaOf(running.page) === NEW, "the running build changed after the stale version file");
+  } finally {
+    await running.context.close();
+    ahead.server.close();
+  }
+  console.log("a version.json mismatch stayed idle");
+}
+
+/* What's new is one sheet per build: it comes back for a new build, and not
+   for one the device already dismissed. */
+async function testNotesOnce(browser) {
+  const { server, url } = await startServer();
+  const { context, page } = await openApp(browser, url);
+  try {
+    const show = (sha, notes) => page.evaluate(({ sha, notes }) => {
+      sessionStorage.setItem("viktorychapp-update-toast", JSON.stringify({ sha, notes }));
+    }, { sha, notes });
+    await show(OLD, ["A test note", "Second line"]);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#upd-notes-sheet", { timeout: 8000 });
+    await page.addStyleTag({ path: path.join(root, "styles.css") });
+    await page.waitForTimeout(400);
+    const text = await page.locator("#upd-notes-sheet").innerText();
+    assert(text.includes("What's new"), "the sheet has no title: " + text);
+    assert(text.includes("A test note") && text.includes("Second line"), "the sheet missed the changelog: " + text);
+    assert(text.includes("Got it"), "the sheet has no Got it button: " + text);
+    const open = await page.evaluate(() => document.body.classList.contains("upd-open"));
+    assert(!open, "What's new blocked the page");
+    const placed = await page.evaluate(() => {
+      const sheet = document.getElementById("upd-notes-sheet");
+      const card = sheet && sheet.querySelector(".upd-sheet-card");
+      const read = (theme) => {
+        if (theme) document.documentElement.setAttribute("data-theme", theme);
+        else document.documentElement.removeAttribute("data-theme");
+        return card ? getComputedStyle(card).backgroundColor : "";
+      };
+      const dark = read("");
+      const light = read("default");
+      read("");
+      return {
+        fixed: !!(sheet && getComputedStyle(sheet).position === "fixed"),
+        height: document.documentElement.scrollHeight,
+        dark,
+        light
+      };
+    });
+    assert(placed.fixed, "What's new is in the page flow");
+    assert(placed.dark && placed.light && placed.dark !== placed.light, "What's new ignored the theme " + JSON.stringify(placed));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(100);
+    const phone = await page.locator(".upd-sheet-card").boundingBox();
+    assert(phone && phone.y > 420, "the phone sheet is not along the bottom " + JSON.stringify(phone));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(100);
+    const desk = await page.locator(".upd-sheet-card").boundingBox();
+    assert(desk && Math.abs(desk.x + desk.width / 2 - 640) < 100, "the desktop sheet is not centered " + JSON.stringify(desk));
+    const tall = await page.evaluate(() => document.documentElement.scrollHeight);
+    await page.click("#upd-gotit");
+    await page.waitForFunction(() => !document.getElementById("upd-notes-sheet"));
+    const short = await page.evaluate(() => document.documentElement.scrollHeight);
+    assert(short === tall, "What's new shifted the page " + tall + " -> " + short);
+    await show(OLD, ["A test note"]);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(700);
+    assert(!(await page.$("#upd-notes-sheet")), "What's new showed again for the same build");
+    const other = "e".repeat(40);
+    const opened = await page.evaluate((sha) => window.ViktorychUpdate.showReleaseNotes(sha, ["Newer note"]), other);
+    assert(opened === true, "a new build did not open What's new");
+    await page.waitForSelector("#upd-notes-sheet");
+    const newer = await page.locator("#upd-notes-sheet").innerText();
+    assert(newer.includes("Newer note"), newer);
+    const again = await page.evaluate((sha) => window.ViktorychUpdate.showReleaseNotes(sha, ["Newer note"]), other);
+    assert(again === false, "the same build opened a second sheet");
+    assert(await page.locator("#upd-notes-sheet").count() === 1, "sheets stacked");
+    await page.click("#upd-gotit");
+    const after = await page.evaluate((sha) => window.ViktorychUpdate.showReleaseNotes(sha, ["Newer note"]), other);
+    assert(after === false, "a dismissed build opened What's new again");
+  } finally {
+    await context.close();
+    server.close();
+  }
+  console.log("What's new showed once per build");
+}
+
 const browser = await chromium.launch({
   headless: true,
   executablePath: chromeBin(),
   args: ["--no-sandbox", "--disable-dev-shm-usage"]
 });
 try {
+  await testVersionMismatchIdle(browser);
+  await testNotesOnce(browser);
   await testCleanUpdate(browser);
   await testRetryRecovers(browser);
   await testSilentUntilReady(browser);

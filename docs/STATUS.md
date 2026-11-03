@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main is `d1e84bbd`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main is `3a6f2de1`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -27,6 +27,10 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 Sync feeds on `d1e84bbd` deployed the service worker, then `pages-mirror` failed at `node scripts/smoke_page.mjs --site _mirror` with `Chrome did not open a debugger`. The log only had dbus noise after the old fixed wait, so `publish-version` was skipped. Installed apps keep the update screen because `version.json` still names `2fd7f0d`. Each launch now uses a fresh profile, `--no-sandbox`, `--disable-dev-shm-usage`, and `--remote-debugging-port=0`. The check reads the port from Chrome's stderr (`DevTools listening on ws://…`) or from `DevToolsActivePort`, waits up to 30 seconds, and tries the launch at most three times. A page assertion that fails is not retried.
 
 Main's Page smoke run 41735261194 failed `shard-ui-fast` on privacy. The log line is `locator.scrollIntoViewIfNeeded: Element is not attached to the DOM` at `scripts/external_following_test.mjs:170`, then `external following checks failed`. That failure is not part of this change.
+
+## App updates
+
+The build the service worker is already running is the version on the device. `version.json` is published only after the live check, so it can lag that build when the check has not passed. A mismatch does not offer an update, and a version.json older than the running service worker does not reload the page. A missing or unreadable `version.json` leaves the open copy alone. Each build is offered and applied at most once on a device, and the page reloads at most once for that build. The new files download in the background. The update applies on the next navigation, or when the app is hidden or opened again. An open composer, a modal, or typed text holds that apply until it closes. Right after that build is applied, What's new appears once: a bottom sheet on a phone and a centered card on a desktop, with the changelog and Got it. It does not block the page, and it does not come back for that build. A full-screen step is only for a critical update or a failed one. Unchanged files already on the device, matched by hash, are not downloaded again. `skipWaiting` and `clients.claim` run once for a worker, so the page does not reload twice.
 
 ## Merged today
 

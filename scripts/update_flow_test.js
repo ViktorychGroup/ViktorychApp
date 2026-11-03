@@ -63,6 +63,42 @@ assert.deepStrictEqual(update.safeFailure({ url: "https://example.test/app.js", 
 assert.strictEqual(update.safeFailure({ url: "../secret", reason: "http-404" }).url, "");
 assert.strictEqual(update.safeFailure({ url: "shared/mirror.js", reason: "quota" }).reason, "quota");
 
+const NEWER = "b".repeat(40);
+const OLDER = "a".repeat(40);
+const SAME = "c".repeat(40);
+// The running worker is the truth. version.json cannot open an update.
+assert.strictEqual(update.offerMismatch(NEWER, OLDER, "", ""), false);
+assert.strictEqual(update.offerMismatch(OLDER, NEWER, "", ""), false);
+assert.strictEqual(update.offerMismatch(SAME, SAME, "", ""), false);
+assert.strictEqual(update.offerMismatch(SAME, SAME, SAME, ""), false);
+assert.strictEqual(update.offerMismatch(OLDER, NEWER, NEWER, "", "2026-10-27T00:00:00Z", "2020-01-01T00:00:00Z"), true);
+assert.strictEqual(update.offerMismatch(OLDER, NEWER, NEWER, NEWER, "2026-10-27T00:00:00Z", "2020-01-01T00:00:00Z"), false);
+// version.json older than the running service worker: no offer and no reload signal.
+assert.strictEqual(update.offerMismatch(NEWER, OLDER, "", "", "2020-01-01T00:00:00Z", "2026-10-27T00:00:00Z"), false);
+assert.strictEqual(update.offerMismatch(NEWER, OLDER, OLDER, "", "2020-01-01T00:00:00Z", "2026-10-27T00:00:00Z"), false);
+// The service worker's own newer build still counts when version.json has not caught up.
+assert.strictEqual(update.offerMismatch(OLDER, OLDER, NEWER, "", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z"), true);
+assert.strictEqual(update.reloadAllowed("", "", ""), false);
+assert.strictEqual(update.reloadAllowed(NEWER, "", ""), true);
+assert.strictEqual(update.reloadAllowed(NEWER, NEWER, ""), false);
+assert.strictEqual(update.reloadAllowed(NEWER, "", NEWER), false);
+assert.strictEqual(update.reloadAllowed(OLDER, NEWER, NEWER), true);
+assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true }, now), "toast");
+assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true, critical: true }, now), "blocking");
+assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true, forced: true }, now), "blocking");
+assert.strictEqual(update.presentation({ pending: true, phase: "error" }, now), "blocking");
+assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: false }, now), "idle");
+assert.strictEqual(update.presentation({ pending: true, phase: "working", silent: true }, now), "idle");
+assert.strictEqual(update.shouldShowNotes(NEWER, []), true);
+assert.strictEqual(update.shouldShowNotes(NEWER, [NEWER]), false);
+assert.strictEqual(update.shouldShowNotes(NEWER, [NEWER.toUpperCase()]), false);
+assert.strictEqual(update.shouldShowNotes(OLDER, [NEWER]), true);
+assert.strictEqual(update.shouldShowNotes("", []), false);
+assert.strictEqual(update.shouldDeferApply({ modal: true, typed: false }), true);
+assert.strictEqual(update.shouldDeferApply({ modal: false, typed: true }), true);
+assert.strictEqual(update.shouldDeferApply({ modal: false, typed: false }), false);
+assert.strictEqual(update.shouldShowNotes(OLDER, ["nope", ""]), true);
+
 assert.strictEqual(update.restoreFresh({ at: now, hash: "#/home", y: 10 }, now + 1000), true);
 assert.strictEqual(update.restoreFresh({ at: now - update.SNOOZE_MS, hash: "#/" }, now), false);
 assert.strictEqual(update.restoreFresh(null, now), false);
