@@ -333,8 +333,22 @@ async function main() {
       assertVisible(await readState(failed.page), ["error"], "failed api");
       failed.mode.current = "items";
       await failed.page.click("[data-act='notes-retry']");
-      /* A background pull may still be in flight; the retry waits behind it. */
-      await failed.page.waitForSelector("[data-notes-state='items']", { timeout: 30000 });
+      /* A background pull may still be in flight; the retry waits behind it.
+         A busy runner can stretch this well past 30s (seen on main's smoke
+         while a dozen smokes run at once), so keep 75s and, on a miss, dump
+         the notes state and any page errors instead of failing blind. */
+      try {
+        await failed.page.waitForSelector("[data-notes-state='items']", { timeout: 75000 });
+      } catch (err) {
+        const state = await failed.page.evaluate(() => {
+          const el = document.querySelector("[data-notes-state]");
+          return {
+            state: el ? el.getAttribute("data-notes-state") : "",
+            rows: document.querySelectorAll(".note-row, [data-act='notes-retry']").length
+          };
+        }).catch(() => ({}));
+        fail("retry to items " + JSON.stringify(state));
+      }
       const info = await readState(failed.page);
       assertVisible(info, ["items"], "retry");
       if (!info.text.includes("hello")) fail("retry items");

@@ -10,6 +10,7 @@
    never fails a deploy. */
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { SEAL_KEYS, sealDay, sealFile, sealText } from "../worker/src/data-seal.js";
 import { stripOwnerOnly } from "../worker/src/owner-only.js";
 
@@ -39,7 +40,7 @@ export async function sealSite(site, input, secret, audience, now) {
   return files;
 }
 
-if (import.meta.url === "file://" + path.resolve(process.argv[1] || "")) {
+if (import.meta.url === pathToFileURL(path.resolve(process.argv[1] || "")).href) {
   const secret = process.env.ACCOUNT_PEPPER || "";
   if (!secret) { console.log("[seal] ACCOUNT_PEPPER is not set; skipped"); process.exit(0); }
   sealSite(arg("--site", "_site"), arg("--in", "."), secret, arg("--audience", "owner")).then((files) => {

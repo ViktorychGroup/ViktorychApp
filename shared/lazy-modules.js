@@ -18,6 +18,7 @@
     inboxsms: { classic: true, scripts: ["inbox-sms.js", "inbox-sms.css", "inbox-mail.css"] },
     inboxmail: { classic: true, scripts: ["inbox-mail.js", "inbox-sms.css", "inbox-mail.css"] },
     owner_inspector: { classic: true, scripts: ["owner-inspector.js", "owner-inspector.css"] },
+    contacts: { classic: true, scripts: ["contacts-ui.js", "contacts.css"] },
     localai: { classic: true, scripts: ["settings-registry.js", "local-ai.js", "local-ai-ui.js", "local-ai.css"] }
   };
   var loads = {};

@@ -97,3 +97,86 @@
 }
 html.tv-on .pchip-follow, body.tv .pfrom-pill, body.tv .pm-btn { min-height: 44px; font-size: 18px; }
 .pglyph-x { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; font-size: 12px; font-weight: 800; line-height: 1; }
+
+/* Private custom names (nicknames.js): the pen next to a profile name and
+   the "Set custom name" sheet. A bottom sheet on phones, a card on wide screens. */
+.nick-pen { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; margin-left: 4px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; vertical-align: middle; }
+.nick-pen svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.nick-pen:hover, .nick-pen:focus-visible { background: var(--blue-dim); color: var(--blue); }
+.nick-sheet-wrap { position: fixed; inset: 0; z-index: 9100; display: flex; align-items: center; justify-content: center; background: rgba(91, 112, 131, .4); }
+.nick-sheet { box-sizing: border-box; width: min(420px, calc(100vw - 32px)); padding: 0 16px 20px; border-radius: 16px; background: var(--sheet, var(--bg)); color: var(--text); box-shadow: 0 0 15px var(--shadow, rgba(255,255,255,.2)); }
+.nick-sheet-head { display: flex; align-items: center; gap: 12px; min-height: 53px; }
+.nick-sheet-head h2 { flex: 1; margin: 0; font: 700 20px/24px var(--font); }
+.nick-x { width: 36px; height: 36px; margin-left: -8px; border: 0; border-radius: 999px; background: transparent; color: var(--text); font-size: 24px; line-height: 1; cursor: pointer; }
+.nick-x:hover { background: var(--hover); }
+.nick-save { min-height: 32px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--text); color: var(--bg); font: 700 14px/16px var(--font); cursor: pointer; }
+.nick-sub { margin: 0 0 16px; color: var(--muted); font: 15px/20px var(--font); }
+.nick-field { position: relative; display: block; padding: 8px 8px 6px; border: 1px solid var(--line); border-radius: 4px; }
+.nick-field:focus-within { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.nick-label { display: block; color: var(--muted); font: 13px/16px var(--font); }
+.nick-field:focus-within .nick-label { color: var(--blue); }
+.nick-field input { box-sizing: border-box; width: 100%; padding: 4px 56px 0 0; border: 0; outline: 0; background: transparent; color: var(--text); font: 17px/24px var(--font); }
+.nick-count { position: absolute; top: 8px; right: 8px; color: var(--muted); font: 13px/16px var(--font); }
+.nick-scope { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; margin-top: 8px; color: var(--text); font: 15px/20px var(--font); cursor: pointer; }
+.nick-scope-copy { flex: 1; min-width: 0; }
+/* X-style checkbox: the real input is invisible, the square is drawn. */
+.nick-check-input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.nick-check { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; box-sizing: border-box; border: 2px solid var(--muted); border-radius: 4px; color: #fff; }
+.nick-check svg { width: 16px; height: 16px; fill: currentColor; opacity: 0; }
+.nick-check-input:checked + .nick-check { background: var(--blue); border-color: var(--blue); }
+.nick-check-input:checked + .nick-check svg { opacity: 1; }
+.nick-check-input:focus-visible + .nick-check { box-shadow: 0 0 0 2px var(--bg, #000), 0 0 0 4px var(--blue); }
+/* Add-a-name sheet: X list-row picker + radio rows. */
+.nick-sheet .nick-field + .nick-field, .nick-pick + .nick-field, .nick-radios + .nick-field { margin-top: 16px; }
+.nick-pick { display: flex; align-items: center; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.nick-pick[aria-expanded="true"] { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.nick-pick[aria-expanded="true"] .nick-label { color: var(--blue); }
+.nick-pick-copy { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.nick-pick-value { font: 17px/24px var(--font); }
+.nick-pick-chev { display: inline-flex; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
+.nick-pick-chev.open { transform: rotate(-90deg); }
+.nick-pick-chev svg, .xn-chev { width: 18.75px; height: 18.75px; fill: currentColor; }
+.nick-radios { max-height: 260px; overflow-y: auto; margin-top: 4px; border: 1px solid var(--line); border-radius: 4px; }
+.nick-radio { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px; border: 0; background: transparent; color: var(--text); font: 15px/20px var(--font); text-align: left; cursor: pointer; }
+.nick-radio:hover { background: rgba(231, 233, 234, .06); }
+.nick-radio-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; }
+.nick-radio-ico .src { margin: 0; }
+.nick-radio-name { flex: 1; min-width: 0; }
+.nick-radio-dot { flex: none; width: 20px; height: 20px; box-sizing: border-box; border: 2px solid var(--muted); border-radius: 999px; }
+.nick-radio.on .nick-radio-dot { border: 6px solid var(--blue); background: #fff; }
+.nick-save:disabled { opacity: .5; cursor: default; }
+/* Settings > Usernames > Your nicknames for others, X settings rows. */
+.xn-head { margin: 24px 0 0; padding: 12px 0; }
+.xn-head h2 { margin: 0; font: 800 20px/24px var(--font); color: var(--text); }
+.xn-desc { margin: 4px 0 0; color: var(--muted); font: 13px/16px var(--font); }
+.xn-list { margin: 0; }
+.xn-group-title { margin: 0; padding: 12px 0 4px; color: var(--text); font: 700 15px/20px var(--font); }
+.xn-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; box-sizing: border-box; padding: 12px 0; border: 0; background: transparent; color: var(--text); font: 15px/20px var(--font); text-align: left; cursor: pointer; transition: background-color .2s; }
+.xn-row:hover, .xn-row:focus-visible { background: rgba(231, 233, 234, .03); outline: 0; }
+.xn-static { cursor: default; }
+.xn-lead { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: var(--muted); }
+.xn-lead .src { margin: 0; }
+.xn-lead svg { width: 22px; height: 22px; fill: currentColor; }
+.xn-letter { font: 700 15px/20px var(--font); color: var(--text); }
+.xn-copy { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.xn-title, .xn-subline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xn-subline { color: var(--muted); font: 13px/16px var(--font); }
+.xn-chev { flex: none; color: var(--muted); }
+.xn-accent, .xn-accent .xn-lead { color: var(--blue); }
+.xn-icon-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; }
+.xn-icon-btn:hover { background: rgba(244, 33, 46, .1); color: #f4212e; }
+.xn-icon-btn svg { width: 18.75px; height: 18.75px; fill: currentColor; }
+.xn-empty { margin: 0; padding: 12px 0; color: var(--muted); font: 15px/20px var(--font); }
+.nick-reset { display: block; width: 100%; margin-top: 16px; min-height: 40px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--red); font: 700 15px/20px var(--font); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nick-reset:hover { background: rgba(244, 33, 46, .1); }
+@media (max-width: 700px) {
+  .nick-sheet-wrap { align-items: flex-end; }
+  .nick-sheet { width: 100%; border-radius: 16px 16px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+}
+.un-sub { margin: 16px 0 4px; font: 700 15px/20px var(--font); }
+.un-ext { justify-content: flex-start; padding: 6px 0; }
+.un-ext-ico { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; background: var(--search); color: var(--text); }
+.un-ext-ico .src { margin: 0; }
+.un-row > .un-ext-copy { flex: 1; display: flex; flex-direction: column; min-width: 0; white-space: normal; }
+.un-ext-copy b, .un-ext-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.un-ext-id { color: var(--muted); font-size: 13px; line-height: 16px; }
