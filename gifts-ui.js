@@ -157,6 +157,7 @@
     if (reason === "popular_post") return tr("A popular post");
     if (reason === "grant") return tr("Granted by the app owner");
     if (reason === "stickers") return tr("Bought a sticker pack");
+    if (reason === "status_emoji") return tr("Bought a status emoji");
     if (reason === "badge") return tr("Badge reward");
     if (reason === "signup") return tr("Sign-up bonus");
     if (reason === "login") return tr("Login streak");
@@ -252,6 +253,7 @@
     if (id === "history") return tr("Gift history");
     if (id === "limited") return tr("Limited editions");
     if (id === "stickers") return tr("Sticker packs");
+    if (id === "emojis") return tr("Status emojis");
     if (id === "orders") return tr("My purchases");
     if (id === "terms") return tr("Purchase terms");
     if (id === "owner") return tr("Owner tools");
@@ -450,6 +452,38 @@
     }).join("") + "</div></section>";
   }
 
+  /* ---- Status emojis: shown on your avatar, set from your status ---- */
+  function emojiList() {
+    var sc = storeLib();
+    if (shop && Array.isArray(shop.emojis)) return shop.emojis;
+    return sc && sc.STATUS_EMOJIS ? sc.STATUS_EMOJIS.map(function (item) { return { id: item.id, emoji: item.emoji, name: item.name, tier: item.tier, viktorychs: item.viktorychs, popular: !!item.popular, fresh: !!item.fresh, owned: false }; }) : [];
+  }
+
+  function ownedEmojis() {
+    return emojiList().filter(function (item) { return item.owned; }).map(function (item) { return item.id; });
+  }
+
+  function emojiCard(item) {
+    var priced = priceOf("emoji", item.id);
+    var mark = item.fresh ? '<span class="vke-flag">' + esc(tr("New")) + "</span>" : item.popular ? '<span class="vke-flag">' + esc(tr("Popular")) + "</span>" : "";
+    var action = (item.owned ? '<span class="vks-owned">' + esc(tr("Owned")) + "</span>" : priceTags(priced)) + '<button type="button" class="vks-get" data-gift="emoji" data-emoji-id="' + esc(item.id) + '">' + esc(item.owned ? tr("Gift") : tr("Get")) + "</button>";
+    return '<article class="vke-card' + (item.owned ? " is-owned" : "") + '"><span class="vke-art" aria-hidden="true">' + esc(item.emoji) + "</span>" + mark + '<b>' + esc(tr(item.name)) + '</b><div class="vks-foot">' + action + "</div></article>";
+  }
+
+  function emojisHtml() {
+    var list = emojiList();
+    if (!list.length) return '<p class="points-note vkg-empty">' + esc(tr("Loading…")) + "</p>";
+    return '<p class="points-note">' + esc(tr("Status emojis show on your avatar. Pick one in your status; any other emoji stays free.")) + '</p><div class="vke-grid">' + list.map(emojiCard).join("") + "</div>";
+  }
+
+  function emojiShelf() {
+    var list = emojiList();
+    if (!list.length) return "";
+    return '<section class="vkg-shelf" data-shelf="emojis"><a class="vkg-shelf-head" href="#/store/emojis"><h2>' + esc(sectionTitle("emojis")) + "</h2>" + icon("chevron") + '</a><div class="vkg-row">' + list.map(function (item) {
+      return '<a class="gift-card vkg-item vke-mini" href="#/store/emojis" aria-label="' + esc(tr(item.name)) + '"><span class="vkg-art vke-art">' + esc(item.emoji) + "</span>" + priceTags(priceOf("emoji", item.id)) + "</a>";
+    }).join("") + "</div></section>";
+  }
+
   /* A compact picker for the composer and Messages: owned packs first. */
   function stickerPicker(slot) {
     if (!shop) loadShop();
@@ -483,9 +517,10 @@
   }
 
   function orderRow(order) {
-    var item = order.kind === "stickers" ? null : findGift(order.itemId);
-    var art = order.kind === "stickers" ? stickerArt(order.base) : artHtml(item || { id: order.itemId, base: order.base }, false);
-    var name = order.kind === "stickers" ? tr(order.name) : giftLabel(item || { name: order.name });
+    var status = order.kind === "emoji" ? priceOf("emoji", order.itemId) : null;
+    var item = order.kind === "stickers" || order.kind === "emoji" ? null : findGift(order.itemId);
+    var art = order.kind === "stickers" ? stickerArt(order.base) : status ? '<span class="vke-art is-small" aria-hidden="true">' + esc(status.emoji) + "</span>" : artHtml(item || { id: order.itemId, base: order.base }, false);
+    var name = order.kind === "stickers" || order.kind === "emoji" ? tr(order.name) : giftLabel(item || { name: order.name });
     var paid = order.method === "money" ? money(order.amount) : order.method === "viktorychs" ? tr("{n} Viktorychs", { n: String(order.amount) }) : order.method === "grant" ? tr("Granted by the app owner") : tr("Free");
     var who = order.toSelf ? tr("For you") : tr("To {name}", { name: order.recipient ? (order.recipient.name || (order.recipient.handle ? "@" + order.recipient.handle : "")) : "" });
     var state = order.status === "pending" ? tr("Waiting for payment") : order.status === "refunded" ? tr("Refunded") : (order.opened ? tr("Opened") : tr("Delivered"));
@@ -528,6 +563,7 @@
     var options = [];
     if (sc) {
       sc.STICKER_PACKS.forEach(function (pack) { options.push('<option value="stickers:' + esc(pack.id) + '">' + esc(tr(pack.name)) + "</option>"); });
+      (sc.STATUS_EMOJIS || []).forEach(function (item) { options.push('<option value="emoji:' + esc(item.id) + '">' + esc(item.emoji + " " + tr(item.name)) + "</option>"); });
       sc.LIMITED.forEach(function (item) { options.push('<option value="gift:' + esc(item.id) + '">' + esc(tr(item.name)) + "</option>"); });
       sc.PREMIUM_ART.forEach(function (id) { var g = findGift(id); if (g) options.push('<option value="gift:' + esc(id) + '">' + esc(giftLabel(g)) + "</option>"); });
     }
@@ -535,7 +571,7 @@
   }
 
   function storeLinks() {
-    return '<nav class="vkg-links"><a href="#/store/stickers">' + esc(tr("Sticker packs")) + '</a><a href="#/store/orders">' + esc(tr("My purchases")) + '</a><a href="#/store/terms">' + esc(tr("Purchase terms")) + "</a>" + (shop && shop.owner ? '<a href="#/store/owner">' + esc(tr("Owner tools")) + "</a>" : "") + "</nav>";
+    return '<nav class="vkg-links"><a href="#/store/stickers">' + esc(tr("Sticker packs")) + '</a><a href="#/store/emojis">' + esc(tr("Status emojis")) + '</a><a href="#/store/orders">' + esc(tr("My purchases")) + '</a><a href="#/store/terms">' + esc(tr("Purchase terms")) + "</a>" + (shop && shop.owner ? '<a href="#/store/owner">' + esc(tr("Owner tools")) + "</a>" : "") + "</nav>";
   }
 
   function paymentsNote() {
@@ -646,6 +682,7 @@
     if (store.searching) body = '<div data-gift-results>' + searchResults() + "</div>";
     else if (sub === "history") body = historyHtml();
     else if (sub === "stickers") body = balanceLine() + paymentsNote() + stickersHtml();
+    else if (sub === "emojis") body = balanceLine() + emojisHtml();
     else if (sub === "orders") body = ordersHtml(route);
     else if (sub === "terms") body = termsHtml();
     else if (sub === "owner") body = ownerHtml();
@@ -659,7 +696,7 @@
       body = '<section class="vkg-shelf"><div class="vkg-row">' + allGifts().map(tile).join("") + "</div></section>";
     } else {
       var shelves = c.activeSeasons().concat(["trending"]).concat(c.CATEGORIES.filter(function (id) { return id !== "trending"; }));
-      body = chipsHtml() + balanceLine() + storeLinks() + paymentsNote() + limitedShelf() + stickerShelf() + shelves.map(shelfHtml).join("");
+      body = chipsHtml() + balanceLine() + storeLinks() + paymentsNote() + limitedShelf() + stickerShelf() + emojiShelf() + shelves.map(shelfHtml).join("");
     }
     var credit = '<p class="vkg-credit">' + esc(tr("Gift art: original illustrations made for ViktorychApp, plus Noto Emoji by Google (Apache 2.0, animated CC BY 4.0).")) + "</p>";
     return '<div class="store-page vkg-page">' + headerHtml(title, backHref) + body + credit + "</div>";
@@ -693,21 +730,23 @@
     pickPay();
     var item = sheetItem();
     var stickers = sheet.kind === "stickers";
-    var gift = stickers ? null : findGift(sheet.giftId);
+    var emoji = sheet.kind === "emoji";
+    var gift = stickers || emoji ? null : findGift(sheet.giftId);
     var pack = stickers && storeLib() ? storeLib().stickerPack(sheet.giftId) : null;
-    var owned = stickers && ownedPacks().indexOf(sheet.giftId) >= 0;
+    var owned = (stickers && ownedPacks().indexOf(sheet.giftId) >= 0) || (emoji && ownedEmojis().indexOf(sheet.giftId) >= 0);
     if (owned) sheet.forMe = false;
     var left = gift && gift.limited ? limitedLeft(gift.id) : null;
     var soldOut = left === 0;
-    var title = sheet.forMe ? tr("Buy for me") : (stickers ? tr("Gift stickers") : tr("Send a gift"));
+    var title = sheet.forMe ? tr("Buy for me") : (stickers ? tr("Gift stickers") : emoji ? tr("Send status emoji") : tr("Send a gift"));
     var payMoney = sheet.pay === "money";
     var moneyOff = payMoney && !paymentsOn();
     var confirmLabel = sheet.busy ? tr("Loading…") : moneyOff ? tr("Coming soon") : payMoney ? tr("Pay {price}", { price: money(item ? item.cents : 0) }) : sheet.forMe ? tr("Buy") : tr("Send");
     var disabled = sheet.busy || moneyOff || soldOut;
     var preview = "";
     if (gift) preview = '<p class="gift-preview"><span class="vkg-art is-big"' + hueStyle(gift.base ? { id: gift.base } : gift) + '>' + artHtml(gift, true) + tierMark(item) + "</span><b>" + esc(giftLabel(gift)) + "</b>" + priceTags(item) + (gift.limited ? '<span class="vkg-limited is-inline">' + esc(left == null ? tr("Limited") : left > 0 ? tr("{n} left", { n: String(left) }) : tr("Sold out")) + "</span>" : "") + "</p>";
+    if (emoji && item) preview = '<p class="gift-preview"><span class="vkg-art is-big vke-art" aria-hidden="true">' + esc(item.emoji) + "</span><b>" + esc(tr(item.name)) + "</b>" + priceTags(item) + "</p>";
     if (pack) preview = '<div class="gift-preview is-pack"><b>' + esc(tr(pack.name)) + "</b>" + priceTags(item) + '<div class="vks-grid">' + pack.items.map(function (id) { return '<span class="vks-cell">' + stickerArt(id) + "</span>"; }).join("") + "</div></div>";
-    var modes = sheet.mode === "direct" && !(item && item.tier === "free" && !stickers) ? '<div class="vkg-pills" role="group">' + pill("as-gift", !sheet.forMe, tr("Send as gift")) + (owned ? "" : pill("for-me", sheet.forMe, tr("Buy for me"))) + "</div>" : "";
+    var modes = sheet.mode === "direct" && !(item && item.tier === "free" && !stickers && !emoji) ? '<div class="vkg-pills" role="group">' + pill("as-gift", !sheet.forMe, tr("Send as gift")) + (owned ? "" : pill("for-me", sheet.forMe, tr("Buy for me"))) + "</div>" : "";
     var recipient = sheet.forMe ? "" :
       '<input data-gift-field="handle" value="' + esc(sheet.handle || "") + '" placeholder="' + esc(tr("Recipient")) + '" aria-label="' + esc(tr("Recipient")) + '" autocapitalize="off" autocomplete="off">' +
       '<textarea data-gift-field="message" placeholder="' + esc(tr("Add a message")) + '" aria-label="' + esc(tr("Add a message")) + '">' + esc(sheet.message || "") + "</textarea>" +
@@ -727,7 +766,7 @@
     var note = "";
     if (payMoney) {
       var days = String(storeLib() ? storeLib().REFUND_DAYS : 14);
-      var consent = stickers || sheet.forMe
+      var consent = stickers || emoji || sheet.forMe
         ? tr("I agree to the purchase terms and want it delivered now. I understand the {n}-day right to cancel ends at delivery.", { n: days })
         : tr("I agree to the purchase terms. An unopened gift can be refunded within {n} days.", { n: days });
       note = '<label class="vkg-consent"><input type="checkbox" data-gift-accept' + (sheet.accept ? " checked" : "") + "> " + esc(consent) + '</label><a class="vkg-terms-link" href="#/store/terms" data-gift="terms">' + esc(tr("Purchase terms")) + "</a>";
@@ -797,7 +836,7 @@
   function openSheet(handle, extra) {
     extra = extra || {};
     sheet = {
-      kind: extra.kind === "stickers" ? "stickers" : "gift",
+      kind: extra.kind === "stickers" || extra.kind === "emoji" ? extra.kind : "gift",
       forMe: false,
       pay: "viktorychs",
       accept: false,
@@ -815,7 +854,8 @@
     redraw();
   }
 
-  function errorFor(code, forMe) {
+  function errorFor(code, forMe, kind) {
+    if (code === "owned" && kind === "emoji") return forMe ? tr("You already have this emoji.") : tr("They already have this emoji.");
     if (code === "birthday") return tr("That gift is only for their birthday.");
     if (code === "free_limit") return tr("You’ve used today’s free gifts. Try again tomorrow.");
     if (code === "balance") return tr("Not enough Viktorychs for this gift.");
@@ -867,7 +907,7 @@
       current.busy = false;
       if (!body || (body.status && body.status >= 400)) {
         if (body && body.balance != null) balance = Number(body.balance) || 0;
-        if (sheet === current) { errorText = errorFor(body && body.error, current.forMe); redraw(); }
+        if (sheet === current) { errorText = errorFor(body && body.error, current.forMe, current.kind); redraw(); }
         return;
       }
       if (current.pay === "money" && body.url) {
@@ -877,10 +917,11 @@
       if (body.balance != null) balance = Number(body.balance) || 0;
       store.sent = null;
       orders = null;
-      if (item && (item.kind === "stickers" || (gift && gift.limited))) loadShop();
+      if (item && (item.kind === "stickers" || item.kind === "emoji" || (gift && gift.limited))) loadShop();
       if (sheet === current) sheet = null;
       if (current.mode === "reply" && body.post && root.ProfileGifts && root.ProfileGifts.onReply) root.ProfileGifts.onReply(current.parentId, body.post);
       if (current.forMe && current.kind === "stickers") root.location.hash = "#/store/stickers";
+      if (current.forMe && current.kind === "emoji") root.location.hash = "#/store/emojis";
       redraw();
     }).catch(function () {
       current.busy = false;
@@ -928,6 +969,13 @@
       return true;
     }
     if (act === "confirm") { confirmSend(); return true; }
+    if (act === "emoji") {
+      openSheet("", { mode: "direct", kind: "emoji" });
+      sheet.giftId = el.getAttribute("data-emoji-id") || "";
+      sheet.forMe = ownedEmojis().indexOf(sheet.giftId) < 0;
+      redraw();
+      return true;
+    }
     if (act === "pack") {
       openSheet("", { mode: "direct", kind: "stickers" });
       sheet.giftId = el.getAttribute("data-pack-id") || "";
