@@ -23,4 +23,5 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Docs only
-        run: echo "docs-only: page smoke not needed"
+        run: |
+          echo 'docs-only: page smoke not needed'
