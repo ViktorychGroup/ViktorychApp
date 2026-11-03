@@ -61,6 +61,7 @@ import { redactPublicIds } from "../../shared/profile-privacy.js";
 import { PROFILE_MEDIA_SCHEMA, applyViewer, rememberSlot, addMedia, updateMedia, removeMedia, readView, objectAllowed, mediaHeaders } from "./profile-media.js";
 import { handleOwnerFeeds, sweepOwnerFeeds } from "./owner-feeds.js";
 import { handleOwnerSourceLists, handleMySourceLists, refreshWanted } from "./source-lists.js";
+import { handleOwnerInspector } from "./owner-inspector.js";
 import { handleFeedRequests, handleOwnerFeedRequests, requestInsteadOfAdd, followGate, importFilter, feedRequestsOn, fileRequest, bannedKeys, newsletterBanned } from "./feed-requests.js";
 import { handleOwnerSms, handleMemberSms } from "./sms-pool.js";
 import { handleMail } from "./mail-relay.js";
@@ -5779,6 +5780,9 @@ async function route(request, env, ctx) {
   if (path === "/v1/inbox/sms") return handleMemberSms(request, env, { json, rateHit, limited, sessionAccount, readJson });
   if (path === "/v1/inbox/mail") return handleMail(request, env, { json, rateHit, limited, sessionAccount, readJson });
   if (path === "/v1/owner/sms") return handleOwnerSms(request, env, { json, rateHit, limited, requireOwnerHidden });
+  if (path === "/v1/owner/inspector" || path.startsWith("/v1/owner/inspector/")) {
+    return handleOwnerInspector(request, env, path, url, { json, rateHit, limited, requireOwner, openPayload });
+  }
   if (path === "/v1/owner/usage" && request.method === "GET") {
     const gate = await requireOwner(request, env);
     if (gate.error) return gate.error;

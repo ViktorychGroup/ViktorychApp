@@ -1825,7 +1825,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -1909,6 +1909,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       bitchat: [tr("Nearby chat (Bitchat)"), tr("The backup chat offered when nothing else loads: Bluetooth on the TV app, public Nostr area chat in browsers.")],
       feed_requests: [tr("Source requests"), tr("Only you add accounts and feeds. Others press the same buttons to send you a request you allow, block or ban.")],
       friends_off: [tr("Friends switch"), tr("Lets each person turn Friends off: no friend requests, no friends lists, counts or online status.")],
+      owner_inspector: [tr("Owner inspector"), tr("Accounts in Settings: every account with all its usernames and details, only for you. Each look is logged.")],
       local_ai: [tr("Local AI"), tr("The Local AI page that changes settings from plain words. Models run on each person's device; nothing is sent to us.")],
       local_ai_setup: [tr("Local AI setup"), tr("Everyone sets up Local AI once before the chat opens: device check, model download, a quick test and preferences. Off opens the chat straight away.")],
       ext_nicknames: [tr("Custom names"), tr("Lets people give any account, from any network, a private name only they see.")],
@@ -17592,6 +17593,27 @@ const here = parseRoute();
     logoSaveTimer = setTimeout(saveSettings, 600);
   }
 
+  /* Owner account inspector (owner-inspector.js, loaded only when the owner opens it). */
+  function ownerInspectorOn() {
+    return !!(accountToken() && signedOwner() && serverOffList().indexOf("owner_inspector") < 0);
+  }
+  function ownerInspectorRow() {
+    return ownerInspectorOn() ? settingsRow("#/settings/accounts-inspector", tr("Accounts"), tr("Every account on the site, with all usernames and details, for moderation.")) : "";
+  }
+  function ownerInspectorView(sub) {
+    if (!ownerInspectorOn()) return settingsHead(tr("Accounts"), "#/settings") + `<p class="phandle set-block">${esc(tr("Only the owner can see this."))}</p>`;
+    if (!window.OwnerInspector) {
+      ensureLazy("owner_inspector");
+      return settingsHead(tr("Accounts"), "#/settings") + `<p class="phandle set-block">${esc(tr("Loading…"))}</p>`;
+    }
+    window.OwnerInspector.attach({
+      tr, esc, icon, avatar, settingsHead, signedOwner, accountsApi, accountToken, toast, relTime,
+      render: () => render({ y: window.scrollY }),
+      lang: () => (window.SI18n ? window.SI18n.getLang() : "en")
+    });
+    return window.OwnerInspector.view(sub);
+  }
+
   function settingsView() {
     const route = parseRoute();
     const section = route.section || "";
@@ -17611,6 +17633,7 @@ const here = parseRoute();
     const notifyOn = !!(STATE.settings && STATE.settings.notify && typeof Notification !== "undefined" && Notification.permission === "granted");
     const lang = window.SI18n ? window.SI18n.getLang() : "en";
     if (section === "feed-requests" && window.FeedRequests) return window.FeedRequests.ownerView(sub);
+    if (section === "accounts-inspector") return ownerInspectorView(sub);
     if ((section === "accessibility" && sub === "display-language") || section === "display-language") {
       const q = String(STATE.langQ || "").trim().toLowerCase();
       const choices = [
@@ -17935,6 +17958,7 @@ const here = parseRoute();
       ${settingsRow("#/settings/network", tr("Digital Resistance & Proxy"), tr("Manage bypass proxy, Telegram relay, and unblocked media mode."))}
       ${keysRow}
       ${window.FeedRequests ? window.FeedRequests.settingsRowHtml() : ""}
+      ${ownerInspectorRow()}
       ${settingsRow("#/settings/resources", tr("Additional resources"))}
       ${isStandalone() ? "" : `<button class="set-row" type="button" data-act="install"><span class="set-copy"><b>${esc(tr("Install app"))}</b><span class="set-sub">${esc(tr("Add it to your Home Screen or desktop."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button>`}
       ${accountToken() ? `<button class="set-row" type="button" data-act="run-setup"><span class="set-copy"><b>${esc(tr("Run setup again"))}</b><span class="set-sub">${esc(tr("Privacy, look, alerts, install and follows."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button>` : ""}
