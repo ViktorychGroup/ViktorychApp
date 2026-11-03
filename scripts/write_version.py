@@ -5,6 +5,11 @@ One short request reads the live version.json (the previous deploy). One
 GitHub compare reads merged pull request titles since that sha. Each request
 is capped at a few seconds. A miss still writes the sha and the build time,
 so the shell deploy does not wait on the changelog.
+
+The published sha is the last deploy that passed the live check. It can lag
+the service worker when that check has not passed. Clients treat the running
+service worker build as the truth: a mismatch is not an update, and a missing
+or unreadable file leaves the open copy alone.
 """
 
 from __future__ import annotations

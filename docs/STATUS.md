@@ -1,6 +1,10 @@
 # Status snapshot
 
-Written 2026-11-03 (UTC). Main was `5b6f084d` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-03 (UTC). Main was `b22d61e4` when this note was updated. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+
+## App updates
+
+The build the service worker is already running is the version on the device. `version.json` is published only after the live check, so it can lag that build when the check has not passed. A mismatch does not offer an update. A missing or unreadable `version.json` leaves the open copy alone. Each build is offered and applied at most once on a device, and the page reloads at most once for that build. The new files download in the background. The update applies on the next navigation, or when the app is hidden or opened again. Right after that build is applied, What's new appears once: a bottom sheet on a phone and a centered card on a desktop, with the changelog and Got it. It does not block the page, and it does not come back for that build. A full-screen step is only for a critical update or a failed one. Unchanged files already on the device, matched by hash, are not downloaded again. `skipWaiting` and `clients.claim` run once for a worker, so the page does not reload twice.
 
 ## Merged today
 
