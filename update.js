@@ -421,6 +421,46 @@
     return false;
   }
 
+  /* An open composer or modal, or text the person has typed, must keep the
+     update from applying or putting its sheet on screen. The apply waits
+     until that closes. */
+  function shouldDeferApply(flags) {
+    return !!(flags && (flags.modal || flags.typed));
+  }
+
+  function composerOpen() {
+    if (typeof document === "undefined" || !document.querySelector) return false;
+    var nodes = document.querySelectorAll(".xc-modal, .modal-back, .modal, [role='dialog'], [role='alertdialog']");
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!el || el.hidden) continue;
+      if (el.id === "upd-notes-sheet" || el.id === "upd-overlay" || el.id === "upd-root") continue;
+      if (el.closest && (el.closest("#upd-root") || el.closest("#upd-notes-sheet"))) continue;
+      return true;
+    }
+    return false;
+  }
+
+  function typedText() {
+    if (typeof document === "undefined" || !document.querySelectorAll) return false;
+    var nodes = document.querySelectorAll("textarea, input, [contenteditable='true']");
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!el || (el.closest && (el.closest("#upd-root") || el.closest("#upd-notes-sheet")))) continue;
+      var type = String((el.getAttribute && el.getAttribute("type")) || el.type || "").toLowerCase();
+      if (el.tagName === "INPUT" && type && ["text", "search", "url", "email", "tel", "password"].indexOf(type) < 0) continue;
+      var value = el.isContentEditable ? String(el.innerText || "") : String(el.value || "");
+      if (value.trim()) return true;
+    }
+    return false;
+  }
+
+  function updateBlocked() {
+    return shouldDeferApply({ modal: composerOpen(), typed: typedText() });
+  }
+
   function typingBusy() {
     var el = document.activeElement;
     if (!el || el === document.body || el === document.documentElement) return false;
@@ -489,7 +529,7 @@
     rootEl.querySelector("#upd-hard").addEventListener("click", hardReload);
     rootEl.querySelector("#upd-reset").addEventListener("click", resetAppData);
     document.addEventListener("keydown", function (event) {
-      if (event.key !== "Escape" || mode() !== "overlay" || state.phase !== "offer") return;
+      if (event.key !== "Escape" || mode() !== "overlay" || state.phase !== "offer" || updateBlocked()) return;
       event.preventDefault();
       event.stopPropagation();
       snooze();
@@ -532,6 +572,10 @@
     var box = ensure();
     var look = presentation(state, Date.now());
     if (state.quiet && look === "toast") look = "idle";
+    if (updateBlocked() && look !== "idle" && look !== "pill") {
+      if (state.ready && state.pending) state.deferApply = true;
+      look = "idle";
+    }
     var reduce = reducedMotion();
     box.root.hidden = look === "idle";
     box.root.classList.toggle("upd-reduce", reduce);
@@ -838,13 +882,16 @@
   function maybeSilentApply() {
     if (applying || state.reloaded || state.critical || state.forced) return;
     if (!state.ready || !state.pending || state.phase === "error" || state.phase === "working") return;
+    if (updateBlocked()) { state.deferApply = true; return; }
     var sha = normSha(state.pendingSha);
     if (!sha || reloadSpent(sha)) return;
+    state.deferApply = false;
     state.silent = true;
     applyNow(true);
   }
 
   function applyNow(auto) {
+    if (updateBlocked()) { state.deferApply = true; return; }
     if (auto !== true) {
       state.applyRetries = 0;
       state.silent = false;
@@ -923,6 +970,11 @@
     sha = normSha(sha);
     if (!shouldShowNotes(sha, seenNotes())) return false;
     if (typeof document === "undefined" || !document.body) return false;
+    if (updateBlocked()) {
+      state.deferNotes = { sha: sha, notes: notes || [] };
+      return false;
+    }
+    state.deferNotes = null;
     markNotesSeen(sha);
     var previous = document.getElementById("upd-notes-sheet");
     if (previous && previous.parentNode) previous.parentNode.removeChild(previous);
@@ -987,16 +1039,40 @@
     else document.addEventListener("DOMContentLoaded", run);
   }
 
+  function flushDeferredApply() {
+    if (updateBlocked()) return;
+    if (state.deferNotes && state.deferNotes.sha) {
+      var waiting = state.deferNotes;
+      state.deferNotes = null;
+      showReleaseNotes(waiting.sha, waiting.notes);
+    }
+    if (!state.deferApply) return;
+    state.deferApply = false;
+    if (state.phase === "done") scheduleReload();
+    else maybeSilentApply();
+  }
+
   function scheduleReload() {
     if (reloadTimer || state.reloaded === "reloading") return;
-    var sha = normSha(state.pendingSha) || normSha(state.currentSha);
-    if (sha && !markReload(sha)) return;
-    if (sha) queueUpdatedToast(sha);
-    var worker = navigator.serviceWorker && navigator.serviceWorker.controller;
-    if (worker) {
-      try { worker.postMessage({ type: "update-reloading" }); } catch (err) { /* the worker reloads the page if this one does not */ }
+    if (updateBlocked()) {
+      state.deferApply = true;
+      state.reloaded = false;
+      return;
     }
+    var sha = normSha(state.pendingSha) || normSha(state.currentSha);
     reloadTimer = setTimeout(function () {
+      reloadTimer = 0;
+      if (updateBlocked()) {
+        state.deferApply = true;
+        state.reloaded = false;
+        return;
+      }
+      if (sha && !markReload(sha)) return;
+      if (sha) queueUpdatedToast(sha);
+      var worker = navigator.serviceWorker && navigator.serviceWorker.controller;
+      if (worker) {
+        try { worker.postMessage({ type: "update-reloading" }); } catch (err) { /* the worker reloads the page if this one does not */ }
+      }
       captureState();
       location.reload();
     }, reducedMotion() ? 350 : 900);
@@ -1315,6 +1391,7 @@
   }
 
   function hardReload() {
+    if (updateBlocked()) { state.deferApply = true; return; }
     var sha = normSha(state.pendingSha) || normSha(state.currentSha) || normSha(state.remoteSha);
     if (sha && !markReload(sha)) return;
     captureState();
@@ -1379,11 +1456,12 @@
     window.addEventListener("hashchange", function () { maybeSilentApply(); });
     window.addEventListener("pagehide", function () { maybeSilentApply(); });
     document.addEventListener("focusin", refreshBusy);
-    document.addEventListener("focusout", function () { setTimeout(refreshBusy, 180); });
+    document.addEventListener("focusout", function () { setTimeout(function () { refreshBusy(); flushDeferredApply(); }, 180); });
+    document.addEventListener("click", function () { setTimeout(flushDeferredApply, 0); });
     document.addEventListener("play", refreshBusy, true);
     document.addEventListener("pause", refreshBusy, true);
     document.addEventListener("ended", refreshBusy, true);
-    setInterval(refreshBusy, 1500);
+    setInterval(function () { refreshBusy(); flushDeferredApply(); }, 1500);
     setInterval(function () {
       if (document.visibilityState !== "hidden" && claimCheck(Date.now())) checkRemote();
     }, CHECK_MS);
@@ -1423,6 +1501,7 @@
     reloadAllowed: reloadAllowed,
     presentation: presentation,
     shouldShowNotes: shouldShowNotes,
+    shouldDeferApply: shouldDeferApply,
     showReleaseNotes: showReleaseNotes,
     onControllerChange: onControllerChange,
     shouldOfferReset: shouldOfferReset,

@@ -90,6 +90,9 @@ assert.strictEqual(update.shouldShowNotes(NEWER, [NEWER]), false);
 assert.strictEqual(update.shouldShowNotes(NEWER, [NEWER.toUpperCase()]), false);
 assert.strictEqual(update.shouldShowNotes(OLDER, [NEWER]), true);
 assert.strictEqual(update.shouldShowNotes("", []), false);
+assert.strictEqual(update.shouldDeferApply({ modal: true, typed: false }), true);
+assert.strictEqual(update.shouldDeferApply({ modal: false, typed: true }), true);
+assert.strictEqual(update.shouldDeferApply({ modal: false, typed: false }), false);
 assert.strictEqual(update.shouldShowNotes(OLDER, ["nope", ""]), true);
 
 assert.strictEqual(update.restoreFresh({ at: now, hash: "#/home", y: 10 }, now + 1000), true);
