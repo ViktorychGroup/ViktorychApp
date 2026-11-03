@@ -16,7 +16,7 @@
    webauthn_credentials, webauthn_challenges, account_blocks,
    account_mutes, account_follow_requests, account_content,
    account_messages, mentions, notification_prefs, notification_events,
-   notification_outbox, notification_tab_reads, discord_alert_prefs,
+   notification_outbox, notification_tab_reads, notification_tabs, discord_alert_prefs,
    discord_alert_hits, and the native server tables (srv_*). notification_dead stores a salted hash only.
    push_vapid is the one global key and has no account column. The account
    channel object is wiped in the same database step. telegram_files is a

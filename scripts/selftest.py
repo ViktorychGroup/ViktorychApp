@@ -395,6 +395,10 @@ def follow_list_checks() -> None:
             check(f'"{key}"' in pack, code + " translates " + key)
     check("issues/new" not in app and "issues/new" not in accounts, "user flows do not build a GitHub new-issue URL")
     check('data-act="note-tabs-same"' in app and "Same tabs as Feed" in app and "function visibleNoteTabs(" in app and "function seedNoteTabs(" in app and 'kind: "verified"' in app and 'kind: "mentions"' in app and 'name: "verified"' in app and 'name: "mentions"' in app and "editingNoteTabs() ? noteTabs()" in app and "noteTabsSame" in accounts and "noteTabs:" in accounts, "notification tabs can stay separate from the feed and sync with the account")
+    notes_js = (ROOT / "worker" / "src" / "notifications.js").read_text()
+    sw_js = (ROOT / "sw.js").read_text(encoding="utf-8")
+    check('kind: "games"' in app and 'const BUILTIN_NOTE_KINDS = ["mentions", "verified", "games"]' in app and "function noteTypeKey(" in app and "function noteMatchesTab(" in app and "function touchNoteTabs(" in app and "function ensureOwnNoteTabs(" in app and 'data-act="feed-tab-type"' in app and 'data-act="note-tab-vis"' in app and 'data-act="note-tab-move"' in app and "note-tab-badge" in app and "#/settings/privacy" in app and "window.ViktorychNoteTabs = {" in app and "addHold(fn)" in app and "!noteHeld(note)" in app and "tabs.length >= 500" not in app and "out.length >= 500" not in app, "notifications has a Games tab and custom tabs filter by type and people with no tab limit")
+    check("notification_tabs" in notes_js and "export function noteTypeKey(" in notes_js and "export function tabPushRule(" in notes_js and "excluded.updated_at >= notification_tabs.updated_at" in notes_js and "rule.sound ? {} : { q: 1 }" in notes_js and "silent: !!c.quiet" in sw_js, "notification tabs sync per tab in D1 and their push and sound switches reach every device")
     for code in ("en", "es", "ru"):
         pack = (ROOT / "i18n" / f"{code}.js").read_text(encoding="utf-8")
         for key in ("Same tabs as Feed", "Mentions", "Note tab verified", "Drag the handle to reorder."):
