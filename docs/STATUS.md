@@ -32,16 +32,17 @@ Do not start these unless the owner asks.
 
 ## Speed
 
-Pull request #535. Phone profile 390×844, 4G, CPU slowed 4×.
+Pull request #535 keeps the load-time work only. Phone profile 390×844, 4G, CPU slowed 4×.
 
 | | Before | After |
 | --- | --- | --- |
 | Cold signed-out landing | LCP 7–10s, about 1.86 MB, 111 JS files (1,558 KB of JS), TTI about 10s | LCP 8.8s on the landing paragraph, FCP 3.6s, 21 JS files (1,083 KB of JS), about 1.5 MB |
 | Warm landing | about 0.5s | LCP 564ms, FCP 412ms |
-| Back to Home | 310–340ms | 33ms when the parked page is unchanged |
 | CLS | 0.17 from the alert toast | 0 |
 
-Signed-out visits load the landing set only. Only the active language pack downloads. Music, TV, Discord, gifts, Nostr and nearby chat load when opened, and again while idle. A click back to Home paints the parked page immediately; posts that arrived during the click are woven in after the pointer is up. Opening a page directly (Local AI, Shorts, Games, TV, Communities, and the other on-demand pages) loads that page's scripts, in order, before the first paint. A Following list that is already on screen keeps its row nodes when new data arrives, and a script that is not for the open page does not paint it again. Going back to a page restores its scroll position after the view is attached and tall enough, including Home. Posts that arrive while first-run setup is open wait in the new-posts pill, so Home is still empty when setup closes. The service worker registers from `index.html` and fills its cache after the first screen. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
+Signed-out visits load the landing set only. Only the active language pack downloads. Music, TV, Discord, gifts, Nostr and nearby chat load when opened, and a direct link loads that page's scripts in order before the first paint. The service worker registers from `index.html` and fills its cache after the first screen. Landing images reserve their size, and the alert toast is fixed so it does not push the page. `app.js` stays one file. Cold LCP is still the landing paragraph, which waits on `accounts.js` and the language pack.
+
+Parked pages, in-place list updates, and restoring scroll after a rebuild are not in this pull request. They go in a later, smaller one. Navigation matches main.
 
 ## Working rules
 

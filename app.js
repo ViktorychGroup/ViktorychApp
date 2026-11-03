@@ -21075,114 +21075,6 @@ if (STATE.histClear) {
     });
   }
 
-  /* Home is parked as live DOM when you leave it. Coming back to the same
-     tab, with the same posts and settings, puts that DOM back instead of
-     building the whole page again. */
-  let homePark = null;
-  function homeStamp(route) {
-    const data = STATE.data;
-    const list = data && data.posts;
-    const n = list ? list.length : 0;
-    const s = STATE.settings || {};
-    const count = (obj) => (obj ? Object.keys(obj).length : 0);
-    return [
-      route.tab || "foryou",
-      route.query ? route.query.toString() : "",
-      STATE.loading ? 1 : 0,
-      STATE.error ? 1 : 0,
-      n,
-      n ? String((list[0] && list[0].id) || "") : "",
-      n > 1 ? String((list[n - 1] && list[n - 1].id) || "") : "",
-      count(s.likes),
-      count(s.reposts),
-      count(s.bookmarks),
-      (s.follows || []).length,
-      (s.mutedWords || []).length,
-      (s.mutedAccounts || []).length,
-      (s.lists || []).length,
-      s.appearance || "",
-      s.navLayout || "",
-      document.documentElement.lang || "",
-      document.documentElement.getAttribute("data-theme") || "",
-      document.documentElement.getAttribute("data-fs") || "",
-      ARCHIVE.posts.length
-    ].join("|");
-  }
-  function parkHomeDom() {
-    if (!homePark || !homePark.live) return;
-    const app = document.getElementById("app");
-    if (!app || !app.firstChild) { homePark.live = false; return; }
-    const frag = document.createDocumentFragment();
-    while (app.firstChild) frag.appendChild(app.firstChild);
-    frag.querySelectorAll("video, audio").forEach((el) => { try { el.pause(); } catch (err) { /* already stopped */ } });
-    homePark.frag = frag;
-    homePark.y = window.scrollY || 0;
-    homePark.live = false;
-  }
-  function restoreHomeDom() {
-    const app = document.getElementById("app");
-    if (!app || !homePark || !homePark.frag) return false;
-    while (app.firstChild) app.removeChild(app.firstChild);
-    app.appendChild(homePark.frag);
-    homePark.frag = null;
-    homePark.live = true;
-    return true;
-  }
-
-  /* A click back to Home must paint the parked page before any new posts are
-     woven in. The weave waits until the browser is idle so the click itself
-     stays quick. */
-  let homeRefreshTimer = 0;
-  function scheduleHomeRefresh(delayMs) {
-    clearTimeout(homeRefreshTimer);
-    const start = () => {
-      homeRefreshTimer = 0;
-      if (renderHeld()) { scheduleHomeRefresh(200); return; }
-      const routeNow = parseRoute();
-      if (routeNow.name !== "home" || !homePark || !homePark.live) return;
-      if (homeStamp(routeNow) === homePark.stamp) return;
-      /* Keep the parked page until this render actually paints. A render
-         that waits for the pointer must not throw the parked copy away. */
-      homePark.force = true;
-      render();
-    };
-    if (delayMs) homeRefreshTimer = setTimeout(start, delayMs);
-    else {
-      const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
-      raf(() => raf(start));
-    }
-  }
-
-  /* A list that is already on screen keeps its row nodes. A later paint
-     (new posts, a script finishing) updates a row in place instead of
-     throwing the node away, so a tap or a scroll that already found it
-     still lands. */
-  function reuseSameNodes(liveRoot, frag, selector, keyOf) {
-    if (!liveRoot || !frag || !frag.querySelector) return;
-    const live = Array.prototype.slice.call(liveRoot.querySelectorAll(selector));
-    const fresh = Array.prototype.slice.call(frag.querySelectorAll(selector));
-    const used = new Set();
-    fresh.forEach((node) => {
-      const key = keyOf(node);
-      if (!key) return;
-      let prev = null;
-      for (let i = 0; i < live.length; i++) {
-        if (used.has(live[i])) continue;
-        if (keyOf(live[i]) === key) { prev = live[i]; break; }
-      }
-      if (!prev || prev === node) return;
-      used.add(prev);
-      if (prev.className !== node.className) prev.className = node.className;
-      if (prev.innerHTML !== node.innerHTML) prev.innerHTML = node.innerHTML;
-      for (let a = 0; a < node.attributes.length; a++) {
-        const attr = node.attributes[a];
-        if (attr.name === "class") continue;
-        if (prev.getAttribute(attr.name) !== attr.value) prev.setAttribute(attr.name, attr.value);
-      }
-      node.replaceWith(prev);
-    });
-  }
-
   function commitApp(html) {
     const app = document.getElementById("app");
     if (!app) return;
@@ -21192,17 +21084,8 @@ if (STATE.histClear) {
     const tpl = document.createElement("template");
     tpl.innerHTML = html;
     hscrollReuse(app, tpl.content);
-    reuseSameNodes(app, tpl.content, ".connect-row", (el) => {
-      const link = el.querySelector("a.who-main");
-      return (link && link.getAttribute("href")) || "";
-    });
-    reuseSameNodes(app, tpl.content, "#ext-graph-more", (el) => [el.getAttribute("data-platform") || "", el.getAttribute("data-handle") || "", el.getAttribute("data-tab") || ""].join("|"));
-    /* Detaching the page clamps window scroll to 0. Ignore that event so
-       the saved position is not thrown away before the new view is tall. */
-    scrollLock = true;
     while (app.firstChild) app.removeChild(app.firstChild);
     app.appendChild(tpl.content);
-    scrollLock = false;
     scheduleImageSweep();
     hscrollSettle({ reveal: true });
     if (window.ViktorychAccounts && window.ViktorychAccounts.bindProfileTabs) window.ViktorychAccounts.bindProfileTabs();
@@ -21735,34 +21618,8 @@ if (STATE.histClear) {
       else if (!(opts && Object.prototype.hasOwnProperty.call(opts, "y"))) y = window.scrollY;
       /* The shell swap used to throw away every horizontal row. Tab rows are
          patched in place; every other row, including the live pills, gets its
-         scrollLeft written back. Presence then paints dots on the new shell.
-         An unchanged Home is the parked DOM, put back in place. */
-      const stamp = route.name === "home" ? homeStamp(route) : "";
-      const parkedAway = !!(route.name === "home" && homePark && !homePark.live && homePark.frag);
-      if (parkedAway && restoreHomeDom()) {
-        y = SCROLLS[nextKey] || homePark.y || 0;
-        STATE.scrollKey = nextKey;
-        STATE.holdY = y;
-        lastKey = location.hash || "#/";
-        document.title = withUnreadTitle(routeTitle(route, "", "", ""));
-        window.scrollTo(0, y);
-        settleScroll(nextKey, y);
-        if (homePark.stamp !== stamp) scheduleHomeRefresh(350);
-        return;
-      }
-      /* Already showing the parked Home. A background refresh (posts that
-         arrived while the pointer was down) must not rebuild on this turn. */
-      if (route.name === "home" && homePark && homePark.live && homePark.stamp !== stamp && !homePark.force && !inUserInput()) {
-        scheduleHomeRefresh(0);
-        STATE.scrollKey = nextKey;
-        lastKey = location.hash || "#/";
-        return;
-      }
-      if (homePark && homePark.force) homePark.force = false;
-      if (homePark && homePark.live && route.name !== "home") parkHomeDom();
-      if (route.name === "home" && homePark && homePark.stamp !== stamp) homePark = null;
+         scrollLeft written back. Presence then paints dots on the new shell. */
       commitApp(shell(localFirstView(route, view(route)), route) + (window.ProfileGifts && window.ProfileGifts.overlay ? window.ProfileGifts.overlay() : ""));
-      if (route.name === "home") homePark = { stamp: stamp, live: true, frag: null, y: window.scrollY || 0 };
       paintProfileChrome();
       schedulePublicPosts();
       hydratePublicMedia();
@@ -21824,7 +21681,6 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       else document.title = withUnreadTitle(routeTitle(route, liveName, personName, discordTitle));
       setProfileShareMeta(route);
       window.scrollTo(0, y);
-      if (y > 4) settleScroll(nextKey, y);
       if (STATE.holdY != null && y > 4 && routeChanged) holdRestore(nextKey, y);
       if (explicitY && window.requestAnimationFrame) {
         window.requestAnimationFrame(() => {
@@ -21889,13 +21745,9 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (STATE.snapTop) y = 0;
       else if (STATE.holdY != null) y = STATE.holdY;
       else if (!(opts && Object.prototype.hasOwnProperty.call(opts, "y"))) y = window.scrollY;
-      if (!STATE.snapTop && !(opts && opts.reset) && pageY() > y + 4) y = pageY();
+      if (!STATE.snapTop && !explicitY && window.scrollY > y + 4) y = window.scrollY;
       window.scrollTo(0, y);
-      if (STATE.scrollKey) {
-        const max = document.documentElement.scrollHeight - window.innerHeight;
-        if (!(y > 4 && pageY() + 4 < y && max < y - 4)) SCROLLS[STATE.scrollKey] = y;
-      }
-      if (y > 4 && pageY() <= 4) settleScroll(STATE.scrollKey, y);
+      if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = y;
       if (STATE.holdY === y) STATE.holdY = null;
       routing = false;
       scrollFreeze = false;
@@ -25924,33 +25776,6 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     window.scrollTo(0, t.y);
     SCROLLS[t.key] = t.y;
   }
-  /* Put a saved position back once the attached view is actually tall
-     enough. A rebuild often scrolls to 0 while the new nodes have no
-     height yet; the next frame (and a few after) can still reach it. */
-  let settleGen = 0;
-  function settleScroll(key, y) {
-    if (!(y > 4) || !key) return;
-    const gen = ++settleGen;
-    let frames = 0;
-    const stop = () => { if (settleGen === gen) settleGen += 1; };
-    const opts = { passive: true, capture: true, once: true };
-    ["wheel", "touchstart", "keydown", "pointerdown"].forEach((name) => window.addEventListener(name, stop, opts));
-    const step = () => {
-      if (gen !== settleGen || STATE.snapTop || routeScrollKey() !== key) return;
-      frames += 1;
-      const max = document.documentElement.scrollHeight - window.innerHeight;
-      if (max >= y - 4) {
-        if (pageY() <= 4) window.scrollTo(0, y);
-        return;
-      }
-      if (frames < 45) {
-        const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
-        raf(step);
-      }
-    };
-    const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
-    raf(step);
-  }
   function holdRestore(key, y) {
     stopRestore();
     if (!(y > 4) || Math.abs(pageY() - y) <= 4) return;
@@ -25970,11 +25795,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     window.addEventListener(type, () => { if (restoreTarget) stopRestore(); }, { passive: true, capture: true });
   });
   let scrollFreeze = false;
-  let scrollLock = false;
   window.addEventListener("scroll", () => {
     if (pageY() <= 4) STATE.snapTop = false;
     if (parseRoute().name === "home" && pageY() >= 40) homeRead = true;
-    if (scrollLock || routing || scrollFreeze || !STATE.scrollKey) return;
+    if (routing || scrollFreeze || !STATE.scrollKey) return;
     SCROLLS[STATE.scrollKey] = window.scrollY;
     if (window.ViktorychLocal) window.ViktorychLocal.noteScroll(STATE.scrollKey, window.scrollY, SCROLLS);
     const route = parseRoute();
@@ -26819,17 +26643,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     try { if (window.performance && performance.mark) performance.mark(name); } catch (err) { /* marks are optional */ }
   }
 
-  function setupCoversHome() {
-    if (document.documentElement.hasAttribute("data-onb-open")) return true;
-    try {
-      const doc = JSON.parse(localStorage.getItem("viktorychapp-onboard-v1") || "null");
-      return !!(doc && (doc.stage === "pre" || doc.stage === "account" || doc.stage === "post"));
-    } catch (err) { return false; }
-  }
   function arrivalMode() {
-    /* Setup covers Home. Posts that arrive during it wait in the new-posts
-       pill, so the empty timeline is what shows when setup closes. */
-    if (setupCoversHome()) return "pill";
     const api = window.HomeFresh;
     if (api && api.arrival) return api.arrival({ scrollY: window.scrollY, read: homeRead });
     return window.scrollY >= 40 || homeRead ? "pill" : "insert";
@@ -30643,20 +30457,18 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       const newerSnap = window.ViktorychLocal && window.ViktorychLocal.readDoc
         ? window.ViktorychLocal.readDoc("feeds", "timeline").catch(() => null)
         : Promise.resolve(null);
-      newerSnap.then((doc) => { if (!catalogApplied && doc && !setupCoversHome()) adoptSavedFeed(doc); });
+      newerSnap.then((doc) => { if (!catalogApplied && doc) adoptSavedFeed(doc); });
       const loaded = await catalogPromise;
       catalogApplied = true;
       const idbDoc = await newerSnap;
-      if (idbDoc && !setupCoversHome()) adoptSavedFeed(idbDoc);
+      if (idbDoc) adoptSavedFeed(idbDoc);
       const keepSaved = !!(loaded && loaded.missing && STATE.data && Array.isArray(STATE.data.posts) && STATE.data.posts.length);
       if (!keepSaved) {
         const incoming = loaded && loaded.missing ? emptyCatalog() : loaded;
         notePublished(incoming);
         const includeNew = arrivalMode() === "insert";
-        const setupEmpty = setupCoversHome() && incoming && Array.isArray(incoming.posts) && !incoming.posts.length && !incoming.missing;
-        if (!STATE.data || !Array.isArray(STATE.data.posts) || setupEmpty) {
+        if (!STATE.data || !Array.isArray(STATE.data.posts)) {
           STATE.data = withMemory(incoming);
-          if (setupEmpty) { STATE.pendingFeed = null; STATE.pendingLive = []; }
         } else {
           const merged = mergeCatalog(STATE.data, incoming, includeNew);
           STATE.data = withMemory(merged.doc);
@@ -31084,34 +30896,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }
       if (window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(parseRoute());
     }
-    /* A script that is not for the page on screen must not rebuild it.
-       Preloads stay quiet. A real visit still paints once the file is in. */
-    if (info.silent) return;
-    const routeNow = parseRoute();
-    const affects = {
-      shorts: routeNow.name === "shorts",
-      games: routeNow.name === "games",
-      tv: routeNow.name === "tv",
-      tvshell: routeNow.name === "tv",
-      tvpair: routeNow.name === "linktv",
-      sendtv: routeNow.name === "sendtv",
-      vault: routeNow.name === "vault",
-      packages: routeNow.name === "packages",
-      drive: routeNow.name === "drive",
-      communities: routeNow.name === "communities",
-      servers: routeNow.name === "messages",
-      discord: routeNow.name === "messages",
-      inboxsms: routeNow.name === "messages",
-      inboxmail: routeNow.name === "messages",
-      contacts: routeNow.name === "contacts",
-      localai: routeNow.name === "localai",
-      music: routeNow.name === "music",
-      gifts: routeNow.name === "points" || routeNow.name === "store" || routeNow.name === "profile" || routeNow.name === "user" || routeNow.name === "person",
-      nostr: routeNow.name === "settings",
-      mesh: routeNow.name === "settings",
-      owner_inspector: routeNow.name === "settings"
-    };
-    if (affects[info.name]) render();
+    if (!info.silent || (info.name === "servers" && parseRoute().name === "messages")) render();
   });
   setTimeout(deviceHello, 6000);
   syncServerFeatures();
@@ -31119,7 +30904,6 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();
       const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers", "music", "discord", "gifts", "nostr", "mesh", "tvshell"];
-      if (window.ViktorychTVMode && window.ViktorychTVMode.on) ensureLazy("tvshell");
       if (saver) saver.whenRoomy(() => window.ViktorychLazy.preload(list));
       else window.ViktorychLazy.preload(list);
     }
