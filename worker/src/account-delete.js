@@ -507,6 +507,13 @@ export function telegramPrefixes(publicId) {
   return OBJECT_PREFIXES.map((prefix) => prefix + publicId + "/");
 }
 
+/* The first key after every key that starts with prefix (binary order). */
+export function prefixEnd(prefix) {
+  const text = String(prefix || "");
+  if (!text) return "";
+  return text.slice(0, -1) + String.fromCharCode(text.charCodeAt(text.length - 1) + 1);
+}
+
 export async function forgetTelegram(env, publicId, postKeys) {
   if (!env.DB || !env.DATA) return 0;
   const prefixes = telegramPrefixes(publicId);
@@ -515,7 +522,8 @@ export async function forgetTelegram(env, publicId, postKeys) {
   const select = "SELECT object_key, message_id FROM telegram_files WHERE ";
   for (let i = 0; i < prefixes.length; i++) {
     let listed = null;
-    try { listed = await env.DB.prepare(select + "substr(object_key, 1, ?) = ?").bind(prefixes[i].length, prefixes[i]).all(); }
+    // A key range walks the primary key; substr() read every row of the table.
+    try { listed = await env.DB.prepare(select + "object_key >= ? AND object_key < ?").bind(prefixes[i], prefixEnd(prefixes[i])).all(); }
     catch (err) { return 0; }
     rowsOf(listed).forEach((row) => found.push(row));
   }

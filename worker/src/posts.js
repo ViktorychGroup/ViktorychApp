@@ -3,6 +3,7 @@
    Block, mute, and a hidden flag keep people and reported posts out of the
    timeline. The moderation list is owner-only. */
 
+import { liveFriendIds, siteOwnerId } from "./friends-pref.js";
 import { lockedAccountSet } from "./locked-sql.js";
 import { resolveName, viewerHandle } from "./usernames.js";
 import { viewerDisplay } from "./name-rules.js";
@@ -442,7 +443,9 @@ export async function audienceSets(env, viewerId, authors) {
   const marks = ids.map(() => "?").join(",");
   try {
     const friendRows = await env.DB.prepare("SELECT friend_id FROM account_friends WHERE user_id = ? AND friend_id IN (" + marks + ")").bind(viewerId, ...ids).all();
-    ((friendRows && friendRows.results) || []).forEach((row) => friends.add(row.friend_id));
+    const raw = ((friendRows && friendRows.results) || []).map((row) => String(row.friend_id));
+    const live = raw.length && !(await siteOwnerId(env, viewerId)) ? await liveFriendIds(env, viewerId, raw) : raw;
+    live.forEach((id) => friends.add(id));
   } catch (err) { /* a missing friends table hides circle posts */ }
   try {
     const followRows = await env.DB.prepare("SELECT follower_id FROM account_follows WHERE target_id = ? AND follower_id IN (" + marks + ")").bind("app:" + viewerId, ...ids).all();

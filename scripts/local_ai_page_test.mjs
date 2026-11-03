@@ -36,13 +36,13 @@ async function loadPlaywright() {
 }
 function check(ok, msg) { if (!ok) throw new Error("local ai page: " + msg); }
 const settings = (page) => page.evaluate(() => JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}"));
-// Saves can land a moment after the click on a busy runner, so wait for them.
 // Type into the box and send. press() focuses the box first, so a re-render
 // between fill and Enter can't swallow the message.
 async function say(page, text) {
   await page.fill(".lai-input", text);
   await page.press(".lai-input", "Enter");
 }
+// Saves can land a moment after the click on a busy runner, so wait for them.
 const settled = (page, fn) => page.waitForFunction(fn, null, { timeout: 8000 }).catch(() => {});
 
 async function main() {
@@ -59,7 +59,7 @@ async function main() {
       await page.addInitScript(() => {
         localStorage.setItem("viktorychapp-lang-user-picked", "1");
         localStorage.setItem("superintelapp-lang", "en");
-        if (!localStorage.getItem("viktorychapp-settings-v1")) localStorage.setItem("viktorychapp-settings-v1", JSON.stringify({ version: 1, initialized: true, lang: "en" }));
+        if (!localStorage.getItem("viktorychapp-settings-v1")) localStorage.setItem("viktorychapp-settings-v1", JSON.stringify({ version: 1, initialized: true, lang: "en", aiSetup: { v: 1, done: true, model: "instant", lang: "en", canChange: true, history: "keep" } }));
       });
       await page.route("**/*", (route) => (route.request().url().startsWith("http://127.0.0.1") ? route.continue() : route.abort()));
       await page.goto(origin + "#/ai", { waitUntil: "domcontentloaded" });

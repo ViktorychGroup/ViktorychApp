@@ -29,14 +29,28 @@ export const FEATURES = {
   // Friends master switch per account (Settings > Privacy > Friends). On by
   // default. Off: every account reads as Friends on and the setting is hidden.
   friends_off: { paths: ["/v1/friends/settings"] },
+  // Owner account inspector (Cuentas): owner-only account details for
+  // moderation. On by default; off hides the owner view and its routes.
+  owner_inspector: { paths: ["/v1/owner/inspector"] },
+  // Linked profiles merged into the account's own profile: their posts join
+  // its timeline and their old pages redirect there. On by default. Off:
+  // linked profiles stay listed but keep their own pages.
+  merged_profiles: { paths: ["/v1/identities/merged"] },
+  // Private custom names for accounts from other networks. On by default.
+  ext_nicknames: { paths: ["/v1/nicknames/external"] },
   // Off until the owner turns it on: NIP-05 names and post links to Nostr events.
   nostr: { paths: ["/v1/nostr", "/.well-known/nostr.json"], defaultOff: true },
   // Off until the owner turns it on and sets NFT_CONTRACT: optional gift NFTs.
   nft: { paths: ["/v1/nft"], defaultOff: true },
   // Nearby chat (Bitchat). No server endpoints; clients stop offering it when off.
   bitchat: { paths: [] },
+  // Contacts address book: local-first directory, device contact sync, dialer protocol.
+  contacts: { paths: [] },
   // Local AI settings page. No server endpoints: models run on the device.
-  local_ai: { paths: [] }
+  local_ai: { paths: [] },
+  // Local AI first-run setup: device check, download, test and preferences
+  // before the chat opens. No server endpoints; choices sync with prefs.
+  local_ai_setup: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

@@ -169,22 +169,36 @@ async function main() {
     window.VIKTORYCH_ACCOUNTS = { api: location.origin, gate: true, tiktokAudience: "owner" };
   });
   // Home's community and app post cards ride along here so the smoke workflow
-  // runs them. They start now and run beside the composer checks.
+  // runs them. They start now and run beside the composer checks, but a busy
+  // runner cannot afford 17 browsers at once: keep five running at a time, in
+  // this order, so each check still gets its result and nothing is starved.
   const { spawn } = await import("node:child_process");
   const ride = (name) => new Promise((resolve) => {
     const child = spawn(process.execPath, [path.join(root, "scripts", name)], { stdio: "inherit", env: process.env });
     child.on("close", (code) => resolve(code));
   });
-  const riders = Promise.all([ride("community_home_test.mjs"), ride("communities_hub_test.mjs"), ride("own_post_test.mjs"), ride("post_page_test.mjs"), ride("music_dock_test.mjs"), ride("video_fallback_test.mjs"), ride("device_guard_test.mjs"), ride("usernames_settings_test.mjs"), ride("display_names_test.mjs"), ride("settings_assistant_test.mjs"), ride("nostr_settings_test.mjs"), ride("games_mobile_test.mjs"), ride("live_translate_test.mjs"), ride("friend_p2p_test.mjs"), ride("communities_instant_test.mjs"), ride("routes_instant_test.mjs"), ride("profile_by_name_test.mjs")]);
-  const cmRows = ride("communities_rows_test.mjs");
-  const fyCommunities = ride("foryou_communities_test.mjs");
+  const riderNames = ["community_home_test.mjs", "communities_hub_test.mjs", "own_post_test.mjs", "post_page_test.mjs", "music_dock_test.mjs", "video_fallback_test.mjs", "device_guard_test.mjs", "usernames_settings_test.mjs", "display_names_test.mjs", "settings_assistant_test.mjs", "nostr_settings_test.mjs", "games_mobile_test.mjs", "live_translate_test.mjs", "friend_p2p_test.mjs", "communities_instant_test.mjs", "routes_instant_test.mjs", "profile_by_name_test.mjs", "communities_rows_test.mjs", "friend_privacy_test.mjs", "foryou_communities_test.mjs"];
+  const riderCap = 5;
+  const riders = (async () => {
+    const results = new Array(riderNames.length);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < riderNames.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await ride(riderNames[index]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(riderCap, riderNames.length) }, () => worker()));
+    return results;
+  })();
   try {
     for (const vp of widths) {
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await exercise(page, vp, origin);
     }
     console.log("composer page ok");
-    const [home, hub, own, single, dock, vfall, guard, names, setai, nostr, games, livetr, friendp2p, cinstant, rinstant] = await riders;
+    const [home, hub, own, single, dock, vfall, guard, names, dnames, setai, nostr, games, livetr, friendp2p, cinstant, rinstant, , cmRows, friendPrivacy, fycomm] = await riders;
     if (home !== 0) fail("community home check failed");
     if (hub !== 0) fail("communities hub check failed");
     if (own !== 0) fail("own post check failed");
@@ -193,6 +207,7 @@ async function main() {
     if (vfall !== 0) fail("video fallback check failed");
     if (guard !== 0) fail("device data protection check failed");
     if (names !== 0) fail("usernames settings check failed");
+    if (dnames !== 0) fail("display names check failed");
     if (setai !== 0) fail("settings assistant check failed");
     if (nostr !== 0) fail("nostr check failed");
     if (games !== 0) fail("games check failed");
@@ -200,9 +215,9 @@ async function main() {
     if (friendp2p !== 0) fail("friend p2p check failed");
     if (cinstant !== 0) fail("communities local-first check failed");
     if (rinstant !== 0) fail("routes local-first check failed");
-    const fycomm = await fyCommunities;
     if (fycomm !== 0) fail("for you communities check failed");
-    if ((await cmRows) !== 0) fail("communities rows check failed");
+    if (cmRows !== 0) fail("communities rows check failed");
+    if (friendPrivacy !== 0) fail("friend privacy check failed");
   } finally {
     await browser.close();
     server.close();

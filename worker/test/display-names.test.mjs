@@ -204,6 +204,12 @@ test("each viewer sees one display name everywhere a name is returned", async ()
   assert.equal(hidden.displayName, "dn_cedar");
   assert.equal(hidden.displayNameHidden, true);
   assert.equal((await look(fol.token)).displayName, "Cedar Hill");
+  // A stranger's own nickname for the account must not reveal the hidden name as its reset target.
+  assert.equal((await send("/v1/nicknames", "PUT", str.token, { handle: "dn_cedar", name: "Tree" })).status, 200);
+  const nicked = await look(str.token);
+  assert.equal(nicked.displayName, "Tree");
+  assert.ok(!JSON.stringify(nicked).includes("Cedar Hill"), "the reset target never shows a name hidden from this viewer");
+  assert.equal((await send("/v1/nicknames", "PUT", str.token, { handle: "dn_cedar", name: "" })).status, 200);
   assert.equal((await send("/v1/display-names", "PATCH", own.token, { id: "main", audience: { include: { public: true } } })).status, 200);
 
   // Make another name the main one: they swap, each keeps its audience.

@@ -17,8 +17,37 @@ import { displayFor, friendNameGet, friendNamePut } from "./display-names.js";
 export const NAME_RULES_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS display_nicknames (viewer_id TEXT NOT NULL, target_id TEXT NOT NULL, name TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (viewer_id, target_id))",
   "CREATE TABLE IF NOT EXISTS friend_names (public_id TEXT PRIMARY KEY, name TEXT NOT NULL, updated_at INTEGER NOT NULL)",
-  "CREATE TABLE IF NOT EXISTS mention_prefs (public_id TEXT PRIMARY KEY, policy TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)"
+  "CREATE TABLE IF NOT EXISTS mention_prefs (public_id TEXT PRIMARY KEY, policy TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS ext_nicknames (viewer_id TEXT NOT NULL, source_key TEXT NOT NULL, name TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (viewer_id, source_key))"
 ];
+
+/* Private nicknames for accounts from other networks (X, Reddit, YouTube,
+   forums, RSS...) and for people merged across networks. The key is the
+   source identity the feed already uses: "<platform>:<handle or id>" or
+   "person:<merged id>", folded to lower case. Only the viewer reads them. */
+const EXT_MAX = 2000;
+const PLATFORM_ALIAS = { bluesky: "bsky", twitter: "x", fediverse: "mastodon" };
+
+// Names a viewer gives other accounts are private to that viewer. No owner,
+// admin or inspector route may read these tables for anyone else; every read
+// is keyed by the signed-in viewer's own id. Generic tooling that walks all
+// tables (inspectors, exports for someone else) must skip them.
+export const VIEWER_PRIVATE_TABLES = Object.freeze(["display_nicknames", "ext_nicknames"]);
+
+export function normalizeSourceKey(raw) {
+  const text = String(raw == null ? "" : raw).replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim().toLowerCase();
+  const cut = text.indexOf(":");
+  if (cut < 1) return "";
+  let platform = text.slice(0, cut);
+  if (!/^[a-z][a-z0-9_-]{0,23}$/.test(platform)) return "";
+  platform = PLATFORM_ALIAS[platform] || platform;
+  if (platform === "app") return "";
+  let id = text.slice(cut + 1).replace(/\s+/g, "").replace(/^@+/, "");
+  if (platform === "reddit") id = id.replace(/^\/?u(ser)?\//, "").replace(/^\/r\//, "r/");
+  if (!id || id.length > 200) return "";
+  if (!/^[^<>"'`\\]+$/.test(id)) return "";
+  return platform + ":" + id;
+}
 
 const POLICIES = ["anyone", "replies", "nobody"];
 const PUBLIC_ID = /^\d{12}$/;
@@ -112,13 +141,15 @@ export async function viewerDisplay(env, request, ownerId, viewerId, fallback) {
           const nick = await env.DB.prepare("SELECT name FROM display_nicknames WHERE viewer_id = ? AND target_id = ?").bind(viewerId, ownerId).first();
           nickname = nick ? nick.name : "";
         }
-        if (!nickname) shown = await displayFor(env, request, ownerId, viewerId || "");
+        // With a nickname, still work out what this viewer would otherwise see, so the
+        // reset target never reveals a display name hidden from them.
+        shown = await displayFor(env, request, ownerId, viewerId || "");
       } catch (err) { /* tables not created yet */ }
       return { nickname, shown };
     })());
   }
   const got = await memo.get(key);
-  if (got.nickname) return { name: got.nickname, nickname: got.nickname, friendName: "", hidden: false };
+  if (got.nickname) return { name: got.nickname, nickname: got.nickname, friendName: "", hidden: false, original: got.shown ? (got.shown.hidden ? "" : got.shown.name) : (fallback || "") };
   if (!got.shown) return { name: fallback || "", nickname: "", friendName: "", hidden: false };
   return { name: got.shown.name, nickname: "", friendName: got.shown.alt ? got.shown.name : "", hidden: got.shown.hidden };
 }
@@ -171,6 +202,28 @@ export async function handleNameRules(request, env, path, deps) {
     else await env.DB.prepare("DELETE FROM display_nicknames WHERE viewer_id = ? AND target_id = ?").bind(me, target).run();
     if (deps.invalidate) { try { await deps.invalidate(env, target); } catch (err) { /* ages out */ } }
     return json(200, { ok: true, name }, nocache);
+  }
+
+  if (path === "/v1/nicknames/external" && method === "GET") {
+    let rows = [];
+    try { rows = ((await env.DB.prepare("SELECT source_key, name, updated_at FROM ext_nicknames WHERE viewer_id = ? ORDER BY updated_at DESC LIMIT ?").bind(me, EXT_MAX).all()).results) || []; } catch (err) { rows = []; }
+    return json(200, { nicknames: rows.map((r) => ({ key: r.source_key, name: r.name, at: r.updated_at })) }, nocache);
+  }
+
+  if (path === "/v1/nicknames/external" && (method === "PUT" || method === "DELETE")) {
+    const paced = await deps.rateHit(env, "nick:" + me, 120, 60 * 60 * 1000);
+    if (!paced.ok) return deps.limited(paced);
+    const key = normalizeSourceKey(body.key);
+    if (!key) return json(400, { error: "bad_key" });
+    const name = method === "DELETE" ? "" : cleanNickname(body.name);
+    if (name) {
+      const have = await env.DB.prepare("SELECT COUNT(*) AS n FROM ext_nicknames WHERE viewer_id = ? AND source_key <> ?").bind(me, key).first();
+      if (have && Number(have.n) >= EXT_MAX) return json(409, { error: "too_many" });
+      await env.DB.prepare("INSERT INTO ext_nicknames (viewer_id, source_key, name, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(viewer_id, source_key) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at").bind(me, key, name, Date.now()).run();
+    } else {
+      await env.DB.prepare("DELETE FROM ext_nicknames WHERE viewer_id = ? AND source_key = ?").bind(me, key).run();
+    }
+    return json(200, { ok: true, key, name }, nocache);
   }
 
   if (path === "/v1/usernames/friend-name" && method === "GET") {

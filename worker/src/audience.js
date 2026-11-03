@@ -1,6 +1,7 @@
 /* Private audience lists. A member is never told which lists include them.
    One check is used for stories, notes, highlights, and later posts and gifts. */
 
+import { friendshipLive, liveFriendIds } from "./friends-pref.js";
 import { inspectHandle } from "../../shared/handle-skeleton.js";
 import { blocksEither, pairState } from "./social.js";
 
@@ -128,7 +129,7 @@ async function canAdd(env, ownerId, memberId) {
   const friend = await env.DB.prepare(
     "SELECT user_id FROM account_friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)"
   ).bind(ownerId, memberId, memberId, ownerId).first();
-  if (friend) return true;
+  if (friend && await friendshipLive(env, ownerId, memberId)) return true;
   const back = await env.DB.prepare(
     "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id = ?"
   ).bind(ownerId, "app:" + memberId).first();
@@ -165,8 +166,9 @@ export async function handleAudienceLists(request, env, path, deps) {
     const friends = await env.DB.prepare(
       "SELECT friend_id AS id FROM account_friends WHERE user_id = ? LIMIT 200"
     ).bind(viewer.public_id).all();
+    const liveFriends = await liveFriendIds(env, viewer.public_id, rowsOf(friends).map((row) => row.id));
     const ids = [];
-    rowsOf(follows).concat(rowsOf(friends)).forEach((row) => {
+    rowsOf(follows).concat(liveFriends.map((id) => ({ id: id }))).forEach((row) => {
       if (PUBLIC_ID.test(String(row.id || "")) && ids.indexOf(row.id) < 0) ids.push(row.id);
     });
     const people = [];
