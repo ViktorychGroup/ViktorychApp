@@ -4749,6 +4749,11 @@ function signupPayload() {
   }
 
   function linkedIdentitiesHtml(account) {
+    // The Linked profiles button and its X-style sheet (linked-profiles.js).
+    if (window.LinkedProfiles && window.LinkedProfiles.enabled()) {
+      var head = window.LinkedProfiles.headerHtml(account);
+      return head ? '<div class="acct-ident-row lp-head-row">' + head + "</div>" : "";
+    }
     var list = (account && account.identities) || [];
     var session = readSession();
     var mine = !!(session && session.account && (session.account.publicId === account.publicId || skel(session.account.handle) === skel(account.handle)));
@@ -4766,6 +4771,28 @@ function signupPayload() {
       '</a>';
     }).join("") + addBtn;
     return '<div class="acct-ident-row"><span class="acct-ident-label">' + esc(tr("Linked profiles")) + ':</span><div class="acct-ident-chips">' + chips + '</div></div>';
+  }
+
+  function linkedSettingsHtml(account) {
+    var lp = window.LinkedProfiles;
+    if (lp && lp.enabled()) {
+      return '<h2>' + esc(tr("Linked accounts")) + '</h2><div class="set-list"><a class="set-row" href="#/settings/linked"><span class="set-copy"><b>' + esc(tr("Linked accounts")) + '</b><span class="set-sub">' + esc(lp.summary()) + '</span></span><span class="set-chev" aria-hidden="true">›</span></a></div>';
+    }
+    return '<h2>' + esc(tr("Linked social accounts")) + '</h2><p class="set-sub">' + esc(tr("Link your X, Telegram, Instagram, and YouTube accounts so their posts appear on your profile. Requires identity verification.")) + '</p>' + identitiesSettingsHtml(account);
+  }
+  function openLinkIdentity() {
+    if (!readSession()) return;
+    linkIdentityForm = { platform: "x", handle: "", proofUrl: "", step: 0, challenge: null, loading: false };
+    errorText = "";
+    view = "link-identity";
+    paint();
+  }
+  function setIdentities(list) {
+    var session = readSession();
+    if (!session || !session.account) return;
+    session.account.identities = (list || []).slice();
+    writeSession(session);
+    if (profiles[skel(session.account.handle)]) profiles[skel(session.account.handle)].identities = session.account.identities;
   }
 
   function identitiesSettingsHtml(account) {
@@ -6322,7 +6349,7 @@ function signupPayload() {
     var aboutPrivacy = window.ProfileAbout && window.ProfileAbout.privacyOpen() ? window.ProfileAbout.privacyHtml(account.about || { sections: [] }) : "";
     return '<div class="set-block acct-settings">' + tempSettingsHtml(account) + '<h2>' + esc(tr("Your account")) + "</h2><p class=\"phandle\">@" + esc(account.handle) + "</p><p class=\"phandle acct-id-row\"><span>" + esc(tr("Account ID")) + " " + esc(grouped(account.publicId)) + '</span> <button class="outline" type="button" data-acct="copy-id">' + esc(idCopied ? tr("Account ID copied") : tr("Copy account ID")) + "</button></p><button class=\"outline\" type=\"button\" data-acct=\"edit\">" + esc(tr("Edit profile")) + '</button><button class="outline" type="button" data-about="privacy">' + esc(tr("About privacy")) + "</button>" + aboutPrivacy + '<h2>' + esc(tr("Hide my profile picture")) + '</h2><p class="set-sub">' + esc(tr("Other people see this instead of your photo.")) + '</p><div class="theme-row" role="group" aria-label="' + esc(tr("Hide my profile picture")) + '">' + hideBtn("", tr("Show my picture")) + hideBtn("default", tr("Default")) + hideBtn("none", tr("None")) + '</div><h2>' + esc(tr("Private followers and following")) + '</h2><p class="set-sub">' + esc(tr("Keep your followers and following list private. Only you will be able to see who you follow and who follows you.")) + '</p><button class="tab-switch' + (account.privateFollows ? " on" : "") + '" type="button" role="switch" aria-checked="' + (account.privateFollows ? "true" : "false") + '" data-acct="toggle-private-follows"><span>' + esc(tr("Keep lists private")) + '</span><i></i></button>' +
       '<h2>' + esc(tr("Protect your posts")) + '</h2><p class="set-sub">' + esc(tr("Only approved followers and friends can see your posts and lists.")) + '</p><button class="tab-switch' + (account.protected ? " on" : "") + '" type="button" role="switch" aria-checked="' + (account.protected ? "true" : "false") + '" data-acct="toggle-protected"><span>' + esc(tr("Protect your posts")) + '</span><i></i></button>' + relationSettingsHtml() +
-      '<h2>' + esc(tr("Profile-less account")) + '</h2><p class="set-sub">' + esc(tr("No public profile. Browse and comment anonymously.")) + '</p><button class="tab-switch' + (account.profileLess ? " on" : "") + '" type="button" role="switch" aria-checked="' + (account.profileLess ? "true" : "false") + '" data-acct="toggle-profileless"><span>' + esc(tr("Profile-less")) + '</span><i></i></button>' + (function () { if (!federationState.loaded && !federationState.loading) loadFederationSettings(); if (window.ViktorychNostr && !window.ViktorychNostr.allowed()) return ""; return '<h2>' + esc(tr("Nostr (NIP-05)")) + '</h2><p class="set-sub">' + esc(tr("Let Nostr apps find your account by its NIP-05 name. Default is off.")) + '</p><button class="tab-switch' + (federationState.enabled_nostr ? " on" : "") + '" type="button" role="switch" aria-checked="' + (federationState.enabled_nostr ? "true" : "false") + '" data-acct="toggle-fed-nostr"><span>' + esc(tr("Nostr (NIP-05)")) + (federationState.enabled_nostr && federationState.nostr_nip05 ? " (" + esc(federationState.nostr_nip05) + ")" : "") + '</span><i></i></button>'; })() + '<h2>' + esc(tr("Linked social accounts")) + '</h2><p class="set-sub">' + esc(tr("Link your X, Telegram, Instagram, and YouTube accounts so their posts appear on your profile. Requires identity verification.")) + '</p>' + identitiesSettingsHtml(account) + '<h2>' + esc(tr("Recovery codes")) + '</h2><p class="set-sub">' + esc(tr("These codes are shown once. Old codes stop working when you create new ones.")) + '</p><button class="outline" type="button" data-acct="recovery-new">' + esc(tr("Create new recovery codes")) + "</button>" + (account.owner ? ownerTempHtml() + '<h2>' + esc(tr("Review reports")) + '</h2><button class="outline" type="button" data-acct="open-reports">' + esc(tr("Review reports")) + "</button>" + (window.ViktorychAffiliations ? window.ViktorychAffiliations.adminHtml() : "") : "") + '<h2>' + esc(tr("Device sync")) + '</h2><p class="set-sub">' + esc(tr("Transfer your session to another browser or device.")) + '</p><button class="outline" type="button" data-acct="copy-session">' + esc(tr("Copy session code")) + "</button>" + (tempExpiresAt(account) ? "" : inactivityHtml(account) + deleteEntryHtml(account)) + '<button class="outline" type="button" data-acct="logout">' + esc(tr("Log out")) + '</button><button class="outline" type="button" data-acct="logout-all">' + esc(tr("Log out of all devices")) + '</button><button class="outline acct-danger" type="button" data-acct="logout-wipe">' + esc(tr("Sign out and delete data on this device")) + "</button></div>" + health;  }
+      '<h2>' + esc(tr("Profile-less account")) + '</h2><p class="set-sub">' + esc(tr("No public profile. Browse and comment anonymously.")) + '</p><button class="tab-switch' + (account.profileLess ? " on" : "") + '" type="button" role="switch" aria-checked="' + (account.profileLess ? "true" : "false") + '" data-acct="toggle-profileless"><span>' + esc(tr("Profile-less")) + '</span><i></i></button>' + (function () { if (!federationState.loaded && !federationState.loading) loadFederationSettings(); if (window.ViktorychNostr && !window.ViktorychNostr.allowed()) return ""; return '<h2>' + esc(tr("Nostr (NIP-05)")) + '</h2><p class="set-sub">' + esc(tr("Let Nostr apps find your account by its NIP-05 name. Default is off.")) + '</p><button class="tab-switch' + (federationState.enabled_nostr ? " on" : "") + '" type="button" role="switch" aria-checked="' + (federationState.enabled_nostr ? "true" : "false") + '" data-acct="toggle-fed-nostr"><span>' + esc(tr("Nostr (NIP-05)")) + (federationState.enabled_nostr && federationState.nostr_nip05 ? " (" + esc(federationState.nostr_nip05) + ")" : "") + '</span><i></i></button>'; })() + linkedSettingsHtml(account) + '<h2>' + esc(tr("Recovery codes")) + '</h2><p class="set-sub">' + esc(tr("These codes are shown once. Old codes stop working when you create new ones.")) + '</p><button class="outline" type="button" data-acct="recovery-new">' + esc(tr("Create new recovery codes")) + "</button>" + (account.owner ? ownerTempHtml() + '<h2>' + esc(tr("Review reports")) + '</h2><button class="outline" type="button" data-acct="open-reports">' + esc(tr("Review reports")) + "</button>" + (window.ViktorychAffiliations ? window.ViktorychAffiliations.adminHtml() : "") : "") + '<h2>' + esc(tr("Device sync")) + '</h2><p class="set-sub">' + esc(tr("Transfer your session to another browser or device.")) + '</p><button class="outline" type="button" data-acct="copy-session">' + esc(tr("Copy session code")) + "</button>" + (tempExpiresAt(account) ? "" : inactivityHtml(account) + deleteEntryHtml(account)) + '<button class="outline" type="button" data-acct="logout">' + esc(tr("Log out")) + '</button><button class="outline" type="button" data-acct="logout-all">' + esc(tr("Log out of all devices")) + '</button><button class="outline acct-danger" type="button" data-acct="logout-wipe">' + esc(tr("Sign out and delete data on this device")) + "</button></div>" + health;  }
   function onClick(event) {
     var reqKind = event.target && event.target.closest ? event.target.closest("[data-req-kind]") : null;
     if (reqKind) {
@@ -6498,6 +6525,7 @@ function signupPayload() {
             profiles[skel(session.account.handle)].identities = idList;
           }
         }
+        if (window.LinkedProfiles) window.LinkedProfiles.refresh(true);
         paint();
         if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       }).catch(function () {
@@ -7352,6 +7380,8 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     profilePending: profilePending,
     profileReady: profileReady,
     storedAccount: storedAccount,
+    setIdentities: setIdentities,
+    openLinkIdentity: openLinkIdentity,
     followButton: null,
     onServerFollows: null,
     onSignup: null,
