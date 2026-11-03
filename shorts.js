@@ -3874,6 +3874,7 @@
     lowestPreview: lowestPreview,
     previewsAllowed: previewsAllowed,
     formatBytes: formatBytes,
+    bindZoom: bindVideoZoom,
     setRecordings: function (next) {
       recordingsState = "ready";
       recordings = {
