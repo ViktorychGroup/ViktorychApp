@@ -21197,8 +21197,12 @@ if (STATE.histClear) {
       return (link && link.getAttribute("href")) || "";
     });
     reuseSameNodes(app, tpl.content, "#ext-graph-more", (el) => [el.getAttribute("data-platform") || "", el.getAttribute("data-handle") || "", el.getAttribute("data-tab") || ""].join("|"));
+    /* Detaching the page clamps window scroll to 0. Ignore that event so
+       the saved position is not thrown away before the new view is tall. */
+    scrollLock = true;
     while (app.firstChild) app.removeChild(app.firstChild);
     app.appendChild(tpl.content);
+    scrollLock = false;
     scheduleImageSweep();
     hscrollSettle({ reveal: true });
     if (window.ViktorychAccounts && window.ViktorychAccounts.bindProfileTabs) window.ViktorychAccounts.bindProfileTabs();
@@ -21738,9 +21742,11 @@ if (STATE.histClear) {
       if (parkedAway && restoreHomeDom()) {
         y = SCROLLS[nextKey] || homePark.y || 0;
         STATE.scrollKey = nextKey;
+        STATE.holdY = y;
         lastKey = location.hash || "#/";
         document.title = withUnreadTitle(routeTitle(route, "", "", ""));
         window.scrollTo(0, y);
+        settleScroll(nextKey, y);
         if (homePark.stamp !== stamp) scheduleHomeRefresh(350);
         return;
       }
@@ -21818,6 +21824,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       else document.title = withUnreadTitle(routeTitle(route, liveName, personName, discordTitle));
       setProfileShareMeta(route);
       window.scrollTo(0, y);
+      if (y > 4) settleScroll(nextKey, y);
       if (STATE.holdY != null && y > 4 && routeChanged) holdRestore(nextKey, y);
       if (explicitY && window.requestAnimationFrame) {
         window.requestAnimationFrame(() => {
@@ -21882,9 +21889,13 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (STATE.snapTop) y = 0;
       else if (STATE.holdY != null) y = STATE.holdY;
       else if (!(opts && Object.prototype.hasOwnProperty.call(opts, "y"))) y = window.scrollY;
-      if (!STATE.snapTop && !explicitY && window.scrollY > y + 4) y = window.scrollY;
+      if (!STATE.snapTop && !(opts && opts.reset) && pageY() > y + 4) y = pageY();
       window.scrollTo(0, y);
-      if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = y;
+      if (STATE.scrollKey) {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        if (!(y > 4 && pageY() + 4 < y && max < y - 4)) SCROLLS[STATE.scrollKey] = y;
+      }
+      if (y > 4 && pageY() <= 4) settleScroll(STATE.scrollKey, y);
       if (STATE.holdY === y) STATE.holdY = null;
       routing = false;
       scrollFreeze = false;
@@ -25913,6 +25924,33 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     window.scrollTo(0, t.y);
     SCROLLS[t.key] = t.y;
   }
+  /* Put a saved position back once the attached view is actually tall
+     enough. A rebuild often scrolls to 0 while the new nodes have no
+     height yet; the next frame (and a few after) can still reach it. */
+  let settleGen = 0;
+  function settleScroll(key, y) {
+    if (!(y > 4) || !key) return;
+    const gen = ++settleGen;
+    let frames = 0;
+    const stop = () => { if (settleGen === gen) settleGen += 1; };
+    const opts = { passive: true, capture: true, once: true };
+    ["wheel", "touchstart", "keydown", "pointerdown"].forEach((name) => window.addEventListener(name, stop, opts));
+    const step = () => {
+      if (gen !== settleGen || STATE.snapTop || routeScrollKey() !== key) return;
+      frames += 1;
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      if (max >= y - 4) {
+        if (pageY() <= 4) window.scrollTo(0, y);
+        return;
+      }
+      if (frames < 45) {
+        const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+        raf(step);
+      }
+    };
+    const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+    raf(step);
+  }
   function holdRestore(key, y) {
     stopRestore();
     if (!(y > 4) || Math.abs(pageY() - y) <= 4) return;
@@ -25932,10 +25970,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     window.addEventListener(type, () => { if (restoreTarget) stopRestore(); }, { passive: true, capture: true });
   });
   let scrollFreeze = false;
+  let scrollLock = false;
   window.addEventListener("scroll", () => {
     if (pageY() <= 4) STATE.snapTop = false;
     if (parseRoute().name === "home" && pageY() >= 40) homeRead = true;
-    if (routing || scrollFreeze || !STATE.scrollKey) return;
+    if (scrollLock || routing || scrollFreeze || !STATE.scrollKey) return;
     SCROLLS[STATE.scrollKey] = window.scrollY;
     if (window.ViktorychLocal) window.ViktorychLocal.noteScroll(STATE.scrollKey, window.scrollY, SCROLLS);
     const route = parseRoute();
