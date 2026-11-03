@@ -21153,6 +21153,36 @@ if (STATE.histClear) {
     }
   }
 
+  /* A list that is already on screen keeps its row nodes. A later paint
+     (new posts, a script finishing) updates a row in place instead of
+     throwing the node away, so a tap or a scroll that already found it
+     still lands. */
+  function reuseSameNodes(liveRoot, frag, selector, keyOf) {
+    if (!liveRoot || !frag || !frag.querySelector) return;
+    const live = Array.prototype.slice.call(liveRoot.querySelectorAll(selector));
+    const fresh = Array.prototype.slice.call(frag.querySelectorAll(selector));
+    const used = new Set();
+    fresh.forEach((node) => {
+      const key = keyOf(node);
+      if (!key) return;
+      let prev = null;
+      for (let i = 0; i < live.length; i++) {
+        if (used.has(live[i])) continue;
+        if (keyOf(live[i]) === key) { prev = live[i]; break; }
+      }
+      if (!prev || prev === node) return;
+      used.add(prev);
+      if (prev.className !== node.className) prev.className = node.className;
+      if (prev.innerHTML !== node.innerHTML) prev.innerHTML = node.innerHTML;
+      for (let a = 0; a < node.attributes.length; a++) {
+        const attr = node.attributes[a];
+        if (attr.name === "class") continue;
+        if (prev.getAttribute(attr.name) !== attr.value) prev.setAttribute(attr.name, attr.value);
+      }
+      node.replaceWith(prev);
+    });
+  }
+
   function commitApp(html) {
     const app = document.getElementById("app");
     if (!app) return;
@@ -21162,6 +21192,11 @@ if (STATE.histClear) {
     const tpl = document.createElement("template");
     tpl.innerHTML = html;
     hscrollReuse(app, tpl.content);
+    reuseSameNodes(app, tpl.content, ".connect-row", (el) => {
+      const link = el.querySelector("a.who-main");
+      return (link && link.getAttribute("href")) || "";
+    });
+    reuseSameNodes(app, tpl.content, "#ext-graph-more", (el) => [el.getAttribute("data-platform") || "", el.getAttribute("data-handle") || "", el.getAttribute("data-tab") || ""].join("|"));
     while (app.firstChild) app.removeChild(app.firstChild);
     app.appendChild(tpl.content);
     scheduleImageSweep();
@@ -31010,7 +31045,34 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }
       if (window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(parseRoute());
     }
-    if (!info.silent || (info.name === "servers" && parseRoute().name === "messages")) render();
+    /* A script that is not for the page on screen must not rebuild it.
+       Preloads stay quiet. A real visit still paints once the file is in. */
+    if (info.silent) return;
+    const routeNow = parseRoute();
+    const affects = {
+      shorts: routeNow.name === "shorts",
+      games: routeNow.name === "games",
+      tv: routeNow.name === "tv",
+      tvshell: routeNow.name === "tv",
+      tvpair: routeNow.name === "linktv",
+      sendtv: routeNow.name === "sendtv",
+      vault: routeNow.name === "vault",
+      packages: routeNow.name === "packages",
+      drive: routeNow.name === "drive",
+      communities: routeNow.name === "communities",
+      servers: routeNow.name === "messages",
+      discord: routeNow.name === "messages",
+      inboxsms: routeNow.name === "messages",
+      inboxmail: routeNow.name === "messages",
+      contacts: routeNow.name === "contacts",
+      localai: routeNow.name === "localai",
+      music: routeNow.name === "music",
+      gifts: routeNow.name === "points" || routeNow.name === "store" || routeNow.name === "profile" || routeNow.name === "user" || routeNow.name === "person",
+      nostr: routeNow.name === "settings",
+      mesh: routeNow.name === "settings",
+      owner_inspector: routeNow.name === "settings"
+    };
+    if (affects[info.name]) render();
   });
   setTimeout(deviceHello, 6000);
   syncServerFeatures();
