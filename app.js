@@ -21133,23 +21133,24 @@ if (STATE.histClear) {
      woven in. The weave waits until the browser is idle so the click itself
      stays quick. */
   let homeRefreshTimer = 0;
-  function scheduleHomeRefresh() {
+  function scheduleHomeRefresh(delayMs) {
     clearTimeout(homeRefreshTimer);
-    homeRefreshTimer = setTimeout(() => {
+    const start = () => {
       homeRefreshTimer = 0;
-      const run = () => {
-        if (renderHeld()) { scheduleHomeRefresh(); return; }
-        const routeNow = parseRoute();
-        if (routeNow.name !== "home" || !homePark || !homePark.live) return;
-        if (homeStamp(routeNow) === homePark.stamp) return;
-        /* Keep the parked page until this render actually paints. A render
-           that waits for the pointer must not throw the parked copy away. */
-        homePark.force = true;
-        render();
-      };
-      if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 800 });
-      else setTimeout(run, 48);
-    }, 350);
+      if (renderHeld()) { scheduleHomeRefresh(200); return; }
+      const routeNow = parseRoute();
+      if (routeNow.name !== "home" || !homePark || !homePark.live) return;
+      if (homeStamp(routeNow) === homePark.stamp) return;
+      /* Keep the parked page until this render actually paints. A render
+         that waits for the pointer must not throw the parked copy away. */
+      homePark.force = true;
+      render();
+    };
+    if (delayMs) homeRefreshTimer = setTimeout(start, delayMs);
+    else {
+      const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+      raf(() => raf(start));
+    }
   }
 
   function commitApp(html) {
@@ -21705,13 +21706,13 @@ if (STATE.histClear) {
         lastKey = location.hash || "#/";
         document.title = withUnreadTitle(routeTitle(route, "", "", ""));
         window.scrollTo(0, y);
-        if (homePark.stamp !== stamp) scheduleHomeRefresh();
+        if (homePark.stamp !== stamp) scheduleHomeRefresh(350);
         return;
       }
       /* Already showing the parked Home. A background refresh (posts that
          arrived while the pointer was down) must not rebuild on this turn. */
       if (route.name === "home" && homePark && homePark.live && homePark.stamp !== stamp && !homePark.force && !inUserInput()) {
-        scheduleHomeRefresh();
+        scheduleHomeRefresh(0);
         STATE.scrollKey = nextKey;
         lastKey = location.hash || "#/";
         return;
