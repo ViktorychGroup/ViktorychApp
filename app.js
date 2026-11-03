@@ -26745,7 +26745,17 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     try { if (window.performance && performance.mark) performance.mark(name); } catch (err) { /* marks are optional */ }
   }
 
+  function setupCoversHome() {
+    if (document.documentElement.hasAttribute("data-onb-open")) return true;
+    try {
+      const doc = JSON.parse(localStorage.getItem("viktorychapp-onboard-v1") || "null");
+      return !!(doc && (doc.stage === "pre" || doc.stage === "account" || doc.stage === "post"));
+    } catch (err) { return false; }
+  }
   function arrivalMode() {
+    /* Setup covers Home. Posts that arrive during it wait in the new-posts
+       pill, so the empty timeline is what shows when setup closes. */
+    if (setupCoversHome()) return "pill";
     const api = window.HomeFresh;
     if (api && api.arrival) return api.arrival({ scrollY: window.scrollY, read: homeRead });
     return window.scrollY >= 40 || homeRead ? "pill" : "insert";
@@ -30559,18 +30569,20 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       const newerSnap = window.ViktorychLocal && window.ViktorychLocal.readDoc
         ? window.ViktorychLocal.readDoc("feeds", "timeline").catch(() => null)
         : Promise.resolve(null);
-      newerSnap.then((doc) => { if (!catalogApplied && doc) adoptSavedFeed(doc); });
+      newerSnap.then((doc) => { if (!catalogApplied && doc && !setupCoversHome()) adoptSavedFeed(doc); });
       const loaded = await catalogPromise;
       catalogApplied = true;
       const idbDoc = await newerSnap;
-      if (idbDoc) adoptSavedFeed(idbDoc);
+      if (idbDoc && !setupCoversHome()) adoptSavedFeed(idbDoc);
       const keepSaved = !!(loaded && loaded.missing && STATE.data && Array.isArray(STATE.data.posts) && STATE.data.posts.length);
       if (!keepSaved) {
         const incoming = loaded && loaded.missing ? emptyCatalog() : loaded;
         notePublished(incoming);
         const includeNew = arrivalMode() === "insert";
-        if (!STATE.data || !Array.isArray(STATE.data.posts)) {
+        const setupEmpty = setupCoversHome() && incoming && Array.isArray(incoming.posts) && !incoming.posts.length && !incoming.missing;
+        if (!STATE.data || !Array.isArray(STATE.data.posts) || setupEmpty) {
           STATE.data = withMemory(incoming);
+          if (setupEmpty) { STATE.pendingFeed = null; STATE.pendingLive = []; }
         } else {
           const merged = mergeCatalog(STATE.data, incoming, includeNew);
           STATE.data = withMemory(merged.doc);
