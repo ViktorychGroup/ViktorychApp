@@ -2726,7 +2726,9 @@ button.show-replies {
 #toast {
   position: fixed;
   left: 50%;
-  bottom: 80px;
+  /* Fixed, so a toast never shifts the page. When an alert is open,
+     --toast-above is that card's top plus a gap, and the toast sits above it. */
+  bottom: max(80px, var(--toast-above, 0px));
   transform: translateX(-50%);
   background: var(--blue);
   color: #fff;
@@ -2925,7 +2927,7 @@ button.show-replies {
   .modal-back { padding: 0; align-items: stretch; }
   .modal { width: 100%; max-height: none; height: 100%; border-radius: 0; }
   .empty h2 { font-size: 23px; line-height: 28px; }
-  #toast { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  #toast { bottom: max(calc(76px + env(safe-area-inset-bottom)), var(--toast-above, 0px)); }
 }
 
 .app.wide { max-width: none; width: 100%; }
