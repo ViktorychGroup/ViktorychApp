@@ -1044,7 +1044,7 @@
       if (!item || !item.id || out.length >= 80) return;
       if (noFriends && (item.kind === "friend_request" || item.kind === "friend_accept")) return;
       const hash = String(item.hash || "#/");
-      const kinds = { post: 1, mention: 1, reply: 1, quote: 1, like: 1, repost: 1, follow: 1, follow_request: 1, follow_accept: 1, friend_request: 1, friend_accept: 1, dm: 1, discord: 1, live: 1, game_invite: 1, tv_signin: 1, community_note: 1, feed_request: 1, feed_approved: 1, feed_rejected: 1 };
+      const kinds = { post: 1, mention: 1, reply: 1, quote: 1, like: 1, repost: 1, follow: 1, follow_request: 1, follow_accept: 1, friend_request: 1, friend_accept: 1, dm: 1, discord: 1, live: 1, game_invite: 1, game_join: 1, game_achievement: 1, game_board: 1, tv_signin: 1, community_note: 1, feed_request: 1, feed_approved: 1, feed_rejected: 1 };
       out.push({
         id: String(item.id).slice(0, 160),
         at: Number(item.at) || 0,
@@ -1089,7 +1089,7 @@
     const out = [];
     const seen = {};
     list.forEach((item) => {
-      if (!item || out.length >= 500) return;
+      if (!item) return;
       const id = String(item.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
       const name = clipTabName(item.name);
       if (!id || !name || seen[id]) return;
@@ -1107,15 +1107,138 @@
         color: tabColor(item.color),
         showHome: item.showHome !== false,
         showNotes: item.showNotes !== false,
-        kind: item.kind === "verified" || item.kind === "mentions" ? item.kind : "",
+        kind: BUILTIN_NOTE_KINDS.indexOf(item.kind) >= 0 ? item.kind : "",
         members: members,
+        types: cleanNoteTypes(item.types),
+        push: item.push !== false,
+        sound: item.sound !== false,
+        badge: item.badge !== false,
         readAt: Number(item.readAt) || 0,
         updatedAt: Number(item.updatedAt) || 0,
         deletedAt: Number(item.deletedAt) || 0,
         sort: item.sort === "popular" ? "popular" : "recent"
       });
+      if (isFinite(Number(item.pos)) && item.pos !== null && item.pos !== undefined && item.pos !== "") out[out.length - 1].pos = Number(item.pos);
     });
     return out;
+  }
+
+  /* Notification tabs. Built-in tabs (Mentions, Verified, Games) can be
+     renamed, hidden and moved like the others; custom tabs filter by
+     notification type, by people, or both. There is no cap on the number
+     of tabs. */
+  const BUILTIN_NOTE_KINDS = ["mentions", "verified", "games"];
+  const NOTE_TYPES = ["game_invite", "game_other", "friend_request", "follow", "like", "repost", "reply", "mention", "quote", "dm", "discord", "feed_request", "post", "system"];
+
+  function cleanNoteTypes(list) {
+    const out = [];
+    (Array.isArray(list) ? list : []).forEach((item) => {
+      const key = String(item || "");
+      if (NOTE_TYPES.indexOf(key) >= 0 && out.indexOf(key) < 0) out.push(key);
+    });
+    return out;
+  }
+
+  function noteTypeLabel(key) {
+    const map = {
+      game_invite: tr("Game invites"),
+      game_other: tr("Other game alerts"),
+      friend_request: tr("Friend requests"),
+      follow: tr("Follows"),
+      like: tr("Likes"),
+      repost: tr("Reposts"),
+      reply: tr("Replies"),
+      mention: tr("Mentions"),
+      quote: tr("Quotes"),
+      dm: tr("Direct messages"),
+      discord: tr("Discord"),
+      feed_request: tr("Source requests"),
+      post: tr("New posts"),
+      system: tr("System")
+    };
+    return map[key] || key;
+  }
+
+  /* Same mapping as noteTypeKey in worker/src/notifications.js. */
+  function noteTypeKey(note) {
+    const k = String((note && note.kind) || "");
+    if (k === "game_invite") return "game_invite";
+    if (/^game_/.test(k)) return "game_other";
+    if (k === "friend_request" || k === "friend_accept") return "friend_request";
+    if (k === "follow" || k === "follow_request" || k === "follow_accept") return "follow";
+    if (k === "like" || k === "repost" || k === "reply" || k === "quote" || k === "dm" || k === "discord") return k;
+    if (k === "mention" || (note && note.mention === true && !k)) return "mention";
+    if (k === "feed_request" || k === "feed_approved" || k === "feed_rejected") return "feed_request";
+    if (!k || k === "post" || k === "live") return "post";
+    return "system";
+  }
+
+  function noteIsGame(note) {
+    const type = noteTypeKey(note);
+    return type === "game_invite" || type === "game_other";
+  }
+
+  function sortNoteTabs(list) {
+    return list.map((tab, index) => ({ tab, index })).sort((a, b) => {
+      const pa = a.tab.pos;
+      const pb = b.tab.pos;
+      const ha = typeof pa === "number";
+      const hb = typeof pb === "number";
+      if (ha && hb && pa !== pb) return pa - pb;
+      if (ha !== hb) return ha ? -1 : 1;
+      return a.index - b.index;
+    }).map((row) => row.tab);
+  }
+
+  /* Marks note tabs as changed so the next sync sends just those (or all of
+     them when ids is empty). */
+  function touchNoteTabs(ids) {
+    const pending = notePending();
+    pending.tabs = true;
+    if (Array.isArray(ids) && ids.length && pending.tabIds !== "all") {
+      const list = Array.isArray(pending.tabIds) ? pending.tabIds : [];
+      ids.forEach((id) => { if (id && list.indexOf(id) < 0) list.push(id); });
+      pending.tabIds = list;
+    } else pending.tabIds = "all";
+    writeNotePending(pending);
+    scheduleNoteSync();
+  }
+
+  /* Customizing Notifications gives it its own tab set (copied from the
+     feed tabs the first time) with the three built-in tabs in it. */
+  function ensureOwnNoteTabs() {
+    if (!STATE.settings) return;
+    let changed = false;
+    if (noteTabsSame()) {
+      STATE.settings.noteTabs = seedNoteTabs();
+      STATE.settings.noteTabsSame = false;
+      changed = true;
+    }
+    const tabs = noteTabs();
+    const now = Date.now();
+    BUILTIN_NOTE_KINDS.forEach((kind) => {
+      if (tabs.some((tab) => tab.kind === kind && tab.id === kind)) return;
+      if (tabs.some((tab) => tab.id === kind)) return;
+      const base = builtinNoteTab(kind);
+      base.updatedAt = now;
+      tabs.push(base);
+      changed = true;
+    });
+    if (tabs.some((tab) => typeof tab.pos !== "number")) {
+      const order = sortNoteTabs(tabs.filter(tabAlive));
+      const builtins = ["mentions", "verified", "games"];
+      const lead = builtins.map((kind) => order.find((tab) => tab.kind === kind)).filter(Boolean);
+      const rest = order.filter((tab) => lead.indexOf(tab) < 0);
+      lead.concat(rest).forEach((tab, index) => {
+        if (tab.pos !== index) { tab.pos = index; tab.updatedAt = now; }
+      });
+      changed = true;
+    }
+    if (changed) {
+      saveSettings();
+      touchNoteTabs();
+    }
+    STATE.tabScope = "notes";
   }
 
   function cleanLastNoteTab(value, tabs) {
@@ -1150,28 +1273,38 @@
   }
 
   function builtinNoteTab(kind) {
-    return { id: kind, name: kind, kind: kind, emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: Number((STATE.settings && STATE.settings.builtinNoteRead && STATE.settings.builtinNoteRead[kind]) || 0), sort: "recent" };
+    return { id: kind, name: kind, kind: kind, emoji: "", color: "", showHome: false, showNotes: true, members: [], types: [], push: true, sound: true, badge: true, readAt: Number((STATE.settings && STATE.settings.builtinNoteRead && STATE.settings.builtinNoteRead[kind]) || 0), sort: "recent" };
+  }
+
+  /* Every note tab in order, hidden ones included; built-in tabs the person
+     never touched sit first in X's order. */
+  function allNoteTabs() {
+    const list = sortNoteTabs((noteTabsSame() ? feedTabs() : noteTabs()).filter((tab) => tabAlive(tab)));
+    const lead = [];
+    BUILTIN_NOTE_KINDS.forEach((kind) => {
+      if (!list.some((tab) => tab.kind === kind)) lead.push(builtinNoteTab(kind));
+    });
+    return lead.concat(list);
   }
 
   function visibleNoteTabs() {
-    const list = (noteTabsSame() ? feedTabs() : noteTabs()).filter((tab) => tabAlive(tab) && tab.showNotes !== false);
-    const verified = list.find((tab) => tab.kind === "verified") || builtinNoteTab("verified");
-    const mentions = list.find((tab) => tab.kind === "mentions") || builtinNoteTab("mentions");
-    const rest = list.filter((tab) => tab !== verified && tab !== mentions && tab.kind !== "verified" && tab.kind !== "mentions");
-    return [verified, mentions].concat(rest);
+    return allNoteTabs().filter((tab) => tab.showNotes !== false);
   }
 
   function noteTabById(id) {
     const wanted = String(id || "");
     const list = noteTabsSame() ? feedTabs() : noteTabs();
     const found = list.find((tab) => tab.id === wanted) || null;
-    return tabAlive(found) ? found : null;
+    if (found) return tabAlive(found) ? found : null;
+    if (BUILTIN_NOTE_KINDS.indexOf(wanted) >= 0 && !list.some((tab) => tab.kind === wanted && tabAlive(tab))) return builtinNoteTab(wanted);
+    return null;
   }
 
   function noteTabLabel(tab) {
     if (!tab) return "";
     if (tab.kind === "verified" && (tab.name === "verified" || tab.name === "Verified")) return tr("Note tab verified");
     if (tab.kind === "mentions" && (tab.name === "mentions" || tab.name === "Mentions")) return tr("Mentions");
+    if (tab.kind === "games" && (tab.name === "games" || tab.name === "Games")) return tr("Games");
     return tab.name;
   }
 
@@ -1180,10 +1313,11 @@
     if (have.length) return have;
     const tabs = [
       { id: "verified", name: "verified", kind: "verified", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" },
-      { id: "mentions", name: "mentions", kind: "mentions", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" }
+      { id: "mentions", name: "mentions", kind: "mentions", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" },
+      { id: "games", name: "games", kind: "games", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" }
     ];
     feedTabs().forEach((tab) => {
-      if (!tab || tab.showNotes === false || tab.kind === "verified" || tab.kind === "mentions") return;
+      if (!tab || tab.showNotes === false || BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0) return;
       const id = ("n" + tab.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
       if (!id || tabs.some((item) => item.id === id)) return;
       tabs.push({
@@ -1195,7 +1329,9 @@
         showHome: false,
         showNotes: true,
         members: (tab.members || []).slice(),
+        types: cleanNoteTypes(tab.types),
         readAt: Number(tab.readAt) || 0,
+        updatedAt: Date.now(),
         sort: tab.sort === "popular" ? "popular" : "recent"
       });
     });
@@ -16503,12 +16639,54 @@ const here = parseRoute();
     return new RegExp("(^|[^A-Za-z0-9_])@" + me + "(?![A-Za-z0-9_])", "i").test(String(note.text || ""));
   }
 
-  function notesForTab(tab) {
-    const notes = visibleNotes((STATE.settings && STATE.settings.bellNotes) || []);
+  /* Hook point for other features (for example a Locked area for locked
+     follows): a hold returns true for a notification that should stay out of
+     every Notifications tab, All included. Register with
+     window.ViktorychNoteTabs.addHold(fn). */
+  const NOTE_TAB_HOLDS = [];
+  function noteHeld(note) {
+    for (let i = 0; i < NOTE_TAB_HOLDS.length; i++) {
+      try { if (NOTE_TAB_HOLDS[i](note)) return true; } catch (err) {}
+    }
+    return false;
+  }
+
+  function notesForTab(tab, list) {
+    let notes = Array.isArray(list) ? list.filter(Boolean) : visibleNotes((STATE.settings && STATE.settings.bellNotes) || []);
+    if (NOTE_TAB_HOLDS.length) notes = notes.filter((note) => !noteHeld(note));
     if (!tab) return notes;
     if (tab.kind === "verified") return notes.filter(noteIsVerified);
     if (tab.kind === "mentions") return notes.filter(noteIsMention);
-    return notes.filter((note) => noteInTab(note, tab));
+    if (tab.kind === "games") return notes.filter(noteIsGame);
+    return notes.filter((note) => noteMatchesTab(note, tab));
+  }
+
+  /* A custom tab keeps a notification when it matches the tab's types (if
+     any) and its people (if any). */
+  function noteMatchesTab(note, tab) {
+    if (!note || !tab) return false;
+    const types = tab.types || [];
+    const members = tab.members || [];
+    if (!types.length && !members.length) return false;
+    if (types.length && types.indexOf(noteTypeKey(note)) < 0) return false;
+    if (members.length && !noteInTab(note, tab)) return false;
+    return true;
+  }
+
+  window.ViktorychNoteTabs = {
+    addHold(fn) { if (typeof fn === "function" && NOTE_TAB_HOLDS.indexOf(fn) < 0) { NOTE_TAB_HOLDS.push(fn); if (typeof render === "function") render(); } return () => { const at = NOTE_TAB_HOLDS.indexOf(fn); if (at >= 0) NOTE_TAB_HOLDS.splice(at, 1); }; },
+    held: (note) => noteHeld(note),
+    typeKey: (note) => noteTypeKey(note),
+    matches: (note, tab) => noteMatchesTab(note, tab),
+    forTab: (tab, list) => notesForTab(tab, list),
+    tabs: () => allNoteTabs()
+  };
+
+  function noteTabUnread(tab) {
+    if (!tab || tab.badge === false) return 0;
+    const builtin = BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0;
+    const since = builtin ? 0 : Number(tab.readAt) || 0;
+    return notesForTab(tab).filter((note) => note && !note.read && (builtin || (Number(note.at) || 0) > since)).length;
   }
 
   function tabMark(tab) {
@@ -16540,7 +16718,9 @@ const here = parseRoute();
     }
     if (!noteTabById(menu.id)) return "";
     const tab = noteTabById(menu.id);
-    return `<div class="bell-sheet" data-act="close-tab-context"><div class="menu bell-menu tab-context" data-act="stop" role="menu" aria-label="${esc(noteTabLabel(tab))}" data-x="${Number(menu.left) || 0}" data-y="${Number(menu.top) || 0}"><div class="bell-grab" aria-hidden="true"></div><button class="bell-choice" type="button" data-act="feed-tab-edit" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${menuIcon("pencil")}</span><span class="bell-choice-label">${tr("Edit tab")}</span></button><button class="bell-choice" type="button" data-act="feed-tab-ask-delete" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${menuIcon("gear")}</span><span class="bell-choice-label">${tr("Delete tab")}</span></button></div></div>`;
+    const builtin = BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0;
+    const del = builtin ? "" : `<button class="bell-choice" type="button" data-act="feed-tab-ask-delete" data-scope="notes" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${icon("close")}</span><span class="bell-choice-label">${tr("Delete tab")}</span></button>`;
+    return `<div class="bell-sheet" data-act="close-tab-context"><div class="menu bell-menu tab-context" data-act="stop" role="menu" aria-label="${esc(noteTabLabel(tab))}" data-x="${Number(menu.left) || 0}" data-y="${Number(menu.top) || 0}"><div class="bell-grab" aria-hidden="true"></div><button class="bell-choice" type="button" data-act="feed-tab-edit" data-scope="notes" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${menuIcon("pencil")}</span><span class="bell-choice-label">${tr("Edit tab")}</span></button><button class="bell-choice" type="button" data-act="note-tab-vis" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${icon("eyeOff")}</span><span class="bell-choice-label">${tr("Hide tab")}</span></button>${del}<button class="bell-choice" type="button" data-act="manage-tabs"><span class="bell-choice-ico">${menuIcon("gear")}</span><span class="bell-choice-label">${tr("Manage tabs")}</span></button></div></div>`;
   }
 
   function settleNoteTab(route) {
@@ -16593,9 +16773,9 @@ const here = parseRoute();
       scheduleNoteSync();
       return;
     }
-    const tab = noteTabById(active) || (active === "mentions" || active === "verified" ? { id: active, kind: active, readAt: 0 } : null);
+    const tab = noteTabById(active) || (BUILTIN_NOTE_KINDS.indexOf(active) >= 0 ? { id: active, kind: active, readAt: 0 } : null);
     if (!tab) return;
-    if (tab.kind === "mentions" || tab.kind === "verified") {
+    if (BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0) {
       const ids = notesForTab(tab).filter((note) => note && !note.read && note.id).map((note) => note.id);
       if (!ids.length) return;
       (STATE.settings.bellNotes || []).forEach((note) => {
@@ -16616,11 +16796,8 @@ const here = parseRoute();
     if (newest && (Number(tab.readAt) || 0) < newest) {
       tab.readAt = newest;
       tab.updatedAt = Date.now();
-      const pending = notePending();
-      pending.tabs = true;
-      writeNotePending(pending);
       saveSettings();
-      scheduleNoteSync();
+      touchNoteTabs([tab.id]);
     }
   }
 
@@ -16657,6 +16834,14 @@ const here = parseRoute();
       return tr("Readers added context to a post you interacted with");
     }
     if (kind === "game_invite") return tr("{name} invited you to play {game}", { name: who, game: (note && note.text) || "ReGone" });
+    if (kind === "game_join") return tr("{name} joined your game", { name: who });
+    if (kind === "game_achievement") {
+      const social = window.ViktorychGameSocial;
+      const copy = social && social.achCopy ? social.achCopy(String((note && note.text) || "")) : null;
+      const title = copy && copy[0] ? copy[0] : "";
+      return title ? tr("Achievement unlocked: {name}", { name: esc(title) }) : tr("Game achievement unlocked");
+    }
+    if (kind === "game_board") return tr("Game leaderboard update");
     if (kind === "gift" && !(note && (note.name || note.handle))) return tr("You received a gift");
     if (kind === "gift") return tr("{name} sent you a gift", { name: who });
     if (kind === "birthday") return tr("It's {name}'s birthday today", { name: who });
@@ -16670,6 +16855,11 @@ const here = parseRoute();
   }
 
   function noteBody(note) {
+    if (note && note.kind === "game_achievement") {
+      const social = window.ViktorychGameSocial;
+      const copy = social && social.achCopy ? social.achCopy(String(note.text || "")) : null;
+      return copy && copy[1] ? `<p>${esc(copy[1])}</p>` : "";
+    }
     const text = note && note.text && note.kind !== "community_note" ? String(note.text) : "";
     if (!text) return "";
     const ai = window.ViktorychOnDeviceAi;
@@ -16736,6 +16926,7 @@ const here = parseRoute();
     if (kind === "live") return "mic";
     if (kind === "community_note") return "communities";
     if (kind === "tv_signin") return "tv";
+    if (/^game_/.test(String(kind || ""))) return "games";
     if (kind === "feed_request" || kind === "feed_approved" || kind === "feed_rejected") return "rss";
     return "bellOn";
   }
@@ -16869,27 +17060,32 @@ const here = parseRoute();
     return `<span class="ava initials">${initials(mine.displayName || mine.handle || "Y")}</span>`;
   }
 
-  function noteMainTab(id, label, on, withBell) {
+  function noteMainTab(id, label, on, withBell, tab) {
     const bell = withBell ? `<span class="tab-bell">${icon("bell")}</span>` : "";
-    return `<button class="tab${on ? " on" : ""}" type="button" data-act="note-tab" data-tab="${esc(id)}" role="tab" aria-selected="${on ? "true" : "false"}"><span>${bell}${esc(label)}</span></button>`;
+    const emoji = tab && tab.emoji ? `<i class="note-tab-emoji" aria-hidden="true">${esc(tab.emoji)}</i>` : "";
+    const count = tab && !on ? noteTabUnread(tab) : 0;
+    const badge = count > 0 ? `<b class="note-tab-badge" aria-label="${esc(trn("unread", count))}">${count > 99 ? "99+" : count}</b>` : "";
+    const color = tab && tab.color && on ? ` style="--note-tab-color:${esc(tab.color)}"` : "";
+    const ctx = id === "all" ? "" : ` data-note-tab="${esc(id)}"`;
+    return `<button class="tab${on ? " on" : ""}" type="button" data-act="note-tab" data-tab="${esc(id)}"${ctx}${color} role="tab" aria-selected="${on ? "true" : "false"}"><span>${bell}${emoji}${esc(label)}${badge}</span></button>`;
   }
 
   function noteGearMenu(active) {
     if (!STATE.noteGear) return "";
-    const extras = visibleNoteTabs().filter((tab) => tab.kind !== "verified" && tab.kind !== "mentions");
+    const extras = visibleNoteTabs().filter((tab) => BUILTIN_NOTE_KINDS.indexOf(tab.kind) < 0);
     const filters = extras.map((tab) => {
       const on = active === tab.id;
       return `<button class="bell-choice" type="button" data-act="note-tab" data-tab="${esc(tab.id)}" role="menuitemradio" aria-checked="${on ? "true" : "false"}"><span class="bell-choice-label">${esc(noteTabLabel(tab))}</span><span class="bell-mark">${on ? icon("tick") : ""}</span></button>`;
     }).join("");
     const filterBlock = filters ? `<div class="tab-menu-label">${esc(tr("Notification filters"))}</div>${filters}` : "";
-    return `<div class="bell-sheet" data-act="close-note-gear"><div class="menu bell-menu note-gear-menu" data-act="stop" role="menu" aria-label="${esc(tr("Notification options"))}"><div class="bell-grab" aria-hidden="true"></div><button class="bell-choice" type="button" data-act="note-mark-all"><span class="bell-choice-label">${esc(tr("Mark all as read"))}</span></button><button class="bell-choice" type="button" data-act="note-clear-all"><span class="bell-choice-label">${esc(tr("Clear all"))}</span></button><a class="bell-choice" href="#/settings/notifications"><span class="bell-choice-label">${esc(tr("Notifications"))}</span></a><button class="bell-choice" type="button" data-act="manage-tabs"><span class="bell-choice-label">${esc(tr("Manage tabs"))}</span></button>${filterBlock}</div></div>`;
+    return `<div class="bell-sheet" data-act="close-note-gear"><div class="menu bell-menu note-gear-menu" data-act="stop" role="menu" aria-label="${esc(tr("Notification options"))}"><div class="bell-grab" aria-hidden="true"></div><button class="bell-choice" type="button" data-act="note-mark-all"><span class="bell-choice-label">${esc(tr("Mark all as read"))}</span></button><button class="bell-choice" type="button" data-act="note-clear-all"><span class="bell-choice-label">${esc(tr("Clear all"))}</span></button><a class="bell-choice" href="#/settings/notifications"><span class="bell-choice-label">${esc(tr("Notifications"))}</span></a><button class="bell-choice" type="button" data-act="manage-tabs"><span class="bell-choice-label">${esc(tr("Manage tabs"))}</span></button><button class="bell-choice" type="button" data-act="feed-tab-new" data-scope="notes"><span class="bell-choice-label">${esc(tr("New tab"))}</span></button>${filterBlock}</div></div>`;
   }
 
   function notificationsView(route) {
     ensureNotesLoad();
     const active = settleNoteTab(route || parseRoute());
     const current = active === "all" ? null : noteTabById(active);
-    const notes = current ? notesForTab(current) : visibleNotes((STATE.settings && STATE.settings.bellNotes) || []);
+    const notes = notesForTab(current || null);
     /* Marking the tab read happens in this same paint. Keep the ids that were
        unread when they appeared so the row stays highlighted for this visit. */
     if (!STATE.noteUnreadPaint || STATE.noteUnreadPaint.tab !== active) STATE.noteUnreadPaint = { tab: active, ids: {} };
@@ -16900,8 +17096,7 @@ const here = parseRoute();
     const showDot = Object.keys(unreadIds).length > 0;
     markNoteTabRead(active);
     const buttons = noteMainTab("all", tr("All"), active === "all", active === "all")
-      + noteMainTab("mentions", tr("Mentions"), active === "mentions", false)
-      + noteMainTab("verified", tr("Note tab verified"), active === "verified", false);
+      + visibleNoteTabs().map((tab) => noteMainTab(tab.id, noteTabLabel(tab), active === tab.id, false, tab)).join("");
     const bar = `<div class="tabs-bar notes-tabs"><div class="tabs" role="tablist" aria-label="${tr("Notification tabs")}">${buttons}</div></div>`;
     const dot = showDot ? `<span class="ava-dot" aria-hidden="true"></span>` : "";
     const gearOpen = !!STATE.noteGear;
@@ -16924,6 +17119,11 @@ const here = parseRoute();
       showHome: existing.showHome !== false,
       showNotes: existing.showNotes !== false,
       members: (existing.members || []).slice(),
+      kind: existing.kind || "",
+      types: (existing.types || []).slice(),
+      push: existing.push !== false,
+      sound: existing.sound !== false,
+      badge: existing.badge !== false,
       q: ""
     } : {
       id: "",
@@ -16933,6 +17133,11 @@ const here = parseRoute();
       showHome: !editingNoteTabs(),
       showNotes: true,
       members: preset,
+      kind: "",
+      types: [],
+      push: true,
+      sound: true,
+      badge: true,
       q: ""
     };
     STATE.modal = "feed-tab";
@@ -16966,8 +17171,22 @@ const here = parseRoute();
       if (map[id]) { next.push(map[id]); delete map[id]; }
     });
     tabs.forEach((tab) => { if (map[tab.id]) next.push(tab); });
-    if (editingNoteTabs()) STATE.settings.noteTabs = next;
-    else STATE.settings.feedTabs = next;
+    if (editingNoteTabs()) {
+      const now = Date.now();
+      const moved = [];
+      next.forEach((tab, index) => {
+        if (tab.pos !== index) {
+          tab.pos = index;
+          tab.updatedAt = now;
+          moved.push(tab.id);
+        }
+      });
+      STATE.settings.noteTabs = next;
+      saveSettings();
+      if (moved.length) touchNoteTabs(moved);
+      return;
+    }
+    STATE.settings.feedTabs = next;
     saveSettings();
   }
 
@@ -16979,15 +17198,21 @@ const here = parseRoute();
     const tabs = scopeTabList();
     let tab = draft.id ? tabs.find((item) => item.id === draft.id) : null;
     if (!tab) {
-      if (tabs.length >= 500) {
-        toast(tr("That’s as many tabs as this device can keep"));
-        return;
-      }
       tab = { id: newFeedTabId(), readAt: 0, members: [], sort: "recent" };
+      if (editingNoteTabs()) tab.pos = tabs.reduce((max, item) => Math.max(max, typeof item.pos === "number" ? item.pos + 1 : 0), tabs.length);
       tabs.push(tab);
     }
     if (tab.kind === "verified" && name === tr("Note tab verified")) name = "verified";
     if (tab.kind === "mentions" && name === tr("Mentions")) name = "mentions";
+    if (tab.kind === "games" && name === tr("Games")) name = "games";
+    if (editingNoteTabs()) {
+      tab.types = BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0 ? [] : cleanNoteTypes(draft.types);
+      tab.push = draft.push !== false;
+      tab.sound = draft.sound !== false;
+      tab.badge = draft.badge !== false;
+      tab.updatedAt = Date.now();
+      if (tab.deletedAt) tab.deletedAt = 0;
+    }
     tab.name = name;
     tab.emoji = cleanEmoji(draft.emoji);
     tab.color = tabColor(draft.color);
@@ -16996,10 +17221,12 @@ const here = parseRoute();
     tab.members = [];
     (draft.members || []).forEach((member) => {
       const text = String(member || "").trim();
-      if (text && text.length <= 120 && tab.members.indexOf(text) < 0 && tab.members.length < 500) tab.members.push(text);
+      if (text && text.length <= 120 && tab.members.indexOf(text) < 0 && tab.members.length < 1000) tab.members.push(text);
     });
-    if (editingNoteTabs()) STATE.settings.noteTabs = cleanFeedTabs(tabs);
-    else STATE.settings.feedTabs = cleanFeedTabs(tabs);
+    if (editingNoteTabs()) {
+      STATE.settings.noteTabs = cleanFeedTabs(tabs);
+      touchNoteTabs([tab.id]);
+    } else STATE.settings.feedTabs = cleanFeedTabs(tabs);
     STATE.modal = null;
     const route = parseRoute();
     if (tab.showNotes !== false && (route.name === "notifications" || !draft.id)) {
@@ -17062,7 +17289,15 @@ const here = parseRoute();
     const orderHint = editingNoteTabs() ? tr("Drag the handle to reorder.") : tr("Drag the handle to reorder. The same order is used on Home.");
     const order = orderTabs.length > 1 ? `<h3>${tr("Order")}</h3><p class="phandle">${orderHint}</p>${orderTabs.map((tab) => `<div class="tab-order-row"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="tab-order-name">${esc(editingNoteTabs() ? noteTabLabel(tab) : tab.name)}</span></div>`).join("")}` : "";
     const homeSwitch = editingNoteTabs() ? "" : switches("showHome", tr("Show on Home"));
-    return `<div class="modal-back" data-act="close-modal"><div class="modal feed-tab-sheet" role="dialog" aria-label="${draft.id ? tr("Edit tab") : tr("New tab")}" data-act="stop"><div class="modal-head"><button class="icon-btn" type="button" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${draft.id ? tr("Edit tab") : tr("New tab")}</h2><button class="save" type="button" data-act="feed-tab-save"${String(draft.name || "").trim() ? "" : " disabled"}>${tr("Save")}</button></div><div class="modal-body"><label class="field"><span>${tr("Name")}</span><input id="feed-tab-name" data-field="name" value="${esc(draft.name || "")}"></label><label class="field"><span>${tr("Emoji")}</span><input id="feed-tab-emoji" data-field="emoji" placeholder="${tr("Optional")}" value="${esc(draft.emoji || "")}"></label><div class="field"><span>${tr("Colour")}</span><div class="swatches">${swatches}</div></div>${homeSwitch}${switches("showNotes", tr("Show in Notifications"))}<h3>${tr("Accounts")}</h3><input id="feed-tab-q" class="member-search" data-field="q" placeholder="${tr("Search accounts")}" value="${esc(draft.q || "")}">${memberRows.map((feed) => row(feed, true)).join("")}${extra.map((feed) => row(feed, true)).join("")}${found.map((feed) => row(feed, false)).join("")}${!memberRows.length && !extra.length && !q ? `<p class="phandle">${tr("Search to add accounts. Profiles with no tab stay in All.")}</p>` : ""}${order}${draft.id ? `<button class="danger" type="button" data-act="ask-delete">${tr("Delete tab")}</button>` : ""}</div></div></div>`;
+    const notesScope = editingNoteTabs();
+    const builtin = notesScope && BUILTIN_NOTE_KINDS.indexOf(draft.kind || "") >= 0;
+    const picked = draft.types || [];
+    const typeChips = notesScope && !builtin ? `<h3>${tr("Notification types")}</h3><p class="phandle">${tr("Pick types, people, or both. With both, a notification must match each.")}</p><div class="note-type-chips" role="group" aria-label="${tr("Notification types")}">${NOTE_TYPES.map((key) => `<button class="note-type-chip${picked.indexOf(key) >= 0 ? " on" : ""}" type="button" role="checkbox" aria-checked="${picked.indexOf(key) >= 0 ? "true" : "false"}" data-act="feed-tab-type" data-type="${key}"><span>${esc(noteTypeLabel(key))}</span><i aria-hidden="true">${icon("tick")}</i></button>`).join("")}</div>` : "";
+    const alertSwitches = notesScope ? `<h3>${tr("Alerts for this tab")}</h3>${switches("push", tr("Push notifications"))}${switches("sound", tr("Sound"))}${switches("badge", tr("Unread badge"))}` : "";
+    const gameLinks = notesScope && draft.kind === "games" ? `<div class="note-game-links"><a href="#/settings/privacy" data-act="close-modal-go"><span>${tr("Who can send me game notifications")}</span>${icon("chevR")}</a><a href="#/settings/notifications" data-act="close-modal-go"><span>${tr("Game notification settings")}</span>${icon("chevR")}</a></div>` : "";
+    const accounts = builtin ? "" : `<h3>${tr("Accounts")}</h3><label class="x-search">${icon("search")}<input id="feed-tab-q" class="member-search" data-field="q" type="search" placeholder="${tr("Search accounts")}" aria-label="${tr("Search accounts")}" value="${esc(draft.q || "")}"></label>${memberRows.map((feed) => row(feed, true)).join("")}${extra.map((feed) => row(feed, true)).join("")}${found.map((feed) => row(feed, false)).join("")}${!memberRows.length && !extra.length && !q ? `<p class="phandle">${tr("Search to add accounts. Profiles with no tab stay in All.")}</p>` : ""}`;
+    const del = draft.id && !builtin ? `<button class="danger" type="button" data-act="ask-delete">${tr("Delete tab")}</button>` : "";
+    return `<div class="modal-back" data-act="close-modal"><div class="modal feed-tab-sheet" role="dialog" aria-label="${draft.id ? tr("Edit tab") : tr("New tab")}" data-act="stop"><div class="modal-head"><button class="icon-btn" type="button" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${draft.id ? tr("Edit tab") : tr("New tab")}</h2><button class="save" type="button" data-act="feed-tab-save"${String(draft.name || "").trim() ? "" : " disabled"}>${tr("Save")}</button></div><div class="modal-body"><label class="xf"><input id="feed-tab-name" data-field="name" placeholder=" " autocomplete="off" value="${esc(draft.name || "")}"><span>${tr("Name")}</span></label><label class="xf"><input id="feed-tab-emoji" data-field="emoji" placeholder=" " autocomplete="off" value="${esc(draft.emoji || "")}"><span>${tr("Emoji")} (${tr("Optional")})</span></label><div class="x-color"><span>${tr("Colour")}</span><div class="swatches">${swatches}</div></div>${homeSwitch}${switches("showNotes", tr("Show in Notifications"))}${gameLinks}${typeChips}${accounts}${alertSwitches}${notesScope ? "" : order}${del}</div></div></div>`;
   }
 
   function isStandalone() {
@@ -18503,7 +18738,18 @@ if (STATE.histClear) {
     }
     if (STATE.modal === "feed-tab") return feedTabEditor();
     if (STATE.modal === "tabs" && editingNoteTabs()) {
-      const rows = noteTabs().map((tab) => `<div class="acct-row tab-manage-row"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="who-copy"><span class="name">${esc(noteTabLabel(tab))}</span><span class="handle">${tab.showNotes === false ? tr("Hidden in Notifications") : tr("Show in Notifications")}</span></span><button class="outline" type="button" data-act="feed-tab-edit" data-scope="notes" data-id="${esc(tab.id)}">${tr("Edit")}</button></div>`).join("");
+      const list = allNoteTabs();
+      const rows = list.map((tab, index) => {
+        const label = noteTabLabel(tab);
+        const shown = tab.showNotes !== false;
+        const bits = [];
+        if (tab.types && tab.types.length) bits.push(tab.types.map(noteTypeLabel).join(", "));
+        if (tab.members && tab.members.length) bits.push(trn("members", tab.members.length));
+        if (tab.push === false) bits.push(tr("Push off"));
+        if (tab.sound === false) bits.push(tr("Sound off"));
+        const sub = shown ? (bits.join(" · ") || tr("Show in Notifications")) : tr("Hidden in Notifications");
+        return `<div class="acct-row tab-manage-row note-manage-row${shown ? "" : " is-hidden"}"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="who-copy"><span class="name">${esc(label)}</span><span class="handle">${esc(sub)}</span></span><span class="note-move"><button type="button" data-act="note-tab-move" data-id="${esc(tab.id)}" data-dir="-1" aria-label="${esc(tr("Move up") + ": " + label)}"${index === 0 ? " disabled" : ""}>${icon("arrowUp")}</button><button type="button" data-act="note-tab-move" data-id="${esc(tab.id)}" data-dir="1" aria-label="${esc(tr("Move down") + ": " + label)}"${index === list.length - 1 ? " disabled" : ""}>${icon("arrowDown")}</button></span><button class="tab-switch note-vis${shown ? " on" : ""}" type="button" role="switch" aria-checked="${shown ? "true" : "false"}" aria-label="${esc(tr("Show {name} in Notifications", { name: label }))}" data-act="note-tab-vis" data-id="${esc(tab.id)}"><i></i></button><button class="outline" type="button" data-act="feed-tab-edit" data-scope="notes" data-id="${esc(tab.id)}">${tr("Edit")}</button></div>`;
+      }).join("");
       return `<div class="modal-back" data-act="close-modal"><div class="modal" role="dialog" aria-label="${tr("Manage tabs")}" data-act="stop">
         <div class="modal-head"><button class="icon-btn" type="button" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${tr("Manage tabs")}</h2></div>
         <div class="modal-body">
@@ -21543,7 +21789,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           const route = parseRoute();
           if (route && route.name === "notifications") {
             const active = route.tab && route.tab !== "all" ? noteTabById(route.tab) : null;
-            const notes = active ? notesForTab(active) : ((STATE.settings && STATE.settings.bellNotes) || []);
+            const notes = active ? notesForTab(active) : notesForTab(null, (STATE.settings && STATE.settings.bellNotes) || []);
             return notes.map((note) => note && note.text).filter(Boolean).slice(0, 20);
           }
           const sorted = homeSorted(route || { tab: "foryou" });
@@ -22243,8 +22489,57 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "manage-tabs") {
       STATE.noteGear = false;
       STATE.tabMenu = null;
+      STATE.tabContext = null;
       STATE.tabScope = (!noteTabsSame() && parseRoute().name === "notifications") ? "notes" : "";
+      if (parseRoute().name === "notifications") ensureOwnNoteTabs();
       STATE.modal = "tabs";
+      render();
+      return;
+    }
+    if (act === "close-modal-go") {
+      STATE.modal = null;
+      STATE.draft = null;
+      return;
+    }
+    if (act === "note-tab-vis") {
+      const id = el.dataset.id || "";
+      STATE.tabContext = null;
+      ensureOwnNoteTabs();
+      const tab = noteTabs().find((item) => item.id === id && tabAlive(item));
+      if (!tab) { render(); return; }
+      tab.showNotes = tab.showNotes === false;
+      tab.updatedAt = Date.now();
+      if (tab.showNotes === false && STATE.settings.lastNoteTab === id) STATE.settings.lastNoteTab = "all";
+      saveSettings();
+      touchNoteTabs([id]);
+      const route = parseRoute();
+      if (tab.showNotes === false && route.name === "notifications" && route.tab === id) {
+        goHash("#/notifications");
+        return;
+      }
+      render();
+      return;
+    }
+    if (act === "note-tab-move") {
+      ensureOwnNoteTabs();
+      const ids = allNoteTabs().map((tab) => tab.id);
+      const at = ids.indexOf(el.dataset.id || "");
+      const to = at + (Number(el.dataset.dir) || 0);
+      if (at < 0 || to < 0 || to >= ids.length) return;
+      ids.splice(to, 0, ids.splice(at, 1)[0]);
+      applyFeedTabOrder(ids);
+      render();
+      return;
+    }
+    if (act === "feed-tab-type") {
+      if (!STATE.draft) return;
+      syncFeedTabDraft();
+      const key = el.dataset.type || "";
+      const list = cleanNoteTypes(STATE.draft.types);
+      const at = list.indexOf(key);
+      if (at >= 0) list.splice(at, 1);
+      else if (NOTE_TYPES.indexOf(key) >= 0) list.push(key);
+      STATE.draft.types = list;
       render();
       return;
     }
@@ -23141,12 +23436,19 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     }
     if (act === "feed-tab-new") {
       setTabScope(el);
+      if (el.dataset.scope !== "feed" && parseRoute().name === "notifications") ensureOwnNoteTabs();
+      STATE.noteGear = false;
       openFeedTabEditor("", el.dataset.id || "");
       return;
     }
     if (act === "feed-tab-edit") {
       setTabScope(el);
-      openFeedTabEditor(el.dataset.id || "");
+      let id = el.dataset.id || "";
+      if (el.dataset.scope !== "feed" && parseRoute().name === "notifications") {
+        ensureOwnNoteTabs();
+        if (!noteTabs().some((tab) => tab.id === id) && noteTabs().some((tab) => tab.id === "n" + id)) id = "n" + id;
+      }
+      openFeedTabEditor(id);
       return;
     }
     if (act === "feed-tab-save") {
@@ -23154,7 +23456,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "feed-tab-draft-flag") {
-      const key = el.dataset.key === "showNotes" ? "showNotes" : "showHome";
+      const key = ["showNotes", "push", "sound", "badge"].indexOf(el.dataset.key) >= 0 ? el.dataset.key : "showHome";
+      syncFeedTabDraft();
       if (!STATE.draft) STATE.draft = {};
       STATE.draft[key] = STATE.draft[key] === false;
       render();
@@ -23511,10 +23814,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
         if (editingNoteTabs() || (!noteTabsSame() && noteTabs().some((tab) => tab.id === id) && !feedTabById(id))) {
           const now = Date.now();
           STATE.settings.noteTabs = noteTabs().map((tab) => tab.id === id ? Object.assign({}, tab, { deletedAt: now, updatedAt: now, showNotes: false }) : tab);
-          const pending = notePending();
-          pending.tabs = true;
-          writeNotePending(pending);
-          scheduleNoteSync();
+          touchNoteTabs([id]);
         } else STATE.settings.feedTabs = feedTabs().filter((tab) => tab.id !== id);
         if (STATE.settings.lastNoteTab === id) STATE.settings.lastNoteTab = "all";
         STATE.confirm = null;
@@ -24033,12 +24333,14 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     }
     if (id === "notifications") {
       const now = route.name === "notifications" ? (route.tab || "all") : "";
-      const tabs = visibleNoteTabs().filter((tab) => tab && (tab.kind === "verified" || tab.kind === "mentions"));
+      const tabs = visibleNoteTabs().filter((tab) => tab && (tab.kind === "verified" || tab.kind === "mentions" || tab.kind === "games"));
       const mentions = tabs.find((tab) => tab.kind === "mentions");
       const verified = tabs.find((tab) => tab.kind === "verified");
+      const games = tabs.find((tab) => tab.kind === "games");
       const rows = [navRow(tr("All"), { "data-act": "note-tab", "data-tab": "all" }, { icon: "bell", on: now === "all" })];
       if (mentions) rows.push(navRow(noteTabLabel(mentions), { "data-act": "note-tab", "data-tab": mentions.id }, { icon: "reply", on: now === mentions.id }));
       if (verified) rows.push(navRow(noteTabLabel(verified), { "data-act": "note-tab", "data-tab": verified.id }, { icon: "check", on: now === verified.id }));
+      if (games) rows.push(navRow(noteTabLabel(games), { "data-act": "note-tab", "data-tab": games.id }, { icon: "games", on: now === games.id }));
       return rows.concat([navSep(), navRow(tr("Mark all as read"), { "data-act": "note-mark-all" }, { icon: "tick" })]);
     }
     if (id === "messages") {
@@ -28330,6 +28632,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   let noteApplying = false;
   let notesPhase = "idle";
   let notesAgain = false;
+  let noteTabsSeeded = false;
   let hubPoll = 0;
   let channelBound = false;
 
@@ -28476,7 +28779,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     if (data.type === "tabs" && Array.isArray(data.tabs)) {
       STATE.settings.noteTabs = cleanFeedTabs(mergeLocalTabs(STATE.settings.noteTabs || [], data.tabs));
+      if (data.noteTabsSame === false) STATE.settings.noteTabsSame = false;
       if (data.lastNoteTab) STATE.settings.lastNoteTab = data.lastNoteTab;
+      if (data.more) scheduleNoteSync();
       saveSettings();
       if (parseRoute().name === "notifications") render();
     }
@@ -28506,8 +28811,26 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (items.length) body.items = items;
       if (sent.until) body.until = sent.until;
       if (sent.ids && sent.ids.length) body.ids = sent.ids.slice(-80);
+      let tabBase = [];
+      const tabSentAt = {};
       if (sent.tabs && STATE.settings) {
-        body.tabs = noteTabs();
+        /* Only the tabs changed on this device go up, in pieces small enough
+           for one request; there is no limit on how many tabs there are. */
+        const all = noteTabs();
+        tabBase = Array.isArray(sent.tabIds) ? sent.tabIds.slice() : all.map((tab) => tab.id);
+        const chunk = [];
+        let size = 0;
+        tabBase.forEach((id) => {
+          const tab = all.find((item) => item.id === id);
+          if (!tab) return;
+          const len = JSON.stringify(tab).length + 1;
+          if (chunk.length && size + len > 600000) return;
+          chunk.push(tab);
+          size += len;
+          tabSentAt[id] = Number(tab.updatedAt) || 0;
+        });
+        tabBase.forEach((id) => { if (!all.some((item) => item.id === id)) tabSentAt[id] = 0; });
+        body.tabs = chunk;
         body.noteTabsSame = STATE.settings.noteTabsSame !== false;
         body.lastNoteTab = STATE.settings.lastNoteTab || "all";
       }
@@ -28532,7 +28855,35 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       rememberAcked(items.map((item) => item.id).concat((res.items || []).map((item) => item.id)));
       const nowPending = notePending();
       if (sent.until && Number(nowPending.until) === Number(sent.until)) delete nowPending.until;
-      if (sent.tabs) delete nowPending.tabs;
+      if (sent.tabs) {
+        const later = nowPending.tabIds;
+        if (later === "all" && sent.tabIds !== "all") {
+          again = true;
+        } else {
+          const ids = tabBase.concat(Array.isArray(later) ? later : []);
+          const left = [];
+          ids.forEach((id) => {
+            if (left.indexOf(id) >= 0) return;
+            if (!(id in tabSentAt)) { left.push(id); return; }
+            const tab = noteTabs().find((item) => item.id === id);
+            if (tab && (Number(tab.updatedAt) || 0) > tabSentAt[id]) left.push(id);
+          });
+          if (left.length) {
+            nowPending.tabs = true;
+            nowPending.tabIds = left;
+            again = true;
+          } else {
+            delete nowPending.tabs;
+            delete nowPending.tabIds;
+          }
+        }
+      } else if (!noteTabsSeeded && !nowPending.tabs && STATE.settings && STATE.settings.noteTabsSame === false && !(Array.isArray(res.tabs) && res.tabs.length) && noteTabs().length) {
+        /* The account has no copy of this device's tabs yet: send them all. */
+        noteTabsSeeded = true;
+        nowPending.tabs = true;
+        nowPending.tabIds = "all";
+        again = true;
+      }
       if (sent.bells) delete nowPending.bells;
       if (sent.prefs) delete nowPending.prefs;
       if (sent.tab) delete nowPending.tab;
@@ -28759,10 +29110,24 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     else paintBellBadge();
   }
 
+  /* Per-tab push and sound, matching tabPushRule on the server: a
+     notification that only falls in tabs with push off stays in the list
+     without an alert; one in tabs with sound off alerts quietly. */
+  function noteTabRule(note) {
+    const hit = visibleNoteTabs().filter((tab) => notesForTab(tab, [note]).length > 0);
+    if (!hit.length) return { push: true, sound: true };
+    return {
+      push: hit.some((tab) => tab.push !== false),
+      sound: hit.some((tab) => tab.push !== false && tab.sound !== false)
+    };
+  }
+
   function showLocalNotification(note) {
     if (noteHidden(note)) return;
     if (window.ViktorychPresence && window.ViktorychPresence.mutesNotices && window.ViktorychPresence.mutesNotices()) return;
-    if (window.ViktorychPresence && window.ViktorychPresence.chime) window.ViktorychPresence.chime();
+    const rule = noteTabRule(note);
+    if (!rule.push) return;
+    if (rule.sound && window.ViktorychPresence && window.ViktorychPresence.chime) window.ViktorychPresence.chime();
     const NP = window.ViktorychNotifPrivacy;
     const np = notifPrivacy();
     if (document.visibilityState === "visible") {
@@ -28775,7 +29140,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       const item = new Notification(shown ? shown.title : (note.name || ("@" + (note.handle || "post"))), {
         body: shown ? shown.body : (note.text || tr("New post")),
         icon: shown ? shown.icon : (note.avatar || "icons/icon-192.png"),
-        tag: "note-" + note.id
+        tag: "note-" + note.id,
+        silent: !rule.sound
       });
       item.onclick = () => {
         window.focus();
@@ -28792,7 +29158,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       showLocalNotification(note);
       return;
     }
-    if (window.ViktorychPresence && window.ViktorychPresence.chime) window.ViktorychPresence.chime();
+    const pageRule = noteTabRule(note);
+    if (!pageRule.push) return;
+    if (pageRule.sound && window.ViktorychPresence && window.ViktorychPresence.chime) window.ViktorychPresence.chime();
     const NP = window.ViktorychNotifPrivacy;
     const np = notifPrivacy();
     const shown = NP && np ? NP.present(Object.assign({ kind: "post" }, note), np, { title: note.name || ("@" + (note.handle || "post")) }) : null;

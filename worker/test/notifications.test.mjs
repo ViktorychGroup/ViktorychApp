@@ -257,6 +257,70 @@ test("two devices share notes, read state, and the account channel", async () =>
   assert.equal(Number(sessions.n), 0);
 });
 
+test("notification tabs sync across two devices, merge per tab, and have no count cap", async () => {
+  const me = await signup("203.0.113.80", "tab_sync", "Tab Sync");
+  const second = await call("/v1/login", { method: "POST", ip: "203.0.113.81", body: { accountNumber: me.accountNumber } });
+  if (second.status !== 200 || !second.body || !second.body.token) throw new Error("second device failed");
+  const phone = me.token;
+  const desk = second.body.token;
+  const t0 = 1700000000000;
+  const legacy = { id: "legacy", name: "Old tab", members: ["x:someone"], updatedAt: t0 - 5 };
+  /* An account that saved tabs before per-tab rows keeps them. */
+  await one("INSERT INTO notification_state (public_id, read_until, tabs, bells_at, updated_at) VALUES (?, 0, ?, 0, ?) ON CONFLICT(public_id) DO UPDATE SET tabs = excluded.tabs", me.account.publicId, JSON.stringify({ tabs: [legacy], noteTabsSame: false, lastNoteTab: "all" }), t0);
+  const a = await call("/v1/notifications", {
+    method: "POST", ip: "203.0.113.82", token: phone,
+    body: { tabs: [
+      { id: "games", name: "games", kind: "games", pos: 0, updatedAt: t0 },
+      { id: "friends", name: "Friends", types: ["friend_request", "follow"], push: true, sound: false, pos: 1, updatedAt: t0 },
+      { id: "work", name: "Work", members: ["x:a"], pos: 2, updatedAt: t0 }
+    ], noteTabsSame: false }
+  });
+  assert.equal(a.status, 200);
+  assert.deepEqual(a.body.tabs.map((tab) => tab.id).sort(), ["friends", "games", "legacy", "work"]);
+  /* The desk renames Friends and adds a tab; the phone, offline, still has
+     the old Friends and deletes Work. Neither wipes the other. */
+  const b = await call("/v1/notifications", {
+    method: "POST", ip: "203.0.113.83", token: desk,
+    body: { tabs: [
+      { id: "friends", name: "Pals", types: ["friend_request", "follow", "game_invite"], push: false, sound: false, pos: 1, updatedAt: t0 + 10 },
+      { id: "deskonly", name: "Desk", types: ["dm"], pos: 3, updatedAt: t0 + 11 }
+    ] }
+  });
+  assert.equal(b.status, 200);
+  const c = await call("/v1/notifications", {
+    method: "POST", ip: "203.0.113.84", token: phone,
+    body: { tabs: [
+      { id: "friends", name: "Friends", types: ["friend_request", "follow"], push: true, pos: 1, updatedAt: t0 + 1 },
+      { id: "work", name: "Work", members: ["x:a"], pos: 2, updatedAt: t0 + 12, deletedAt: t0 + 12 }
+    ] }
+  });
+  assert.equal(c.status, 200);
+  for (const token of [phone, desk]) {
+    const view = await call("/v1/notifications", { ip: "203.0.113.85", token });
+    assert.equal(view.status, 200);
+    const byId = {};
+    view.body.tabs.forEach((tab) => { byId[tab.id] = tab; });
+    assert.equal(byId.friends.name, "Pals");
+    assert.deepEqual(byId.friends.types, ["friend_request", "follow", "game_invite"]);
+    assert.equal(byId.friends.push, false);
+    assert.equal(byId.deskonly.name, "Desk");
+    assert.ok(byId.work.deletedAt >= t0 + 12);
+    assert.equal(byId.legacy.name, "Old tab");
+    assert.equal(byId.games.kind, "games");
+    assert.equal(view.body.noteTabsSame, false);
+    assert.deepEqual(view.body.tabs.slice(0, 2).map((tab) => tab.id), ["games", "friends"]);
+  }
+  const rows = await one("SELECT COUNT(*) AS n FROM notification_tabs WHERE public_id = ?", me.account.publicId);
+  assert.equal(Number(rows.n), 5);
+  /* No cap: 700 tabs in one save all come back. */
+  const many = [];
+  for (let i = 0; i < 700; i++) many.push({ id: "bulk" + i, name: "Tab " + i, types: ["like"], pos: 10 + i, updatedAt: t0 + 100 + i });
+  const big = await call("/v1/notifications", { method: "POST", ip: "203.0.113.86", token: desk, body: { tabs: many } });
+  assert.equal(big.status, 200);
+  const after = await call("/v1/notifications", { ip: "203.0.113.87", token: phone });
+  assert.equal(after.body.tabs.length, 705);
+});
+
 test("notification links drop account IDs but keep invite and pairing tokens whole", () => {
   // A game invite id can end in 12 digits by chance; cutting it broke the link.
   assert.equal(scrubNoteHash("#/games/regone?invite=3681e391a79b790448272536"), "#/games/regone?invite=3681e391a79b790448272536");
