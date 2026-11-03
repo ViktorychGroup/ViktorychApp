@@ -194,6 +194,13 @@ test("live invite: send with room and note, Join, expiry, decline, blocks and mu
   assert.equal(mine.body.sent[0].status, "joined");
   const ach = await ana.as("/v1/games/achievements");
   assert.ok(ach.body.achievements.some((a) => a.id === "invite_joined"));
+  // Notifications > Games: the inviter hears that a friend joined and
+  // gets a note for each new achievement.
+  const anaBell = await ana.as("/v1/notifications");
+  const joinNote = (anaBell.body.items || []).find((item) => item.kind === "game_join");
+  assert.ok(joinNote && joinNote.hash === "#/games/regone");
+  assert.match(joinNote.text, /NZlay Large 01 - EU/);
+  assert.ok((anaBell.body.items || []).some((item) => item.kind === "game_achievement" && item.text === "invite_joined"));
 
   // The room bo joined is visible to friends, grouped by room on the page.
   const rooms = await ana.as("/v1/games/friends-rooms");

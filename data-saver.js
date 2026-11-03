@@ -31,7 +31,7 @@
     ["settings", "imageLoad", "wifi", "always", "photos download on Wi-Fi or on tap"],
     ["settings", "imageSize", "small", "auto", "smaller previews the source already serves"],
     ["settings", "linkPreviews", "text", "full", "link card images"],
-    ["settings", "showPictures", "default", "show", "profile pictures"],
+    ["settings", "showPictures", "show", "show", "profile pictures"],
     ["settings", "showBanners", "default", "show", "profile banners"],
     ["settings", "homePills", false, true, "weather, scores and live pills polling"],
     ["settings", "stories", false, true, "stories tray and media"],

@@ -72,11 +72,17 @@
     return src && typeof src.badge === "function" ? src.badge(row) : "";
   }
 
+  function shownName(row) {
+    var raw = row.name || row.handle;
+    var nk = (typeof window !== "undefined" ? window.ViktorychNick : null);
+    return nk && row.handle ? nk.name(row.platform || "app", row.handle, raw) : raw;
+  }
+
   function rowHtml(row, i) {
     var face = row.avatar ? '<img class="mention-av" alt="" src="' + esc(row.avatar) + '" width="40" height="40" loading="lazy" decoding="async">'
       : '<span class="mention-av mention-av-empty" aria-hidden="true">' + esc(String(row.name || row.handle || "?").slice(0, 1).toUpperCase()) + "</span>";
     return '<div class="mention-row' + (i === state.active ? " on" : "") + '" role="option" id="mention-opt-' + i + '" aria-selected="' + (i === state.active ? "true" : "false") + '" data-mention-index="' + i + '">'
-      + face + '<span class="mention-copy"><span class="mention-name">' + esc(row.name || row.handle) + badge(row) + '</span><span class="mention-handle">@' + esc(row.handle) + "</span></span></div>";
+      + face + '<span class="mention-copy"><span class="mention-name">' + esc(shownName(row)) + badge(row) + '</span><span class="mention-handle">@' + esc(row.handle) + "</span></span></div>";
   }
 
   /* Where the caret sits, by laying the text out again in a hidden copy. */

@@ -417,10 +417,29 @@
     return "(" + (count > 20 ? "20+" : String(count)) + ") " + base;
   }
 
+  // feeds() runs for every card on every paint, so the filtered list is
+  // remembered per (source list, shorts lock, locked-follows filter) and the
+  // locked-follows pass is skipped when nothing is locked.
+  const FEEDS_MEMO = { src: null, key: "", out: null, live: false };
   function feeds() {
-    let list = (STATE.data && STATE.data.feeds) || [];
-    if (isShortsLocked()) {
+    const src = (STATE.data && STATE.data.feeds) || [];
+    const shorts = isShortsLocked();
+    const locked = window.ViktorychLocked;
+    const lockOn = !!(locked && locked.hidesId && (!locked.active || locked.active()));
+    const key = src.length + (shorts ? "s" : "") + "|" + (lockOn ? (locked.version ? locked.version() : "") : "-");
+    // TikTok unlocks can change between tasks, so with shorts locked the
+    // answer is only kept until the current task ends.
+    if (FEEDS_MEMO.src === src && FEEDS_MEMO.key === key && (!lockOn || locked.version) && (!shorts || FEEDS_MEMO.live)) return FEEDS_MEMO.out;
+    let list = src;
+    if (shorts) {
       list = list.filter((feed) => !isLockedTiktok(feed));
+    }
+    if (lockOn && list.some((feed) => feed && locked.hidesId(feed.id))) list = list.filter((feed) => !(feed && locked.hidesId(feed.id)));
+    FEEDS_MEMO.src = src; FEEDS_MEMO.key = key; FEEDS_MEMO.out = list;
+    if (shorts && !FEEDS_MEMO.live) {
+      FEEDS_MEMO.live = true;
+      const drop = () => { FEEDS_MEMO.live = false; };
+      if (typeof queueMicrotask === "function") queueMicrotask(drop); else Promise.resolve().then(drop);
     }
     return list;
   }
@@ -592,6 +611,7 @@
   const IA_WAIT_MS = 2500;
   function useArchiveMedia(img) {
     if (!img || img.tagName !== "IMG") return false;
+    if (img.dataset.fallback === "avatar") return false;
     if (!IA.ready) {
       if (img.dataset.iaSkip === "1") return false;
       img.dataset.iaWait = "1";
@@ -667,14 +687,14 @@
     if (tryDeviceRelay(img)) return;
     if (tryRuProxyFallback(img)) return;
     if (img.dataset.fallback === "avatar") {
-      /* Like X: a picture that cannot load shows the default silhouette. */
+      const letter = img.dataset.initials || "?";
       const span = document.createElement("span");
-      const cls = String(img.className || "").split(/\s+/).filter((name) => name && name !== "initials");
+      const cls = String(img.className || "").split(/\s+/).filter((name) => name && name !== "silhouette");
       if (cls.indexOf("ava") < 0) cls.unshift("ava");
-      cls.push("silhouette");
+      if (cls.indexOf("initials") < 0) cls.push("initials");
       span.className = cls.join(" ");
       span.setAttribute("aria-hidden", "true");
-      span.innerHTML = SILHOUETTE_SVG;
+      span.textContent = letter;
       img.replaceWith(span);
       return;
     }
@@ -715,6 +735,7 @@
     sweepTimer = setTimeout(() => sweepBrokenImages(), ms == null ? 1500 : ms);
   }
   window.ViktorychMediaFallback = { sweep: sweepBrokenImages };
+  window.ruSafeImageUrl = ruSafeImageUrl;
 
   /* Tell the service worker to forget a stored copy of a picture that did not
      load, so a cached failure never sticks to this device. */
@@ -1023,7 +1044,7 @@
       if (!item || !item.id || out.length >= 80) return;
       if (noFriends && (item.kind === "friend_request" || item.kind === "friend_accept")) return;
       const hash = String(item.hash || "#/");
-      const kinds = { post: 1, mention: 1, reply: 1, quote: 1, like: 1, repost: 1, follow: 1, follow_request: 1, follow_accept: 1, friend_request: 1, friend_accept: 1, dm: 1, discord: 1, live: 1, game_invite: 1, tv_signin: 1, community_note: 1, feed_request: 1, feed_approved: 1, feed_rejected: 1 };
+      const kinds = { post: 1, mention: 1, reply: 1, quote: 1, like: 1, repost: 1, follow: 1, follow_request: 1, follow_accept: 1, friend_request: 1, friend_accept: 1, dm: 1, discord: 1, live: 1, game_invite: 1, game_join: 1, game_achievement: 1, game_board: 1, tv_signin: 1, community_note: 1, feed_request: 1, feed_approved: 1, feed_rejected: 1 };
       out.push({
         id: String(item.id).slice(0, 160),
         at: Number(item.at) || 0,
@@ -1068,7 +1089,7 @@
     const out = [];
     const seen = {};
     list.forEach((item) => {
-      if (!item || out.length >= 500) return;
+      if (!item) return;
       const id = String(item.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
       const name = clipTabName(item.name);
       if (!id || !name || seen[id]) return;
@@ -1086,15 +1107,138 @@
         color: tabColor(item.color),
         showHome: item.showHome !== false,
         showNotes: item.showNotes !== false,
-        kind: item.kind === "verified" || item.kind === "mentions" ? item.kind : "",
+        kind: BUILTIN_NOTE_KINDS.indexOf(item.kind) >= 0 ? item.kind : "",
         members: members,
+        types: cleanNoteTypes(item.types),
+        push: item.push !== false,
+        sound: item.sound !== false,
+        badge: item.badge !== false,
         readAt: Number(item.readAt) || 0,
         updatedAt: Number(item.updatedAt) || 0,
         deletedAt: Number(item.deletedAt) || 0,
         sort: item.sort === "popular" ? "popular" : "recent"
       });
+      if (isFinite(Number(item.pos)) && item.pos !== null && item.pos !== undefined && item.pos !== "") out[out.length - 1].pos = Number(item.pos);
     });
     return out;
+  }
+
+  /* Notification tabs. Built-in tabs (Mentions, Verified, Games) can be
+     renamed, hidden and moved like the others; custom tabs filter by
+     notification type, by people, or both. There is no cap on the number
+     of tabs. */
+  const BUILTIN_NOTE_KINDS = ["mentions", "verified", "games"];
+  const NOTE_TYPES = ["game_invite", "game_other", "friend_request", "follow", "like", "repost", "reply", "mention", "quote", "dm", "discord", "feed_request", "post", "system"];
+
+  function cleanNoteTypes(list) {
+    const out = [];
+    (Array.isArray(list) ? list : []).forEach((item) => {
+      const key = String(item || "");
+      if (NOTE_TYPES.indexOf(key) >= 0 && out.indexOf(key) < 0) out.push(key);
+    });
+    return out;
+  }
+
+  function noteTypeLabel(key) {
+    const map = {
+      game_invite: tr("Game invites"),
+      game_other: tr("Other game alerts"),
+      friend_request: tr("Friend requests"),
+      follow: tr("Follows"),
+      like: tr("Likes"),
+      repost: tr("Reposts"),
+      reply: tr("Replies"),
+      mention: tr("Mentions"),
+      quote: tr("Quotes"),
+      dm: tr("Direct messages"),
+      discord: tr("Discord"),
+      feed_request: tr("Source requests"),
+      post: tr("New posts"),
+      system: tr("System")
+    };
+    return map[key] || key;
+  }
+
+  /* Same mapping as noteTypeKey in worker/src/notifications.js. */
+  function noteTypeKey(note) {
+    const k = String((note && note.kind) || "");
+    if (k === "game_invite") return "game_invite";
+    if (/^game_/.test(k)) return "game_other";
+    if (k === "friend_request" || k === "friend_accept") return "friend_request";
+    if (k === "follow" || k === "follow_request" || k === "follow_accept") return "follow";
+    if (k === "like" || k === "repost" || k === "reply" || k === "quote" || k === "dm" || k === "discord") return k;
+    if (k === "mention" || (note && note.mention === true && !k)) return "mention";
+    if (k === "feed_request" || k === "feed_approved" || k === "feed_rejected") return "feed_request";
+    if (!k || k === "post" || k === "live") return "post";
+    return "system";
+  }
+
+  function noteIsGame(note) {
+    const type = noteTypeKey(note);
+    return type === "game_invite" || type === "game_other";
+  }
+
+  function sortNoteTabs(list) {
+    return list.map((tab, index) => ({ tab, index })).sort((a, b) => {
+      const pa = a.tab.pos;
+      const pb = b.tab.pos;
+      const ha = typeof pa === "number";
+      const hb = typeof pb === "number";
+      if (ha && hb && pa !== pb) return pa - pb;
+      if (ha !== hb) return ha ? -1 : 1;
+      return a.index - b.index;
+    }).map((row) => row.tab);
+  }
+
+  /* Marks note tabs as changed so the next sync sends just those (or all of
+     them when ids is empty). */
+  function touchNoteTabs(ids) {
+    const pending = notePending();
+    pending.tabs = true;
+    if (Array.isArray(ids) && ids.length && pending.tabIds !== "all") {
+      const list = Array.isArray(pending.tabIds) ? pending.tabIds : [];
+      ids.forEach((id) => { if (id && list.indexOf(id) < 0) list.push(id); });
+      pending.tabIds = list;
+    } else pending.tabIds = "all";
+    writeNotePending(pending);
+    scheduleNoteSync();
+  }
+
+  /* Customizing Notifications gives it its own tab set (copied from the
+     feed tabs the first time) with the three built-in tabs in it. */
+  function ensureOwnNoteTabs() {
+    if (!STATE.settings) return;
+    let changed = false;
+    if (noteTabsSame()) {
+      STATE.settings.noteTabs = seedNoteTabs();
+      STATE.settings.noteTabsSame = false;
+      changed = true;
+    }
+    const tabs = noteTabs();
+    const now = Date.now();
+    BUILTIN_NOTE_KINDS.forEach((kind) => {
+      if (tabs.some((tab) => tab.kind === kind && tab.id === kind)) return;
+      if (tabs.some((tab) => tab.id === kind)) return;
+      const base = builtinNoteTab(kind);
+      base.updatedAt = now;
+      tabs.push(base);
+      changed = true;
+    });
+    if (tabs.some((tab) => typeof tab.pos !== "number")) {
+      const order = sortNoteTabs(tabs.filter(tabAlive));
+      const builtins = ["mentions", "verified", "games"];
+      const lead = builtins.map((kind) => order.find((tab) => tab.kind === kind)).filter(Boolean);
+      const rest = order.filter((tab) => lead.indexOf(tab) < 0);
+      lead.concat(rest).forEach((tab, index) => {
+        if (tab.pos !== index) { tab.pos = index; tab.updatedAt = now; }
+      });
+      changed = true;
+    }
+    if (changed) {
+      saveSettings();
+      touchNoteTabs();
+    }
+    STATE.tabScope = "notes";
   }
 
   function cleanLastNoteTab(value, tabs) {
@@ -1129,28 +1273,38 @@
   }
 
   function builtinNoteTab(kind) {
-    return { id: kind, name: kind, kind: kind, emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: Number((STATE.settings && STATE.settings.builtinNoteRead && STATE.settings.builtinNoteRead[kind]) || 0), sort: "recent" };
+    return { id: kind, name: kind, kind: kind, emoji: "", color: "", showHome: false, showNotes: true, members: [], types: [], push: true, sound: true, badge: true, readAt: Number((STATE.settings && STATE.settings.builtinNoteRead && STATE.settings.builtinNoteRead[kind]) || 0), sort: "recent" };
+  }
+
+  /* Every note tab in order, hidden ones included; built-in tabs the person
+     never touched sit first in X's order. */
+  function allNoteTabs() {
+    const list = sortNoteTabs((noteTabsSame() ? feedTabs() : noteTabs()).filter((tab) => tabAlive(tab)));
+    const lead = [];
+    BUILTIN_NOTE_KINDS.forEach((kind) => {
+      if (!list.some((tab) => tab.kind === kind)) lead.push(builtinNoteTab(kind));
+    });
+    return lead.concat(list);
   }
 
   function visibleNoteTabs() {
-    const list = (noteTabsSame() ? feedTabs() : noteTabs()).filter((tab) => tabAlive(tab) && tab.showNotes !== false);
-    const verified = list.find((tab) => tab.kind === "verified") || builtinNoteTab("verified");
-    const mentions = list.find((tab) => tab.kind === "mentions") || builtinNoteTab("mentions");
-    const rest = list.filter((tab) => tab !== verified && tab !== mentions && tab.kind !== "verified" && tab.kind !== "mentions");
-    return [verified, mentions].concat(rest);
+    return allNoteTabs().filter((tab) => tab.showNotes !== false);
   }
 
   function noteTabById(id) {
     const wanted = String(id || "");
     const list = noteTabsSame() ? feedTabs() : noteTabs();
     const found = list.find((tab) => tab.id === wanted) || null;
-    return tabAlive(found) ? found : null;
+    if (found) return tabAlive(found) ? found : null;
+    if (BUILTIN_NOTE_KINDS.indexOf(wanted) >= 0 && !list.some((tab) => tab.kind === wanted && tabAlive(tab))) return builtinNoteTab(wanted);
+    return null;
   }
 
   function noteTabLabel(tab) {
     if (!tab) return "";
     if (tab.kind === "verified" && (tab.name === "verified" || tab.name === "Verified")) return tr("Note tab verified");
     if (tab.kind === "mentions" && (tab.name === "mentions" || tab.name === "Mentions")) return tr("Mentions");
+    if (tab.kind === "games" && (tab.name === "games" || tab.name === "Games")) return tr("Games");
     return tab.name;
   }
 
@@ -1159,10 +1313,11 @@
     if (have.length) return have;
     const tabs = [
       { id: "verified", name: "verified", kind: "verified", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" },
-      { id: "mentions", name: "mentions", kind: "mentions", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" }
+      { id: "mentions", name: "mentions", kind: "mentions", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" },
+      { id: "games", name: "games", kind: "games", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" }
     ];
     feedTabs().forEach((tab) => {
-      if (!tab || tab.showNotes === false || tab.kind === "verified" || tab.kind === "mentions") return;
+      if (!tab || tab.showNotes === false || BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0) return;
       const id = ("n" + tab.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
       if (!id || tabs.some((item) => item.id === id)) return;
       tabs.push({
@@ -1174,7 +1329,9 @@
         showHome: false,
         showNotes: true,
         members: (tab.members || []).slice(),
+        types: cleanNoteTypes(tab.types),
         readAt: Number(tab.readAt) || 0,
+        updatedAt: Date.now(),
         sort: tab.sort === "popular" ? "popular" : "recent"
       });
     });
@@ -1353,7 +1510,7 @@ const fresh = () => ({ version: 1, initialized: true, follows: configured.slice(
       parsed.privacyZeroTrace = parsed.privacyZeroTrace === true;
       parsed.privacyAntiFingerprint = parsed.privacyAntiFingerprint !== false;
       if (!parsed.appearance) parsed.appearance = "lightsout";
-      if (parsed.showPictures !== "default" && parsed.showPictures !== "none") parsed.showPictures = "show";
+      if (parsed.showPictures !== "none") parsed.showPictures = "show";
       if (parsed.showBanners !== "default" && parsed.showBanners !== "none") parsed.showBanners = "show";
       if (parsed.notify !== true) parsed.notify = false;
       if (parsed.autoplay !== "wifi" && parsed.autoplay !== "never") parsed.autoplay = "all";
@@ -1514,8 +1671,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return String(left || "").toLowerCase() === String(right || "").toLowerCase();
   }
   function isFollowed(id) {
+    if (id && window.ViktorychLocked && window.ViktorychLocked.hidesId && window.ViktorychLocked.hidesId(id)) return false;
     const list = String(id || "").indexOf("app:") === 0 ? (STATE.settings.accountFollows || []) : (STATE.settings.follows || []);
-    return list.some((item) => sameFollowId(item, id));
+    if (list.some((item) => sameFollowId(item, id))) return true;
+    /* A merged linked profile counts as followed when its internal profile is. */
+    const alias = window.LinkedProfiles ? window.LinkedProfiles.followIds(id) : [];
+    return !!alias.length && (STATE.settings.accountFollows || []).some((item) => alias.some((other) => sameFollowId(item, other)));
   }
   function setFollowed(id, on) {
     if (!id) return;
@@ -1534,7 +1695,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
   }
   function applyFollow(ids, on) {
-    const list = (ids || []).map((item) => String(item || "").trim()).filter(Boolean);
+    /* Following a merged linked profile follows its internal profile. */
+    const lp = window.LinkedProfiles;
+    const list = (ids || []).map((item) => String(item || "").trim()).filter(Boolean).map((item) => lp ? lp.followId(item) : item).filter((item, at, all) => all.indexOf(item) === at);
     if (!list.length) return;
     const accounts = window.ViktorychAccounts;
     const ready = [];
@@ -1653,11 +1816,20 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
 
   function profileHash(platform, handle) {
     if (!handle) return "#/";
+    /* #/@name is also an internal profile, so only other platforms redirect here. */
+    if ((platform || "x") !== "x" && window.LinkedProfiles) {
+      const merged = window.LinkedProfiles.hashFor(platform, handle);
+      if (merged) return merged;
+    }
     if ((platform || "x") === "x") return `#/@${encodeURIComponent(handle)}`;
     return `#/${encodeURIComponent(platform)}/${encodeURIComponent(handle)}`;
   }
   function userHash(platform, handle) {
     if (!handle) return "#/";
+    if (window.LinkedProfiles) {
+      const merged = window.LinkedProfiles.hashFor(platform, handle);
+      if (merged) return merged;
+    }
     return "#/u/" + encodeURIComponent(platform || "x") + "/" + encodeURIComponent(handle);
   }
   let ownerAdded = [];
@@ -1789,7 +1961,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -1855,6 +2027,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     loadOwnerFeatures();
     const off = (ownerFeatureState && ownerFeatureState.off) || serverOffList();
     const labels = {
+      contacts: [tr("Contacts"), tr("The Contacts address book on this device, with dialer protocol handling and contact sync.")],
       shorts: [tr("Shorts"), tr("Shorts pages, TikTok live watching and its cron work.")],
       stories: [tr("Stories"), tr("Story uploads, the story bar and expiry sweeps.")],
       lives: [tr("Lives"), tr("Going live, the live row and live sweeps.")],
@@ -1871,7 +2044,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       nft: [tr("Gift NFTs"), tr("Lets people make a collectible NFT of a gift with our own art, from their own wallet. Off until you turn it on and set the contract.")],
       bitchat: [tr("Nearby chat (Bitchat)"), tr("The backup chat offered when nothing else loads: Bluetooth on the TV app, public Nostr area chat in browsers.")],
       feed_requests: [tr("Source requests"), tr("Only you add accounts and feeds. Others press the same buttons to send you a request you allow, block or ban.")],
-      friends_off: [tr("Friends switch"), tr("Lets each person turn Friends off: no friend requests, no friends lists, counts or online status.")]
+      friends_off: [tr("Friends switch"), tr("Lets each person turn Friends off: no friend requests, no friends lists, counts or online status.")],
+      owner_inspector: [tr("Owner inspector"), tr("Accounts in Settings: every account with all its usernames and details, only for you. Each look is logged.")],
+      local_ai: [tr("Local AI"), tr("The Local AI page that changes settings from plain words. Models run on each person's device; nothing is sent to us.")],
+      local_ai_setup: [tr("Local AI setup"), tr("Everyone sets up Local AI once before the chat opens: device check, model download, a quick test and preferences. Off opens the chat straight away.")],
+      ext_nicknames: [tr("Custom names"), tr("Lets people give any account, from any network, a private name only they see.")],
+      merged_profiles: [tr("Merged linked profiles"), tr("Linked profiles set to merge show on their owner's profile, and their own pages, links and follows lead there.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -2062,6 +2240,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   }
   function accountHash(platform, handle) {
     if ((platform || "") === "app") return profileHash("x", handle);
+    if (window.LinkedProfiles) {
+      const merged = window.LinkedProfiles.hashFor(platform, handle);
+      if (merged) return merged;
+    }
     if (window.FeedsPeople) {
       const merged = window.FeedsPeople.hashFor(platform, handle);
       if (merged) return merged;
@@ -2070,6 +2252,47 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (feed && feed.handle) return profileHash(feed.platform, feed.handle);
     return userHash(platform, handle);
   }
+  /* Private custom names (nicknames.js). Keys: the account as the feed knows
+     it (platform plus handle, channel id or feed id) first, so a name set on
+     one account wins, then the merged person, so one name covers them all. */
+  function nickOn() { return !!window.ViktorychNicknames && !serverOffList().includes("ext_nicknames"); }
+  function nickAliases(platform, handle) {
+    const N = window.ViktorychNicknames;
+    const p = String(platform || "x");
+    const h = String(handle || "").replace(/^@/, "");
+    const keys = [];
+    const add = (pl, id) => { const key = N.keyOf(pl, id); if (key && keys.indexOf(key) < 0) keys.push(key); };
+    add(p, h);
+    let feed = null;
+    try { feed = catalogAccount(p, h) || (p.indexOf(":") < 0 ? feedById(p + ":" + h) : null); } catch (err) { feed = null; }
+    if (feed) {
+      add(feed.platform || p, feed.handle);
+      if (feed.channelId) add(feed.platform || p, feed.channelId);
+      if (feed.id && String(feed.id).indexOf(":") > 0) add(String(feed.id).slice(0, String(feed.id).indexOf(":")), String(feed.id).slice(String(feed.id).indexOf(":") + 1));
+    }
+    if (window.FeedsPeople && window.FeedsPeople.match) {
+      const person = window.FeedsPeople.match(p, h) || (feed ? window.FeedsPeople.match(feed.platform, feed.handle) : null);
+      if (person && person.id) keys.push("person:" + String(person.id).toLowerCase());
+    }
+    return keys;
+  }
+  function nickName(platform, handle, fallback) {
+    if (!nickOn() || !handle) return fallback || "";
+    return window.ViktorychNicknames.nameFor(platform, handle, fallback);
+  }
+  /* "platform:handle" ids used by hover cards and feed rows. */
+  function nickById(id, fallback) {
+    const text = String(id || "");
+    const cut = text.indexOf(":");
+    return cut > 0 ? nickName(text.slice(0, cut), text.slice(cut + 1), fallback) : (fallback || "");
+  }
+  /* The small pencil beside a profile name that opens "Set custom name". */
+  function nickEditButton(platform, handle, original, personId) {
+    if (!nickOn() || !handle) return "";
+    if (String(platform || "") === "app" && !(window.ViktorychAccounts && window.ViktorychAccounts.token && window.ViktorychAccounts.token())) return "";
+    return `<button class="nick-pen" type="button" data-act="nick-edit" data-platform="${esc(platform || "x")}" data-handle="${esc(String(handle).replace(/^@/, ""))}" data-original="${esc(original || "")}"${personId ? ` data-person="${esc(personId)}"` : ""} aria-label="${esc(tr("Set custom name"))}" data-tooltip="${esc(tr("Set custom name"))}"><svg class="nick-pen-ico" viewBox="0 0 24 24" aria-hidden="true">${LINE.pencil}</svg></button>`;
+  }
+  window.ViktorychNick = { name: nickName, byId: nickById, button: nickEditButton };
   /* Community Notes: the post ref the Worker and the X mirror use. */
   function cnRef(post) {
     if (!post) return "";
@@ -2417,8 +2640,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
 
   function faceChoice(kind, src, accountFace) {
     const viewer = faceSetting(kind === "banner" ? "showBanners" : "showPictures");
-    if (viewer === "none" || viewer === "default") return viewer;
-    if (accountFace === "none" || accountFace === "default") return accountFace;
+    if (viewer === "none") return "none";
+    if (accountFace === "none") return "none";
     return src ? "photo" : "default";
   }
 
@@ -2426,16 +2649,19 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<span class="ava silhouette${extra}" aria-hidden="true">${SILHOUETTE_SVG}</span>`;
   }
 
-  function avatar(src, name, cls, accountFace) {
+  function avatar(src, name, cls, accountFace, eager) {
     const extra = cls ? " " + cls : "";
     const face = faceChoice("picture", src, accountFace);
     if (face === "none") return `<span class="ava-none"></span>`;
-    if (face === "default") return silhouette(extra);
+    if (face === "default" && !src) return silhouette(extra);
     const letter = initials(name);
     const lib = window.ViktorychComments;
     const sized = lib && lib.smallAvatar && linkImagesBlocked() ? lib.smallAvatar(src, true) : src;
-    const safeSrc = ruSafeImageUrl(sized);
-    return `<img decoding="async" class="ava${extra}" src="${esc(safeSrc)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-fallback="avatar" data-initials="${letter}">`;
+    const safeSrc = ruSafeImageUrl(sized || src);
+    if (!safeSrc) return silhouette(extra);
+    const loadAttr = eager ? 'loading="eager" fetchpriority="high"' : 'loading="lazy"';
+    const onError = `this.onerror=null;var s=document.createElement('span');s.className='ava initials${extra}';s.setAttribute('aria-hidden','true');s.textContent='${letter}';this.replaceWith(s);`;
+    return `<img decoding="async" class="ava${extra}" src="${esc(safeSrc)}" alt="" ${loadAttr} referrerpolicy="no-referrer" data-fallback="avatar" data-initials="${letter}" onerror="${onError}">`;
   }
 
   function affSlot(source) {
@@ -2499,6 +2725,15 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (p === "x") return `<span class="src pglyph pglyph-x" title="X" aria-hidden="true">X</span>`;
     const name = p === "instagram" ? "ig" : p === "threads" ? "threads" : p === "youtube" ? "subs" : p === "vk" ? "vk" : p === "telegram" ? "tg" : p === "discord" ? "discord" : p === "tiktok" ? "tiktok" : "rss";
     return `<span class="src pglyph" title="${esc(PLATFORM[p] || p)}">${icon(name)}</span>`;
+  }
+
+  /* The small, quiet platform mark by the time on a merged linked post. */
+  const X_MARK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.24 2.25h3.31l-7.23 8.26 8.5 11.24h-6.66l-5.21-6.82-5.97 6.82H1.67l7.73-8.84L1.25 2.25h6.83l4.71 6.23zm-1.16 17.52h1.83L7.08 4.13H5.12z"/></svg>';
+  function linkedSourceBadge(platform) {
+    const p = String(platform || "x").toLowerCase();
+    const label = PLATFORM[p] || p;
+    const mark = p === "x" ? X_MARK : (sourceBadge(p).replace(/^<span[^>]*>|<\/span>$/g, "") || "");
+    return `<span class="src lp-src" title="${esc(tr("Posted on {platform}", { platform: label }))}" aria-label="${esc(tr("Posted on {platform}", { platform: label }))}">${mark}</span>`;
   }
 
   function postSourceBadges(post) {
@@ -4044,9 +4279,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   // Hosts that are blocked or throttled for many readers in Russia or India.
   // Only hosts the Worker's /v1/media relay allows are listed. The relay
   // passes the original bytes through; nothing is re-encoded.
-  const BLOCKED_IN_RU = /(?:^|\.)(?:pbs\.twimg\.com|video\.twimg\.com|twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|i\.ytimg\.com|ytimg\.com|yt3\.ggpht\.com)$/i;
+  const BLOCKED_IN_RU = /(?:^|\.)(?:pbs\.twimg\.com|video\.twimg\.com|twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|i\.ytimg\.com|ytimg\.com|yt3\.ggpht\.com|googleusercontent\.com)$/i;
   const BLOCKED_IN_IN = /(?:^|\.)(?:tiktokcdn(?:-us|-eu)?\.com|bytefcdn(?:-oversea)?\.com|ibytedtos\.com)$/i;
-  const RELAYABLE = /(?:^|\.)(?:twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|ytimg\.com|yt3\.ggpht\.com|redd\.it|tiktokcdn(?:-us|-eu)?\.com|bytefcdn(?:-oversea)?\.com|ibytedtos\.com)$/i;
+  const RELAYABLE = /(?:^|\.)(?:twimg\.com|cdninstagram\.com|fbcdn\.net|cdn\.discordapp\.com|media\.discordapp\.net|ytimg\.com|yt3\.ggpht\.com|googleusercontent\.com|redd\.it|tiktokcdn(?:-us|-eu)?\.com|bytefcdn(?:-oversea)?\.com|ibytedtos\.com)$/i;
 
   function isRuVisitor() {
     const mode = (STATE.settings && STATE.settings.networkMode) || localStorage.getItem("viktorychapp-network-mode") || "auto";
@@ -6275,7 +6510,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       <button class="action ${cls}${cls === "like" && liked ? " on" : ""}${cls === "bookmark" && booked ? " on" : ""}${cls === "repost" && reposted ? " on" : ""}" data-act="${act}" data-id="${esc(id)}" aria-label="${esc(label)}" data-tooltip="${esc(tip || label)}">
         <span class="ic">${icon(path)}</span>${count ? `<span class="count">${esc(count)}</span>` : ""}
       </button>`;
-    const replyCount = shownCount(stats.replies, 0);
+    const replyCount = shownCount(stats.replies, detail ? appRepliesFor(post).length : 0);
     const replyOnX = (post.platform || "x") === "x";
     const replyLink = post.appPost
       ? `<button class="action reply" type="button" data-act="public-reply" data-id="${esc(id)}" aria-label="${tr("Reply")}" data-tooltip="${tr("Reply")}"><span class="ic">${icon("reply")}</span>${replyCount ? `<span class="count">${esc(replyCount)}</span>` : ""}</button>`
@@ -6286,6 +6521,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const quoteOnX = replyOnX ? `<button type="button" data-act="xc-quote" data-id="${esc(id)}">${tr("Quote on X")}</button>` : "";
     const repostMenu = menuOpen ? `<div class="menu repost-menu" data-act="stop" role="menu" aria-label="${esc(tr("Repost"))}"><button type="button" data-act="repost-do" data-id="${esc(id)}">${reposted ? tr("Undo repost") : tr("Repost")}</button><button type="button" data-act="quote-open" data-id="${esc(id)}">${tr("Quote")}</button>${quoteOnX}</div>` : "";
     const repostBtn = `<span class="repost-wrap">${btn("repost", "repost", "repost", tr("Repost"), shownCount(stats.reposts, reposted ? 1 : 0), tr("Repost"))}${repostMenu}</span>`;
+    const laiBtn = localAiOn() ? btn("lai-action", "lai-post", "spark", tr("Explain this post"), "", tr("Explain this post")) : "";
     if (detail) {
       return `<div class="actions status-actions">
       <div class="action-stats">
@@ -6307,6 +6543,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         ${btn("views", "open-status", "views", tr("Views"), shownCount(stats.views, 0), tr("Views"))}
       </div>
       <div class="action-more">
+        ${laiBtn}
         ${btn("bookmark", "bookmark", booked ? "bookmarkOn" : "bookmark", tr("Bookmark"), "", tr("Bookmark"))}
         ${btn("share", "share", "share", tr("Share"), "", tr("Share"))}
       </div>
@@ -6340,6 +6577,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }).catch(() => {});
   }
 
+  /* The post being quoted, embedded under the comment in the Quote sheet. */
+  function quoteSheetCard(post) {
+    if (!post) return "";
+    try { return `<div class="quote-sheet-embed" data-act="stop">${quoteCard(Object.assign({}, post, { quoted: null })).replace(/^<div class="quote" data-(?:open|href)="[^"]*">/, '<div class="quote">')}</div>`; }
+    catch (err) { return ""; }
+  }
+
   function quoteCard(quoted) {
     if (!quoted) return "";
     if (quoteHidden(quoted) && !(STATE.revealedHidden && STATE.revealedHidden["q:" + String(quoted.statusId || quoted.id || "")])) {
@@ -6357,8 +6601,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const quotedHandle = internalPostHandle(quoted.handle || "", quoted);
     return `<div class="quote"${open}>
       <div class="quote-head">
-        ${avatar(quoted.avatar, quoted.author || quoted.handle)}
-        <span class="name">${esc(quoted.author || quoted.handle || tr("Post noun"))}${badge(quoted.verifiedType)}</span>
+        ${avatar(quoted.avatar, quoted.author || quoted.handle, isOrgVerified(asQuoted, quoted) ? "sq" : "")}
+        <span class="name">${esc(nickName(platform, quoted.handle, quoted.author || quoted.handle || tr("Post noun")))}${badge(quoted.verifiedType)}</span>
         ${quotedHandle ? `<span class="handle">@${esc(quotedHandle)}</span>` : ""}
         ${quoted.date ? `<span class="dot">·</span><span class="time">${esc(relTime(quoted.date))}</span>` : ""}
       </div>
@@ -6618,6 +6862,11 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (blocks && post && (blocks[post.feedId] || blocks["app:" + post.authorId] || blocks[post.authorId])) return true;
     // Hook for the shared blocklist (mute/block data): checked before a reply
     // card or its media is built.
+    // Locked follows stay off every timeline until the Locked area opens.
+    const locked = window.ViktorychLocked;
+    if (locked && typeof locked.hides === "function") {
+      try { if (locked.hides(post)) return true; } catch (err) { /* never hide on a broken filter */ }
+    }
     const list = window.ViktorychBlocklist;
     if (list && typeof list.hides === "function") {
       try { if (list.hides(post)) return true; } catch (err) { /* a broken list must not hide the thread */ }
@@ -8193,13 +8442,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!id || CMT_PREFETCHED[id] || !commentPrefetchable(post)) return;
     if (linkImagesBlocked() || !CMT_LIB.canPrefetch({ saveData: !!connectionInfo().saveData })) return;
     const now = Date.now();
-    if (now - cmtPrefetchAt < 3000 || cmtPrefetchCount >= 12) return;
+    if (now - cmtPrefetchAt < 1500 || cmtPrefetchCount >= 36) return;
     cmtPrefetchAt = now;
     cmtPrefetchCount += 1;
     CMT_PREFETCHED[id] = true;
     CMT_LIB.idle(() => {
       commentsGet(post, "top", { scope: "prefetch" }).catch(() => {});
-    }, 3000);
+    }, 2000);
   }
 
   let CMT_DWELL_OBS = null;
@@ -8223,7 +8472,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
               const key = el.getAttribute("data-post") || "";
               const post = findAnyPost(key);
               if (post) prefetchComments(post);
-            }, 1200));
+            }, 600));
           } else if (timer) {
             clearTimeout(timer);
             CMT_DWELL.delete(el);
@@ -9377,6 +9626,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const items = follow
       + `<button type="button" data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button>`
       + `<button type="button" data-gift="reply" data-parent="${esc(post.id || "")}" data-handle="${esc(post.handle || "")}">${tr("Send a gift")}</button>`
+      + (localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("spark")} ${tr("Explain this post")}</button>` : "")
       + `<button type="button" class="odai-btn" data-act="odai-thread" data-id="${esc(postKey(post))}" data-scope="post">${tr("Summarize thread")}</button>`
       + (post.appPost ? appMenuItems(post) : (post.url ? `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url)}">${tr("View on {platform}", { platform: PLATFORM[post.platform] || tr("Web") })}</a>` : ""))
       + blockMenuItems(post, "status")
@@ -9384,12 +9634,32 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<span class="status-menu-wrap">${btn}<div class="menu status-menu" data-act="stop" role="menu">${items}</div></span>`;
   }
 
+  /* Replies written in this app to a feed post (X, YouTube, …) are app posts
+     with extParent. They never come back from the source, so the post page
+     lists them first, like X shows your reply right under the post. */
+  function appRepliesFor(post) {
+    if (!post || post.appPost || (post.platform || "x") === "app") return [];
+    const plat = post.platform || "x";
+    const ids = [String(post.statusId || ""), String(post.id || "")].filter(Boolean);
+    const seen = {};
+    return publicPosts.filter((item) => {
+      const ext = item && item.extParent;
+      if (!ext || seen[item.id] || !notGone(item)) return false;
+      if ((ext.platform || "x") !== plat) return false;
+      if (ids.indexOf(String(ext.statusId || ext.id || "")) < 0) return false;
+      seen[item.id] = true;
+      return true;
+    }).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)).map(appCardPost);
+  }
+
   function replyList(post) {
     const tools = "";
+    const mine = appRepliesFor(post).map((item) => card(item, "reply", { focus: post })).join("");
     const slice = replySlice(post);
-    if (slice.loading) return tools + replySkeleton(3);
-    if (slice.error) return tools + replyError(postKey(post));
+    if (slice.loading) return tools + mine + replySkeleton(3);
+    if (slice.error) return tools + mine + replyError(postKey(post));
     if (!slice.shown.length && !slice.more && !slice.spam) {
+      if (mine) return tools + mine;
       return tools + `<div class="reply-empty">${slice.missing ? tr("Replies aren’t available for this post.") : tr("No replies yet.")}</div>`;
     }
     const id = postKey(post);
@@ -9426,7 +9696,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const more = bucketNow.loadingMore ? replySkeleton(2)
       : moreRows ? `<div class="reply-more-sentinel" data-id="${esc(id)}"></div><button class="more-replies" type="button" data-act="more-replies" data-id="${esc(id)}">${tr("Show more replies")}</button>` : "";
     const spam = slice.spam ? `<button class="more-replies spam" type="button" data-act="spam-replies" data-id="${esc(id)}">${tr("Show probable spam")}</button>` : "";
-    return tools + html + more + spam;
+    return tools + mine + html + more + spam;
   }
 
   function composer(bridge, post) {
@@ -9450,10 +9720,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const tombHandle = internalPostHandle(post.handle || "", post);
     return `<article class="post tombstone">
       <div class="post-row">
-        ${avatar(face.avatar, post.author || post.handle)}
+        ${avatar(face.avatar, post.author || post.handle, isOrgVerified(post, face) ? "sq" : "")}
         <div class="post-main">
           <div class="byline">
-            <a class="name" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}">${esc(post.author || post.handle || tr("Post noun"))}${badge(face.verified)}</a>${affSlot(post)}
+            <a class="name" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}">${esc(nickName(post.platform, post.handle, post.author || post.handle || tr("Post noun")))}${badge(face.verified)}</a>${affSlot(post)}
             ${tombHandle ? `<a class="handle" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + post.handle)}">@${esc(tombHandle)}</a>` : ""}
             ${when}
             ${sourceBadge(post.platform)}
@@ -9498,7 +9768,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<div class="reply-context">
       <div class="quote-head">
         ${avatar(parent.avatar, parent.author || parent.handle)}
-        <span class="name">${esc(parent.author || parent.handle || tr("Post noun"))}</span>
+        <span class="name">${esc(nickName(parent.platform, parent.handle, parent.author || parent.handle || tr("Post noun")))}</span>
         ${parentHandle ? `<span class="handle">@${esc(parentHandle)}</span>` : ""}
       </div>
       ${text ? `<div class="quote-text">${esc(text.slice(0, 220))}</div>` : ""}
@@ -9846,7 +10116,7 @@ const here = parseRoute();
     const busyItem = busyKey ? `<button data-act="busy-menu" data-key="${esc(busyKey)}" data-name="${esc(post.author || post.name || "")}" data-handle="${esc(post.handle || "")}" data-platform="${esc(post.platform || "x")}">${tr("Posting volume")}</button>` : "";
     const giftItem = `<button type="button" data-gift="reply" data-parent="${esc(post.id || "")}" data-handle="${esc(post.handle || "")}">${tr("Send a gift")}</button>`;
     const blockItems = STATE.menu === post.id ? blockMenuItems(post, mode) : "";
-    const menu = STATE.menu === post.id ? `<div class="menu" data-act="stop"><button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
+    const menu = STATE.menu === post.id ? `<div class="menu" data-act="stop">${localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("spark")} ${tr("Explain this post")}</button>` : ""}<button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
     const continues = !!opts.continues;
     const face = authorFace(post);
     const creator = isRepost(post) ? creatorOf(post) : null;
@@ -9855,13 +10125,21 @@ const here = parseRoute();
     const shown = opts.parentShown ? mentionless(displayPost(post)) : replyBody(displayPost(post));
     const dest = articleOf(post) ? articleHash(post) : (post.watch ? watchHash(post) : statusHash(post));
     const who = creator ? (post.profileHandle || creator.channelId || creator.handle || post.handle) : (post.profileHandle || post.handle);
-    const displayName = creator ? (creator.name || post.author || post.handle) : (post.author || post.handle);
-    const displayHandle = internalPostHandle(creator ? (post.handle || creator.handle || "") : (post.handle || ""), post, creator);
+    let displayName = nickName(creator ? (creator.platform || post.platform) : post.platform, who, creator ? (creator.name || post.author || post.handle) : (post.author || post.handle));
+    let displayHandle = internalPostHandle(creator ? (post.handle || creator.handle || "") : (post.handle || ""), post, creator);
     // Community mirror authors have no profile here: their links open the community.
-    const whoHref = post.cmMirror ? "#/communities/" + encodeURIComponent(post.community.name) : accountHash(post.platform, who);
-    const whoCard = post.cmMirror ? "" : ` data-card="${esc(post.platform + ":" + who)}"`;
-    const avaLink = `<a href="${esc(whoHref)}"${whoCard} aria-label="${esc(displayName || tr("Profile"))}">${avatar(face.avatar, displayName)}</a>`;
-    const avaCol = continues ? `<div class="ava-col">${avaLink}<div class="thread-line"></div></div>` : avaLink;
+    let whoHref = post.cmMirror ? "#/communities/" + encodeURIComponent(post.community.name) : accountHash(post.platform, who);
+    let whoCard = post.cmMirror ? "" : ` data-card="${esc(post.platform + ":" + who)}"`;
+    /* A linked profile's post on its merged profile: the internal name, avatar and handle. */
+    const asAccount = !creator && post.asAccount ? post.asAccount : null;
+    if (asAccount) {
+      displayName = asAccount.name || displayName;
+      displayHandle = asAccount.handle;
+      whoHref = profileHash("x", asAccount.handle);
+      whoCard = "";
+      face.avatar = asAccount.avatar || "";
+    }
+    const avaLink = `<a href="${esc(whoHref)}"${whoCard} aria-label="${esc(displayName || tr("Profile"))}">${avatar(face.avatar, displayName, isOrgVerified(post, face) ? "sq" : "", null, eager)}</a>`;    const avaCol = continues ? `<div class="ava-col">${avaLink}<div class="thread-line"></div></div>` : avaLink;
     const open = ` data-open="${esc(dest)}"`;
     const nestedDiscord = post.platform === "discord" && Array.isArray(post.replies) && post.replies.length;
     const threadLink = mode !== "status" && mode !== "reply" && (threadChildren(post).length || nestedDiscord)
@@ -9870,7 +10148,7 @@ const here = parseRoute();
     const community = post.community && post.community.name && !opts.parentShown
       ? `<div class="repost-line community-line">${icon("communities")}<a data-act="stop" href="#/communities/${encodeURIComponent(post.community.name)}/${encodeURIComponent(post.community.rootId || post.id)}">${esc(post.community.label || communityName(post.community.name))}</a></div>`
       : (redditSub(post) && !opts.parentShown
-        ? `<div class="repost-line community-line">${icon("communities")}<a data-act="stop" href="#/communities/${encodeURIComponent(redditSub(post))}">${esc("r/" + redditSub(post))}</a></div>`
+        ? `<div class="repost-line community-line">${icon("communities")}<a data-act="stop" href="#/communities/${encodeURIComponent(redditSub(post))}">${esc(nickName("reddit", "r/" + redditSub(post), "r/" + redditSub(post)))}</a></div>`
         : "");
     return `<article class="post${continues ? " continues" : ""}${mode === "reply" ? " reply-card" : ""}" data-post="${esc(post.id)}" data-kind="${esc(post.kind || "post")}" data-date="${esc(post.date || "")}"${open}${hydrate}${cardHeightStyle(post.id)}>
       ${community}
@@ -9886,8 +10164,9 @@ const here = parseRoute();
             <span class="dot">·</span>
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
-            ${postSourceBadges(post)}
+            ${asAccount ? linkedSourceBadge(post.platform) : postSourceBadges(post)}
             ${shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}
+            ${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}
             <button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}">${icon("more")}</button>
           </div>
           ${reply}
@@ -10003,10 +10282,12 @@ const here = parseRoute();
       }
       return { name: "drive", section: "files", trash: false, folder: "", view: "", album: "", query };
     }
+    if (parts[0] === "contacts") return { name: "contacts", sub: parts[1] || "", query };
     if (parts[0] === "vault") return { name: "vault", tab: parts[1] || "my", query };
     if (parts[0] === "packages") return { name: "packages", tab: parts[1] || "active", query };
     if (parts[0] === "communitynotes") return { name: "communitynotes", tab: parts[1] || "", query };
     if (parts[0] === "customize") return { name: "customize", query };
+    if (parts[0] === "ai") return { name: "localai", query };
     if (parts[0] === "settings") return { name: "settings", section: parts[1] || "", sub: parts[2] || "", query };
     if (parts[0] === "feeds" && parts[1] === "lists") return { name: "sourcelists", query };
     if (parts[0] === "feeds" && parts[1] === "requests") return { name: "feedrequests", query };
@@ -10184,6 +10465,8 @@ const here = parseRoute();
         return { id: "history", href: "#/history", icon: "clock", label: tr("History"), active: (r) => r.name === "history" };
       case "music":
         return { id: "music", href: "#/music", icon: "muNote", label: tr("Music"), active: (r) => false };
+      case "contacts":
+        return { id: "contacts", href: "#/contacts", icon: "phone", label: tr("Contacts"), active: (r) => r.name === "contacts", visible: () => featureOn("contacts") };
       case "shorts":
         return { id: "shorts", href: "#/shorts", icon: "shorts", label: tr("Shorts"), active: (r) => r.name === "shorts", visible: () => !!(window.ViktorychShorts && window.ViktorychShorts.visible()) };
       case "games":
@@ -10504,12 +10787,13 @@ const here = parseRoute();
   }
 
   function shownFeeds(list) {
+    if (window.LinkedProfiles) list = window.LinkedProfiles.dropMerged(list);
     if (window.FeedsPeople && window.FeedsPeople.collapse) return window.FeedsPeople.collapse(list);
     return list;
   }
 
   function followSuggestions() {
-    const list = feeds().filter((f) => f.id && !feedBlocked(f));
+    const list = feeds().filter((f) => f.id && !feedBlocked(f) && !(window.LinkedProfiles && window.LinkedProfiles.isMergedFeed(f)));
     if (window.FeedsPeople && window.FeedsPeople.suggestions) return window.FeedsPeople.suggestions(list, isFollowed);
     return list.filter((f) => !isFollowed(f.id)).sort((a, b) => (b.configured ? 1 : 0) - (a.configured ? 1 : 0));
   }
@@ -10519,7 +10803,7 @@ const here = parseRoute();
     const rows = people.map((f) => `<div class="who-row">
       <a class="who-main" href="${esc(accountHash(f.platform, f.channelId || f.handle))}" data-card="${esc(f.id)}">
         ${avatar(f.avatar, f.name)}
-        <span class="who-copy"><span class="name">${esc(f.name)}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle)} ${sourceBadge(f.platform)}</span></span>
+        <span class="who-copy"><span class="name">${esc(nickName(f.platform, f.channelId || f.handle, f.name))}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle)} ${sourceBadge(f.platform)}</span></span>
       </a>
       ${followButtonClean(f.id)}
     </div>`).join("");
@@ -10534,6 +10818,12 @@ const here = parseRoute();
     </aside>`;
   }
 
+  if (window.LinkedProfiles) {
+    window.LinkedProfiles.setHost({
+      render: () => render(),
+      icon: (platform) => (platform === "x" ? X_MARK : (sourceBadge(platform).replace(/^<span[^>]*>|<\/span>$/g, "") || ""))
+    });
+  }
   if (window.ViktorychPYMK && window.ViktorychPYMK.setHost) {
     window.ViktorychPYMK.setHost({
       esc, avatar, badge, icon, isFollowed, sourceBadge,
@@ -11028,7 +11318,7 @@ const here = parseRoute();
     return `<div class="topbar tall">
       <h1 class="vh">${tr("Home")}</h1>
       <div class="mhead">
-        <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}"><span class="ava initials">Y</span></button>
+        <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}">${viewerFace()}</button>
         ${mobileLogo()}
         <a class="m-icon" href="#/settings" aria-label="${tr("Settings")}">${icon("spark")}</a>
       </div>
@@ -12546,7 +12836,7 @@ const here = parseRoute();
       : "";
     const tabLoading = !list.length && tabStillLoading(tab);
     if (tabLoading && !tabFlights[tab] && !(tabRetries[tab] && tabRetries[tab].timer)) setTimeout(() => refreshHomeTabs([tab]), 0);
-    const body = tabLoading ? `<div class="tab-loading" role="progressbar" aria-label="${esc(tr("Loading"))}">` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("") + `</div>` : (list.length ? withSuggestions(groupThreads(list).map((p, i) => p && p.busyGroup ? busyRow(p) : card(p, null, { eager: i === 0 })), tab) : emptyBlock(
+    const body = tabLoading ? `<div class="tab-loading" role="progressbar" aria-label="${esc(tr("Loading"))}">` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("") + `</div>` : (list.length ? withSuggestions(groupThreads(list).map((p, i) => p && p.busyGroup ? busyRow(p) : card(p, null, { eager: i < 4 })), tab) : emptyBlock(
       repostsOnly ? tr("No reposts yet") : tab === "following" ? tr("Nothing to see here — yet") : catTab ? tr("No posts in this tab") : tab.startsWith("list:") ? tr("No posts in this List") : tr("No posts yet"),
       repostsOnly ? tr("Reposts and forwards on this tab show up here.") : tab === "following" ? tr("When you follow accounts, their posts show up here.") : catTab ? tr("Posts from accounts in this tab show up here.") : tab.startsWith("list:") ? tr("Posts from members of this List will show up here.") : tr("Posts from your feeds will show up here.")
     ) + findAccounts);
@@ -12570,7 +12860,7 @@ const here = parseRoute();
 
   function pageHead(title, extra, back, action) {
     return `<div class="topbar tall"><div class="mhead">
-        <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}"><span class="ava initials">Y</span></button>
+        <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}">${viewerFace()}</button>
         ${mobileLogo()}
         <a class="m-icon" href="#/settings" aria-label="${tr("Settings")}">${icon("spark")}</a>
       </div>
@@ -13949,7 +14239,9 @@ const here = parseRoute();
       handle: String(o.handle || "").replace(/^@/, ""),
       feedId: String(o.feedId || ""),
       url: String(o.url || ""),
-      own: !!o.own
+      own: !!o.own,
+      original: String(o.original || o.name || ""),
+      personId: String(o.personId || "")
     };
     const name = esc(o.name || o.handle || tr("Profile"));
     const count = o.count ? `<div class="profile-chrome-count">${esc(o.count)}</div>` : "";
@@ -13997,12 +14289,26 @@ const here = parseRoute();
       rows.push(`<a class="bell-choice" href="#/feeds"><span class="bell-choice-label">${esc(tr("View in Feeds"))}</span></a>`);
     }
     if (menu === "more") {
+      if (!target.own && target.handle && nickOn() && (target.platform !== "app" || (window.ViktorychAccounts && window.ViktorychAccounts.token && window.ViktorychAccounts.token()))) {
+        rows.push(profileSheetRow("nick-edit", tr("Set custom name"), `data-platform="${esc(target.platform || "x")}" data-handle="${esc(target.handle)}" data-original="${esc(target.original || target.name || "")}"${target.personId ? ` data-person="${esc(target.personId)}"` : ""}`));
+      }
       rows.push(profileSheetRow("share", tr("Share"), `data-kind="profile" data-id="${esc(target.feedId || link)}"`));
       if (!target.own && (target.feedId || target.handle)) rows.push(profileSheetRow("profile-mute", tr("Mute"), `data-id="${esc(target.feedId || (target.platform + ":" + target.handle))}"`));
       if (!target.own && (target.feedId || target.handle) && target.platform !== "app") rows.push(profileSheetRow("busy-menu", tr("Posting volume"), `data-key="${esc(target.feedId || ((target.platform || "x") + ":" + String(target.handle || "").toLowerCase()))}" data-name="${esc(target.name || "")}" data-handle="${esc(target.handle || "")}" data-platform="${esc(target.platform || "x")}"`));
       const signed = window.ViktorychAccounts && window.ViktorychAccounts.token && window.ViktorychAccounts.token();
       if (!target.own && target.feedId.indexOf("app:") === 0 && signed) rows.push(profileSheetRow("profile-block", tr("Block"), `data-id="${esc(target.feedId)}"`));
+      const rawHandle = String(target.handle || "").replace(/^@/, "");
+      const fallbackLockId = target.platform && rawHandle ? (target.platform === "app" ? "app:@" + rawHandle : target.platform + ":" + rawHandle) : "";
+      const baseLockId = target.feedId || fallbackLockId;
+      const lockCandidates = (window.FeedsPeople && window.FeedsPeople.followIds && baseLockId ? window.FeedsPeople.followIds(baseLockId) : []).concat([target.feedId, fallbackLockId]).filter(Boolean);
+      const followedLockId = lockCandidates.find((id) => isFollowed(id));
+      const lockId = followedLockId || (fallbackLockId && String(baseLockId).indexOf("person:") === 0 ? fallbackLockId : baseLockId);
+      if (!target.own && lockId && signed && window.ViktorychLocked && (followedLockId || accountFollowed(baseLockId))) rows.push(profileSheetRow("profile-lock-follow", tr("Lock follow"), `data-id="${esc(lockId)}" data-name="${esc(target.name || "")}" data-handle="${esc(target.handle || "")}"`));
       if (target.feedId) rows.push(profileSheetRow("profile-lists", tr("Add or remove from lists")));
+      // A friend's profile: who can see that the two of you are friends.
+      if (!target.own && signed && target.platform === "app" && target.handle && window.ViktorychFriendPrivacy && window.ViktorychFriendPrivacy.isFriend(target.handle)) {
+        rows.push(`<a class="bell-choice" href="#/settings/friendship/${encodeURIComponent(String(target.handle).toLowerCase())}" data-act="close-profile-menu"><span class="bell-choice-label">${esc(tr("Who can see my friendship with {name}", { name: target.name || "@" + target.handle }))}</span></a>`);
+      }
       if (target.feedId || target.handle) rows.push(profileSheetRow("profile-cm-tab", tr("Add to Communities tab"), `data-id="${esc(target.feedId || (target.platform + ":" + target.handle))}" data-name="${esc(target.name || target.handle || "")}"`));
     }
     if (menu === "lists") {
@@ -14017,7 +14323,16 @@ const here = parseRoute();
     return `<div class="bell-sheet" data-act="close-profile-menu"><div class="menu bell-menu profile-menu" data-act="stop" role="menu" aria-label="${esc(title)}"><div class="bell-grab" aria-hidden="true"></div>${rows.join("")}</div></div>`;
   }
 
+  function linkedRedirect(route) {
+    const next = window.LinkedProfiles ? window.LinkedProfiles.hashFor(route.platform, route.handle) : "";
+    if (!next || (location.hash || "") === next) return "";
+    setTimeout(() => { if ((location.hash || "") !== next) location.replace(next); }, 0);
+    return `<div class="reply-empty">${tr("Loading…")}</div>`;
+  }
+
   function userView(route) {
+    const linked = linkedRedirect(route);
+    if (linked) return linked;
     if (window.FeedsPeople) {
       const merged = window.FeedsPeople.page(route);
       if (merged) return merged;
@@ -14074,7 +14389,8 @@ const here = parseRoute();
     );
     const more = tab && row.cursor[tab] && !row.saved ? `<div id="live-more" class="live-more">${row.paging === tab ? tr("Loading…") : ""}</div>` : "";
     return `${profileTop({
-      name: profile.name || profile.handle,
+      name: nickName(profile.platform, profile.handle, profile.name || profile.handle),
+      original: profile.name || profile.handle,
       platform: profile.platform,
       handle: profile.handle,
       feedId: liveFollowId(profile),
@@ -14084,7 +14400,7 @@ const here = parseRoute();
     }, banner)}
     <div class="pinfo" data-live-error="${esc(row.errorDetail || row.error || "")}">
       <div class="pava-row">
-        ${window.Spaces && window.Spaces.avatar ? window.Spaces.avatar(avatar(profile.avatar, profile.name, "pava"), profile.platform, profile.handle) : avatar(profile.avatar, profile.name, "pava")}
+        ${window.Spaces && window.Spaces.avatar ? window.Spaces.avatar(avatar(profile.avatar, profile.name, isOrgVerified(null, profile) ? "pava sq" : "pava"), profile.platform, profile.handle) : avatar(profile.avatar, profile.name, isOrgVerified(null, profile) ? "pava sq" : "pava")}
         <div class="pactions">
           <button class="icon-btn" type="button" data-act="share" data-kind="profile" data-id="${esc(profile.id || (profile.platform + ":" + profile.handle))}" aria-label="${tr("Share")}">${icon("share")}</button>
           ${bellButton(liveFollowId(profile), profile.handle)}
@@ -14092,7 +14408,7 @@ const here = parseRoute();
           <a class="outline" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(externalProfile(profile))}" aria-label="${esc(openLabel(profile.platform))}">${esc(profileLinkLabel(profile.platform))}</a>
         </div>
       </div>
-      <h1 class="pname">${esc(profile.name || profile.handle)}${badge(profile.verifiedType)}</h1>
+      <h1 class="pname">${esc(nickName(profile.platform, profile.handle, profile.name || profile.handle))}${badge(profile.verifiedType)}${nickEditButton(profile.platform, profile.handle, profile.name || profile.handle)}</h1>
       ${shown ? `<div class="phandle">@${esc(shown)}</div>` : ""}
       ${addedNote(catalogFeed(profile) || profile)}
       ${bioBlock(profile)}
@@ -14141,7 +14457,7 @@ const here = parseRoute();
     const appId = String(row.id || "").startsWith("app:") ? String(row.id).slice(4) : "";
     let face = avatar(row.avatar, row.name || row.handle, "", row.avatarFace);
     if (/^\d{12}$/.test(appId) && window.ViktorychPresence) face = window.ViktorychPresence.wrap(appId, face);
-    return `<div class="connect-row"><a class="who-main" href="${esc(connectTarget(row))}">${face}<span class="who-copy"><span class="name">${esc(row.name || row.handle || row.id)}${badge(row.verifiedType)}</span>${affSlot(row)}<span class="handle">${handle}</span>${bio}</span></a>${button}</div>`;
+    return `<div class="connect-row"><a class="who-main" href="${esc(connectTarget(row))}">${face}<span class="who-copy"><span class="name">${esc(appId ? nickName("app", row.handle, row.name || row.handle || row.id) : (row.platform && row.handle ? nickName(row.platform, row.handle, row.name || row.handle || row.id) : nickById(row.id, row.name || row.handle || row.id)))}${badge(row.verifiedType)}</span>${affSlot(row)}<span class="handle">${handle}</span>${bio}</span></a>${button}</div>`;
   }
 
   function connectionsHash(route, tab) {
@@ -14425,6 +14741,9 @@ const here = parseRoute();
         return `<div class="reply-empty">${tr("Loading…")}</div>`;
       }
     }
+    /* Not an internal account: a merged linked profile opens its owner's profile. */
+    const linked = linkedRedirect(route);
+    if (linked) return linked;
     posts().forEach(creditCarried);
     if (window.FeedsPeople) {
       const merged = window.FeedsPeople.page(route);
@@ -14485,7 +14804,8 @@ const here = parseRoute();
     }).join("");
     if (STATE.profileQuery) list = list.filter(profileQueryMatch);
     return `${profileTop({
-      name: feed.name || feed.handle,
+      name: nickName(feed.platform, feed.handle, feed.name || feed.handle),
+      original: feed.name || feed.handle,
       platform: feed.platform,
       handle: feed.handle,
       feedId: feed.id,
@@ -14495,7 +14815,7 @@ const here = parseRoute();
     }, banner)}
     <div class="pinfo">
       <div class="pava-row">
-        ${window.Spaces && window.Spaces.avatar ? window.Spaces.avatar(avatar(feed.avatar, feed.name, "pava"), feed.platform, feed.handle) : avatar(feed.avatar, feed.name, "pava")}
+        ${window.Spaces && window.Spaces.avatar ? window.Spaces.avatar(avatar(feed.avatar, feed.name, isOrgVerified(null, feed) ? "pava sq" : "pava"), feed.platform, feed.handle) : avatar(feed.avatar, feed.name, isOrgVerified(null, feed) ? "pava sq" : "pava")}
         <div class="pactions">
           <button class="icon-btn" type="button" data-act="share" data-kind="profile" data-id="${esc(feed.id)}" aria-label="${tr("Share")}">${icon("share")}</button>
           ${bellButton(feed.id, feed.handle)}
@@ -14503,7 +14823,7 @@ const here = parseRoute();
           <a class="outline" target="_blank" rel="noopener noreferrer" href="${esc(externalProfile(feed))}" aria-label="${esc(tr("View on {platform}", { platform: PLATFORM[feed.platform] || tr("Web") }))}">${esc(profileLinkLabel(feed.platform))}</a>
         </div>
       </div>
-      <h1 class="pname">${esc(feed.name || feed.handle)}${badge(feed.verifiedType)}</h1>
+      <h1 class="pname">${esc(nickName(feed.platform, feed.handle, feed.name || feed.handle))}${badge(feed.verifiedType)}${nickEditButton(feed.platform, feed.handle, feed.name || feed.handle)}</h1>
       <div class="phandle">@${esc(feed.handle)}</div>
       ${addedNote(feed)}
       ${bioBlock(feed)}
@@ -14607,14 +14927,14 @@ const here = parseRoute();
     const face = authorFace(post);
     const statusHandle = internalPostHandle(post.handle || "", post);
     const names = `<div>
-            <a class="name" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(post.author || "")}${badge(face.verified)}</a>${affSlot(post)}
+            <a class="name" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(nickName(post.platform, post.handle, post.author || ""))}${badge(face.verified)}</a>${affSlot(post)}
             <a class="handle" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">@${esc(statusHandle)}</a>
           </div>
-          <span class="status-end">${postSourceBadges(post)}${statusMenu(post)}</span>`;
+          <span class="status-end">${postSourceBadges(post)}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}${statusMenu(post)}</span>`;
     const parented = chain.nodes.length > 0 ? " has-parent" : "";
     const article = threaded
-      ? `<article class="status has-thread${parented}"><div class="status-thread"><div class="ava-col"><a data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author)}</a><div class="thread-line"></div></div><div class="status-main"><div class="status-author">${names}</div>${body}</div></div></article>`
-      : `<article class="status${parented}"><div class="status-author"><a data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author)}</a>${names}</div>${body}</article>`;
+      ? `<article class="status has-thread${parented}"><div class="status-thread"><div class="ava-col"><a data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author, isOrgVerified(post, face) ? "sq" : "")}</a><div class="thread-line"></div></div><div class="status-main"><div class="status-author">${names}</div>${body}</div></div></article>`
+      : `<article class="status${parented}"><div class="status-author"><a data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author, isOrgVerified(post, face) ? "sq" : "")}</a>${names}</div>${body}</article>`;
     return `<div class="topbar"><div class="page-head"><button class="icon-btn" data-act="back" aria-label="${tr("Back")}">${icon("back")}</button><h1 class="grow">${tr("Post noun")}</h1></div></div>
       ${ancestorBlock(post, chain)}
       ${repostBanner(post)}
@@ -14681,7 +15001,81 @@ const here = parseRoute();
     return (Number(stats.likes) || 0) + (Number(stats.reposts) || 0) + (Number(stats.replies) || 0);
   }
 
+  /* People search on the server: accounts made in this app are found by their
+     username or the name the viewer sees, even before this device has seen them.
+     Accounts that turned off "Let others find me in search" are left out by the
+     server (the site owner still finds them, audit-logged there). */
+  const PEOPLE_FOUND = {};
+  const PEOPLE_TTL = 60 * 1000;
+  let peopleTimer = 0;
+  let peopleWant = "";
+  function peopleKey(q) {
+    return String(q || "").trim().replace(/^@+/, "").toLowerCase().slice(0, 40);
+  }
+  function serverPeople(q) {
+    const key = peopleKey(q);
+    if (key.length < 2) return [];
+    const hit = PEOPLE_FOUND[key];
+    if (hit && Date.now() - hit.at < PEOPLE_TTL) return hit.accounts;
+    askServerPeople(key);
+    return hit ? hit.accounts : [];
+  }
+  function askServerPeople(key) {
+    const acc = window.ViktorychAccounts;
+    const token = accountToken();
+    if (!acc || !acc.call || !token) return;
+    if (peopleWant === key && peopleTimer) return;
+    peopleWant = key;
+    clearTimeout(peopleTimer);
+    peopleTimer = setTimeout(() => {
+      peopleTimer = 0;
+      const prev = PEOPLE_FOUND[key];
+      PEOPLE_FOUND[key] = { at: Date.now(), accounts: prev ? prev.accounts : [] };
+      acc.call("/v1/people?q=" + encodeURIComponent(key), { token: token }).then((res) => {
+        if (!res || res.status !== 200) { delete PEOPLE_FOUND[key]; return; }
+        const list = (Array.isArray(res.accounts) ? res.accounts : []).filter((item) => item && item.handle).map((item) => ({
+          id: String(item.id || ("app:@" + item.handle)),
+          kind: "account",
+          platform: "app",
+          appAccount: true,
+          handle: String(item.handle),
+          name: String(item.name || item.handle),
+          avatar: String(item.avatar || ""),
+          avatarFace: item.avatarFace || "",
+          bio: String(item.bio || "")
+        }));
+        const keys = Object.keys(PEOPLE_FOUND);
+        if (keys.length > 40) delete PEOPLE_FOUND[keys[0]];
+        PEOPLE_FOUND[key] = { at: Date.now(), accounts: list };
+        if (!list.length && !(prev && prev.accounts.length)) return;
+        const route = parseRoute();
+        const input = document.getElementById("explore-q");
+        if (input && peopleKey(input.value) === key && document.activeElement === input) syncExploreSuggest(input);
+        else if (route.name === "explore" && peopleKey(route.query.get("q") || "") === key) render();
+      }, () => { delete PEOPLE_FOUND[key]; });
+    }, 250);
+  }
+  function withServerPeople(q, hits) {
+    const found = serverPeople(q);
+    if (!found.length) return hits;
+    const seen = {};
+    (hits.accounts || []).forEach((f) => {
+      seen[String(f.id || "")] = 1;
+      if (String(f.id || "").indexOf("app:") === 0 || f.platform === "app") seen["app:@" + String(f.handle || "").toLowerCase()] = 1;
+    });
+    const extra = found.filter((f) => !seen[f.id] && !seen["app:@" + f.handle.toLowerCase()] && !matchesMute(STATE.settings.mutedAccounts, f.handle, "app", f.id));
+    if (!extra.length) return hits;
+    const key = peopleKey(q);
+    const exact = extra.filter((f) => f.handle.toLowerCase() === key);
+    const rest = extra.filter((f) => f.handle.toLowerCase() !== key);
+    return Object.assign({}, hits, { accounts: exact.concat(hits.accounts || [], rest) });
+  }
+
   function exploreHits(q) {
+    return withServerPeople(q, exploreLocalHits(q));
+  }
+
+  function exploreLocalHits(q) {
     const dev = window.ViktorychDevice;
     const idx = window.ViktorychDeviceSearch;
     if (dev && idx && dev.featureOn(dev.read(), "search", dev.signals()) && !dev.cooling("search")) {
@@ -14695,6 +15089,7 @@ const here = parseRoute();
           heat: exploreHeat
         });
         if (found && found.complete && found.hits) {
+          if (window.LinkedProfiles && Array.isArray(found.hits.accounts)) found.hits.accounts = window.LinkedProfiles.dropMerged(found.hits.accounts);
           dev.noteStat("local", "search", dev.measureBytes(found.hits), found.ms || 0);
           return found.hits;
         }
@@ -14704,7 +15099,7 @@ const here = parseRoute();
     }
     const lq = String(q || "").trim().toLowerCase();
     const started = Date.now();
-    const accounts = lq ? shownFeeds(feeds()).filter((f) => !matchesMute(STATE.settings.mutedAccounts, f.handle, f.platform, f.id) && ((f.name || "") + " " + (f.handle || "") + " " + (f.aliases || "") + " " + (f.bio || "")).toLowerCase().includes(lq)) : [];
+    const accounts = lq ? shownFeeds(feeds()).filter((f) => !matchesMute(STATE.settings.mutedAccounts, f.handle, f.platform, f.id) && ((f.name || "") + " " + (f.handle || "") + " " + (f.aliases || "") + " " + (f.bio || "") + " " + nickName(f.platform, f.channelId || f.handle, "")).toLowerCase().includes(lq)) : [];
     const found = lq ? posts().filter((p) => !hiddenPost(p) && postHay(p).toLowerCase().includes(lq)).sort(byStamp) : [];
     const top = found.slice().sort((a, b) => exploreHeat(b) - exploreHeat(a) || byStamp(a, b));
     if (dev && dev.featureOn(dev.read(), "search", dev.signals())) dev.noteStat("local", "search", dev.measureBytes({ accounts: accounts, posts: found }), Math.max(0, Date.now() - started));
@@ -14787,7 +15182,7 @@ const here = parseRoute();
     if (accounts.length) {
       html += `<div class="gsuggest-label">${tr("Accounts")}</div>`;
       accounts.forEach((f) => {
-        html += `<a class="gsuggest-pick" data-pick data-act="explore-account" data-q="${esc(f.handle || f.name || "")}" href="${esc(accountHash(f.platform, f.channelId || f.handle))}">${avatar(f.avatar, f.name)}<span class="gsuggest-copy"><span class="name">${esc(f.name || f.handle || "")}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle || "")}</span></span></a>`;
+        html += `<a class="gsuggest-pick" data-pick data-act="explore-account" data-q="${esc(f.handle || f.name || "")}" href="${esc(accountHash(f.platform, f.channelId || f.handle))}">${avatar(f.avatar, f.name)}<span class="gsuggest-copy"><span class="name">${esc(nickName(f.platform, f.channelId || f.handle, f.name || f.handle || ""))}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle || "")}</span></span></a>`;
       });
     }
     if (trends.length) {
@@ -15171,7 +15566,7 @@ const here = parseRoute();
     const pill = added ? `<span class="added-pill">${tr("Added")}</span>` : "";
     const follow = followButtonClean(f.id);
     const actions = (pill || remove) ? `<span class="row-actions">${pill}${follow}${remove}</span>` : follow;
-    return `<div class="acct-row"><a class="who-main" href="${esc(accountHash(f.platform, f.channelId || f.handle))}" data-card="${esc(f.id)}">${avatar(f.avatar, f.name)}<span class="who-copy"><span class="name">${esc(f.name)}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle)}</span>${addedNote(f)}</span></a>${actions}</div>`;
+    return `<div class="acct-row"><a class="who-main" href="${esc(accountHash(f.platform, f.channelId || f.handle))}" data-card="${esc(f.id)}">${avatar(f.avatar, f.name)}<span class="who-copy"><span class="name">${esc(nickName(f.platform, f.channelId || f.handle, f.name))}${badge(f.verifiedType)}</span><span class="handle">@${esc(f.handle)}</span>${addedNote(f)}</span></a>${actions}</div>`;
   }
 
   function feedsView() {
@@ -15284,6 +15679,7 @@ const here = parseRoute();
     const map = new Map();
     function take(row, fromLocal) {
       if (!row || (row.kind !== "video" && row.kind !== "article") || !row.id) return;
+      if (row.feedId && window.ViktorychLocked && window.ViktorychLocked.hidesId && window.ViktorychLocked.hidesId(row.feedId)) return;
       if (fromLocal && row.kind === "video" && pause.videos) return;
       if (fromLocal && row.kind === "article" && pause.articles) return;
       const at = Number(row.at) || 0;
@@ -16041,7 +16437,7 @@ const here = parseRoute();
       <div class="xa-author">
         <a href="${esc(accountHash(post.platform, who))}" data-card="${esc((post.platform || "x") + ":" + who)}" aria-label="${esc(post.author || who || tr("Profile"))}">${avatar(face.avatar || post.avatar, post.author)}</a>
         <div class="who">
-          <a class="name" href="${esc(accountHash(post.platform, who))}" data-card="${esc((post.platform || "x") + ":" + who)}">${esc(post.author || who)}${badge(face.verified || post.verifiedType)}</a>${affSlot(post)}
+          <a class="name" href="${esc(accountHash(post.platform, who))}" data-card="${esc((post.platform || "x") + ":" + who)}">${esc(nickName(post.platform, who, post.author || who))}${badge(face.verified || post.verifiedType)}</a>${affSlot(post)}
           ${who ? `<a class="handle" href="${esc(accountHash(post.platform, who))}">@${esc(who)}</a>` : ""}
         </div>
         ${who ? followButtonClean(followId) : ""}
@@ -16243,12 +16639,54 @@ const here = parseRoute();
     return new RegExp("(^|[^A-Za-z0-9_])@" + me + "(?![A-Za-z0-9_])", "i").test(String(note.text || ""));
   }
 
-  function notesForTab(tab) {
-    const notes = visibleNotes((STATE.settings && STATE.settings.bellNotes) || []);
+  /* Hook point for other features (for example a Locked area for locked
+     follows): a hold returns true for a notification that should stay out of
+     every Notifications tab, All included. Register with
+     window.ViktorychNoteTabs.addHold(fn). */
+  const NOTE_TAB_HOLDS = [];
+  function noteHeld(note) {
+    for (let i = 0; i < NOTE_TAB_HOLDS.length; i++) {
+      try { if (NOTE_TAB_HOLDS[i](note)) return true; } catch (err) {}
+    }
+    return false;
+  }
+
+  function notesForTab(tab, list) {
+    let notes = Array.isArray(list) ? list.filter(Boolean) : visibleNotes((STATE.settings && STATE.settings.bellNotes) || []);
+    if (NOTE_TAB_HOLDS.length) notes = notes.filter((note) => !noteHeld(note));
     if (!tab) return notes;
     if (tab.kind === "verified") return notes.filter(noteIsVerified);
     if (tab.kind === "mentions") return notes.filter(noteIsMention);
-    return notes.filter((note) => noteInTab(note, tab));
+    if (tab.kind === "games") return notes.filter(noteIsGame);
+    return notes.filter((note) => noteMatchesTab(note, tab));
+  }
+
+  /* A custom tab keeps a notification when it matches the tab's types (if
+     any) and its people (if any). */
+  function noteMatchesTab(note, tab) {
+    if (!note || !tab) return false;
+    const types = tab.types || [];
+    const members = tab.members || [];
+    if (!types.length && !members.length) return false;
+    if (types.length && types.indexOf(noteTypeKey(note)) < 0) return false;
+    if (members.length && !noteInTab(note, tab)) return false;
+    return true;
+  }
+
+  window.ViktorychNoteTabs = {
+    addHold(fn) { if (typeof fn === "function" && NOTE_TAB_HOLDS.indexOf(fn) < 0) { NOTE_TAB_HOLDS.push(fn); if (typeof render === "function") render(); } return () => { const at = NOTE_TAB_HOLDS.indexOf(fn); if (at >= 0) NOTE_TAB_HOLDS.splice(at, 1); }; },
+    held: (note) => noteHeld(note),
+    typeKey: (note) => noteTypeKey(note),
+    matches: (note, tab) => noteMatchesTab(note, tab),
+    forTab: (tab, list) => notesForTab(tab, list),
+    tabs: () => allNoteTabs()
+  };
+
+  function noteTabUnread(tab) {
+    if (!tab || tab.badge === false) return 0;
+    const builtin = BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0;
+    const since = builtin ? 0 : Number(tab.readAt) || 0;
+    return notesForTab(tab).filter((note) => note && !note.read && (builtin || (Number(note.at) || 0) > since)).length;
   }
 
   function tabMark(tab) {
@@ -16280,7 +16718,9 @@ const here = parseRoute();
     }
     if (!noteTabById(menu.id)) return "";
     const tab = noteTabById(menu.id);
-    return `<div class="bell-sheet" data-act="close-tab-context"><div class="menu bell-menu tab-context" data-act="stop" role="menu" aria-label="${esc(noteTabLabel(tab))}" data-x="${Number(menu.left) || 0}" data-y="${Number(menu.top) || 0}"><div class="bell-grab" aria-hidden="true"></div><button class="bell-choice" type="button" data-act="feed-tab-edit" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${menuIcon("pencil")}</span><span class="bell-choice-label">${tr("Edit tab")}</span></button><button class="bell-choice" type="button" data-act="feed-tab-ask-delete" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${menuIcon("gear")}</span><span class="bell-choice-label">${tr("Delete tab")}</span></button></div></div>`;
+    const builtin = BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0;
+    const del = builtin ? "" : `<button class="bell-choice" type="button" data-act="feed-tab-ask-delete" data-scope="notes" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${icon("close")}</span><span class="bell-choice-label">${tr("Delete tab")}</span></button>`;
+    return `<div class="bell-sheet" data-act="close-tab-context"><div class="menu bell-menu tab-context" data-act="stop" role="menu" aria-label="${esc(noteTabLabel(tab))}" data-x="${Number(menu.left) || 0}" data-y="${Number(menu.top) || 0}"><div class="bell-grab" aria-hidden="true"></div><button class="bell-choice" type="button" data-act="feed-tab-edit" data-scope="notes" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${menuIcon("pencil")}</span><span class="bell-choice-label">${tr("Edit tab")}</span></button><button class="bell-choice" type="button" data-act="note-tab-vis" data-id="${esc(tab.id)}"><span class="bell-choice-ico">${icon("eyeOff")}</span><span class="bell-choice-label">${tr("Hide tab")}</span></button>${del}<button class="bell-choice" type="button" data-act="manage-tabs"><span class="bell-choice-ico">${menuIcon("gear")}</span><span class="bell-choice-label">${tr("Manage tabs")}</span></button></div></div>`;
   }
 
   function settleNoteTab(route) {
@@ -16333,9 +16773,9 @@ const here = parseRoute();
       scheduleNoteSync();
       return;
     }
-    const tab = noteTabById(active) || (active === "mentions" || active === "verified" ? { id: active, kind: active, readAt: 0 } : null);
+    const tab = noteTabById(active) || (BUILTIN_NOTE_KINDS.indexOf(active) >= 0 ? { id: active, kind: active, readAt: 0 } : null);
     if (!tab) return;
-    if (tab.kind === "mentions" || tab.kind === "verified") {
+    if (BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0) {
       const ids = notesForTab(tab).filter((note) => note && !note.read && note.id).map((note) => note.id);
       if (!ids.length) return;
       (STATE.settings.bellNotes || []).forEach((note) => {
@@ -16356,11 +16796,8 @@ const here = parseRoute();
     if (newest && (Number(tab.readAt) || 0) < newest) {
       tab.readAt = newest;
       tab.updatedAt = Date.now();
-      const pending = notePending();
-      pending.tabs = true;
-      writeNotePending(pending);
       saveSettings();
-      scheduleNoteSync();
+      touchNoteTabs([tab.id]);
     }
   }
 
@@ -16372,7 +16809,7 @@ const here = parseRoute();
   }
 
   function noteTitle(note) {
-    const who = esc((note && (note.name || note.handle)) || tr("Someone"));
+    const who = esc((note && note.handle && note.kind !== "package" ? nickName(note.platform || "app", note.handle, note.name || note.handle) : (note && (note.name || note.handle))) || tr("Someone"));
     const kind = note && note.kind;
     const others = Number(note && note.others) || 0;
     if (kind === "like" && others > 0) return tr("{name} and {n} others liked your post", { name: who, n: others });
@@ -16397,6 +16834,14 @@ const here = parseRoute();
       return tr("Readers added context to a post you interacted with");
     }
     if (kind === "game_invite") return tr("{name} invited you to play {game}", { name: who, game: (note && note.text) || "ReGone" });
+    if (kind === "game_join") return tr("{name} joined your game", { name: who });
+    if (kind === "game_achievement") {
+      const social = window.ViktorychGameSocial;
+      const copy = social && social.achCopy ? social.achCopy(String((note && note.text) || "")) : null;
+      const title = copy && copy[0] ? copy[0] : "";
+      return title ? tr("Achievement unlocked: {name}", { name: esc(title) }) : tr("Game achievement unlocked");
+    }
+    if (kind === "game_board") return tr("Game leaderboard update");
     if (kind === "gift" && !(note && (note.name || note.handle))) return tr("You received a gift");
     if (kind === "gift") return tr("{name} sent you a gift", { name: who });
     if (kind === "birthday") return tr("It's {name}'s birthday today", { name: who });
@@ -16406,10 +16851,15 @@ const here = parseRoute();
     if (kind === "feed_request") return tr("Source request: {name}", { name: who });
     if (kind === "feed_approved") return tr("Source request approved: {name}", { name: who });
     if (kind === "feed_rejected") return tr("Source request not approved: {name}", { name: who });
-    return tr("New post notifications for @{handle}", { handle: who });
+    return tr("New post notifications for @{handle}", { handle: esc((note && (note.handle || note.name)) || tr("Someone")) });
   }
 
   function noteBody(note) {
+    if (note && note.kind === "game_achievement") {
+      const social = window.ViktorychGameSocial;
+      const copy = social && social.achCopy ? social.achCopy(String(note.text || "")) : null;
+      return copy && copy[1] ? `<p>${esc(copy[1])}</p>` : "";
+    }
     const text = note && note.text && note.kind !== "community_note" ? String(note.text) : "";
     if (!text) return "";
     const ai = window.ViktorychOnDeviceAi;
@@ -16476,6 +16926,7 @@ const here = parseRoute();
     if (kind === "live") return "mic";
     if (kind === "community_note") return "communities";
     if (kind === "tv_signin") return "tv";
+    if (/^game_/.test(String(kind || ""))) return "games";
     if (kind === "feed_request" || kind === "feed_approved" || kind === "feed_rejected") return "rss";
     return "bellOn";
   }
@@ -16609,27 +17060,32 @@ const here = parseRoute();
     return `<span class="ava initials">${initials(mine.displayName || mine.handle || "Y")}</span>`;
   }
 
-  function noteMainTab(id, label, on, withBell) {
+  function noteMainTab(id, label, on, withBell, tab) {
     const bell = withBell ? `<span class="tab-bell">${icon("bell")}</span>` : "";
-    return `<button class="tab${on ? " on" : ""}" type="button" data-act="note-tab" data-tab="${esc(id)}" role="tab" aria-selected="${on ? "true" : "false"}"><span>${bell}${esc(label)}</span></button>`;
+    const emoji = tab && tab.emoji ? `<i class="note-tab-emoji" aria-hidden="true">${esc(tab.emoji)}</i>` : "";
+    const count = tab && !on ? noteTabUnread(tab) : 0;
+    const badge = count > 0 ? `<b class="note-tab-badge" aria-label="${esc(trn("unread", count))}">${count > 99 ? "99+" : count}</b>` : "";
+    const color = tab && tab.color && on ? ` style="--note-tab-color:${esc(tab.color)}"` : "";
+    const ctx = id === "all" ? "" : ` data-note-tab="${esc(id)}"`;
+    return `<button class="tab${on ? " on" : ""}" type="button" data-act="note-tab" data-tab="${esc(id)}"${ctx}${color} role="tab" aria-selected="${on ? "true" : "false"}"><span>${bell}${emoji}${esc(label)}${badge}</span></button>`;
   }
 
   function noteGearMenu(active) {
     if (!STATE.noteGear) return "";
-    const extras = visibleNoteTabs().filter((tab) => tab.kind !== "verified" && tab.kind !== "mentions");
+    const extras = visibleNoteTabs().filter((tab) => BUILTIN_NOTE_KINDS.indexOf(tab.kind) < 0);
     const filters = extras.map((tab) => {
       const on = active === tab.id;
       return `<button class="bell-choice" type="button" data-act="note-tab" data-tab="${esc(tab.id)}" role="menuitemradio" aria-checked="${on ? "true" : "false"}"><span class="bell-choice-label">${esc(noteTabLabel(tab))}</span><span class="bell-mark">${on ? icon("tick") : ""}</span></button>`;
     }).join("");
     const filterBlock = filters ? `<div class="tab-menu-label">${esc(tr("Notification filters"))}</div>${filters}` : "";
-    return `<div class="bell-sheet" data-act="close-note-gear"><div class="menu bell-menu note-gear-menu" data-act="stop" role="menu" aria-label="${esc(tr("Notification options"))}"><div class="bell-grab" aria-hidden="true"></div><button class="bell-choice" type="button" data-act="note-mark-all"><span class="bell-choice-label">${esc(tr("Mark all as read"))}</span></button><button class="bell-choice" type="button" data-act="note-clear-all"><span class="bell-choice-label">${esc(tr("Clear all"))}</span></button><a class="bell-choice" href="#/settings/notifications"><span class="bell-choice-label">${esc(tr("Notifications"))}</span></a><button class="bell-choice" type="button" data-act="manage-tabs"><span class="bell-choice-label">${esc(tr("Manage tabs"))}</span></button>${filterBlock}</div></div>`;
+    return `<div class="bell-sheet" data-act="close-note-gear"><div class="menu bell-menu note-gear-menu" data-act="stop" role="menu" aria-label="${esc(tr("Notification options"))}"><div class="bell-grab" aria-hidden="true"></div><button class="bell-choice" type="button" data-act="note-mark-all"><span class="bell-choice-label">${esc(tr("Mark all as read"))}</span></button><button class="bell-choice" type="button" data-act="note-clear-all"><span class="bell-choice-label">${esc(tr("Clear all"))}</span></button><a class="bell-choice" href="#/settings/notifications"><span class="bell-choice-label">${esc(tr("Notifications"))}</span></a><button class="bell-choice" type="button" data-act="manage-tabs"><span class="bell-choice-label">${esc(tr("Manage tabs"))}</span></button><button class="bell-choice" type="button" data-act="feed-tab-new" data-scope="notes"><span class="bell-choice-label">${esc(tr("New tab"))}</span></button>${filterBlock}</div></div>`;
   }
 
   function notificationsView(route) {
     ensureNotesLoad();
     const active = settleNoteTab(route || parseRoute());
     const current = active === "all" ? null : noteTabById(active);
-    const notes = current ? notesForTab(current) : visibleNotes((STATE.settings && STATE.settings.bellNotes) || []);
+    const notes = notesForTab(current || null);
     /* Marking the tab read happens in this same paint. Keep the ids that were
        unread when they appeared so the row stays highlighted for this visit. */
     if (!STATE.noteUnreadPaint || STATE.noteUnreadPaint.tab !== active) STATE.noteUnreadPaint = { tab: active, ids: {} };
@@ -16640,8 +17096,7 @@ const here = parseRoute();
     const showDot = Object.keys(unreadIds).length > 0;
     markNoteTabRead(active);
     const buttons = noteMainTab("all", tr("All"), active === "all", active === "all")
-      + noteMainTab("mentions", tr("Mentions"), active === "mentions", false)
-      + noteMainTab("verified", tr("Note tab verified"), active === "verified", false);
+      + visibleNoteTabs().map((tab) => noteMainTab(tab.id, noteTabLabel(tab), active === tab.id, false, tab)).join("");
     const bar = `<div class="tabs-bar notes-tabs"><div class="tabs" role="tablist" aria-label="${tr("Notification tabs")}">${buttons}</div></div>`;
     const dot = showDot ? `<span class="ava-dot" aria-hidden="true"></span>` : "";
     const gearOpen = !!STATE.noteGear;
@@ -16664,6 +17119,11 @@ const here = parseRoute();
       showHome: existing.showHome !== false,
       showNotes: existing.showNotes !== false,
       members: (existing.members || []).slice(),
+      kind: existing.kind || "",
+      types: (existing.types || []).slice(),
+      push: existing.push !== false,
+      sound: existing.sound !== false,
+      badge: existing.badge !== false,
       q: ""
     } : {
       id: "",
@@ -16673,6 +17133,11 @@ const here = parseRoute();
       showHome: !editingNoteTabs(),
       showNotes: true,
       members: preset,
+      kind: "",
+      types: [],
+      push: true,
+      sound: true,
+      badge: true,
       q: ""
     };
     STATE.modal = "feed-tab";
@@ -16706,8 +17171,22 @@ const here = parseRoute();
       if (map[id]) { next.push(map[id]); delete map[id]; }
     });
     tabs.forEach((tab) => { if (map[tab.id]) next.push(tab); });
-    if (editingNoteTabs()) STATE.settings.noteTabs = next;
-    else STATE.settings.feedTabs = next;
+    if (editingNoteTabs()) {
+      const now = Date.now();
+      const moved = [];
+      next.forEach((tab, index) => {
+        if (tab.pos !== index) {
+          tab.pos = index;
+          tab.updatedAt = now;
+          moved.push(tab.id);
+        }
+      });
+      STATE.settings.noteTabs = next;
+      saveSettings();
+      if (moved.length) touchNoteTabs(moved);
+      return;
+    }
+    STATE.settings.feedTabs = next;
     saveSettings();
   }
 
@@ -16719,15 +17198,21 @@ const here = parseRoute();
     const tabs = scopeTabList();
     let tab = draft.id ? tabs.find((item) => item.id === draft.id) : null;
     if (!tab) {
-      if (tabs.length >= 500) {
-        toast(tr("That’s as many tabs as this device can keep"));
-        return;
-      }
       tab = { id: newFeedTabId(), readAt: 0, members: [], sort: "recent" };
+      if (editingNoteTabs()) tab.pos = tabs.reduce((max, item) => Math.max(max, typeof item.pos === "number" ? item.pos + 1 : 0), tabs.length);
       tabs.push(tab);
     }
     if (tab.kind === "verified" && name === tr("Note tab verified")) name = "verified";
     if (tab.kind === "mentions" && name === tr("Mentions")) name = "mentions";
+    if (tab.kind === "games" && name === tr("Games")) name = "games";
+    if (editingNoteTabs()) {
+      tab.types = BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0 ? [] : cleanNoteTypes(draft.types);
+      tab.push = draft.push !== false;
+      tab.sound = draft.sound !== false;
+      tab.badge = draft.badge !== false;
+      tab.updatedAt = Date.now();
+      if (tab.deletedAt) tab.deletedAt = 0;
+    }
     tab.name = name;
     tab.emoji = cleanEmoji(draft.emoji);
     tab.color = tabColor(draft.color);
@@ -16736,10 +17221,12 @@ const here = parseRoute();
     tab.members = [];
     (draft.members || []).forEach((member) => {
       const text = String(member || "").trim();
-      if (text && text.length <= 120 && tab.members.indexOf(text) < 0 && tab.members.length < 500) tab.members.push(text);
+      if (text && text.length <= 120 && tab.members.indexOf(text) < 0 && tab.members.length < 1000) tab.members.push(text);
     });
-    if (editingNoteTabs()) STATE.settings.noteTabs = cleanFeedTabs(tabs);
-    else STATE.settings.feedTabs = cleanFeedTabs(tabs);
+    if (editingNoteTabs()) {
+      STATE.settings.noteTabs = cleanFeedTabs(tabs);
+      touchNoteTabs([tab.id]);
+    } else STATE.settings.feedTabs = cleanFeedTabs(tabs);
     STATE.modal = null;
     const route = parseRoute();
     if (tab.showNotes !== false && (route.name === "notifications" || !draft.id)) {
@@ -16802,11 +17289,69 @@ const here = parseRoute();
     const orderHint = editingNoteTabs() ? tr("Drag the handle to reorder.") : tr("Drag the handle to reorder. The same order is used on Home.");
     const order = orderTabs.length > 1 ? `<h3>${tr("Order")}</h3><p class="phandle">${orderHint}</p>${orderTabs.map((tab) => `<div class="tab-order-row"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="tab-order-name">${esc(editingNoteTabs() ? noteTabLabel(tab) : tab.name)}</span></div>`).join("")}` : "";
     const homeSwitch = editingNoteTabs() ? "" : switches("showHome", tr("Show on Home"));
-    return `<div class="modal-back" data-act="close-modal"><div class="modal feed-tab-sheet" role="dialog" aria-label="${draft.id ? tr("Edit tab") : tr("New tab")}" data-act="stop"><div class="modal-head"><button class="icon-btn" type="button" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${draft.id ? tr("Edit tab") : tr("New tab")}</h2><button class="save" type="button" data-act="feed-tab-save"${String(draft.name || "").trim() ? "" : " disabled"}>${tr("Save")}</button></div><div class="modal-body"><label class="field"><span>${tr("Name")}</span><input id="feed-tab-name" data-field="name" value="${esc(draft.name || "")}"></label><label class="field"><span>${tr("Emoji")}</span><input id="feed-tab-emoji" data-field="emoji" placeholder="${tr("Optional")}" value="${esc(draft.emoji || "")}"></label><div class="field"><span>${tr("Colour")}</span><div class="swatches">${swatches}</div></div>${homeSwitch}${switches("showNotes", tr("Show in Notifications"))}<h3>${tr("Accounts")}</h3><input id="feed-tab-q" class="member-search" data-field="q" placeholder="${tr("Search accounts")}" value="${esc(draft.q || "")}">${memberRows.map((feed) => row(feed, true)).join("")}${extra.map((feed) => row(feed, true)).join("")}${found.map((feed) => row(feed, false)).join("")}${!memberRows.length && !extra.length && !q ? `<p class="phandle">${tr("Search to add accounts. Profiles with no tab stay in All.")}</p>` : ""}${order}${draft.id ? `<button class="danger" type="button" data-act="ask-delete">${tr("Delete tab")}</button>` : ""}</div></div></div>`;
+    const notesScope = editingNoteTabs();
+    const builtin = notesScope && BUILTIN_NOTE_KINDS.indexOf(draft.kind || "") >= 0;
+    const picked = draft.types || [];
+    const typeChips = notesScope && !builtin ? `<h3>${tr("Notification types")}</h3><p class="phandle">${tr("Pick types, people, or both. With both, a notification must match each.")}</p><div class="note-type-chips" role="group" aria-label="${tr("Notification types")}">${NOTE_TYPES.map((key) => `<button class="note-type-chip${picked.indexOf(key) >= 0 ? " on" : ""}" type="button" role="checkbox" aria-checked="${picked.indexOf(key) >= 0 ? "true" : "false"}" data-act="feed-tab-type" data-type="${key}"><span>${esc(noteTypeLabel(key))}</span><i aria-hidden="true">${icon("tick")}</i></button>`).join("")}</div>` : "";
+    const alertSwitches = notesScope ? `<h3>${tr("Alerts for this tab")}</h3>${switches("push", tr("Push notifications"))}${switches("sound", tr("Sound"))}${switches("badge", tr("Unread badge"))}` : "";
+    const gameLinks = notesScope && draft.kind === "games" ? `<div class="note-game-links"><a href="#/settings/privacy" data-act="close-modal-go"><span>${tr("Who can send me game notifications")}</span>${icon("chevR")}</a><a href="#/settings/notifications" data-act="close-modal-go"><span>${tr("Game notification settings")}</span>${icon("chevR")}</a></div>` : "";
+    const accounts = builtin ? "" : `<h3>${tr("Accounts")}</h3><label class="x-search">${icon("search")}<input id="feed-tab-q" class="member-search" data-field="q" type="search" placeholder="${tr("Search accounts")}" aria-label="${tr("Search accounts")}" value="${esc(draft.q || "")}"></label>${memberRows.map((feed) => row(feed, true)).join("")}${extra.map((feed) => row(feed, true)).join("")}${found.map((feed) => row(feed, false)).join("")}${!memberRows.length && !extra.length && !q ? `<p class="phandle">${tr("Search to add accounts. Profiles with no tab stay in All.")}</p>` : ""}`;
+    const del = draft.id && !builtin ? `<button class="danger" type="button" data-act="ask-delete">${tr("Delete tab")}</button>` : "";
+    return `<div class="modal-back" data-act="close-modal"><div class="modal feed-tab-sheet" role="dialog" aria-label="${draft.id ? tr("Edit tab") : tr("New tab")}" data-act="stop"><div class="modal-head"><button class="icon-btn" type="button" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${draft.id ? tr("Edit tab") : tr("New tab")}</h2><button class="save" type="button" data-act="feed-tab-save"${String(draft.name || "").trim() ? "" : " disabled"}>${tr("Save")}</button></div><div class="modal-body"><label class="xf"><input id="feed-tab-name" data-field="name" placeholder=" " autocomplete="off" value="${esc(draft.name || "")}"><span>${tr("Name")}</span></label><label class="xf"><input id="feed-tab-emoji" data-field="emoji" placeholder=" " autocomplete="off" value="${esc(draft.emoji || "")}"><span>${tr("Emoji")} (${tr("Optional")})</span></label><div class="x-color"><span>${tr("Colour")}</span><div class="swatches">${swatches}</div></div>${homeSwitch}${switches("showNotes", tr("Show in Notifications"))}${gameLinks}${typeChips}${accounts}${alertSwitches}${notesScope ? "" : order}${del}</div></div></div>`;
   }
 
   function isStandalone() {
     return matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || navigator.standalone === true;
+  }
+
+  window.installPromptNow = installPromptNow;
+  window.triggerInstallModal = function() {
+    STATE.modal = "install";
+    render();
+  };
+  function installPromptNow() {
+    const prompt = STATE.installPrompt || window.__VIKTORYCH_INSTALL;
+    return prompt && typeof prompt.prompt === "function" ? prompt : null;
+  }
+
+  function installedHere() {
+    try { return !!localStorage.getItem("viktorychapp-installed"); } catch (err) { return false; }
+  }
+
+  // Which browser's own install steps to show when there is no install prompt.
+  function installHelpKind(ua) {
+    const text = String(ua == null ? navigator.userAgent || "" : ua);
+    const mobile = /android|mobile/i.test(text);
+    if (/firefox\/|fxios/i.test(text)) return mobile ? "firefox-android" : "firefox";
+    if (/edg\/|edga\//i.test(text)) return mobile ? "chrome-android" : "edge";
+    if (/chrome|chromium/i.test(text)) return mobile ? "chrome-android" : "chrome";
+    if (/macintosh/i.test(text) && /safari/i.test(text)) return "safari-mac";
+    return "other";
+  }
+
+  function installHelpHtml() {
+    const kind = installHelpKind();
+    const steps = (list) => `<ol class="install-steps">${list.map((line) => `<li>${esc(line)}</li>`).join("")}</ol>`;
+    const lead = installedHere() && kind !== "firefox" && kind !== "other"
+      ? `<p class="install-help-lead">${esc(tr("It looks like the app is already installed on this device. Open it from your apps or desktop."))}</p>`
+      : "";
+    let body = "";
+    if (kind === "chrome") {
+      body = steps([tr("Click the install icon at the right end of the address bar."), tr("Or open the ⋮ menu, choose Cast, save, and share, then Install page as app.")]);
+    } else if (kind === "edge") {
+      body = steps([tr("Click the install icon at the right end of the address bar."), tr("Or open the … menu, choose Apps, then Install this site as an app.")]);
+    } else if (kind === "chrome-android") {
+      body = steps([tr("Open the ⋮ menu."), tr("Choose Add to Home screen, then Install.")]);
+    } else if (kind === "safari-mac") {
+      body = steps([tr("In the menu bar, choose File."), tr("Choose Add to Dock, then click Add.")]);
+    } else if (kind === "firefox") {
+      body = `<p>${esc(tr("Firefox can’t install web apps on computers. Open this page in Chrome or Edge to install it."))}</p>`;
+    } else if (kind === "firefox-android") {
+      body = steps([tr("Open the ⋮ menu."), tr("Choose Add app to Home screen.")]);
+    } else {
+      body = `<p>${esc(tr("Open your browser menu and look for Install or Add to Home Screen. If it isn’t there, open this page in Chrome or Edge."))}</p>`;
+    }
+    return `<div class="install-help" data-kind="${esc(kind)}">${lead}${body}</div>`;
   }
 
   function installOfferHtml() {
@@ -16816,16 +17361,16 @@ const here = parseRoute();
     const extra = { touchMac: navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1 };
     const arrow = api && api.installArrow ? api.installArrow(kind, ua, extra) : (kind === "ios-safari" ? "down" : "");
     const benefit = (glyph, text) => `<li class="install-benefit"><span aria-hidden="true">${icon(glyph)}</span><span>${esc(text)}</span></li>`;
-    const benefits = `<ul class="install-benefits">${benefit("home", tr("It opens full screen and loads faster."))}${benefit("check", tr("Posts you already opened stay available offline."))}${benefit("plus", tr("It stays on your Home Screen or desktop."))}</ul>`;
+    const benefits = `<ul class="install-benefits">${benefit("home", tr("It opens full screen and loads faster."))}${benefit("check", tr("Posts you already opened stay available offline."))}${benefit("phone", tr("Default dialer, phone calls & offline contacts on Android."))}${benefit("plus", tr("It stays on your Home Screen or desktop."))}</ul>`;
     let body = "";
     if (kind === "ios-browser") {
       body = `<p>${esc(tr("This browser can’t add the app to your Home Screen. Open the page in Safari, then use the Share button."))}</p>`;
     } else if (kind === "ios-safari") {
       body = `${benefits}<ol class="install-steps"><li>${esc(tr("Tap Share in Safari"))}</li><li>${esc(tr("Choose Add to Home Screen"))}</li><li>${esc(tr("Tap Add"))}</li></ol>`;
-    } else if (kind === "native" || STATE.installPrompt) {
+    } else if (installPromptNow()) {
       body = `${benefits}<button class="install-go" type="button" data-act="install-go">${esc(tr("Install"))}</button>`;
     } else {
-      body = `<p>${esc(tr("In Safari, use Share or File, then Add to Dock. In Firefox, use the install icon in the address bar."))}</p>`;
+      body = installHelpHtml();
     }
     const pointer = arrow ? `<div class="install-arrow is-${arrow}" aria-hidden="true">${icon(arrow === "up" ? "arrowUp" : "arrowDown")}</div>` : "";
     return `<div class="install-offer" data-act="stop"><div class="install-panel" role="dialog" aria-modal="true" aria-label="${esc(tr("Install app"))}">
@@ -16912,6 +17457,7 @@ const here = parseRoute();
       else if (section === "privacy") key = tr("Privacy and safety");
       else if (section === "muted") key = tr("Muted & blocked");
       else if (section === "usernames") key = tr("Usernames");
+      else if (section === "locked-follows") key = tr("Locked follows");
       else if (section === "nostr") key = tr("Nostr");
       else if (section === "live-translate") key = tr("Live Translate");
       else if (section === "content") key = tr("Custom tabs");
@@ -16959,7 +17505,7 @@ const here = parseRoute();
       ? `<a class="icon-btn" href="${backHref}" aria-label="${esc(tr("Back"))}">${icon("back")}</a>`
       : `<button class="icon-btn" type="button" data-act="back" aria-label="${esc(tr("Back"))}">${icon("back")}</button>`;
     return `<div class="topbar tall"><div class="mhead">
-        <button class="m-ava" type="button" data-act="drawer" aria-label="${esc(tr("Menu"))}"><span class="ava initials">Y</span></button>
+        <button class="m-ava" type="button" data-act="drawer" aria-label="${esc(tr("Menu"))}">${viewerFace()}</button>
         ${mobileLogo()}
         <a class="m-icon" href="#/settings" aria-label="${esc(tr("Settings"))}">${icon("spark")}</a>
       </div>
@@ -17113,7 +17659,9 @@ const here = parseRoute();
       ${sec(tr("Home"), `${homeFeatureSwitch("homePills", tr("Live pills row"), tr("Weather, scores and live spaces above the timeline. Off loads nothing for it."))}
         ${homeFeatureSwitch("stories", tr("Stories"), tr("The stories tray and viewer. Off loads nothing for it."))}
         ${sw("story-notes", notesOn, tr("Show notes"), tr("Notes sit above stories. Turn this off to hide them."))}
-        ${friendsOffNow() ? "" : sw("toggle-privacy-pref", friendsOn, tr("Friends panel"), tr("Show active friends beside the home feed."), ` data-key="friendsRail"`)}`)}
+        ${friendsOffNow() ? "" : sw("toggle-privacy-pref", friendsOn, tr("Friends panel"), tr("Show active friends beside the home feed."), ` data-key="friendsRail"`)}
+        ${localAiOn() ? sw("ai-fab", !!st.aiFab, tr("Local AI button"), tr("A round button on every page that opens Local AI."), "") : ""}
+        ${localAiSetupOn() ? `<div class="set-list">${settingsRow("#/ai?setup=1", tr("Set up Local AI again"), tr("Check this device, pick a model and choose how Local AI works."))}</div>` : ""}`)}
       ${sec(tr("Your feed"), `${sw("pz-feed", st.forYouReposts !== false, tr("Show reposts"), "", ` data-key="forYouReposts"`)}
         ${sw("pz-feed", st.forYouReplies !== false, tr("Show replies in tab"), "", ` data-key="forYouReplies"`)}
         ${sw("pz-feed", st.communitiesHome !== false, tr("Communities in Home"), "", ` data-key="communitiesHome"`)}
@@ -17159,6 +17707,30 @@ const here = parseRoute();
 
   /* Search Settings, like X. Words match every page; a question in plain
      words also goes to the browser's built-in model when it has one. */
+  /* Local AI (local-ai-ui.js): an owner switch, an entry at the top of
+     Settings, the side menu, and an optional floating button. */
+  function localAiOn() { return !serverOffList().includes("local_ai"); }
+  function localAiSetupOn() { return localAiOn() && !serverOffList().includes("local_ai_setup"); }
+  function localAiEntryHtml() {
+    if (!localAiOn() || String(STATE.settingsQ || "").trim()) return "";
+    return `<a class="lai-entry" href="#/ai"><span class="lai-entry-ico" aria-hidden="true">${icon("spark")}</span><span class="lai-entry-copy"><b>${esc(tr("Ask Local AI"))}</b><span>${esc(tr("Say what you want changed, like “bigger text” or “make it private”. It runs on this device."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></a>`;
+  }
+  function paintAiFab(route) {
+    let fab = document.getElementById("lai-fab");
+    const want = localAiOn() && !!(STATE.settings && STATE.settings.aiFab) && route && route.name !== "localai" && route.name !== "watch" && route.name !== "shorts" && route.name !== "tv";
+    if (!want) { if (fab) fab.remove(); return; }
+    if (!fab) {
+      fab = document.createElement("a");
+      fab.id = "lai-fab";
+      fab.className = "lai-fab";
+      fab.href = "#/ai";
+      document.body.appendChild(fab);
+    }
+    fab.setAttribute("aria-label", tr("Local AI"));
+    fab.title = tr("Local AI");
+    if (!fab.firstChild) fab.innerHTML = icon("spark");
+  }
+
   function settingsSearchHtml() {
     if (!window.ViktorychSettingsAssistant) return "";
     const q = String(STATE.settingsQ || "");
@@ -17256,6 +17828,27 @@ const here = parseRoute();
     logoSaveTimer = setTimeout(saveSettings, 600);
   }
 
+  /* Owner account inspector (owner-inspector.js, loaded only when the owner opens it). */
+  function ownerInspectorOn() {
+    return !!(accountToken() && signedOwner() && serverOffList().indexOf("owner_inspector") < 0);
+  }
+  function ownerInspectorRow() {
+    return ownerInspectorOn() ? settingsRow("#/settings/accounts-inspector", tr("Accounts"), tr("Every account on the site, with all usernames and details, for moderation.")) : "";
+  }
+  function ownerInspectorView(sub) {
+    if (!ownerInspectorOn()) return settingsHead(tr("Accounts"), "#/settings") + `<p class="phandle set-block">${esc(tr("Only the owner can see this."))}</p>`;
+    if (!window.OwnerInspector) {
+      ensureLazy("owner_inspector");
+      return settingsHead(tr("Accounts"), "#/settings") + `<p class="phandle set-block">${esc(tr("Loading…"))}</p>`;
+    }
+    window.OwnerInspector.attach({
+      tr, esc, icon, avatar, settingsHead, signedOwner, accountsApi, accountToken, toast, relTime,
+      render: () => render({ y: window.scrollY }),
+      lang: () => (window.SI18n ? window.SI18n.getLang() : "en")
+    });
+    return window.OwnerInspector.view(sub);
+  }
+
   function settingsView() {
     const route = parseRoute();
     const section = route.section || "";
@@ -17275,6 +17868,7 @@ const here = parseRoute();
     const notifyOn = !!(STATE.settings && STATE.settings.notify && typeof Notification !== "undefined" && Notification.permission === "granted");
     const lang = window.SI18n ? window.SI18n.getLang() : "en";
     if (section === "feed-requests" && window.FeedRequests) return window.FeedRequests.ownerView(sub);
+    if (section === "accounts-inspector") return ownerInspectorView(sub);
     if ((section === "accessibility" && sub === "display-language") || section === "display-language") {
       const q = String(STATE.langQ || "").trim().toLowerCase();
       const choices = [
@@ -17447,7 +18041,16 @@ const here = parseRoute();
       const body = window.ViktorychUsernames && window.ViktorychUsernames.settingsHtml ? window.ViktorychUsernames.settingsHtml() : "";
       return settingsHead(tr("Usernames"), "#/settings/privacy") + `<div class="set-block">${body}</div>`;
     }
-    if (section === "friends") return settingsHead(tr("Friends"), "#/settings/privacy") + `<div class="set-block">${window.ViktorychFriendsPref ? window.ViktorychFriendsPref.pageHtml() : ""}</div>`;
+    if (section === "linked" && window.LinkedProfiles && window.LinkedProfiles.enabled()) return settingsHead(tr("Linked accounts"), "#/settings") + `<div class="set-block">${window.LinkedProfiles.pageHtml()}</div>`;
+    if (section === "locked-follows") return settingsHead(tr("Locked follows"), "#/settings/privacy") + `<div class="set-block">${window.ViktorychLocked ? window.ViktorychLocked.settingsHtml() : ""}</div>`;
+    if (section === "friends") {
+      const each = window.ViktorychFriendPrivacy && window.ViktorychFriendsPref && !window.ViktorychFriendsPref.isOff() ? `<div class="set-list">${window.ViktorychFriendPrivacy.entryHtml()}</div>` : "";
+      return settingsHead(tr("Friends"), "#/settings/privacy") + `<div class="set-block">${window.ViktorychFriendsPref ? window.ViktorychFriendsPref.pageHtml() : ""}${each}</div>`;
+    }
+    if (section === "friendship") {
+      const title = route.sub ? tr("Friendship") : tr("Who can see each friendship");
+      return settingsHead(title, route.sub ? "#/settings/friendship" : "#/settings/friends") + `<div class="set-block">${window.ViktorychFriendPrivacy ? window.ViktorychFriendPrivacy.pageHtml(route.sub || "") : ""}</div>`;
+    }
     if (section === "muted") return settingsHead(tr("Muted & blocked"), "#/settings/privacy") + `<div class="set-block">${mutedSettingsHtml()}</div>`;
     if (section === "privacy") {
       const acct = window.ViktorychAccounts && window.ViktorychAccounts.account && window.ViktorychAccounts.account();
@@ -17473,6 +18076,7 @@ const here = parseRoute();
         ${(window.ViktorychAccounts && window.ViktorychAccounts.privacyHtml) ? window.ViktorychAccounts.privacyHtml() : ""}
         ${window.ViktorychPYMK ? window.ViktorychPYMK.privacyHtml() : ""}
         ${window.ViktorychNostr && window.ViktorychNostr.allowed() ? `<div class="set-list">${settingsRow("#/settings/nostr", tr("Nostr"), tr("Follow Nostr profiles, send your posts to relays, and see Nostr replies."))}</div>` : ""}
+        ${acct && window.ViktorychLocked ? `<div class="set-list">${settingsRow("#/settings/locked-follows", tr("Locked follows"), tr("Hide people you follow everywhere until you unlock."))}</div>` : ""}
         ${acct && window.ViktorychUsernames ? `<div class="set-list">${settingsRow("#/settings/usernames", tr("Usernames"), tr("Choose who sees which username, nicknames, and who can mention you."))}</div>` : ""}
         ${(window.AudienceLists && window.AudienceLists.settingsHtml) ? window.AudienceLists.settingsHtml() : ""}
         ${privSection}
@@ -17517,8 +18121,10 @@ const here = parseRoute();
       </div>${netHelpHtml()}`;
     }
     if (section === "resources") {
+      const upgradeRow = isStandalone() ? `<div class="set-list"><button class="set-row" type="button" data-act="prompt-pwa-upgrade"><span class="set-copy"><b>${esc(tr("Upgrade app shortcut"))}</b><span class="set-sub">${esc(tr("Refresh native Android dialer, protocol handlers and shortcuts."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button></div>` : "";
       return settingsHead(tr("Additional resources"), "#/settings") + `<div class="set-block">
         ${installControl()}
+        ${upgradeRow}
         <div class="set-list">${settingsRow("#/send-to-tv", tr("Send to my TV"), tr("Open the app on your TV without typing a long address."))}</div>
         <button class="primary" type="button" data-act="export">${esc(tr("Export settings"))}</button>
         <label class="primary import-btn">${esc(tr("Import settings"))}<input id="import-file" data-act="import" type="file" accept="application/json" hidden></label>
@@ -17569,7 +18175,7 @@ const here = parseRoute();
     const keysRow = (window.OwnerKeys && window.OwnerKeys.visible && window.OwnerKeys.visible()) || window.DiscordLocal || (window.NzlayKeys && window.NzlayKeys.enabled())
       ? settingsRow("#/settings/keys", tr("Connected keys"), tr("Keys from your own accounts stay encrypted."))
       : "";
-    return settingsHead(tr("Settings"), "") + settingsSearchHtml() + `<div class="set-block set-main-note"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}><p class="phandle">${esc(tr("Follows, Lists, custom tabs, likes, bookmarks, and history stay in this browser."))}</p></div><div class="set-list set-main-list"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}>
+    return settingsHead(tr("Settings"), "") + settingsSearchHtml() + localAiEntryHtml() + `<div class="set-block set-main-note"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}><p class="phandle">${esc(tr("Follows, Lists, custom tabs, likes, bookmarks, and history stay in this browser."))}</p></div><div class="set-list set-main-list"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}>
       ${settingsRow("#/customize", tr("Customize"), tr("Theme, colour, text size, profile pictures and your feed, all in one place."))}
       ${settingsRow("#/settings/accessibility", tr("Accessibility, display and languages"), tr("Manage how {app} looks and which language it uses.", { app: productName("app") }))}
       ${settingsRow("#/settings/notifications", tr("Notifications"))}
@@ -17587,6 +18193,7 @@ const here = parseRoute();
       ${settingsRow("#/settings/network", tr("Digital Resistance & Proxy"), tr("Manage bypass proxy, Telegram relay, and unblocked media mode."))}
       ${keysRow}
       ${window.FeedRequests ? window.FeedRequests.settingsRowHtml() : ""}
+      ${ownerInspectorRow()}
       ${settingsRow("#/settings/resources", tr("Additional resources"))}
       ${isStandalone() ? "" : `<button class="set-row" type="button" data-act="install"><span class="set-copy"><b>${esc(tr("Install app"))}</b><span class="set-sub">${esc(tr("Add it to your Home Screen or desktop."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button>`}
       ${accountToken() ? `<button class="set-row" type="button" data-act="run-setup"><span class="set-copy"><b>${esc(tr("Run setup again"))}</b><span class="set-sub">${esc(tr("Privacy, look, alerts, install and follows."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></button>` : ""}
@@ -17594,8 +18201,8 @@ const here = parseRoute();
   }
 
   const DRAWER_LOCKED = ["home", "settings", "logout", "customize"];
-  const DRAWER_PRIMARY = ["home", "explore", "notifications", "profile", "online", "premium", "communities", "bookmarks", "points", "lists", "spaces", "golive", "requests", "studio", "settings", "help", "logout", "customize"];
-  const DRAWER_EXTRA = ["tv", "messages", "feeds", "history", "shorts", "subscriptions", "vault", "packages", "storage", "games", "music"];
+  const DRAWER_PRIMARY = ["home", "explore", "notifications", "profile", "online", "premium", "communities", "bookmarks", "points", "lists", "spaces", "golive", "requests", "studio", "localai", "settings", "help", "logout", "customize"];
+  const DRAWER_EXTRA = ["contacts", "tv", "messages", "feeds", "history", "shorts", "subscriptions", "vault", "packages", "storage", "games", "music"];
   const DRAWER_IDS = DRAWER_PRIMARY.concat(DRAWER_EXTRA);
   const DRAWER_NAV = {
     home: "home",
@@ -17787,6 +18394,7 @@ const here = parseRoute();
     if (id === "requests") return { id: id, href: drawerRequestsHref(), icon: "user", label: tr("Requests"), extra: requestsCountHtml() };
     if (id === "studio") return { id: id, href: "#/feeds", icon: "spark", label: tr("Creator Studio") };
     if (id === "help") return { id: id, href: "#/settings/resources", icon: "help", label: tr("Help Center") };
+    if (id === "localai") return localAiOn() ? { id: id, href: "#/ai", icon: "spark", label: tr("Local AI") } : null;
     if (id === "settings") return { id: id, href: "#/settings", icon: "gear", label: tr("Settings and privacy"), locked: true };
     if (id === "logout") return { id: id, href: "", icon: "user", label: mine ? tr("Log out") : tr("Sign in"), locked: true, accountMenu: true };
     if (id === "customize") return { id: id, href: "", icon: "sliders", label: tr("Customize"), locked: true, act: "customize-page" };
@@ -18073,7 +18681,7 @@ if (STATE.histClear) {
         <div class="modal-head"><button class="icon-btn" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${tr("Quote")}</h2><button id="quote-post" class="save" data-act="quote-post" disabled>${tr("Post")}</button></div>
         <div class="modal-body" style="display:flex;gap:12px">
           ${face}
-          <div style="flex:1"><textarea id="quote-text" maxlength="280" placeholder="${tr("Add a comment")}" style="width:100%;min-height:120px;background:transparent;border:0;resize:vertical;font-size:20px;outline:none"></textarea></div>
+          <div style="flex:1;min-width:0"><textarea id="quote-text" maxlength="280" placeholder="${tr("Add a comment")}" style="width:100%;min-height:120px;background:transparent;border:0;resize:vertical;font-size:20px;outline:none"></textarea>${quoteSheetCard(locatePost(STATE.quoteTarget))}</div>
         </div></div></div>`;
     }
     if (STATE.modal === "list") {
@@ -18093,7 +18701,7 @@ if (STATE.histClear) {
       const q = (STATE.draft.q || "").toLowerCase();
       const rows = feeds().filter((f) => !q || (f.name + " " + f.handle).toLowerCase().includes(q)).map((f) => {
         const on = (list.members || []).includes(f.id);
-        return `<div class="acct-row">${avatar(f.avatar, f.name)}<span class="who-copy"><span class="name">${esc(f.name)}${affSlot(f)}</span><span class="handle">@${esc(f.handle)}</span></span><button class="follow${on ? " following" : ""}" data-act="${on ? "member-remove" : "member-add"}" data-id="${esc(f.id)}">${on ? ("<span class='f'" + ">" + tr("Member") + "<" + "/span><span class='u'" + ">" + tr("Remove") + "<" + "/span>") : tr("Add")}</button></div>`;
+        return `<div class="acct-row">${avatar(f.avatar, f.name)}<span class="who-copy"><span class="name">${esc(nickName(f.platform, f.channelId || f.handle, f.name))}${affSlot(f)}</span><span class="handle">@${esc(f.handle)}</span></span><button class="follow${on ? " following" : ""}" data-act="${on ? "member-remove" : "member-add"}" data-id="${esc(f.id)}">${on ? ("<span class='f'" + ">" + tr("Member") + "<" + "/span><span class='u'" + ">" + tr("Remove") + "<" + "/span>") : tr("Add")}</button></div>`;
       }).join("");
       return `<div class="modal-back"><div class="modal" role="dialog">
         <div class="modal-head"><button class="icon-btn" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${tr("Manage members")}</h2></div>
@@ -18130,7 +18738,18 @@ if (STATE.histClear) {
     }
     if (STATE.modal === "feed-tab") return feedTabEditor();
     if (STATE.modal === "tabs" && editingNoteTabs()) {
-      const rows = noteTabs().map((tab) => `<div class="acct-row tab-manage-row"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="who-copy"><span class="name">${esc(noteTabLabel(tab))}</span><span class="handle">${tab.showNotes === false ? tr("Hidden in Notifications") : tr("Show in Notifications")}</span></span><button class="outline" type="button" data-act="feed-tab-edit" data-scope="notes" data-id="${esc(tab.id)}">${tr("Edit")}</button></div>`).join("");
+      const list = allNoteTabs();
+      const rows = list.map((tab, index) => {
+        const label = noteTabLabel(tab);
+        const shown = tab.showNotes !== false;
+        const bits = [];
+        if (tab.types && tab.types.length) bits.push(tab.types.map(noteTypeLabel).join(", "));
+        if (tab.members && tab.members.length) bits.push(trn("members", tab.members.length));
+        if (tab.push === false) bits.push(tr("Push off"));
+        if (tab.sound === false) bits.push(tr("Sound off"));
+        const sub = shown ? (bits.join(" · ") || tr("Show in Notifications")) : tr("Hidden in Notifications");
+        return `<div class="acct-row tab-manage-row note-manage-row${shown ? "" : " is-hidden"}"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="who-copy"><span class="name">${esc(label)}</span><span class="handle">${esc(sub)}</span></span><span class="note-move"><button type="button" data-act="note-tab-move" data-id="${esc(tab.id)}" data-dir="-1" aria-label="${esc(tr("Move up") + ": " + label)}"${index === 0 ? " disabled" : ""}>${icon("arrowUp")}</button><button type="button" data-act="note-tab-move" data-id="${esc(tab.id)}" data-dir="1" aria-label="${esc(tr("Move down") + ": " + label)}"${index === list.length - 1 ? " disabled" : ""}>${icon("arrowDown")}</button></span><button class="tab-switch note-vis${shown ? " on" : ""}" type="button" role="switch" aria-checked="${shown ? "true" : "false"}" aria-label="${esc(tr("Show {name} in Notifications", { name: label }))}" data-act="note-tab-vis" data-id="${esc(tab.id)}"><i></i></button><button class="outline" type="button" data-act="feed-tab-edit" data-scope="notes" data-id="${esc(tab.id)}">${tr("Edit")}</button></div>`;
+      }).join("");
       return `<div class="modal-back" data-act="close-modal"><div class="modal" role="dialog" aria-label="${tr("Manage tabs")}" data-act="stop">
         <div class="modal-head"><button class="icon-btn" type="button" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${tr("Manage tabs")}</h2></div>
         <div class="modal-body">
@@ -18142,6 +18761,9 @@ if (STATE.histClear) {
     }
     if (STATE.modal === "tabs") {
       const pinned = STATE.settings.lists.filter((list) => list.pinned);
+      const reg = window.ViktorychSettingsSync;
+      const shared = !(STATE.settings && STATE.settings.syncUi === false);
+      const tabsSyncOn = reg && reg.catLocal ? !reg.catLocal("tabs") : true;
       const rows = pinned.map((list, index) => `<div class="acct-row tab-manage-row"><span class="color-chip" style="background:${esc(list.bannerColor || COLORS[0])}"></span><span class="who-copy"><span class="name">${esc(list.name)}</span><span class="handle">${trn("members", (list.members || []).length)}</span></span><button class="icon-btn" type="button" data-act="tab-move" data-id="${esc(list.id)}" data-dir="-1" aria-label="${esc(tr("Move {name} left", { name: list.name }))}"${index === 0 ? " disabled" : ""}>${icon("chevL")}</button><button class="icon-btn" type="button" data-act="tab-move" data-id="${esc(list.id)}" data-dir="1" aria-label="${esc(tr("Move {name} right", { name: list.name }))}"${index === pinned.length - 1 ? " disabled" : ""}>${icon("chevR")}</button><button class="outline" type="button" data-act="tab-unpin" data-id="${esc(list.id)}">${tr("Unpin")}</button></div>`).join("");
       return `<div class="modal-back" data-act="close-modal"><div class="modal" role="dialog" aria-label="${tr("Manage tabs")}" data-act="stop">
         <div class="modal-head"><button class="icon-btn" type="button" data-act="close-modal" aria-label="${tr("Close")}">${icon("close")}</button><h2>${tr("Manage tabs")}</h2></div>
@@ -18152,6 +18774,7 @@ if (STATE.histClear) {
           <h3>${tr("Custom tabs")}</h3>
           <button class="outline" type="button" data-act="feed-tab-new" aria-label="${tr("New tab")}">${tr("New tab")}</button>
           ${feedTabs().map((tab) => `<div class="acct-row tab-manage-row"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="who-copy"><span class="name">${esc(tab.name)}</span><span class="handle">${tab.showHome === false ? tr("Hidden on Home") : tr("On Home")}${tab.showNotes === false ? " · " + tr("Hidden in Notifications") : ""}</span></span><button class="outline" type="button" data-act="feed-tab-edit" data-id="${esc(tab.id)}">${tr("Edit")}</button></div>`).join("") || `<p class="phandle">${tr("Create a tab to group accounts on Home and in Notifications.")}</p>`}
+          ${reg && shared && reg.catLocal ? `<button class="tab-switch${tabsSyncOn ? " on" : ""}" type="button" role="switch" aria-checked="${tabsSyncOn ? "true" : "false"}" data-act="sync-cat-local" data-cat="tabs"><span>${esc(tr("Sync these tabs across devices"))}</span><i></i></button><p class="phandle">${esc(tr("Off keeps this device's tabs on this device only."))}</p>` : ""}
         </div>
       </div></div>`;
     }
@@ -18171,7 +18794,7 @@ if (STATE.histClear) {
 
   function shell(main, route) {
     const gamePlay = route.name === "games" && !!route.game;
-    const wide = route.name === "subscriptions" || route.name === "watch" || route.name === "messages" || route.name === "shorts" || route.name === "drive" || route.name === "vault" || route.name === "tv" || gamePlay;
+    const wide = route.name === "subscriptions" || route.name === "watch" || route.name === "messages" || route.name === "shorts" || route.name === "drive" || route.name === "localai" || route.name === "vault" || route.name === "tv" || gamePlay;
     const explore = route.name === "explore";
     const musicHome = route.name === "music" && (route.section || "home") === "home";
     const tall = route.name === "home" || wide || ["feeds", "sourcelists", "feedrequests", "lists", "bookmarks", "history", "settings", "notifications", "messages", "music", "games", "communities", "tv", "vault", "packages"].includes(route.name);
@@ -18180,7 +18803,7 @@ if (STATE.histClear) {
     const liveExtra = route.name === "home" && window.ViktorychLive && window.ViktorychLive.rowExtra ? window.ViktorychLive.rowExtra() : 0;
     const slimTabs = route.name === "home" || route.name === "notifications";
     let bar = 53;
-    if (route.name === "profile" || route.name === "user" || route.name === "person" || route.name === "tv" || route.name === "shorts" || route.name === "messages" || explore) bar = 0;
+    if (route.name === "profile" || route.name === "user" || route.name === "person" || route.name === "tv" || route.name === "shorts" || route.name === "messages" || route.name === "localai" || explore) bar = 0;
     else if (slimTabs && !musicHome) bar = 97;
     else if (tall && !musicHome) bar = 106;
     const top = bar + rowExtra + storyExtra + liveExtra;
@@ -18334,7 +18957,8 @@ if (STATE.histClear) {
     const lib = repostLib();
     if (!lib || !account) return { html: "", count: 0 };
     const mine = isMyAccount(account);
-    const identities = (account && account.identities) || [];
+    const lpMod = window.LinkedProfiles;
+    const identities = lpMod ? lpMod.mergedLinks(account) : ((account && account.identities) || []);
     const ownKey = authorKey(account);
     const ownApp = ownKey ? authorPosts(ownKey).map(appCardPost) : [];
     if (!ownApp.length && !account.repostsLoaded && !rowsForAccount(account).length && !identities.length) {
@@ -18376,7 +19000,7 @@ if (STATE.histClear) {
                           (pFeedId === idPlatform + ":" + idHandle) ||
                           (pFeedId === idHandle);
           if (matches) {
-            addPost(p);
+            addPost(lpMod ? lpMod.asOwn(p, account) : p);
           }
         });
       });
@@ -18392,7 +19016,10 @@ if (STATE.histClear) {
     else if (tab === "posts" || !tab) shown = postList.filter((post) => post.kind !== "reply");
     const entry = ownKey ? authorPostCache[ownKey] : null;
     const more = entry && entry.more ? `<div id="author-more" class="reply-empty" data-id="${esc(ownKey)}"><button type="button" class="link-btn" data-act="author-more" data-id="${esc(ownKey)}">${tr("Show more")}</button></div>` : "";
-    return { html: shown.map((post) => card(post, "")).join("") + more, count: postList.length };
+    /* Optional platform filters: All, Posts, X, Instagram… The default is the mixed timeline. */
+    const pills = lpMod ? lpMod.filterHtml(account, postList) : "";
+    if (pills) shown = shown.filter((post) => lpMod.filterPost(post, account));
+    return { html: pills + shown.map((post) => card(post, "")).join("") + more, count: postList.length };
   }
 
   function repostPostById(handle, id) {
@@ -18565,8 +19192,21 @@ if (STATE.histClear) {
     return (post.media || []).some((item) => item && (item.type === "video" || item.type === "animated_gif"));
   }
 
+  // followedPost() asks for this once per post while a timeline is built, and
+  // each call walks every follow against every feed. The answer cannot change
+  // inside one synchronous paint, so it is kept until the current task ends.
+  let FOLLOW_IDS_MEMO = null;
   function followIdsNow() {
     const settings = STATE.settings || {};
+    const feedList = feeds();
+    if (FOLLOW_IDS_MEMO && FOLLOW_IDS_MEMO.follows === settings.follows && FOLLOW_IDS_MEMO.accountFollows === settings.accountFollows && FOLLOW_IDS_MEMO.feeds === feedList && FOLLOW_IDS_MEMO.n === feedList.length) return FOLLOW_IDS_MEMO.out;
+    const out = followIdsCompute(settings);
+    FOLLOW_IDS_MEMO = { follows: settings.follows, accountFollows: settings.accountFollows, feeds: feedList, n: feedList.length, out };
+    const drop = () => { FOLLOW_IDS_MEMO = null; };
+    if (typeof queueMicrotask === "function") queueMicrotask(drop); else Promise.resolve().then(drop);
+    return out;
+  }
+  function followIdsCompute(settings) {
     const raw = (settings.follows || []).concat(settings.accountFollows || []);
     const out = [];
     const seen = {};
@@ -18604,18 +19244,29 @@ if (STATE.histClear) {
     };
   }
 
+  function isOrgVerified(post, face) {
+    const v = (face && (face.verified || face.verifiedType)) ||
+              (post && (post.verifiedType || (post.verified && post.verified !== true && post.verified !== "blue"))) || "";
+    if (v === "business" || v === "organization") return true;
+    const feed = post ? feedOf(post) : null;
+    return !!(feed && (feed.verifiedType === "business" || feed.verifiedType === "organization"));
+  }
+
   function authorFace(post) {
     if (isRepost(post)) {
       const creator = creatorOf(post);
+      const reposter = post.repostedBy || {};
+      const byFeed = reposter.feedId ? feedById(reposter.feedId) : (reposter.handle ? findFeed(reposter.platform || post.platform || "x", reposter.handle) : null);
+      const reposterAva = reposter.avatar || (byFeed && byFeed.avatar) || "";
       return {
-        avatar: post.avatar || creator.avatar || "",
-        verified: post.verifiedType || creator.verifiedType || ""
+        avatar: post.avatar || (creator && creator.avatar) || reposterAva || "",
+        verified: post.verifiedType || (creator && creator.verifiedType) || ""
       };
     }
     const feed = feedOf(post);
     return {
-      avatar: post.avatar || feed.avatar || "",
-      verified: post.verifiedType || feed.verifiedType || ""
+      avatar: post.avatar || (feed && feed.avatar) || "",
+      verified: post.verifiedType || (feed && feed.verifiedType) || ""
     };
   }
 
@@ -18717,7 +19368,7 @@ if (STATE.histClear) {
     if (!name) return `<div class="repost-line">${icon("repost")}<span>${tr("Reposted")}</span></div>`;
     const platform = by.platform || post.platform || "x";
     const who = by.channelId || by.handle || "";
-    const label = tr("{name} reposted", { name: esc(by.name || by.handle) });
+    const label = tr("{name} reposted", { name: esc(who ? nickName(platform, who, by.name || by.handle) : (by.name || by.handle)) });
     if (!who) return `<div class="repost-line">${icon("repost")}<span>${label}</span></div>`;
     return `<div class="repost-line">${icon("repost")}<a data-act="stop" data-card="${esc(platform + ":" + who)}" href="${esc(accountHash(platform, who))}">${label}</a></div>`;
   }
@@ -18736,7 +19387,7 @@ if (STATE.histClear) {
     return `<div class="quote"${open}>
       <div class="quote-head">
         ${avatar(by.avatar, by.name || by.handle)}
-        <span class="name">${esc(by.name || by.handle || tr("Repost"))}</span>
+        <span class="name">${esc(who ? nickName(platform, who, by.name || by.handle || tr("Repost")) : (by.name || by.handle || tr("Repost")))}</span>
         ${byHandle ? `<span class="handle">@${esc(byHandle)}</span>` : ""}
       </div>
       <div class="quote-text">${esc(text)}</div>
@@ -18955,7 +19606,7 @@ if (STATE.histClear) {
     const profile = accountHash(platform, who);
     const cardId = platform + ":" + who;
     const dest = watchHash(post);
-    const name = creator.name || post.author || post.handle || "";
+    const name = nickName(platform, who, creator.name || post.author || post.handle || "");
     const banner = repostBanner(post);
     const quote = repostQuote(post);
     const byline = `<div class="yt-by"><a data-act="stop" href="${esc(profile)}" data-card="${esc(cardId)}">${esc(name)}</a>${badge(creator.verifiedType || post.verifiedType)}</div><div class="yt-sub">${esc(videoMeta(post))}</div>`;
@@ -19270,7 +19921,7 @@ if (STATE.histClear) {
     const href = comment.channelId ? accountHash("youtube", comment.channelId) : "";
     const cardId = comment.channelId ? ` data-card="youtube:${esc(comment.channelId)}"` : "";
     const face = href ? `<a href="${esc(href)}"${cardId} aria-label="${esc(comment.author || comment.handle || tr("Profile"))}">${avatar(comment.avatar, comment.author || comment.handle)}</a>` : avatar(comment.avatar, comment.author || comment.handle);
-    const name = href ? `<a class="name" href="${esc(href)}"${cardId}>${esc(comment.author || comment.handle || "")}</a>` : esc(comment.author || comment.handle || "");
+    const name = href ? `<a class="name" href="${esc(href)}"${cardId}>${esc(nickName("youtube", comment.channelId, comment.author || comment.handle || ""))}</a>` : esc(comment.author || comment.handle || "");
     return `<div class="yt-c">
       ${face}
       <div class="yt-c-main">
@@ -19361,7 +20012,7 @@ if (STATE.histClear) {
           <h1 class="watch-title">${esc(post.title || post.text || "")}</h1>
           <div class="watch-chan">
             <a data-card="${esc((creator.platform || post.platform) + ":" + (creator.channelId || creator.handle))}" href="${esc(accountHash(creator.platform || post.platform, creator.channelId || creator.handle))}" aria-label="${esc(creator.name || post.author || tr("Channel"))}">${avatar(creator.avatar || post.avatar, creator.name || post.author)}</a>
-            <div class="watch-who"><a class="name" data-card="${esc((creator.platform || post.platform) + ":" + (creator.channelId || creator.handle))}" href="${esc(accountHash(creator.platform || post.platform, creator.channelId || creator.handle))}">${esc(creator.name || post.author || "")}${badge(creator.verifiedType || post.verifiedType)}</a><div class="yt-sub">${esc(subs)}</div></div>
+            <div class="watch-who"><a class="name" data-card="${esc((creator.platform || post.platform) + ":" + (creator.channelId || creator.handle))}" href="${esc(accountHash(creator.platform || post.platform, creator.channelId || creator.handle))}">${esc(nickName(creator.platform || post.platform, creator.channelId || creator.handle, creator.name || post.author || ""))}${badge(creator.verifiedType || post.verifiedType)}</a><div class="yt-sub">${esc(subs)}</div></div>
             ${followButtonClean(creator.id, true)}
           </div>
           <div class="pills">
@@ -19567,10 +20218,10 @@ if (STATE.histClear) {
     const ancHandle = internalPostHandle(post.handle || "", post);
     const shown = parentShown ? mentionless(post) : replyBody(post);
     return `<article class="ancestor" data-open="${esc(statusHash(post))}">
-      <div class="ava-col"><a data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author || post.handle)}</a><div class="thread-line"></div></div>
+      <div class="ava-col"><a data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author || post.handle, isOrgVerified(post, face) ? "sq" : "")}</a><div class="thread-line"></div></div>
       <div class="ancestor-main">
         <div class="byline">
-          <a class="name" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(post.author || post.handle)}${badge(face.verified)}</a>
+          <a class="name" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(nickName(post.platform, post.handle, post.author || post.handle))}${badge(face.verified)}</a>
           <a class="handle" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">@${esc(ancHandle)}</a>
           <span class="dot">·</span>
           <a class="time" data-act="stop" href="${esc(statusHash(post))}">${esc(relTime(post.date))}</a>
@@ -19837,10 +20488,22 @@ if (STATE.histClear) {
 
   function view(route) {
     if (route.name === "music") return (window.SIntelMusic && window.SIntelMusic.page(route)) || pageHead(productName("music")) + emptyBlock(tr("{music} isn’t available", { music: productName("music") }), tr("Reload the page."));
+    if (route.name === "contacts") {
+      if (!featureOn("contacts")) return pageHead(tr("Contacts")) + emptyBlock(tr("Contacts"), tr("Contacts is turned off right now."));
+      if (window.ViktorychContacts) return window.ViktorychContacts.page(route);
+      ensureLazy("contacts");
+      return lazySkeleton(tr("Contacts"));
+    }
     if (route.name === "shorts") {
       if (window.ViktorychShorts && window.ViktorychShorts.visible()) return window.ViktorychShorts.page(route);
       if (!window.ViktorychShorts) { ensureLazy("shorts"); return lazySkeleton(tr("Shorts")); }
       return pageHead(tr("Shorts")) + emptyBlock(tr("Shorts"), tr("Reload the page."));
+    }
+    if (route.name === "localai") {
+      if (!localAiOn()) return pageHead(tr("Local AI")) + emptyBlock(tr("Local AI"), tr("Local AI is turned off right now."));
+      if (window.ViktorychLocalAIPage) return window.ViktorychLocalAIPage.page(route);
+      ensureLazy("localai");
+      return lazySkeleton(tr("Local AI"));
     }
     if (route.name === "drive") {
       loadDeviceCore().then((dev) => {
@@ -20878,6 +21541,10 @@ if (STATE.histClear) {
         else if (window.ViktorychPrivacy.paint) window.ViktorychPrivacy.paint();
       }
       if (window.ViktorychPresence) window.ViktorychPresence.refresh(document.getElementById("app"));
+      if (window.ViktorychContacts) {
+        if (route.name === "contacts") window.ViktorychContacts.mount(route);
+        else if (window.ViktorychContacts.unmount) window.ViktorychContacts.unmount();
+      }
       if (window.ViktorychShorts) {
         if (route.name === "shorts") window.ViktorychShorts.mount(route);
         else window.ViktorychShorts.unmount();
@@ -20886,6 +21553,11 @@ if (STATE.histClear) {
         if (route.name === "drive") window.ViktorychDrive.mount(route);
         else window.ViktorychDrive.unmount();
       }
+      if (window.ViktorychLocalAIPage) {
+        if (route.name === "localai") window.ViktorychLocalAIPage.mount(route);
+        else window.ViktorychLocalAIPage.unmount();
+      }
+      paintAiFab(route);
       if (window.ViktorychVault) {
         if (route.name === "vault") window.ViktorychVault.mount(route);
         else window.ViktorychVault.unmount();
@@ -21117,7 +21789,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           const route = parseRoute();
           if (route && route.name === "notifications") {
             const active = route.tab && route.tab !== "all" ? noteTabById(route.tab) : null;
-            const notes = active ? notesForTab(active) : ((STATE.settings && STATE.settings.bellNotes) || []);
+            const notes = active ? notesForTab(active) : notesForTab(null, (STATE.settings && STATE.settings.bellNotes) || []);
             return notes.map((note) => note && note.text).filter(Boolean).slice(0, 20);
           }
           const sorted = homeSorted(route || { tab: "foryou" });
@@ -21750,6 +22422,17 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       render({ y: 0 });
       return;
     }
+    if (act === "lai-post") {
+      const post = locatePost(el.dataset.id) || findAnyPost(el.dataset.id);
+      STATE.menu = null;
+      if (!post) { goHash("#/ai"); return; }
+      const author = post.handle ? `@${internalPostHandle(post.handle)}` : (post.author || "");
+      const body = String(post.text || post.title || "").trim();
+      const prefix = tr("Explain this post");
+      const prompt = body ? (prefix + (author ? " (" + author + "): " : ": ") + "\"" + body + "\"") : prefix;
+      goHash("#/ai?q=" + encodeURIComponent(prompt) + "&postId=" + encodeURIComponent(post.id));
+      return;
+    }
     if (act === "foryou-hide" || act === "foryou-less") {
       const post = findAnyPost(el.dataset.id);
       if (post && post.cmMirror && act === "foryou-hide") cmFyHideId(String(post.id));
@@ -21806,8 +22489,57 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "manage-tabs") {
       STATE.noteGear = false;
       STATE.tabMenu = null;
+      STATE.tabContext = null;
       STATE.tabScope = (!noteTabsSame() && parseRoute().name === "notifications") ? "notes" : "";
+      if (parseRoute().name === "notifications") ensureOwnNoteTabs();
       STATE.modal = "tabs";
+      render();
+      return;
+    }
+    if (act === "close-modal-go") {
+      STATE.modal = null;
+      STATE.draft = null;
+      return;
+    }
+    if (act === "note-tab-vis") {
+      const id = el.dataset.id || "";
+      STATE.tabContext = null;
+      ensureOwnNoteTabs();
+      const tab = noteTabs().find((item) => item.id === id && tabAlive(item));
+      if (!tab) { render(); return; }
+      tab.showNotes = tab.showNotes === false;
+      tab.updatedAt = Date.now();
+      if (tab.showNotes === false && STATE.settings.lastNoteTab === id) STATE.settings.lastNoteTab = "all";
+      saveSettings();
+      touchNoteTabs([id]);
+      const route = parseRoute();
+      if (tab.showNotes === false && route.name === "notifications" && route.tab === id) {
+        goHash("#/notifications");
+        return;
+      }
+      render();
+      return;
+    }
+    if (act === "note-tab-move") {
+      ensureOwnNoteTabs();
+      const ids = allNoteTabs().map((tab) => tab.id);
+      const at = ids.indexOf(el.dataset.id || "");
+      const to = at + (Number(el.dataset.dir) || 0);
+      if (at < 0 || to < 0 || to >= ids.length) return;
+      ids.splice(to, 0, ids.splice(at, 1)[0]);
+      applyFeedTabOrder(ids);
+      render();
+      return;
+    }
+    if (act === "feed-tab-type") {
+      if (!STATE.draft) return;
+      syncFeedTabDraft();
+      const key = el.dataset.type || "";
+      const list = cleanNoteTypes(STATE.draft.types);
+      const at = list.indexOf(key);
+      if (at >= 0) list.splice(at, 1);
+      else if (NOTE_TYPES.indexOf(key) >= 0) list.push(key);
+      STATE.draft.types = list;
       render();
       return;
     }
@@ -21876,6 +22608,12 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "device-own-ui") {
       const accounts = window.ViktorychAccounts || {};
       if (accounts.setDeviceOwnUi) accounts.setDeviceOwnUi(!(accounts.deviceOwnUi && accounts.deviceOwnUi()));
+      saveSettings();
+      render();
+      return;
+    }
+    if (act === "ai-fab") {
+      STATE.settings.aiFab = !STATE.settings.aiFab;
       saveSettings();
       render();
       return;
@@ -22270,6 +23008,15 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (accts && accts.runSetup) accts.runSetup();
       return;
     }
+    if (act === "prompt-pwa-upgrade") {
+      if (window.installPromptNow && window.installPromptNow()) {
+        const pr = window.installPromptNow();
+        if (pr && pr.prompt) pr.prompt();
+      } else {
+        alert(tr("To upgrade system integration, reinstall from browser menu or allow Android WebAPK background update."));
+      }
+      return;
+    }
     if (act === "install") {
       STATE.drawer = false;
       STATE.drawerEdit = false;
@@ -22280,15 +23027,24 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "install-go") {
-      const prompt = STATE.installPrompt || window.__VIKTORYCH_INSTALL;
-      if (prompt && prompt.prompt) {
-        STATE.installPrompt = null;
-        window.__VIKTORYCH_INSTALL = null;
-        Promise.resolve().then(() => prompt.prompt()).then(() => prompt.userChoice).then(() => {
-          STATE.modal = null;
-          render();
-        }).catch(() => render());
+      const prompt = installPromptNow();
+      // A deferred prompt can be used once. Without one, show the browser's
+      // own install steps instead of a button that does nothing.
+      STATE.installPrompt = null;
+      window.__VIKTORYCH_INSTALL = null;
+      if (!prompt) {
+        render();
+        return;
       }
+      let shown;
+      try { shown = prompt.prompt(); } catch (err) { shown = Promise.reject(err); }
+      Promise.resolve(shown).then(() => prompt.userChoice).then((choice) => {
+        if (choice && choice.outcome === "accepted") {
+          try { localStorage.setItem("viktorychapp-installed", String(Date.now())); } catch (err) { /* private mode */ }
+          STATE.modal = null;
+        }
+        render();
+      }).catch(() => render());
       return;
     }
     if (act === "install-later" || act === "install-never") {
@@ -22680,12 +23436,19 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     }
     if (act === "feed-tab-new") {
       setTabScope(el);
+      if (el.dataset.scope !== "feed" && parseRoute().name === "notifications") ensureOwnNoteTabs();
+      STATE.noteGear = false;
       openFeedTabEditor("", el.dataset.id || "");
       return;
     }
     if (act === "feed-tab-edit") {
       setTabScope(el);
-      openFeedTabEditor(el.dataset.id || "");
+      let id = el.dataset.id || "";
+      if (el.dataset.scope !== "feed" && parseRoute().name === "notifications") {
+        ensureOwnNoteTabs();
+        if (!noteTabs().some((tab) => tab.id === id) && noteTabs().some((tab) => tab.id === "n" + id)) id = "n" + id;
+      }
+      openFeedTabEditor(id);
       return;
     }
     if (act === "feed-tab-save") {
@@ -22693,7 +23456,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "feed-tab-draft-flag") {
-      const key = el.dataset.key === "showNotes" ? "showNotes" : "showHome";
+      const key = ["showNotes", "push", "sound", "badge"].indexOf(el.dataset.key) >= 0 ? el.dataset.key : "showHome";
+      syncFeedTabDraft();
       if (!STATE.draft) STATE.draft = {};
       STATE.draft[key] = STATE.draft[key] === false;
       render();
@@ -22832,7 +23596,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (box) box.focus();
       return;
     }
-    if (act === "close-profile-menu") { STATE.profileMenu = null; render(); return; }
+    if (act === "close-profile-menu") { STATE.profileMenu = null; if (el.tagName !== "A") render(); return; }
     if (act === "profile-lists") { STATE.profileMenu = "lists"; render(); return; }
     if (act === "profile-cm-tab") {
       const id = String(el.dataset.id || "");
@@ -22888,6 +23652,12 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       STATE.profileMenu = null;
       toast(tr("We'll show you less of this."));
       render();
+      return;
+    }
+    if (act === "profile-lock-follow") {
+      STATE.profileMenu = null;
+      render();
+      if (window.ViktorychLocked && el.dataset.id) window.ViktorychLocked.lockFlow(el.dataset.id, el.dataset.name || "", el.dataset.handle || "");
       return;
     }
     if (act === "profile-block") {
@@ -23044,10 +23814,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
         if (editingNoteTabs() || (!noteTabsSame() && noteTabs().some((tab) => tab.id === id) && !feedTabById(id))) {
           const now = Date.now();
           STATE.settings.noteTabs = noteTabs().map((tab) => tab.id === id ? Object.assign({}, tab, { deletedAt: now, updatedAt: now, showNotes: false }) : tab);
-          const pending = notePending();
-          pending.tabs = true;
-          writeNotePending(pending);
-          scheduleNoteSync();
+          touchNoteTabs([id]);
         } else STATE.settings.feedTabs = feedTabs().filter((tab) => tab.id !== id);
         if (STATE.settings.lastNoteTab === id) STATE.settings.lastNoteTab = "all";
         STATE.confirm = null;
@@ -23566,12 +24333,14 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     }
     if (id === "notifications") {
       const now = route.name === "notifications" ? (route.tab || "all") : "";
-      const tabs = visibleNoteTabs().filter((tab) => tab && (tab.kind === "verified" || tab.kind === "mentions"));
+      const tabs = visibleNoteTabs().filter((tab) => tab && (tab.kind === "verified" || tab.kind === "mentions" || tab.kind === "games"));
       const mentions = tabs.find((tab) => tab.kind === "mentions");
       const verified = tabs.find((tab) => tab.kind === "verified");
+      const games = tabs.find((tab) => tab.kind === "games");
       const rows = [navRow(tr("All"), { "data-act": "note-tab", "data-tab": "all" }, { icon: "bell", on: now === "all" })];
       if (mentions) rows.push(navRow(noteTabLabel(mentions), { "data-act": "note-tab", "data-tab": mentions.id }, { icon: "reply", on: now === mentions.id }));
       if (verified) rows.push(navRow(noteTabLabel(verified), { "data-act": "note-tab", "data-tab": verified.id }, { icon: "check", on: now === verified.id }));
+      if (games) rows.push(navRow(noteTabLabel(games), { "data-act": "note-tab", "data-tab": games.id }, { icon: "games", on: now === games.id }));
       return rows.concat([navSep(), navRow(tr("Mark all as read"), { "data-act": "note-mark-all" }, { icon: "tick" })]);
     }
     if (id === "messages") {
@@ -24740,7 +25509,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     scrollTick = 0;
     paintProfileChrome();
     const homeStories = parseRoute().name === "home" && document.querySelector(".story-shell");
-    if (window.innerWidth >= 500 || homeStories) {
+    const isBarNav = document.documentElement.getAttribute("data-nav-layout") === "bar";
+    if ((window.innerWidth >= 500 && !isBarNav) || homeStories) {
       STATE.headerHidden = false;
       paintChromeHidden(false);
       return;
@@ -24774,6 +25544,20 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }, 200);
     }
   });
+  /* The card lives on hover only. A route change or a scroll removes or
+     moves the anchor without a mouseout, so an open card would stay parked
+     on the page and block what sits under it (it can end up over the
+     top-left menu button). Drop it there too. */
+  window.addEventListener("hashchange", () => {
+    clearTimeout(hoverTimer);
+    const box = document.getElementById("hover");
+    if (box) box.innerHTML = "";
+  });
+  window.addEventListener("scroll", () => {
+    clearTimeout(hoverTimer);
+    const box = document.getElementById("hover");
+    if (box && box.childElementCount) box.innerHTML = "";
+  }, { passive: true });
 
   function presenceIdOf(profile) {
     const raw = String((profile && profile.publicId) || "");
@@ -24788,18 +25572,25 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const rect = el.getBoundingClientRect();
     const box = document.getElementById("hover");
     if (!box || !profile) return;
+    /* The anchor can be gone from the screen (a row that collapsed or
+       scrolled away between the hover and the paint): an off-screen anchor
+       would clamp the card into the top-left corner, over the menu. */
+    if (rect.width < 4 || rect.height < 4 || rect.bottom < 4 || rect.top > window.innerHeight - 4) {
+      box.innerHTML = "";
+      return;
+    }
     const handle = profile.displayHandle || (profile.platform === "youtube" ? "" : profile.handle);
     const id = liveFollowId(profile);
     const bannerFace = faceChoice("banner", profile.banner, profile.bannerFace);
     const banner = bannerFace === "none" ? "" : (bannerFace === "photo" ? `<div class="hbanner" style="background:url(${encodeURI(profile.banner)}) center/cover"></div>` : `<div class="hbanner"></div>`);
     const pid = presenceIdOf(profile);
-    let face = avatar(profile.avatar, profile.name, "pava", profile.avatarFace);
+    let face = avatar(profile.avatar, profile.name, isOrgVerified(null, profile) ? "pava sq" : "pava", profile.avatarFace);
     let seen = "";
     if (pid && window.ViktorychPresence) {
       face = window.ViktorychPresence.wrap(pid, face);
       seen = window.ViktorychPresence.linesHtml(pid);
     }
-    box.innerHTML = `<div class="hcard">${banner}<div class="hbody"><div class="pava-row">${face}${followButtonClean(id)}</div><div class="name" style="font-weight:800;margin-top:8px">${esc(profile.name || profile.handle || "")}${badge(profile.verifiedType)}${affSlot({ publicId: presenceIdOf(profile) })}</div>${handle ? `<div class="phandle">@${esc(handle)}</div>` : ""}${seen}${profile.bio ? `<div class="hbio">${esc(profile.bio)}</div>` : ""}${audienceCounts(profile)}</div></div>`;
+    box.innerHTML = `<div class="hcard">${banner}<div class="hbody"><div class="pava-row">${face}${followButtonClean(id)}</div><div class="name" style="font-weight:800;margin-top:8px">${esc(nickName(profile.platform, profile.handle, profile.name || profile.handle || ""))}${badge(profile.verifiedType)}${affSlot({ publicId: presenceIdOf(profile) })}</div>${handle ? `<div class="phandle">@${esc(handle)}</div>` : ""}${seen}${profile.bio ? `<div class="hbio">${esc(profile.bio)}</div>` : ""}${audienceCounts(profile)}</div></div>`;
     const left = Math.min(rect.left, window.innerWidth - 320);
     box.style.left = Math.max(8, left) + "px";
     box.style.top = (rect.bottom + 8) + "px";
@@ -26394,8 +27185,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
 
   /* A calm note when our servers keep failing or stalling while the device
      is online. The offline note wins when both apply. */
+  let netLimitedTimer = 0;
   function setLimited(on) {
     STATE.netLimited = !!on;
+    if (netLimitedTimer) { clearTimeout(netLimitedTimer); netLimitedTimer = 0; }
+    if (STATE.netLimited) {
+      netLimitedTimer = setTimeout(() => {
+        STATE.netLimited = false;
+        paintNetNote();
+      }, 8000);
+    }
     paintNetNote();
   }
 
@@ -26762,7 +27561,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const body = text ? linkify(text, shown.links || [], post.platform, post.handle) : "";
     return `<div class="xv-info">
       <div class="xv-who">${avatar(face.avatar, name)}<div class="xv-names"><span class="xv-name">${esc(name || "")}${badge(face.verified)}</span>${handle ? `<span class="xv-handle">@${esc(handle)}</span>` : ""}</div></div>
-      ${body ? `<div class="xv-text" role="button" tabindex="0" data-act="xv-more" aria-expanded="false" aria-label="${esc(tr("Show more"))}"><div class="xv-body" dir="auto">${body}</div></div>` : ""}
+      ${body ? `<div class="xv-text" role="button" tabindex="0" data-act="xv-more" aria-expanded="false" aria-label="${esc(tr("Show more"))}"><div class="xv-body" dir="auto">${body}</div><span class="xv-more-cue" aria-hidden="true">${esc(tr("Show more"))}</span></div>` : ""}
       ${post.date ? `<div class="xv-when">${esc(relTime(post.date))}</div>` : ""}
       <div class="xv-pills">${actionBar(post, true)}</div>
     </div>`;
@@ -26866,6 +27665,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (view.rate) video.playbackRate = view.rate;
       events.forEach((name) => video.addEventListener(name, paint));
       video.addEventListener("playing", () => { if (next) xvPreload(box, next); }, { once: true });
+      xvMerge(box, stage);
       paint();
     };
     const watch = typeof MutationObserver === "function" && stage ? new MutationObserver(attach) : null;
@@ -26874,7 +27674,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     // Capture phase: the chrome owns taps on the clip, so the player's own
     // tap handlers below do not toggle it a second time.
     const onTap = (event) => {
-      if (event.target.closest("button, a, .xv-info, .xv-bar, .xv-top, .menu")) return;
+      if (event.target.closest("button, a, .xv-info, .xv-bar, .xv-top, .menu, .ytp-chrome-bottom, .ytp-settings-menu")) return;
       if (!event.target.closest(".xv-cur")) return;
       event.stopPropagation();
       const menu = box.querySelector(".xv-menu");
@@ -26882,8 +27682,27 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (box.classList.contains("xv-open")) { xvMore(box, false); return; }
       const video = xvVideo(box);
       if (!video) return;
+      // One player: on a touch screen a tap shows or hides the controls and
+      // the post text together, like X; the play button plays and pauses.
+      const yt = xvYt(box);
+      if (yt && xvTouch()) {
+        // The browser sends a mouse move ahead of the click, which already
+        // shows the controls; go by how they looked when the finger landed.
+        const wasHidden = Date.now() - downAt < 1500 ? downHidden : yt.el.classList.contains("ytp-autohide");
+        if (wasHidden) yt.resetAutoHide_(); else yt.setAutoHide_(true);
+        return;
+      }
       if (video.paused) video.play().catch(() => {}); else video.pause();
+      if (yt) yt.resetAutoHide_();
     };
+    let downAt = 0;
+    let downHidden = false;
+    const onDown = () => {
+      const yt = xvYt(box);
+      downAt = Date.now();
+      downHidden = !!(yt && yt.el.classList.contains("ytp-autohide"));
+    };
+    box.addEventListener("pointerdown", onDown, true);
     box.addEventListener("click", onTap, true);
     // Seek on the progress line: tap or drag.
     const prog = box.querySelector(".xv-prog");
@@ -26923,6 +27742,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       settle = setTimeout(() => {
         const cur = box.querySelector(".xv-cur");
         if (!track || !cur || STATE.viewer !== view) return;
+        if (track._xvQuiet && Date.now() < track._xvQuiet) { track.scrollTop = cur.offsetTop; return; }
         const h = track.clientHeight || 1;
         const delta = Math.round((track.scrollTop - cur.offsetTop) / h);
         if (delta) xvStep(delta > 0 ? 1 : -1);
@@ -26930,12 +27750,112 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     };
     if (track) track.addEventListener("onscrollend" in window ? "scrollend" : "scroll", onScroll, { passive: true });
     attach();
+    const wake = () => { const yt = xvYt(box); if (yt && !xvTouch()) yt.resetAutoHide_(); };
+    box.addEventListener("mousemove", wake, { passive: true });
+    const clamp = () => xvClamp(box);
+    window.addEventListener("resize", clamp);
+    requestAnimationFrame(clamp);
     box._xvStop = () => {
       clearTimeout(settle);
+      box.removeEventListener("mousemove", wake);
+      window.removeEventListener("resize", clamp);
+      if (box._xvUnmerge) { box._xvUnmerge(); box._xvUnmerge = null; }
+      box.classList.remove("xv-yt", "xv-chrome-off");
       if (watch) watch.disconnect();
       if (bound) events.forEach((name) => bound.removeEventListener(name, paint));
       box.removeEventListener("click", onTap, true);
+      box.removeEventListener("pointerdown", onDown, true);
       if (track) track.removeEventListener("onscrollend" in window ? "scrollend" : "scroll", onScroll);
+    };
+  }
+
+  /* One player in the viewer. When the clip plays in our YouTube-style
+     player, its bottom chrome is the only control bar: the red progress
+     line, play, next, sound and time on the left, our speed button, the
+     player's settings and picture in picture, and exit full screen on the
+     right. The old bar under the clip goes away, the post text and the
+     X action pills sit right above the chrome, and both hide together. */
+  function xvYt(box) {
+    const stage = box && box.querySelector(".xv-cur .xv-media");
+    const yt = stage && stage._ytPlayer;
+    return yt && yt.el && yt.el.isConnected ? yt : null;
+  }
+
+  function xvTouch() {
+    return !!(window.matchMedia && window.matchMedia("(hover: none)").matches);
+  }
+
+  function xvClamp(box) {
+    if (!box || !box.isConnected) return;
+    box.querySelectorAll(".xv-text").forEach((el) => {
+      const body = el.querySelector(".xv-body");
+      if (body && !box.classList.contains("xv-open")) el.classList.toggle("is-clamped", body.scrollHeight > body.clientHeight + 1);
+    });
+  }
+
+  function xvMerge(box, stage) {
+    const yt = stage && stage._ytPlayer;
+    const player = yt && yt.el;
+    if (!player || !player.isConnected) return;
+    const had = box.classList.contains("xv-yt");
+    box.classList.add("xv-yt");
+    const bar = box.querySelector(".xv-bar");
+    if (bar) bar.remove();
+    // The track just grew by the old bar's height; keep this clip in place.
+    const track = box.querySelector(".xv-track");
+    const cur = box.querySelector(".xv-cur");
+    if (!had && track && cur) {
+      track._xvQuiet = Date.now() + 400;
+      track.scrollTop = cur.offsetTop;
+    }
+    if (player._xvMerged) return;
+    player._xvMerged = true;
+    if (box._xvUnmerge) box._xvUnmerge();
+    if (yt.options) yt.options.onNext = () => { xvStep(1); };
+    const right = player.querySelector(".ytp-pill-right");
+    if (right) {
+      const speed = document.createElement("button");
+      speed.type = "button";
+      speed.className = "ytp-button xv-speed";
+      speed.dataset.act = "xv-speed";
+      speed.setAttribute("aria-label", tr("Playback speed"));
+      speed.title = tr("Playback speed");
+      speed.textContent = String((stage.querySelector("video") || {}).playbackRate || 1).replace(/^0\./, ".") + "x";
+      right.insertBefore(speed, right.firstChild);
+      const exit = document.createElement("button");
+      exit.type = "button";
+      exit.className = "ytp-button xv-exit";
+      exit.dataset.act = "close-viewer";
+      exit.setAttribute("aria-label", tr("Exit full screen"));
+      exit.title = tr("Exit full screen");
+      exit.innerHTML = icon("exitFull");
+      right.appendChild(exit);
+    }
+    const chrome = player.querySelector(".ytp-chrome-bottom");
+    const size = () => { if (chrome && chrome.offsetHeight) box.style.setProperty("--xv-chrome", chrome.offsetHeight + "px"); };
+    const sizer = typeof ResizeObserver === "function" && chrome ? new ResizeObserver(size) : null;
+    if (sizer) sizer.observe(chrome);
+    size();
+    const sync = () => box.classList.toggle("xv-chrome-off", player.classList.contains("ytp-autohide") && !box.classList.contains("xv-open"));
+    const watch = typeof MutationObserver === "function" ? new MutationObserver(sync) : null;
+    if (watch) watch.observe(player, { attributes: true, attributeFilter: ["class"] });
+    sync();
+    // j, up and down still move between posts while a player button has
+    // focus, as they do everywhere else in the viewer.
+    const keys = (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const down = event.key === "ArrowDown" || event.key === "j" || event.key === "J";
+      if (!down && event.key !== "ArrowUp") return;
+      if (event.target.closest && event.target.closest(".ytp-volume-area, .ytp-settings-menu")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      xvStep(down ? 1 : -1);
+    };
+    stage.addEventListener("keydown", keys, true);
+    box._xvUnmerge = () => {
+      if (sizer) sizer.disconnect();
+      if (watch) watch.disconnect();
+      stage.removeEventListener("keydown", keys, true);
     };
   }
 
@@ -26966,6 +27886,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   function xvMore(box, open) {
     const want = open == null ? !box.classList.contains("xv-open") : !!open;
     box.classList.toggle("xv-open", want);
+    const yt = xvYt(box);
+    if (yt) { if (want) yt.clearAutoHide_(); else yt.resetAutoHide_(); }
     box.querySelectorAll(".xv-cur .xv-text").forEach((el) => {
       el.setAttribute("aria-expanded", want ? "true" : "false");
       el.setAttribute("aria-label", want ? tr("Show less") : tr("Show more"));
@@ -27230,6 +28152,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
 
   function consumeShareTarget() {
+    const p = new URLSearchParams(location.search);
+    if (p.has("tel") || p.has("call") || p.has("contact")) {
+      const q = encodeURIComponent(p.get("tel") || p.get("call") || p.get("contact") || "");
+      history.replaceState(null, "", location.pathname + "#/contacts?tel=" + q);
+      return;
+    }
     const params = new URLSearchParams(location.search);
     const media = params.get("media") || "";
     const posting = params.get("post") === "1";
@@ -27704,6 +28632,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   let noteApplying = false;
   let notesPhase = "idle";
   let notesAgain = false;
+  let noteTabsSeeded = false;
   let hubPoll = 0;
   let channelBound = false;
 
@@ -27850,7 +28779,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     if (data.type === "tabs" && Array.isArray(data.tabs)) {
       STATE.settings.noteTabs = cleanFeedTabs(mergeLocalTabs(STATE.settings.noteTabs || [], data.tabs));
+      if (data.noteTabsSame === false) STATE.settings.noteTabsSame = false;
       if (data.lastNoteTab) STATE.settings.lastNoteTab = data.lastNoteTab;
+      if (data.more) scheduleNoteSync();
       saveSettings();
       if (parseRoute().name === "notifications") render();
     }
@@ -27880,8 +28811,26 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (items.length) body.items = items;
       if (sent.until) body.until = sent.until;
       if (sent.ids && sent.ids.length) body.ids = sent.ids.slice(-80);
+      let tabBase = [];
+      const tabSentAt = {};
       if (sent.tabs && STATE.settings) {
-        body.tabs = noteTabs();
+        /* Only the tabs changed on this device go up, in pieces small enough
+           for one request; there is no limit on how many tabs there are. */
+        const all = noteTabs();
+        tabBase = Array.isArray(sent.tabIds) ? sent.tabIds.slice() : all.map((tab) => tab.id);
+        const chunk = [];
+        let size = 0;
+        tabBase.forEach((id) => {
+          const tab = all.find((item) => item.id === id);
+          if (!tab) return;
+          const len = JSON.stringify(tab).length + 1;
+          if (chunk.length && size + len > 600000) return;
+          chunk.push(tab);
+          size += len;
+          tabSentAt[id] = Number(tab.updatedAt) || 0;
+        });
+        tabBase.forEach((id) => { if (!all.some((item) => item.id === id)) tabSentAt[id] = 0; });
+        body.tabs = chunk;
         body.noteTabsSame = STATE.settings.noteTabsSame !== false;
         body.lastNoteTab = STATE.settings.lastNoteTab || "all";
       }
@@ -27906,7 +28855,35 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       rememberAcked(items.map((item) => item.id).concat((res.items || []).map((item) => item.id)));
       const nowPending = notePending();
       if (sent.until && Number(nowPending.until) === Number(sent.until)) delete nowPending.until;
-      if (sent.tabs) delete nowPending.tabs;
+      if (sent.tabs) {
+        const later = nowPending.tabIds;
+        if (later === "all" && sent.tabIds !== "all") {
+          again = true;
+        } else {
+          const ids = tabBase.concat(Array.isArray(later) ? later : []);
+          const left = [];
+          ids.forEach((id) => {
+            if (left.indexOf(id) >= 0) return;
+            if (!(id in tabSentAt)) { left.push(id); return; }
+            const tab = noteTabs().find((item) => item.id === id);
+            if (tab && (Number(tab.updatedAt) || 0) > tabSentAt[id]) left.push(id);
+          });
+          if (left.length) {
+            nowPending.tabs = true;
+            nowPending.tabIds = left;
+            again = true;
+          } else {
+            delete nowPending.tabs;
+            delete nowPending.tabIds;
+          }
+        }
+      } else if (!noteTabsSeeded && !nowPending.tabs && STATE.settings && STATE.settings.noteTabsSame === false && !(Array.isArray(res.tabs) && res.tabs.length) && noteTabs().length) {
+        /* The account has no copy of this device's tabs yet: send them all. */
+        noteTabsSeeded = true;
+        nowPending.tabs = true;
+        nowPending.tabIds = "all";
+        again = true;
+      }
       if (sent.bells) delete nowPending.bells;
       if (sent.prefs) delete nowPending.prefs;
       if (sent.tab) delete nowPending.tab;
@@ -28133,10 +29110,24 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     else paintBellBadge();
   }
 
+  /* Per-tab push and sound, matching tabPushRule on the server: a
+     notification that only falls in tabs with push off stays in the list
+     without an alert; one in tabs with sound off alerts quietly. */
+  function noteTabRule(note) {
+    const hit = visibleNoteTabs().filter((tab) => notesForTab(tab, [note]).length > 0);
+    if (!hit.length) return { push: true, sound: true };
+    return {
+      push: hit.some((tab) => tab.push !== false),
+      sound: hit.some((tab) => tab.push !== false && tab.sound !== false)
+    };
+  }
+
   function showLocalNotification(note) {
     if (noteHidden(note)) return;
     if (window.ViktorychPresence && window.ViktorychPresence.mutesNotices && window.ViktorychPresence.mutesNotices()) return;
-    if (window.ViktorychPresence && window.ViktorychPresence.chime) window.ViktorychPresence.chime();
+    const rule = noteTabRule(note);
+    if (!rule.push) return;
+    if (rule.sound && window.ViktorychPresence && window.ViktorychPresence.chime) window.ViktorychPresence.chime();
     const NP = window.ViktorychNotifPrivacy;
     const np = notifPrivacy();
     if (document.visibilityState === "visible") {
@@ -28149,7 +29140,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       const item = new Notification(shown ? shown.title : (note.name || ("@" + (note.handle || "post"))), {
         body: shown ? shown.body : (note.text || tr("New post")),
         icon: shown ? shown.icon : (note.avatar || "icons/icon-192.png"),
-        tag: "note-" + note.id
+        tag: "note-" + note.id,
+        silent: !rule.sound
       });
       item.onclick = () => {
         window.focus();
@@ -28166,7 +29158,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       showLocalNotification(note);
       return;
     }
-    if (window.ViktorychPresence && window.ViktorychPresence.chime) window.ViktorychPresence.chime();
+    const pageRule = noteTabRule(note);
+    if (!pageRule.push) return;
+    if (pageRule.sound && window.ViktorychPresence && window.ViktorychPresence.chime) window.ViktorychPresence.chime();
     const NP = window.ViktorychNotifPrivacy;
     const np = notifPrivacy();
     const shown = NP && np ? NP.present(Object.assign({ kind: "post" }, note), np, { title: note.name || ("@" + (note.handle || "post")) }) : null;
@@ -28451,6 +29445,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
 
   function scheduleDeviceIndex() {
+    if (window.ViktorychLocalAIPage && window.ViktorychLocalAIPage.prewarm) {
+      try { window.ViktorychLocalAIPage.prewarm(); } catch (err) {}
+    }
     if (parseRoute().name !== "explore" && parseRoute().name !== "settings") return;
     const run = () => {
       if (gameBusy()) return;
@@ -28583,16 +29580,28 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (choice.mode !== "later") return;
       if (offerInstall("return")) render();
     }, 1600);
-    window.addEventListener("beforeinstallprompt", (event) => {
-      event.preventDefault();
+    // index.html catches beforeinstallprompt in <head>, before this file
+    // runs; pick up a prompt that already arrived and any later one.
+    if (window.__VIKTORYCH_INSTALL && window.__VIKTORYCH_INSTALL.prompt) STATE.installPrompt = window.__VIKTORYCH_INSTALL;
+    const takeInstallPrompt = (event) => {
       STATE.installPrompt = event;
       window.__VIKTORYCH_INSTALL = event;
-      try { document.dispatchEvent(new CustomEvent("viktorych-install-ready")); } catch (err) { /* the menu install button still works */ }
+      try { localStorage.removeItem("viktorychapp-installed"); } catch (err) { /* private mode */ }
       render();
+    };
+    document.addEventListener("viktorych-install-ready", () => {
+      if (window.__VIKTORYCH_INSTALL && window.__VIKTORYCH_INSTALL !== STATE.installPrompt) takeInstallPrompt(window.__VIKTORYCH_INSTALL);
+    });
+    window.addEventListener("beforeinstallprompt", (event) => {
+      event.preventDefault();
+      if (event === STATE.installPrompt) return;
+      takeInstallPrompt(event);
     });
     window.addEventListener("appinstalled", () => {
       STATE.installPrompt = null;
       window.__VIKTORYCH_INSTALL = null;
+      try { localStorage.setItem("viktorychapp-installed", String(Date.now())); } catch (err) { /* private mode */ }
+      if (STATE.modal === "install") STATE.modal = null;
       if (window.ViktorychStorage && window.ViktorychStorage.askPersist) window.ViktorychStorage.askPersist();
       render();
     });
@@ -29274,10 +30283,26 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         render: render
       });
     }
+    if (window.ViktorychNicknames) {
+      window.ViktorychNicknames.bind({
+        token: function () { return window.ViktorychAccounts && window.ViktorychAccounts.token ? window.ViktorychAccounts.token() : ""; },
+        account: function () { return window.ViktorychAccounts && window.ViktorychAccounts.account ? window.ViktorychAccounts.account() : null; },
+        api: function (path, opts) { return window.ViktorychAccounts && window.ViktorychAccounts.call ? window.ViktorychAccounts.call(path, opts) : Promise.resolve({ status: 503 }); },
+        enabled: function () { return !serverOffList().includes("ext_nicknames"); },
+        aliases: nickAliases,
+        refreshAccount: function (handle) { if (window.ViktorychAccounts && window.ViktorychAccounts.ensureProfile) window.ViktorychAccounts.ensureProfile(handle); },
+        closeMenus: function () { if (STATE.profileMenu || STATE.menu) { STATE.profileMenu = null; STATE.menu = null; render(); } },
+        toast: toast,
+        render: render
+      });
+    }
     if (window.ViktorychUsernames) {
       window.ViktorychUsernames.bind({
         token: function () { return window.ViktorychAccounts && window.ViktorychAccounts.token ? window.ViktorychAccounts.token() : ""; },
         api: function (path, opts) { return window.ViktorychAccounts && window.ViktorychAccounts.call ? window.ViktorychAccounts.call(path, opts) : Promise.resolve({ status: 503 }); },
+        platformGlyph: platformGlyph,
+        platformName: function (p) { return PLATFORM[p] || ""; },
+        nickEnabled: nickOn,
         render: render
       });
     }
@@ -29862,6 +30887,177 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
   /* First-time setup (onboarding.js) reads suggestions and changes a few
      settings through this small surface. */
+  /* Local AI host: reads and writes every setting in settings-registry.js
+     through the same save, apply and sync steps the Settings toggles use. */
+  function aiRegistry() { return window.ViktorychSettingsRegistry || null; }
+  function aiStateValue(row) {
+    const st = STATE.settings || {};
+    const parts = String(row.key).split(".");
+    let v = st[parts[0]];
+    if (parts.length > 1) v = v && typeof v === "object" ? v[parts[1]] : undefined;
+    if (row.id === "privacyEmbedShield" || row.id === "privacyZeroTrace") return v === true;
+    if (row.id === "fontSize") return LOOK_FONTS.indexOf(Number(v)) >= 0 ? Number(v) : 15;
+    if (row.id === "accent") return LOOK_ACCENTS[v] ? v : "blue";
+    if (row.id === "homePills" || row.id === "stories") return userFeatureOn(row.key);
+    if (row.id === "notify") return !!(v && typeof Notification !== "undefined" && Notification.permission === "granted");
+    if (row.type === "bool") return typeof v === "boolean" ? v : row.def;
+    if (row.type === "enum") return row.values.indexOf(v) >= 0 ? v : row.def;
+    return v === undefined ? row.def : v;
+  }
+  function aiValue(id) {
+    const R = aiRegistry();
+    const row = R && R.get(id);
+    if (!row) return undefined;
+    if (row.store === "state") return aiStateValue(row);
+    if (row.store === "saver") return !!(STATE.settings && STATE.settings.saveData === true);
+    if (row.store === "lang") return window.SI18n ? window.SI18n.getLang() : "en";
+    if (row.store === "notifPrivacy") {
+      const NP = window.ViktorychNotifPrivacy;
+      const np = NP ? NP.normalize(STATE.settings && STATE.settings.notifPrivacy) : null;
+      if (!np) return row.def;
+      const parts = row.key.split(".");
+      return parts.length > 1 ? np.types[parts[1]] !== false : np[row.key] !== false;
+    }
+    if (row.store === "device") {
+      const dev = window.ViktorychDevice;
+      const perf = readDevicePerf();
+      const level = String(perf.level || perf.profile || "balanced");
+      return level === "max" || level === "full" ? "max" : (level === "light" || level === "lite" || level === "low" ? "light" : "balanced");
+    }
+    if (row.store === "account") {
+      const acc = window.ViktorychAccounts;
+      const now = acc && acc.aiSettings ? acc.aiSettings() : null;
+      return now ? now[row.key] : undefined;
+    }
+    if (row.store === "pymk") {
+      const P = window.ViktorychPYMK;
+      if (row.key === "searchable") return P && P.searchable ? P.searchable() !== false : undefined;
+      return P && P.discoverable ? P.discoverable() !== false : undefined;
+    }
+    if (row.store === "presence") {
+      const pr = window.ViktorychPresence;
+      return pr && pr.seenPrivacy && accountToken() ? pr.seenPrivacy() : undefined;
+    }
+    return undefined;
+  }
+  /* Apply checked changes [{ id, to }]. Resolves [{ id, ok }]. */
+  function aiApply(changes) {
+    const R = aiRegistry();
+    if (!R || !STATE.settings) return Promise.resolve([]);
+    const jobs = [];
+    let save = false, look = false, theme = false, privacy = false, nav = false, reloadFor = "";
+    const stamp = (key) => { STATE.settings.prefsAt = Object.assign({}, STATE.settings.prefsAt || {}, { [key]: Date.now() }); };
+    (changes || []).forEach((change) => {
+      const row = R.get(change.id);
+      const check = row ? R.validate(row.id, change.to) : { ok: false };
+      if (!row || !check.ok) { jobs.push(Promise.resolve({ id: change.id, ok: false })); return; }
+      const v = check.value;
+      if (row.store === "state") {
+        const parts = row.key.split(".");
+        if (row.id === "notify") {
+          if (v) { jobs.push(enableNotifications().then(() => ({ id: row.id, ok: !!STATE.settings.notify }))); return; }
+          STATE.settings.notify = false;
+        } else if (parts[0] === "historyPause") {
+          STATE.settings.historyPause = cleanHistoryPause(STATE.settings.historyPause);
+          STATE.settings.historyPause[parts[1]] = v;
+        } else {
+          STATE.settings[row.key] = v;
+        }
+        if (row.id === "accent" || row.id === "fontSize" || row.id === "density" || row.id === "reduceMotion") { stamp(row.key); look = true; }
+        if (row.id === "appearance" || row.id === "avatarShape") theme = true;
+        if (row.id === "homePills" || row.id === "stories") { stamp(row.key); if (featureLoaded(row.key) !== featureOn(row.key)) reloadFor = row.id; }
+        if (/^privacy|^friendsRail$/.test(row.id)) privacy = true;
+        if (/^navLayout/.test(row.id)) nav = true;
+        if (row.id === "forYouReposts" || row.id === "forYouReplies") STATE.forYouSnap = null;
+        if (row.id === "communitiesHome") accountCall("/v1/communities/home", { method: "POST", body: { showHome: v !== false } }).then(() => { publicStamp = 0; schedulePublicPosts(); }).catch(() => {});
+        if (row.id === "networkMode") {
+          try { localStorage.setItem("viktorychapp-network-mode", v); } catch (err) {}
+          if (v === "max") window.__VIKTORYCH_IS_RU = true;
+          else if (v === "direct") window.__VIKTORYCH_IS_RU = false;
+        }
+        save = true;
+        jobs.push(Promise.resolve({ id: row.id, ok: true }));
+      } else if (row.store === "saver") {
+        const saver = dataSaver();
+        if (saver) saver.apply(!!v);
+        else { STATE.settings.saveData = !!v; save = true; }
+        jobs.push(Promise.resolve({ id: row.id, ok: true }));
+      } else if (row.store === "notifPrivacy") {
+        const NP = window.ViktorychNotifPrivacy;
+        if (!NP) { jobs.push(Promise.resolve({ id: row.id, ok: false })); return; }
+        const np = NP.normalize(STATE.settings.notifPrivacy);
+        const parts = row.key.split(".");
+        if (parts.length > 1) np.types[parts[1]] = v; else np[row.key] = v;
+        STATE.settings.notifPrivacy = np;
+        if (!np.names) NP.wipe();
+        save = true;
+        jobs.push(Promise.resolve({ id: row.id, ok: true }));
+      } else if (row.store === "lang") {
+        try { localStorage.setItem("viktorychapp-lang-user-picked", "1"); } catch (err) {}
+        if (window.SI18n) window.SI18n.setLang(v);
+        jobs.push(Promise.resolve({ id: row.id, ok: true }));
+      } else if (row.store === "device") {
+        if (window.ViktorychDevice && window.ViktorychDevice.applyLevel) {
+          STATE.settings.devicePerf = window.ViktorychDevice.applyLevel(v);
+          save = true;
+        }
+        jobs.push(Promise.resolve({ id: row.id, ok: !!window.ViktorychDevice }));
+      } else if (row.store === "account" || row.store === "pymk") {
+        const acc = window.ViktorychAccounts;
+        jobs.push(acc && acc.aiSetting ? acc.aiSetting(row.key, v).then((ok) => ({ id: row.id, ok: ok })) : Promise.resolve({ id: row.id, ok: false }));
+      } else if (row.store === "presence") {
+        const pr = window.ViktorychPresence;
+        jobs.push(pr && pr.setSeenPrivacy ? pr.setSeenPrivacy(v).then((ok) => ({ id: row.id, ok: ok })) : Promise.resolve({ id: row.id, ok: false }));
+      } else {
+        jobs.push(Promise.resolve({ id: row.id, ok: false }));
+      }
+    });
+    if (save) saveSettings();
+    if (look) applyLook();
+    if (theme) applyTheme();
+    if (privacy) applyPrivacyProtections();
+    if (nav) applyNavLayout();
+    if (save || look || theme) syncFeatureFlags();
+    return Promise.all(jobs).then((out) => {
+      render();
+      if (reloadFor) setTimeout(() => location.reload(), 900);
+      return out;
+    });
+  }
+  window.ViktorychSettingsHost = {
+    get: aiValue,
+    values: () => {
+      const R = aiRegistry();
+      const out = {};
+      if (R) R.editable().forEach((row) => { out[row.id] = aiValue(row.id); });
+      return out;
+    },
+    apply: aiApply,
+    signedIn: () => !!accountToken(),
+    lang: () => (window.SI18n ? window.SI18n.getLang() : "en"),
+    lowEnd: () => {
+      const perf = readDevicePerf();
+      return String(perf.level || "") === "light" || !!(STATE.settings && STATE.settings.saveData === true);
+    },
+    go: (hash) => goHash(hash),
+    toast: (msg) => toast(msg),
+    icon: (name) => icon(name),
+    logo: () => markSvg("mark", "lai-logo"),
+    appName: () => productName("app"),
+    /* First-run setup. The choices sync with the account; model files stay on the device. */
+    setupRequired: () => localAiSetupOn(),
+    setup: () => {
+      const v = STATE.settings && STATE.settings.aiSetup;
+      return v && typeof v === "object" ? Object.assign({}, v) : null;
+    },
+    saveSetup: (v) => {
+      if (!STATE.settings) return;
+      STATE.settings.aiSetup = v && typeof v === "object" ? v : null;
+      STATE.settings.prefsAt = Object.assign({}, STATE.settings.prefsAt || {}, { aiSetup: Date.now() });
+      saveSettings();
+    }
+  };
+
   window.ViktorychSetup = {
     ready: () => !!(STATE.data && Array.isArray(STATE.data.feeds) && STATE.data.feeds.length),
     suggestions: (n) => followSuggestions().slice(0, n || 8).map((f) => ({

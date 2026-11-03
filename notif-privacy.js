@@ -79,6 +79,7 @@
     if (type === "notes") return t("New Community Note");
     if (kind === "post" || kind === "bell" || kind === "live") return t("New post");
     if (kind === "game_invite") return t("New game invite");
+    if (kind === "game_join" || kind === "game_achievement" || kind === "game_board") return t("New game alert");
     if (kind === "feed_request") return t("New source request");
     if (kind === "feed_approved" || kind === "feed_rejected") return t("Your source request was answered");
     return t("New notification");
@@ -96,6 +97,9 @@
     if (kind === "dm") return t("{name} sent you a message", v);
     if (kind === "follow") return t("{name} followed you", v);
     if (kind === "game_invite") return t("{name} invited you to play", v);
+    if (kind === "game_join") return t("{name} joined your game", v);
+    if (kind === "game_achievement") return t("Game achievement unlocked");
+    if (kind === "game_board") return t("Game leaderboard update");
     if (kind === "feed_request") return t("Source request: {name}", v);
     if (kind === "feed_approved") return t("Source request approved: {name}", v);
     if (kind === "feed_rejected") return t("Source request not approved: {name}", v);
@@ -180,7 +184,7 @@
   function parsePush(data) {
     var d = data && typeof data === "object" ? data : {};
     if (d.v !== 2) return null;
-    return { kind: String(d.k || ""), sid: String(d.i || "").slice(0, 24), count: Math.max(0, Number(d.n) || 0) };
+    return { kind: String(d.k || ""), sid: String(d.i || "").slice(0, 24), count: Math.max(0, Number(d.n) || 0), quiet: d.q === 1 };
   }
 
   function openDb() {

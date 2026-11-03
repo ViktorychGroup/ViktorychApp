@@ -1,0 +1,409 @@
+/* Local AI page. Sizes follow the familiar assistant-chat layout: a 752px
+   prompt box (radius 24, a 42px editor over a 58px button row with 40px round
+   buttons), a 768px reading column, line-height 1.6 replies, right-aligned
+   user bubbles, a pill model picker, and a 272px history sidebar. Colours
+   come from the app theme (lights out, dim, default) and the accent. */
+.lai {
+  --lai-bar: color-mix(in srgb, var(--text) 7%, var(--bg));
+  --lai-bar-line: color-mix(in srgb, var(--text) 9%, transparent);
+  --lai-bubble: color-mix(in srgb, var(--text) 9%, var(--bg));
+  --lai-side: color-mix(in srgb, var(--text) 3%, var(--bg));
+  --lai-hover: color-mix(in srgb, var(--text) 8%, transparent);
+  --lai-sub: color-mix(in srgb, var(--text) 62%, var(--bg));
+  --lai-accent: var(--blue, #1d9bf0);
+  position: relative;
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  overflow: hidden;
+}
+html[data-theme="default"] .lai { --lai-bar: #fff; --lai-bar-line: rgba(15, 20, 25, 0.12); --lai-bubble: #f0f2f4; --lai-side: #f7f8f9; }
+.lai-host { min-height: 100vh; }
+.lai svg { width: 20px; height: 20px; flex: none; display: block; }
+:where(.lai) button { font: inherit; color: inherit; }
+
+/* ---------- sidebar ---------- */
+.lai-side {
+  flex: 0 0 272px;
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  background: var(--lai-side);
+  border-right: 1px solid var(--lai-bar-line);
+  padding: 8px;
+  min-height: 0;
+  transition: margin-left .2s ease;
+}
+.lai.side-hidden .lai-side { margin-left: -272px; }
+.lai-side-top { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 4px 0 8px; }
+.lai-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); text-decoration: none; }
+.lai-brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; background: var(--lai-accent); color: #fff; }
+.lai-brand-mark svg { width: 18px; height: 18px; fill: currentColor; }
+.lai-new {
+  display: flex; align-items: center; gap: 10px; height: 40px; margin: 6px 0 10px; padding: 0 12px;
+  border: 0; border-radius: 12px; background: transparent; cursor: pointer; font-size: 14px; font-weight: 600; text-align: left;
+}
+.lai-new:hover, .lai-hist-row:hover, .lai-hist-row.on { background: var(--lai-hover); }
+.lai-hist { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.lai-hist-head { margin: 14px 12px 6px; font-size: 12px; font-weight: 600; color: var(--lai-sub); }
+.lai-hist-empty { margin: 12px; font-size: 13px; color: var(--lai-sub); line-height: 1.45; }
+.lai-hist-row { position: relative; display: flex; align-items: center; border-radius: 10px; }
+.lai-hist-item {
+  flex: 1 1 auto; min-width: 0; height: 36px; padding: 0 34px 0 12px; border: 0; background: transparent; cursor: pointer;
+  font-size: 14px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lai-hist-del { position: absolute; right: 4px; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--lai-sub); cursor: pointer; opacity: 0; display: grid; place-items: center; }
+.lai-hist-del svg { width: 16px; height: 16px; }
+.lai-hist-row:hover .lai-hist-del, .lai-hist-del:focus-visible { opacity: 1; }
+.lai-side-foot { padding: 8px 12px 4px; border-top: 1px solid var(--lai-bar-line); }
+.lai-side-link { font-size: 13px; color: var(--lai-sub); text-decoration: none; }
+.lai-side-link:hover { color: var(--text); }
+.lai-scrim { display: none; }
+
+/* ---------- main column ---------- */
+.lai-main { position: relative; flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.lai-head { flex: none; display: flex; align-items: center; gap: 4px; height: 56px; padding: 0 12px; }
+.lai-title { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; color: var(--lai-sub); }
+.lai.is-empty .lai-title { visibility: hidden; }
+.lai-icon {
+  display: grid; place-items: center; width: 40px; height: 40px; flex: none; padding: 0; border: 0; border-radius: 9999px;
+  background: transparent; color: var(--lai-sub); cursor: pointer; text-decoration: none;
+}
+.lai-icon:hover { background: var(--lai-hover); color: var(--text); }
+.lai-head .lai-back { display: none; }
+.lai-icon.sm { width: 32px; height: 32px; border-radius: 9px; }
+.lai-icon.sm svg { width: 18px; height: 18px; }
+.lai-icon:focus-visible, .lai-chip:focus-visible, .lai-pill:focus-visible, .lai-send:focus-visible, .lai-btn:focus-visible { outline: 2px solid var(--lai-accent); outline-offset: 2px; }
+.lai-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.lai.is-empty .lai-scroll { flex: 0 0 0; }
+.lai-thread { width: 100%; max-width: 768px; margin: 0 auto; padding: 8px 24px 24px; box-sizing: border-box; }
+
+/* ---------- dock: hero, prompt box, chips ---------- */
+.lai-dock { flex: none; width: 100%; max-width: 800px; margin: 0 auto; padding: 0 24px 12px; box-sizing: border-box; }
+.lai.is-empty .lai-dock { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; padding-bottom: 12vh; }
+.lai-hero { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-bottom: 32px; text-align: center; }
+.lai-hero-mark { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; background: var(--lai-accent); color: #fff; }
+.lai-hero-mark svg { width: 30px; height: 30px; fill: currentColor; }
+.lai-hero h1 { margin: 0; font-size: 30px; line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
+.lai-bar {
+  position: relative;
+  width: 100%; max-width: 752px; margin: 0 auto;
+  background: var(--lai-bar);
+  border: 1px solid var(--lai-bar-line);
+  border-radius: 24px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+  transition: border-color .15s ease;
+}
+.lai-bar:focus-within { border-color: color-mix(in srgb, var(--text) 18%, transparent); }
+.lai-edit { padding: 14px 8px 0; }
+.lai-input {
+  display: block; width: 100%; min-height: 28px; max-height: 200px; margin: 0; padding: 2px 12px; box-sizing: border-box;
+  border: 0; outline: 0; resize: none; background: transparent; color: var(--text);
+  font: inherit; font-size: 16px; line-height: 24px;
+}
+.lai-input::placeholder { color: var(--lai-sub); }
+.lai-row { display: flex; align-items: center; justify-content: space-between; height: 58px; padding: 0 9px; }
+.lai-row-l, .lai-row-r { display: flex; align-items: center; gap: 6px; }
+.lai-mic { border: 1px solid var(--lai-bar-line); }
+.lai-mic.on { color: #fff; background: var(--red, #f4212e); border-color: transparent; }
+.lai-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 8px 12px 8px 14px; box-sizing: border-box;
+  border: 1px solid transparent; border-radius: 9999px; background: transparent; cursor: pointer;
+  font-size: 14px; font-weight: 500; white-space: nowrap;
+}
+.lai-pill svg { width: 18px; height: 18px; }
+.lai-pill svg:last-child { width: 16px; height: 16px; color: var(--lai-sub); }
+.lai-pill:hover { background: var(--lai-hover); }
+.lai-pill-pct { font-style: normal; font-size: 12px; color: var(--lai-accent); font-variant-numeric: tabular-nums; }
+.lai-send {
+  display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 9999px;
+  background: var(--text); color: var(--bg); cursor: pointer; transition: opacity .15s ease;
+}
+.lai-send:disabled { opacity: .35; cursor: default; }
+.lai-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 752px; margin: 16px auto 0; }
+.lai-chip {
+  height: 40px; padding: 0 16px; border: 1px solid var(--lai-bar-line); border-radius: 9999px; background: transparent;
+  font-size: 14px; color: var(--text); cursor: pointer; white-space: nowrap;
+}
+.lai-chip:hover { background: var(--lai-hover); }
+.lai-note { margin: 10px auto 0; max-width: 752px; text-align: center; font-size: 12px; color: var(--lai-sub); }
+.lai.is-empty .lai-note { margin-top: 18px; }
+
+/* ---------- model menu ---------- */
+.lai-menu {
+  position: absolute; right: 8px; bottom: calc(100% + 8px); z-index: 5; width: min(360px, calc(100vw - 32px)); max-height: 60vh; overflow-y: auto;
+  padding: 6px; box-sizing: border-box; border: 1px solid var(--lai-bar-line); border-radius: 18px; background: var(--lai-bar);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+}
+.lai.is-empty .lai-menu { bottom: auto; top: calc(100% + 8px); }
+.lai-menu-head { margin: 8px 12px 4px; font-size: 12px; font-weight: 600; color: var(--lai-sub); }
+.lai-menu-item {
+  position: relative; display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 10px 40px 10px 12px; border: 0; border-radius: 12px;
+  background: transparent; cursor: pointer; text-align: left;
+}
+.lai-menu-item:hover, .lai-menu-item.on { background: var(--lai-hover); }
+.lai-menu-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; font-weight: 600; }
+.lai-menu-sub { font-size: 12.5px; line-height: 1.4; color: var(--lai-sub); }
+.lai-menu-check { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--lai-accent); }
+.lai-badge { font-style: normal; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; background: color-mix(in srgb, var(--lai-accent) 18%, transparent); color: var(--lai-accent); }
+.lai-menu-foot { margin: 6px 12px 6px; font-size: 12px; color: var(--lai-sub); }
+
+/* ---------- download progress ---------- */
+.lai-prog { max-width: 752px; margin: 0 auto 10px; padding: 10px 14px; box-sizing: border-box; border: 1px solid var(--lai-bar-line); border-radius: 16px; font-size: 13px; }
+.lai-prog.err { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--lai-sub); }
+.lai-prog-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--lai-sub); }
+.lai-prog-top b { color: var(--text); font-variant-numeric: tabular-nums; }
+.lai-prog-track { height: 4px; border-radius: 9999px; background: var(--lai-hover); overflow: hidden; }
+.lai-prog-track i { display: block; height: 100%; background: var(--lai-accent); border-radius: inherit; transition: width .3s ease; }
+.lai-link { border: 0; background: none; padding: 0; color: var(--lai-accent); font-weight: 600; cursor: pointer; }
+
+/* ---------- messages ---------- */
+.lai-msg { margin: 0 0 24px; }
+.lai-msg.user { display: flex; justify-content: flex-end; }
+.lai-bubble {
+  max-width: min(80%, 600px); padding: 10px 16px; box-sizing: border-box;
+  background: var(--lai-bubble); border: 1px solid var(--lai-bar-line); border-radius: 24px 24px 8px 24px;
+  line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.lai-text { line-height: 1.6; overflow-wrap: anywhere; }
+.lai-dots { display: inline-flex; gap: 4px; padding: 8px 0; }
+.lai-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--lai-sub); animation: lai-dot 1s infinite ease-in-out; }
+.lai-dots i:nth-child(2) { animation-delay: .15s; }
+.lai-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes lai-dot { 0%, 80%, 100% { opacity: .25; transform: scale(.8); } 40% { opacity: 1; transform: scale(1); } }
+.lai-msg.streaming .lai-text::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 4px; border-radius: 50%; background: var(--text); vertical-align: middle; animation: lai-dot 1s infinite; }
+.lai-msg.streaming .lai-text:empty::after, .lai-msg.streaming .lai-text:has(.lai-dots)::after { display: none; }
+.lai-acts { display: flex; align-items: center; gap: 2px; margin: 8px 0 0 -6px; }
+.lai-engine { margin-left: 8px; font-size: 12px; color: var(--lai-sub); }
+
+/* ---------- confirm card ---------- */
+.lai-card { margin-top: 14px; border: 1px solid var(--lai-bar-line); border-radius: 18px; background: var(--lai-bar); overflow: hidden; }
+.lai-card-head { margin: 0; padding: 12px 16px 4px; font-size: 13px; font-weight: 600; color: var(--lai-sub); }
+.lai-chs { list-style: none; margin: 0; padding: 0 6px; }
+.lai-ch { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; }
+.lai-ch + .lai-ch { border-top: 1px solid var(--lai-bar-line); border-radius: 0; }
+.lai-ch.off { opacity: .55; }
+.lai-ch-ok { color: var(--green, #00ba7c); }
+.lai-ch-copy { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lai-ch-name { font-weight: 600; font-size: 15px; color: var(--text); text-decoration: none; }
+.lai-ch-name:hover { text-decoration: underline; }
+.lai-ch-val { font-size: 13.5px; color: var(--lai-sub); }
+.lai-ch-val s { opacity: .8; }
+.lai-ch-val b { color: var(--text); font-weight: 600; }
+.lai-ch-risk { align-self: flex-start; margin-top: 4px; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; color: #b26b00; background: rgba(255, 173, 31, 0.16); }
+html:not([data-theme="default"]) .lai-ch-risk { color: #ffad1f; }
+.lai-ch-st { font-size: 13px; color: var(--lai-sub); white-space: nowrap; }
+.lai-ch-st.bad { color: var(--red, #f4212e); }
+.lai-ch-undo { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--lai-bar-line); border-radius: 9999px; background: transparent; cursor: pointer; font-size: 13px; font-weight: 600; }
+.lai-ch-undo svg { width: 16px; height: 16px; }
+.lai-ch-undo:hover { background: var(--lai-hover); }
+.lai-card-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 12px 12px; }
+.lai-card-warn { border-top: 1px solid var(--lai-bar-line); }
+.lai-card-warn p { margin: 12px 16px 0; font-size: 14px; line-height: 1.45; }
+.lai-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px; border: 0; border-radius: 9999px;
+  background: var(--text); color: var(--bg); font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.lai-btn svg { width: 16px; height: 16px; }
+.lai-btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--lai-bar-line); }
+.lai-btn.ghost:hover { background: var(--lai-hover); }
+.lai-btn.warn { background: #ffad1f; color: #0f1419; }
+.lai-saving { font-size: 13px; color: var(--lai-sub); }
+.lai-opens { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.lai-open { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border: 1px solid var(--lai-bar-line); border-radius: 9999px; color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; }
+.lai-open svg { width: 16px; height: 16px; color: var(--lai-sub); }
+.lai-open:hover { background: var(--lai-hover); }
+.lai-open.danger { color: var(--red, #f4212e); }
+
+/* ---------- download sheet ---------- */
+.lai-sheet-wrap { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, 0.5); }
+.lai-sheet { width: min(440px, 100%); padding: 20px 20px 8px; box-sizing: border-box; border-radius: 22px; background: var(--lai-bar, var(--bg)); border: 1px solid var(--lai-bar-line); color: var(--text); }
+.lai-sheet h2 { margin: 0; font-size: 20px; }
+.lai-sheet-size { margin: 4px 0 12px; font-size: 28px; font-weight: 700; color: var(--lai-accent); }
+.lai-sheet p { line-height: 1.45; }
+.lai-sheet-list { margin: 0 0 12px; padding-left: 18px; color: var(--lai-sub); font-size: 14px; line-height: 1.6; }
+.lai-sheet-warn { padding: 10px 12px; border-radius: 12px; background: rgba(255, 173, 31, 0.14); font-size: 14px; }
+.lai-sheet .lai-card-foot { padding: 8px 0 12px; }
+
+/* ---------- desktop: the app's own wide column ---------- */
+html.lai-on .app.wide .center { padding: 0 !important; }
+html.lai-on #dock-root, html.lai-on .fab { display: none !important; }
+@media (max-width: 1099px) {
+  .lai-side { position: absolute; left: 0; top: 0; bottom: 0; z-index: 30; margin-left: -280px; box-shadow: none; transition: margin-left .2s ease, box-shadow .2s ease; }
+  .lai.side-open .lai-side { margin-left: 0; box-shadow: 0 0 40px rgba(0, 0, 0, 0.35); }
+  .lai.side-open .lai-scrim { display: block; position: absolute; inset: 0; z-index: 25; background: rgba(0, 0, 0, 0.4); }
+  .lai.side-hidden .lai-side { margin-left: -280px; }
+}
+@media (min-width: 1100px) {
+  .lai-head .lai-menu-btn { display: none; }
+}
+
+/* ---------- phones: full screen, box pinned to the bottom ---------- */
+@media (max-width: 699px) {
+  html.lai-on .topbar, html.lai-on .bottom-nav, html.lai-on #lai-fab { display: none !important; }
+  html.lai-on .center { padding: 0 !important; }
+  .lai { height: 100dvh; padding-top: env(safe-area-inset-top); box-sizing: border-box; }
+  .lai-head .lai-back { display: grid; }
+  .lai-head { height: 52px; padding: 0 4px; }
+  .lai-thread { padding: 8px 16px 16px; }
+  .lai-dock { padding: 0 8px calc(8px + env(safe-area-inset-bottom)); }
+  .lai.is-empty .lai-dock { justify-content: flex-end; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .lai.is-empty .lai-hero-slot { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; }
+  .lai-hero { margin-bottom: 0; }
+  .lai-hero h1 { font-size: 24px; }
+  .lai-chips { order: -1; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; margin: 0 -8px 10px; padding: 0 8px; scrollbar-width: none; }
+  .lai-chips::-webkit-scrollbar { display: none; }
+  .lai.is-empty .lai-dock { display: flex; flex-direction: column; }
+  .lai.is-empty .lai-chips-slot { order: 1; }
+  .lai.is-empty .lai-prog-slot { order: 2; }
+  .lai.is-empty .lai-bar-slot { order: 3; }
+  .lai.is-empty .lai-note { order: 4; }
+  .lai-chips { margin: 0 -8px 10px; }
+  .lai.is-empty .lai-menu { top: auto; bottom: calc(100% + 8px); }
+  .lai-bar { border-radius: 24px; box-shadow: none; }
+  .lai-note { margin-top: 6px; font-size: 11.5px; }
+  .lai-bubble { max-width: 86%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lai-dots i, .lai-msg.streaming .lai-text::after { animation: none; }
+  .lai-side, .lai-prog-track i { transition: none; }
+}
+html[data-motion="reduce"] .lai-dots i { animation: none; }
+
+/* ---------- quick settings under the chips (empty state) ----------
+   Drawn like X's native settings: a tab bar with the accent underline, then
+   full-width rows (15px label, 13px grey value, square checkbox or chevron). */
+.lai-browse { max-width: 752px; margin: 24px auto 0; text-align: left; border: 1px solid var(--lai-bar-line); border-radius: 16px; overflow: hidden; }
+.lai-browse-head { margin: 0; padding: 12px 16px 0; font-size: 20px; font-weight: 800; line-height: 24px; color: var(--text); }
+.lai-tabs { display: flex; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--lai-bar-line); }
+.lai-tabs::-webkit-scrollbar { display: none; }
+.lai-tab {
+  flex: 1 0 auto; position: relative; height: 53px; padding: 0 16px; border: 0; border-radius: 0; background: transparent;
+  color: var(--muted); font-size: 15px; font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.lai-tab:hover { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.lai-tab.on { color: var(--text); font-weight: 700; }
+.lai-tab.on::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 56px; height: 4px; transform: translateX(-50%); border-radius: 9999px; background: var(--lai-accent); }
+.lai-tab:focus-visible, .lai-q:focus-visible { outline: 2px solid var(--lai-accent); outline-offset: -2px; }
+.lai-qs { display: block; max-height: 312px; overflow-y: auto; }
+.lai-q {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 52px; padding: 12px 16px; box-sizing: border-box;
+  border: 0; border-radius: 0; background: transparent; color: var(--text); text-align: left; cursor: pointer;
+}
+.lai-q:hover { background: color-mix(in srgb, var(--text) 3%, transparent); }
+.lai-q-text { display: flex; flex-direction: column; min-width: 0; }
+.lai-q-name { font-size: 15px; line-height: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lai-q-val { font-size: 13px; line-height: 16px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lai-cb { flex: 0 0 auto; display: grid; place-items: center; width: 20px; height: 20px; box-sizing: border-box; border: 2px solid var(--muted); border-radius: 4px; color: #fff; }
+.lai-cb svg { width: 16px; height: 16px; opacity: 0; }
+.lai-cb.is-on { background: var(--lai-accent); border-color: var(--lai-accent); }
+.lai-cb.is-on svg { opacity: 1; }
+.lai-chev { flex: 0 0 auto; display: grid; color: var(--muted); }
+.lai-chev svg { width: 18.75px; height: 18.75px; }
+@media (max-width: 699px) {
+  .lai.is-empty .lai-browse-slot { order: 0; }
+  .lai-browse { margin: 0 -8px 12px; border: 0; border-radius: 0; border-top: 1px solid var(--lai-bar-line); border-bottom: 1px solid var(--lai-bar-line); }
+  .lai-browse-head { display: none; }
+  .lai-tab { flex: 0 0 auto; }
+  .lai-qs { max-height: 34dvh; }
+}
+
+/* ---------- first-run setup ----------
+   Laid out like X's own sign-up steps: a 600px card on a dimmed backdrop,
+   a 53px header with back on the left and the logo in the middle, 31px/800
+   titles, full-width 52px pill buttons in the accent colour, and X settings
+   rows (15px label, 13px grey line, radio or checkbox on the right). On
+   phones the card is a bottom sheet. Theme and accent come from the app. */
+.lai-su-slot { display: none; }
+.lai.is-setup .lai-su-slot { display: block; position: absolute; inset: 0; z-index: 40; }
+.lai.is-setup .lai-side, .lai.is-setup .lai-scrim, .lai.is-setup .lai-main { visibility: hidden; }
+.lai-su { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: rgba(91, 112, 131, 0.4); }
+html[data-theme="default"] .lai-su { background: rgba(0, 0, 0, 0.4); }
+.lai-su-bg { display: none; }
+.lai-su-card { position: relative; display: flex; flex-direction: column; width: min(600px, 100%); max-height: min(650px, 90vh); max-height: min(650px, 90dvh); min-height: min(400px, 90dvh); background: var(--bg); color: var(--text); border-radius: 16px; overflow: auto; overscroll-behavior: contain; box-shadow: 0 0 15px rgba(255, 255, 255, 0.2), 0 0 3px 1px rgba(255, 255, 255, 0.15); }
+html[data-theme="default"] .lai-su-card { box-shadow: 0 0 15px rgba(101, 119, 134, 0.2), 0 0 3px 1px rgba(101, 119, 134, 0.15); }
+.lai-su-grab { display: none; }
+.lai-su-head { position: sticky; top: 0; z-index: 1; display: grid; grid-template-columns: 56px 1fr 56px; align-items: center; height: 53px; padding: 0 8px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(12px); }
+.lai-su-head .lai-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: var(--text); text-decoration: none; }
+.lai-su-head .lai-icon:hover { background: var(--lai-hover); }
+.lai-su-logo { justify-self: center; color: var(--text); }
+.lai-su-logo svg { width: 32px; height: 32px; }
+.lai-su-count { margin: 0 0 4px; font-size: 13px; font-weight: 700; color: var(--lai-sub); }
+.lai-su-steps { display: flex; gap: 4px; padding: 0 32px; }
+.lai-su-steps i { flex: 1; height: 4px; border-radius: 4px; background: var(--lai-bar-line); }
+.lai-su-steps i.on { background: var(--lai-accent); }
+.lai-su-body { flex: 1; padding: 20px 32px 8px; }
+.lai-su-body h1 { margin: 0 0 8px; font-size: 31px; line-height: 36px; font-weight: 800; letter-spacing: -0.01em; outline: none; overflow-wrap: anywhere; }
+.lai-su-lead { margin: 0 0 20px; font-size: 15px; line-height: 20px; color: var(--lai-sub); }
+.lai-su-points { list-style: none; margin: 0; padding: 0; }
+.lai-su-points li { display: flex; flex-direction: column; gap: 2px; padding: 12px 0; border-bottom: 1px solid var(--lai-bar-line); }
+.lai-su-points li:last-child { border-bottom: 0; }
+.lai-su-points b { font-size: 15px; font-weight: 700; }
+.lai-su-points span { font-size: 15px; line-height: 20px; color: var(--lai-sub); }
+.lai-su-sec { margin: 20px 0 4px; font-size: 20px; font-weight: 800; }
+.lai-su-facts { margin: 0 0 4px; border: 1px solid var(--lai-bar-line); border-radius: 16px; overflow: hidden; }
+.lai-su-facts div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--lai-bar-line); font-size: 15px; }
+.lai-su-facts div:last-child { border-bottom: 0; }
+.lai-su-facts dt { color: var(--lai-sub); }
+.lai-su-facts dd { margin: 0; font-weight: 700; text-align: right; }
+.lai-su-opts { display: flex; flex-direction: column; margin: 0 -32px; }
+.lai-su-opt { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 12px 32px; border: 0; background: none; text-align: left; cursor: pointer; }
+.lai-su-opt:hover { background: var(--lai-hover); }
+.lai-su-opt:focus-visible { outline: 2px solid var(--lai-accent); outline-offset: -2px; }
+.lai-su-opt-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lai-su-opt-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; font-weight: 400; }
+.lai-su-opt.on .lai-su-opt-name { font-weight: 700; }
+.lai-su-opt-sub { font-size: 13px; line-height: 16px; color: var(--lai-sub); }
+.lai-su-opt-size { font-size: 13px; line-height: 16px; color: var(--lai-sub); font-weight: 700; }
+.lai-su-radio { flex: none; width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--lai-sub); position: relative; }
+.lai-su-radio.is-on { border-color: var(--lai-accent); }
+.lai-su-radio.is-on::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--lai-accent); }
+.lai-su-opt .lai-cb { flex: none; }
+.lai-su-prog { padding: 16px; border: 1px solid var(--lai-bar-line); border-radius: 16px; }
+.lai-su-prog-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; font-size: 15px; }
+.lai-su-prog-top b { font-variant-numeric: tabular-nums; }
+.lai-su-prog .lai-prog-track { height: 6px; border-radius: 6px; background: var(--lai-bar-line); overflow: hidden; }
+.lai-su-prog .lai-prog-track i { display: block; height: 100%; background: var(--lai-accent); border-radius: 6px; transition: width .2s linear; }
+.lai-su-mb { margin: 8px 0 0; font-size: 13px; color: var(--lai-sub); font-variant-numeric: tabular-nums; }
+.lai-su-warn { margin: 12px 0 0; padding: 12px 16px; border-radius: 12px; background: rgba(255, 173, 31, 0.14); font-size: 15px; line-height: 20px; }
+.lai-su-note { margin: 12px 0 0; font-size: 13px; line-height: 16px; color: var(--lai-sub); }
+.lai-su-ok { width: 56px; height: 56px; margin: 4px 0 16px; border-radius: 50%; display: grid; place-items: center; background: var(--lai-accent); color: #fff; }
+.lai-su-ok svg { width: 30px; height: 30px; }
+.lai-su-spin { width: 32px; height: 32px; margin: 24px auto; border-radius: 50%; border: 3px solid var(--lai-bar-line); border-top-color: var(--lai-accent); animation: lai-su-spin .8s linear infinite; }
+@keyframes lai-su-spin { to { transform: rotate(360deg); } }
+.lai-su-chips { justify-content: flex-start; margin-top: 16px; }
+.lai-su-chips .lai-chip { flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lai-su-head, .lai-su-steps, .lai-su-foot { flex-shrink: 0; }
+.lai-su-foot { position: sticky; bottom: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px 32px 24px; background: var(--bg); }
+.lai-su-btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 52px; padding: 0 32px; border-radius: 9999px; border: 1px solid transparent; background: var(--lai-accent); color: #fff; font-size: 17px; font-weight: 700; cursor: pointer; transition: filter .15s; }
+.lai-su-btn:hover { filter: brightness(0.92); }
+.lai-su-btn.ghost { background: transparent; color: var(--text); border-color: color-mix(in srgb, var(--text) 30%, transparent); }
+.lai-su-btn.ghost:hover { background: var(--lai-hover); filter: none; }
+.lai-su-btn:focus-visible, .lai-su-link:focus-visible { outline: 2px solid var(--lai-accent); outline-offset: 2px; }
+.lai-su-link { align-self: center; border: 0; background: none; padding: 4px 8px; color: var(--lai-accent); font-size: 15px; cursor: pointer; }
+.lai-su-link:hover { text-decoration: underline; }
+.lai-menu-again { border-top: 1px solid var(--lai-bar-line); }
+.lai-side-foot button.lai-side-link { border: 0; background: none; text-align: left; cursor: pointer; width: 100%; }
+@media (max-width: 699px) {
+  .lai-su-chips { order: 0; flex-wrap: wrap; overflow: visible; margin: 16px 0 0; padding: 0; }
+  .lai-su { place-items: end stretch; padding: 0; }
+  .lai-su-bg { display: grid; place-items: center; position: absolute; left: 0; right: 0; top: 0; height: 22dvh; color: var(--text); }
+  .lai-su-bg-mark svg { width: 56px; height: 56px; }
+  .lai-su-card { width: 100%; max-height: 88dvh; min-height: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.25); animation: lai-su-up .24s ease-out; }
+  .lai-su-grab { display: block; width: 36px; height: 4px; margin: 8px auto 0; border-radius: 4px; background: var(--lai-bar-line); flex: none; }
+  .lai-su-head { height: 48px; }
+  .lai-su-logo svg { width: 26px; height: 26px; }
+  .lai-su-steps { padding: 0 16px; }
+  .lai-su-body { padding: 16px 16px 8px; }
+  .lai-su-body h1 { font-size: 23px; line-height: 28px; }
+  .lai-su-opts { margin: 0 -16px; }
+  .lai-su-opt { padding: 12px 16px; }
+  .lai-su-foot { padding: 12px 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .lai-su-btn { min-height: 44px; font-size: 15px; }
+}
+@keyframes lai-su-up { from { transform: translateY(24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .lai-su-card, .lai-su-spin { animation: none; } }

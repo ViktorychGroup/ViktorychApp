@@ -1,8 +1,10 @@
 /* Short notes above the story avatars. One note per account.
    The worker decides who may see it. A note is not a story. */
 
+import { friendshipLive } from "./friends-pref.js";
 import { inspectHandle } from "../../shared/handle-skeleton.js";
 import { blocksEither, actorHidden } from "./social.js";
+import { notLocked } from "./locked-sql.js";
 import { canSeeAudience, normalizeAudience, setListGrants, grantsFor } from "./audience.js";
 import { emitNotification } from "./notifications.js";
 
@@ -81,7 +83,7 @@ async function mutual(env, leftId, rightId) {
   const row = await env.DB.prepare(
     "SELECT user_id FROM account_friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)"
   ).bind(leftId, rightId, rightId, leftId).first();
-  if (row) return true;
+  if (row && await friendshipLive(env, leftId, rightId)) return true;
   return (await follows(env, leftId, rightId)) && (await follows(env, rightId, leftId));
 }
 
@@ -142,7 +144,7 @@ async function listNotes(env, viewer) {
   const mineRow = await loadNote(env, viewer.public_id);
   const mine = mineRow && live(mineRow, now) ? await present(env, mineRow, true) : null;
   const followed = await env.DB.prepare(
-    "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id LIKE 'app:%' LIMIT 200"
+    "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id LIKE 'app:%'" + notLocked("account_follows") + " LIMIT 200"
   ).bind(viewer.public_id).all();
   const ids = [];
   rowsOf(followed).forEach((row) => {

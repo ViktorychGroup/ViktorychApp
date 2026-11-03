@@ -5,6 +5,7 @@
 import { eachLimit } from "./limit.js";
 import { poolWidth } from "./job-runner.js";
 import { blocksEither } from "./social.js";
+import { notLocked } from "./locked-sql.js";
 import { canSeeAudience, normalizeAudience, setListGrants } from "./audience.js";
 
 export const APP_STORIES_SCHEMA = [
@@ -130,7 +131,7 @@ async function readStory(env, id) {
 
 async function followedIds(env, viewerId) {
   const listed = await env.DB.prepare(
-    "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id LIKE 'app:%'"
+    "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id LIKE 'app:%'" + notLocked("account_follows") 
   ).bind(viewerId).all();
   const ids = [];
   rowsOf(listed).forEach((row) => {

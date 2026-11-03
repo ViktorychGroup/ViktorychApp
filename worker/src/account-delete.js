@@ -16,7 +16,7 @@
    webauthn_credentials, webauthn_challenges, account_blocks,
    account_mutes, account_follow_requests, account_content,
    account_messages, mentions, notification_prefs, notification_events,
-   notification_outbox, notification_tab_reads, discord_alert_prefs,
+   notification_outbox, notification_tab_reads, notification_tabs, discord_alert_prefs,
    discord_alert_hits, and the native server tables (srv_*). notification_dead stores a salted hash only.
    push_vapid is the one global key and has no account column. The account
    channel object is wiped in the same database step. telegram_files is a
@@ -507,6 +507,13 @@ export function telegramPrefixes(publicId) {
   return OBJECT_PREFIXES.map((prefix) => prefix + publicId + "/");
 }
 
+/* The first key after every key that starts with prefix (binary order). */
+export function prefixEnd(prefix) {
+  const text = String(prefix || "");
+  if (!text) return "";
+  return text.slice(0, -1) + String.fromCharCode(text.charCodeAt(text.length - 1) + 1);
+}
+
 export async function forgetTelegram(env, publicId, postKeys) {
   if (!env.DB || !env.DATA) return 0;
   const prefixes = telegramPrefixes(publicId);
@@ -515,7 +522,8 @@ export async function forgetTelegram(env, publicId, postKeys) {
   const select = "SELECT object_key, message_id FROM telegram_files WHERE ";
   for (let i = 0; i < prefixes.length; i++) {
     let listed = null;
-    try { listed = await env.DB.prepare(select + "substr(object_key, 1, ?) = ?").bind(prefixes[i].length, prefixes[i]).all(); }
+    // A key range walks the primary key; substr() read every row of the table.
+    try { listed = await env.DB.prepare(select + "object_key >= ? AND object_key < ?").bind(prefixes[i], prefixEnd(prefixes[i])).all(); }
     catch (err) { return 0; }
     rowsOf(listed).forEach((row) => found.push(row));
   }
