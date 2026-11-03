@@ -198,11 +198,12 @@ async function main() {
     await browser.close();
     server.close();
   }
-  // These two run together, after the browser work. The boot timing check
-  // needs the machine, so it does not run beside the page above.
-  const [boot, tabs] = await runScripts(dir, ["boot_speed_test.mjs", "custom_tab_reload_test.mjs"]);
-  if (boot !== 0) process.exitCode = 1;
+  // The boot timing check runs alone, after the other script has exited.
+  const [tabs] = await runScripts(dir, ["custom_tab_reload_test.mjs"]);
   if (tabs !== 0) process.exitCode = 1;
+  if (process.exitCode) return;
+  const [boot] = await runScripts(dir, ["boot_speed_test.mjs"]);
+  if (boot !== 0) process.exitCode = 1;
 }
 
 main().catch((err) => {

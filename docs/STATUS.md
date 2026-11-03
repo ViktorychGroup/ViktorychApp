@@ -12,7 +12,7 @@ scripts/smoke-all.sh --jobs 4
 scripts/smoke-all.sh --changed
 ```
 
-`--jobs` is how many scripts run at once. `--changed` runs the scripts that cover files changed since `origin/main`. A file that is not in that map runs the full suite. CI does not use `--changed`. Worker tests run with `node --test` concurrency 4: `cd worker && npm test`.
+`--jobs` is how many scripts run at once. A run that includes a timing check uses one script at a time, and that check runs after the others. `--changed` runs the scripts that cover files changed since `origin/main`. A file that is not in that map runs the full suite. CI does not use `--changed`. Worker tests run with `node --test` concurrency 4: `cd worker && npm test`.
 
 ## Live on main (recent)
 

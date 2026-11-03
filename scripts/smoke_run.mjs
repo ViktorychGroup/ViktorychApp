@@ -40,7 +40,7 @@ function step(id, run, extra = {}) {
     needs: extra.needs || [],
     phase: extra.phase || "",
     quiet: !!extra.quiet,
-    wave: extra.wave || "b"
+    timing: !!extra.timing
   };
 }
 
@@ -103,7 +103,7 @@ const PAGE_STEPS = [
     paths: [file("profile_chrome_test.mjs"), file("mention_suggest_test.mjs"), file("friend_state_test.mjs"), file("my_devices_test.mjs"), file("feeds_page_test.mjs"), file("feed_requests_approve_test.mjs"), ...APP]
   }),
   step("home-tabs", "node scripts/home_tabs_test.mjs", {
-    weight: 170, needs: ["pw", "browser"], wave: "a",
+    weight: 170, needs: ["pw", "browser"], timing: true,
     paths: [file("home_tabs_test.mjs"), file("boot_speed_test.mjs"), file("custom_tab_reload_test.mjs"), ...APP]
   }),
   step("pill-fit", "node scripts/pill_fit_test.mjs", {
@@ -131,7 +131,7 @@ const PAGE_STEPS = [
     paths: [file("x_video_play.mjs"), /^app\.js$/]
   }),
   step("signup", "node scripts/signup_flow_test.mjs", {
-    weight: 280, needs: ["pw", "browser", "worker"], wave: "a",
+    weight: 280, needs: ["pw", "browser", "worker"], timing: true,
     paths: [file("signup_flow_test.mjs"), file("tv_short_pair_test.mjs"), /^accounts\.js$/, /^worker\/src\//, ...APP]
   }),
   step("device", "node scripts/device_test.js", { paths: [file("device_test.js"), /^device\.js$/] }),
@@ -169,7 +169,7 @@ const PAGE_STEPS = [
 const NAV_STEPS = [
   step("nav-custom", "node scripts/nav_custom_test.js", { paths: [file("nav_custom_test.js"), /^app\.js$/, /^styles\.css$/] }),
   step("bottom-nav", "node scripts/bottom_nav_test.mjs", { weight: 40, paths: [file("bottom_nav_test.mjs"), ...APP] }),
-  step("home-reach", "node scripts/home_reach_test.mjs", { weight: 40, needs: ["pw", "browser"], paths: [file("home_reach_test.mjs"), file("explore_nav_test.mjs"), ...APP] }),
+  step("home-reach", "node scripts/home_reach_test.mjs", { weight: 40, needs: ["pw", "browser"], timing: true, paths: [file("home_reach_test.mjs"), file("explore_nav_test.mjs"), file("feed_load_input_test.mjs"), ...APP] }),
   step("profile-tabs-order", "node scripts/profile_tabs_order_test.js", { paths: [file("profile_tabs_order_test.js")] }),
   step("profile-tabs", "node scripts/profile_tabs_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_tabs_test.mjs"), ...APP] }),
   step("dock", "node scripts/dock_test.js", { paths: [file("dock_test.js"), /^dock\.js$/, /^dock\.css$/] }),
@@ -490,19 +490,15 @@ async function main() {
     return code;
   };
   try {
+    // A job that contains a timing check runs one script at a time.
+    // Timing checks themselves never share the runner with anything else.
+    const timingJob = steps.some((item) => item.timing);
+    const runLimit = timingJob ? 1 : limit;
+    const rest = steps.filter((item) => !item.timing).sort((a, b) => b.weight - a.weight);
+    const timing = steps.filter((item) => item.timing);
     const results = [];
-    if (!shard && !process.argv.includes("--changed")) {
-      // Sign-up and the home boot timing check share a wave. The composer
-      // and the other browser scripts run after, so a busy machine does not
-      // fail a timing check.
-      const waveA = steps.filter((item) => item.wave === "a").sort((a, b) => b.weight - a.weight);
-      const waveB = steps.filter((item) => item.wave !== "a").sort((a, b) => b.weight - a.weight);
-      if (waveA.length) results.push(...await pool(waveA, Math.min(limit, waveA.length), runOne));
-      if (waveB.length) results.push(...await pool(waveB, limit, runOne));
-    } else {
-      const ordered = steps.slice().sort((a, b) => b.weight - a.weight);
-      results.push(...await pool(ordered, limit, runOne));
-    }
+    if (rest.length) results.push(...await pool(rest, runLimit, runOne));
+    for (const item of timing) results.push(await runOne(item));
     failed = results.filter((code) => code !== 0).length;
   } finally {
     if (server) server.close();

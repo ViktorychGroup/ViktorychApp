@@ -85,4 +85,4 @@ jobs:
         with:
           chrome-version: stable
       - name: Navigation checks
-        run: bash scripts/smoke-all.sh --suite nav --jobs 3
+        run: bash scripts/smoke-all.sh --suite nav --jobs 1
