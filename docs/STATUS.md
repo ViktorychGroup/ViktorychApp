@@ -20,6 +20,8 @@ The Home skeleton now runs only for Home. A restored screen that is not Home is 
 
 Page smoke skips pull requests and pushes to main that only touch `**/*.md` and `docs/**`. `smoke` is a required check. A skipped run counts as passing.
 
+The Accounts check then failed in the birthday reminder test: the whole notification JSON was searched for the digits `1990`, and the sync cursor is a millisecond timestamp that sometimes contains those digits. The birth year is still kept out of the note's words. Each follower's birthday note now has its own idempotency key, and a note is sent only when that account still follows the celebrant.
+
 ## Paused roadmap
 
 Do not start these unless the owner asks.
