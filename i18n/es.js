@@ -6054,5 +6054,9 @@ SI18n.addPack("es", {
   "Gem status": "Estado gema",
   "Unicorn status": "Estado unicornio",
   "Crown status": "Estado corona",
-  "Couldn’t do that. Try again.": "No se pudo hacer eso. Inténtalo de nuevo."
+  "Couldn’t do that. Try again.": "No se pudo hacer eso. Inténtalo de nuevo.",
+  "Viewer cap": "Límite de espectadores",
+  "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.": "Pausa un directo, incluida la reproducción, cuando lo miran más personas que este número. Desactivado deja todos los directos en marcha.",
+  "Restart recording when the count drops": "Volver a grabar cuando baje el número",
+  "Live paused: over {count} viewers": "Directo en pausa: más de {count} espectadores"
 });

@@ -1148,6 +1148,8 @@ def record_decision(still_live: bool, gained: int, reason: str, failure: str) ->
     """What one ffmpeg attempt should do next. Pure, so the pipeline can be tested."""
     if not still_live:
         return "save" if int(gained or 0) > 0 else "drop"
+    if reason == "overcap":
+        return "save" if int(gained or 0) > 0 else "drop"
     if reason in {"deadline", "chain", "handoff"}:
         return "chain"
     if failure == "blocked" and int(gained or 0) <= 0:
@@ -1536,6 +1538,18 @@ def cmd_record(handle: str, part: str, room: str) -> int:
             viewers = int(check.get("viewers") or 0)
             if viewers > int(active.get("viewers") or 0):
                 active["viewers"] = viewers
+            try:
+                from viewer_cap import step_cap
+                pref = load_json_bytes(r2_get("owner/live-viewer-cap.json"))
+                cap = pref.get("cap") if isinstance(pref, dict) else None
+                auto = bool(isinstance(pref, dict) and pref.get("autoRestart") is True)
+                stepped = step_cap(active.get("capState"), viewers, cap, wanted=True, auto_restart=auto)
+                active["capState"] = stepped
+                if stepped.get("paused"):
+                    job["holdRecord"] = not auto
+                    return "overcap"
+            except Exception:
+                pass
             if check.get("title") and not active.get("title"):
                 active["title"] = str(check.get("title") or "")
             if not check.get("live"):
@@ -2076,6 +2090,20 @@ def selftest() -> int:
     check(record_decision(False, 0, "ended", "") == "drop", "an empty ended live is not saved")
     check(record_decision(True, 1, "handoff", "") == "chain", "a handoff chains the next part after this job stops")
     check(record_decision(True, 1, "chain", "") == "chain", "the next part waits until this job exits")
+    check(record_decision(True, 3, "overcap", "") == "save", "a viewer cap keeps the segments already copied")
+    check(record_decision(True, 0, "overcap", "") == "drop", "a viewer cap with no bytes does not invent a file")
+    from viewer_cap import allow_record, step_cap
+    spike = step_cap(None, 40, 20)
+    check(spike["paused"] is False and spike["over"] == 1, "one viewer spike does not pause")
+    held = step_cap(spike, 40, 20, wanted=True)
+    check(held["paused"] is True and held["holdRecord"] is True, "two checks over the cap pause and hold recording")
+    back = step_cap(held, 10, 20, wanted=True, auto_restart=False)
+    clear = step_cap(back, 10, 20, wanted=True, auto_restart=False)
+    check(clear["paused"] is False and allow_record(clear, False, True) is False, "playback can return without restarting the recording")
+    resumed = step_cap(held, 10, 20, wanted=True, auto_restart=True)
+    resumed = step_cap(resumed, 10, 20, wanted=True, auto_restart=True)
+    check(allow_record(resumed, True, True) is True, "auto-restart records again only when the owner opted in")
+    check(step_cap(held, 80, "off")["paused"] is False, "off disables the cap")
     check(rehearse_parallel(16), "sixteen recorders keep separate files, state, and the capture index")
     record_yml = (ROOT / ".github/workflows/tiktok-record.yml").read_text(encoding="utf-8")
     upload_yml = (ROOT / ".github/workflows/tiktok-live-upload.yml").read_text(encoding="utf-8")

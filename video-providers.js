@@ -308,7 +308,11 @@
       hosts: ["www.tiktok.com"],
       match: tiktok,
       build: function (m) {
-        return { embed: "https://www.tiktok.com/player/v1/" + m.id + q({ autoplay: 1, music_info: 0, description: 0, rel: 0 }), aspect: TALL, key: m.id };
+        return { embed: "https://www.tiktok.com/player/v1/" + m.id + q({
+          autoplay: 1, loop: 1, controls: 0, progress_bar: 0, play_button: 0,
+          volume_control: 0, fullscreen_button: 0, timestamp: 0, music_info: 0,
+          description: 0, rel: 0, closed_caption: 0
+        }), aspect: TALL, key: m.id };
       }
     },
     {

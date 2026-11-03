@@ -6041,5 +6041,9 @@ SI18n.addPack("hi", {
   "Gem status": "रत्न स्टेटस",
   "Unicorn status": "यूनिकॉर्न स्टेटस",
   "Crown status": "मुकुट स्टेटस",
-  "Couldn’t do that. Try again.": "यह नहीं हो सका। फिर से कोशिश करें।"
+  "Couldn’t do that. Try again.": "यह नहीं हो सका। फिर से कोशिश करें।",
+  "Viewer cap": "दर्शक सीमा",
+  "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.": "जब इससे ज़्यादा लोग देख रहे हों तो लाइव को रोकें, चलना भी। बंद होने पर हर लाइव चलता रहता है।",
+  "Restart recording when the count drops": "संख्या घटने पर रिकॉर्डिंग फिर शुरू करें",
+  "Live paused: over {count} viewers": "लाइव रुका: {count} से ज़्यादा दर्शक"
 });

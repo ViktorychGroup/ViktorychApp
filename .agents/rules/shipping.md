@@ -15,6 +15,6 @@ description: "Git and shipping rules: branches, PRs, one merge at a time, live v
 - After each merge verify live before the next one: deploy runs for the new main commit succeed, the live `version.json` shows main's commit, and `/v1/watchdog` returns 200 (`/verify-live`).
 - `sw.js`: bump the line-7 stamp `// cache-bust: <UTC ISO>-<label>` above main's only when cached files change. On conflict take main's file and bump above it (`/resolve-sw-conflict`).
 - D1 migration numbers in `worker/migrations/` must be unique and above the latest on main.
-- Failed Actions are never abandoned: investigate, fix, re-run (`/triage-failed-actions`). TikTok workflows stay disabled.
+- Failed Actions are never abandoned: investigate, fix, re-run (`/triage-failed-actions`). TikTok workflows stay enabled.
 - Leave Dependabot PRs, workflow or dependency changes, payments and data deletion for the owner.
 - Keep usage low: no polling loops, read only what you need (`docs/LOW-USAGE.md`).

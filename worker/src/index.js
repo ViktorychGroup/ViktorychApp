@@ -3,6 +3,8 @@ import { bindOwner, inspectHandle, ownerHandle, ownerSkeleton } from "../../shar
 import { handleFeatures, killedRoute, readFlags } from "./feature-flags.js";
 import { handleNft } from "./nft.js";
 import { parseRoomId, pickStreams, roomStats, isTopQuality } from "../../shared/tiktok-live.js";
+import { allowRecord, parseCap, proxyBlocked, stepCap } from "../../shared/viewer-cap.js";
+import { tiktokFollowPrivate } from "../../shared/tiktok-lock.js";
 import { describeTikTok, pickPlayUrl } from "../../shared/tiktok-play.js";
 import { cleanHistoryCut, cleanHistoryList } from "../../shared/history-sync.js";
 import { cleanRepostKey, cleanRepostWrite } from "../../shared/reposts.js";
@@ -21,7 +23,7 @@ import { handleVaultRoute, VAULT_SCHEMA } from "./vault.js";
 import { handleXProxy } from "./xproxy.js";
 import { handleExtGraph } from "./ext-graph.js";
 import { handleYtRoute } from "./ythls.js";
-import { admitRecord, fresh, needsUpload, shouldRememberLive, uploaderStale, watchDecision, watchHandles } from "./live-watch.js";
+import { admitRecord, fresh, needsUpload, recordingAllowed, shouldRememberLive, uploaderStale, watchDecision, watchHandles } from "./live-watch.js";
 import { mediaMime, streamFresh, shouldSniffMedia, livePartPlayable, stitchPlaylists, TG_DIRECT_MAX } from "../../shared/live-playback.js";
 import { thumbObjectKey } from "../../shared/live-preview.js";
 import { b2Configured, b2GetThumb } from "./b2-thumb.js";
@@ -2095,8 +2097,10 @@ async function rememberLive(env, handle, info) {
       checkedAt: when,
       detail: info.detail || "",
       backoffUntil: "",
-      backoffStep: 0
+      backoffStep: 0,
+      capState: prev.capState && typeof prev.capState === "object" ? prev.capState : undefined
     };
+    if (!doc.live[handle].capState) delete doc.live[handle].capState;
     await env.DATA.put("owner/tiktok.json", JSON.stringify(doc));
     await forgetLiveBoard();
   } catch (err) { /* the player still gets this response */ }
@@ -2221,13 +2225,81 @@ async function fetchRoom(roomId, keyed) {
   }, "follow", keyed);
 }
 
+const VIEWER_CAP_KEY = "owner/live-viewer-cap.json";
+
+async function readViewerCap(env) {
+  const doc = await readJsonObject(env, VIEWER_CAP_KEY);
+  return {
+    cap: parseCap(doc && doc.cap),
+    autoRestart: !!(doc && doc.autoRestart === true)
+  };
+}
+
+async function writeViewerCap(env, cap, autoRestart) {
+  await writeJsonObject(env, VIEWER_CAP_KEY, { cap: cap === "off" ? "off" : cap, autoRestart: !!autoRestart });
+}
+
+/* Step the stored cap from a viewer count this request already has.
+   A cached count does not take another step. */
+async function noteViewerCap(env, handle, viewers, prev, fresh, wantedRecord) {
+  const prefs = await readViewerCap(env);
+  const prior = prev && prev.capState && typeof prev.capState === "object" ? prev.capState : {};
+  const now = Date.now();
+  const due = fresh && now - (Number(prior.at) || 0) >= 12000;
+  const next = due ? stepCap(prior, viewers, prefs.cap, { wantedRecord: !!wantedRecord, autoRestart: prefs.autoRestart }) : {
+    over: Number(prior.over) || 0,
+    under: Number(prior.under) || 0,
+    paused: !!prior.paused,
+    holdRecord: !!prior.holdRecord,
+    changed: false
+  };
+  const dirty = due && (next.changed || next.over !== (Number(prior.over) || 0) || next.under !== (Number(prior.under) || 0));
+  if (dirty && env && env.DATA) {
+    try {
+      const doc = await readOwnerDoc(env);
+      if (doc && typeof doc === "object") {
+        if (!doc.live || typeof doc.live !== "object") doc.live = {};
+        const row = doc.live[handle] && typeof doc.live[handle] === "object" ? doc.live[handle] : { handle: handle };
+        row.capState = { over: next.over, under: next.under, paused: next.paused, holdRecord: next.holdRecord, at: now };
+        doc.live[handle] = row;
+        await env.DATA.put("owner/tiktok.json", JSON.stringify(doc));
+        if (prev && typeof prev === "object") prev.capState = row.capState;
+      }
+    } catch (err) { /* the answer still carries the decision */ }
+  }
+  return { cap: prefs.cap, autoRestart: prefs.autoRestart, capPaused: !!next.paused, holdRecord: !!next.holdRecord };
+}
+
+function withCap(body, noted) {
+  const next = Object.assign({}, body || {});
+  next.cap = noted.cap;
+  next.autoRestart = noted.autoRestart;
+  next.capPaused = !!noted.capPaused;
+  return next;
+}
+
+async function handleViewerCap(request, env) {
+  const gate = await requireOwner(request, env);
+  if (gate.error) return gate.error;
+  if (request.method === "GET") return json(200, await readViewerCap(env));
+  const body = await readJson(request, 1000);
+  if (body.error) return json(400, { error: body.error });
+  const cap = parseCap(body.cap);
+  const autoRestart = body.autoRestart === true;
+  await writeViewerCap(env, cap, autoRestart);
+  return json(200, { cap: cap, autoRestart: autoRestart });
+}
+
 async function handleLiveStats(request, env, handle, gate, prev) {
   const url = new URL(request.url);
   let roomId = String(url.searchParams.get("room") || "");
   if (!/^[1-9][0-9]{5,24}$/.test(roomId)) roomId = String((prev && prev.roomId) || "");
   if (!/^[1-9][0-9]{5,24}$/.test(roomId)) return json(200, { handle, live: false, viewers: 0, title: "" });
   const cached = await cacheRead("https://live-stats.internal/" + roomId, 10000);
-  if (cached) return json(200, { handle, live: !!cached.live, viewers: cached.viewers || 0, title: cached.title || "" });
+  if (cached) {
+    const noted = await noteViewerCap(env, handle, cached.viewers || 0, prev, false, false);
+    return json(200, withCap({ handle, live: !!cached.live, viewers: cached.viewers || 0, title: cached.title || "" }, noted));
+  }
   const paced = await rateHit(env, "live:" + gate.row.public_id, 240, 10 * 60 * 1000);
   if (!paced.ok) return limited(paced);
   let upstream = null;
@@ -2246,7 +2318,8 @@ async function handleLiveStats(request, env, handle, gate, prev) {
   const stats = roomStats(parsed);
   const body = { live: !!stats.live, viewers: stats.viewers || 0, title: stats.title || "" };
   await cacheWrite("https://live-stats.internal/" + roomId, body, 10);
-  return json(200, { handle, live: body.live, viewers: body.viewers, title: body.title });
+  const noted = await noteViewerCap(env, handle, body.viewers, prev, true, false);
+  return json(200, withCap({ handle, live: body.live, viewers: body.viewers, title: body.title }, noted));
 }
 
 function publicStream(url) {
@@ -2330,7 +2403,10 @@ async function handleOwnerLive(request, env, rawHandle) {
   }
   if (!fresh && roomId) {
     const saved = await cacheRead("https://live-stream.internal/" + roomId, 10000);
-    if (usableStream(saved)) return json(200, liveInfo(handle, prev, roomId, saved));
+    if (usableStream(saved)) {
+      const noted = await noteViewerCap(env, handle, saved.viewers || 0, prev, false, false);
+      return json(200, withCap(liveInfo(handle, prev, roomId, saved), noted));
+    }
   }
   const paced = await rateHit(env, "live:" + gate.row.public_id, 240, 10 * 60 * 1000);
   if (!paced.ok) return limited(paced);
@@ -2360,7 +2436,10 @@ async function handleOwnerLive(request, env, rawHandle) {
   }
   if (!fresh) {
     const saved = await cacheRead("https://live-stream.internal/" + roomId, 10000);
-    if (usableStream(saved)) return json(200, liveInfo(handle, prev, roomId, saved));
+    if (usableStream(saved)) {
+      const noted = await noteViewerCap(env, handle, saved.viewers || 0, prev, false, false);
+      return json(200, withCap(liveInfo(handle, prev, roomId, saved), noted));
+    }
   }
   let room = null;
   try {
@@ -2402,6 +2481,10 @@ async function handleOwnerLive(request, env, rawHandle) {
     }, 10);
   }
   const info = liveInfo(handle, prev, roomId, picked);
+  const noted = await noteViewerCap(env, handle, info.viewers || 0, prev, true, false);
+  info.cap = noted.cap;
+  info.autoRestart = noted.autoRestart;
+  info.capPaused = !!noted.capPaused;
   await rememberLive(env, handle, info);
   return json(200, info);
 }
@@ -2620,6 +2703,17 @@ function streamMedia(upstream, mime) {
 async function handleOwnerMedia(request, env, url) {
   const gate = await requireTiktok(request, env);
   if (gate.error) return gate.error;
+  const named = String(url.searchParams.get("handle") || "");
+  if (TIKTOK_HANDLE.test(named)) {
+    const stored = await readOwnerDoc(env);
+    const row = stored && stored.live && stored.live[named];
+    if (proxyBlocked(row)) {
+      return new Response(null, {
+        status: 204,
+        headers: { "cache-control": "private, no-store", "x-viewer-cap": "1" }
+      });
+    }
+  }
   const target = url.searchParams.get("url") || "";
   let parsed = null;
   try { parsed = new URL(target); } catch (err) { parsed = null; }
@@ -4134,8 +4228,14 @@ async function watchTikTokLive(env, nowMs) {
     if (needsUpload(active, nowMs)) uploader = true;
     if (!info.live) continue;
 
+    const capNoted = await noteViewerCap(env, handle, info.viewers || 0, prev, true, !!(job && job.active));
+    if (capNoted.capPaused) continue;
+    const recordPref = await readJsonObject(env, "owner/live-record.json");
     const choice = watchDecision(job, mark, seen.roomId, nowMs);
     if (!admitRecord(choice, handle, activeNames)) continue;
+    if (!recordingAllowed(job, recordPref)) continue;
+    if (job && job.holdRecord && !capNoted.autoRestart) continue;
+    if (!allowRecord({ paused: false, holdRecord: capNoted.holdRecord }, capNoted.autoRestart, true)) continue;
     const ok = await dispatchWorkflow(env, "tiktok-record.yml", {
       handle,
       part: String(choice.part || 1),
@@ -5381,7 +5481,35 @@ async function handleFollowGet(request, env, url) {
       accounts.push(card);
     }
   }
-  body.accounts = accounts;
+  if (account && Number(account.owner) === 1 && tab === "following") {
+    let shortsLocked = true;
+    try {
+      const flag = await env.DB.prepare("SELECT shorts_locked FROM notification_state WHERE public_id = ?").bind(account.public_id).first();
+      if (flag && (flag.shorts_locked === 0 || flag.shorts_locked === false)) shortsLocked = false;
+    } catch (err) { shortsLocked = true; }
+    let unlocked = [];
+    try { unlocked = await unlockedHandles(env); } catch (err) { unlocked = []; }
+    const followViewer = { owner: true, locked: shortsLocked, unlocked: unlocked };
+    const manual = ownerLocked || await lockedTargetSet(env, account.public_id);
+    let shift = 0;
+    try {
+      const tiktoks = await env.DB.prepare("SELECT target_id AS id FROM account_follows WHERE follower_id = ? AND lower(target_id) LIKE 'tiktok:%' LIMIT 500").bind(account.public_id).all();
+      ((tiktoks && tiktoks.results) || []).forEach((row) => {
+        const id = String(row.id || "");
+        const priv = tiktokFollowPrivate({ platform: "tiktok", feedId: id, handle: id.slice(7) }, followViewer);
+        if (priv && !manual.has(id)) shift -= 1;
+        else if (!priv && manual.has(id)) shift += 1;
+      });
+    } catch (err) { shift = 0; }
+    if (!ownerView && body.followingCount != null) body.followingCount = Math.max(0, body.followingCount + shift);
+    const kept = [];
+    accounts.forEach((card) => {
+      const priv = tiktokFollowPrivate({ platform: card.platform || "", feedId: card.id, handle: card.handle }, followViewer);
+      if (!priv) { kept.push(card); return; }
+      if (ownerView) { card.locked = true; kept.push(card); }
+    });
+    body.accounts = kept;
+  } else body.accounts = accounts;
   body.cursor = listed.cursor || "";
   if (isOwner) body.requestsCount = await requestCount(env, gate.row.public_id);
   return json(200, redactPublicIds(body));
@@ -5814,6 +5942,7 @@ async function route(request, env, ctx) {
   if (ownerAccount && request.method === "DELETE") return handleTikTokAccountDelete(request, env, ownerAccount[1]);
   if (path === "/v1/owner/tiktok/health" && request.method === "GET") return handleTikTokHealth(request, env);
   if (path === "/v1/owner/tiktok/recordings" && request.method === "GET") return handleRecordings(request, env);
+  if (path === "/v1/owner/tiktok/viewer-cap" && (request.method === "GET" || request.method === "POST")) return handleViewerCap(request, env);
   if (path === "/v1/owner/tiktok/channels" && (request.method === "GET" || request.method === "POST")) return handleBackupChannels(request, env);
   if (path === "/v1/owner/tiktok/board" && request.method === "GET") return handleLiveBoard(request, env);
   if (path === "/v1/owner/live-resume" && (request.method === "GET" || request.method === "PUT")) return handlePlaybackResume(request, env);

@@ -6053,5 +6053,9 @@ SI18n.addPack("ru", {
   "Gem status": "Статус «Самоцвет»",
   "Unicorn status": "Статус «Единорог»",
   "Crown status": "Статус «Корона»",
-  "Couldn’t do that. Try again.": "Не получилось. Попробуй ещё раз."
+  "Couldn’t do that. Try again.": "Не получилось. Попробуй ещё раз.",
+  "Viewer cap": "Лимит зрителей",
+  "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.": "Ставит эфир на паузу, вместе с воспроизведением, когда зрителей больше этого числа. «Выкл.» оставляет все эфиры включёнными.",
+  "Restart recording when the count drops": "Снова записывать, когда число спадёт",
+  "Live paused: over {count} viewers": "Эфир на паузе: больше {count} зрителей"
 });

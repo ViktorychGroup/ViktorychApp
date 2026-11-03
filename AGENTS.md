@@ -18,7 +18,7 @@ ViktorychApp is an X.com clone shipped as a PWA. It mixes its own accounts and p
 | Backup API | `backup-server/` (Render free web service, `render.yaml`) | Runs the same Worker code. Part of the client origin pool (see `accounts.js`, `scripts/origin_pool_test.mjs`): reads move off the main Worker near its free quota; writes stay on it. Kept warm by the Worker cron (`worker/src/render-warm.js`), with quiet hours. |
 | Gate / config | `accounts.config.js` | Closed in the repo; the sync workflow rewrites the copy in the Pages artifact. |
 | Data | Deployed as a Pages artifact by `sync.yml` every 30 minutes, never committed | Repo history must not grow with data. `data/` holds only small static catalogs. |
-| Own backup fetchers | `.github/workflows/*.yml` + `scripts/*.py` (reddit, media extract, discord, telegram, IA, gdrive backups) | So nothing depends only on third-party instances. TikTok workflows are disabled on purpose. |
+| Own backup fetchers | `.github/workflows/*.yml` + `scripts/*.py` (reddit, media extract, discord, telegram, TikTok, IA, gdrive backups) | So nothing depends only on third-party instances. TikTok fetch workflows stay enabled. |
 | Android TV app (ViktorychTV) | `android-tv/` (Gradle), built APK in `tv/ViktorychTV.apk`, `tv/version.json` | Signing key and `keystore.properties`/`signing.properties` are git-ignored and must never be committed. Docs: `docs/TV*.md`, `docs/SEND-TO-TV.md`. |
 | Tests | `scripts/*_test.*`, `scripts/selftest.py`, `worker/test/` | See section 3. |
 
@@ -117,7 +117,7 @@ ReGone / NZlay
 - NZlay login is relayed by the Worker with no storage and no logging; the session cookie stays encrypted on the user's device.
 
 Other
-- TikTok Actions workflows stay disabled.
+- TikTok Actions workflows stay enabled. Do not disable them. A viewer cap can pause one live; it does not turn the workflows off.
 - Messages, emails or posts to other people are only drafted for the owner to send. Never send on the owner's behalf.
 - Never delete accounts or user data without an explicit owner go-ahead and a full backup.
 - Spend little: no polling loops, read only the files you need, no extra cloud agents unless the owner asks (`docs/LOW-USAGE.md`).

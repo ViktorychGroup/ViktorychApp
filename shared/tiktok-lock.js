@@ -69,12 +69,24 @@ function visibleNotes(notes, viewer) {
   return (Array.isArray(notes) ? notes : []).filter((item) => !tiktokNoteHidden(item, viewer));
 }
 
+/* The owner's TikTok follows sit on the private following list while Shorts
+   can see them, and on the normal list while the same check would hide them.
+   That is the Shorts page unlocked (or this account unlocked) versus locked. */
+function tiktokFollowPrivate(item, viewer) {
+  const subject = tiktokSubject(item);
+  if (!subject) return false;
+  const view = viewer && typeof viewer === "object" ? viewer : {};
+  if (!(view.owner === true || view.owner === 1)) return false;
+  return !tiktokNoteHidden(item, view);
+}
+
 const api = {
   foldHandle: foldHandle,
   tiktokSubject: tiktokSubject,
   tiktokNoteHidden: tiktokNoteHidden,
-  visibleNotes: visibleNotes
+  visibleNotes: visibleNotes,
+  tiktokFollowPrivate: tiktokFollowPrivate
 };
 
-export { foldHandle, tiktokSubject, tiktokNoteHidden, visibleNotes };
+export { foldHandle, tiktokSubject, tiktokNoteHidden, visibleNotes, tiktokFollowPrivate };
 globalThis.TiktokLock = api;

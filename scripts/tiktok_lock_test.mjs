@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { tiktokNoteHidden, visibleNotes } from "../shared/tiktok-lock.js";
+import { tiktokFollowPrivate, tiktokNoteHidden, visibleNotes } from "../shared/tiktok-lock.js";
 
 const locked = { id: "locked-row", platform: "tiktok", handle: "lockedacct", feedId: "tiktok:lockedacct", text: "hidden row", read: false, at: 30 };
 const open = { id: "open-row", platform: "tiktok", handle: "openacct", feedId: "tiktok:openacct", text: "shown row", read: false, at: 20 };
@@ -20,5 +20,12 @@ assert.deepEqual(visible.map((note) => note.id), ["open-row", "plain-row"], "the
 const unread = visible.filter((note) => !note.read).length;
 assert.equal(unread, 2, "the badge count skips the locked row");
 assert.equal(visibleNotes([locked], { owner: true, locked: true, unlocked: function (name) { return name === "lockedacct"; } }).length, 1, "the same unlock check the Shorts lock uses");
+
+const follow = { platform: "tiktok", handle: "alpha_one", feedId: "tiktok:alpha_one" };
+assert.equal(tiktokFollowPrivate(follow, { owner: true, locked: false, unlocked: [] }), true, "shorts unlocked puts the follow on the private list");
+assert.equal(tiktokFollowPrivate(follow, { owner: true, locked: true, unlocked: [] }), false, "shorts locked puts the follow on the normal list");
+assert.equal(tiktokFollowPrivate(follow, { owner: true, locked: true, unlocked: ["alpha_one"] }), true, "an unlocked account stays on the private list");
+assert.equal(tiktokFollowPrivate(follow, { owner: false, locked: false, unlocked: [] }), false, "someone else's list is unchanged");
+assert.equal(tiktokFollowPrivate({ platform: "x", handle: "alpha_one" }, { owner: true, locked: false }), false, "other networks stay where they are");
 
 console.log("ok tiktok lock");

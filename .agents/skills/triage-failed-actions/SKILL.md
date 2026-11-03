@@ -7,7 +7,7 @@ description: Investigates, fixes and re-runs failed GitHub Actions runs on Vikto
 
 Nothing is ever abandoned: every failure is understood, fixed and re-run.
 
-1. **List.** `gh run list --status failure --limit 20 --json databaseId,name,headBranch,headSha,createdAt` (PR: `gh pr checks <n>`). Ignore runs for commits that are no longer a branch head. TikTok workflows are disabled on purpose; leave them off.
+1. **List.** `gh run list --status failure --limit 20 --json databaseId,name,headBranch,headSha,createdAt` (PR: `gh pr checks <n>`). Ignore runs for commits that are no longer a branch head. TikTok workflows stay enabled; a failure there is triaged like any other workflow.
 2. **Read.** `gh run view <id> --log-failed | tail -n 80`. Never paste log lines that contain tokens, cookies, handles or IDs anywhere public.
 3. **Classify.**
    - Known flake (for example sign-up flow "settings never showed Log out", notifications 30 s timeout, birthday date checks near midnight UTC): re-run once with `gh run rerun <id> --failed`. If it fails again, treat it as real and fix the test or the code.

@@ -47,7 +47,7 @@ const golden = [
   // Rumble embed URL (page URLs need the page's oEmbed, below)
   ["https://rumble.com/embed/v9fake/", "rumble", "https://rumble.com/embed/v9fake/?autoplay=2", "16:9"],
   // TikTok
-  ["https://www.tiktok.com/@example.user/video/7000000000000000001", "tiktok", "https://www.tiktok.com/player/v1/7000000000000000001?autoplay=1&music_info=0&description=0&rel=0", "9:16"],
+  ["https://www.tiktok.com/@example.user/video/7000000000000000001", "tiktok", "https://www.tiktok.com/player/v1/7000000000000000001?autoplay=1&loop=1&controls=0&progress_bar=0&play_button=0&volume_control=0&fullscreen_button=0&timestamp=0&music_info=0&description=0&rel=0&closed_caption=0", "9:16"],
   // Facebook video and reels
   ["https://www.facebook.com/watch/?v=100000000000001", "facebook", "https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2Fwatch%2F%3Fv%3D100000000000001&show_text=false&autoplay=true&mute=0", "16:9"],
   ["https://www.facebook.com/ExamplePage/videos/100000000000001/", "facebook", "https://www.facebook.com/plugins/video.php?href=https%3A%2F%2Fwww.facebook.com%2FExamplePage%2Fvideos%2F100000000000001%2F&show_text=false&autoplay=true&mute=0", "16:9"],

@@ -6051,5 +6051,9 @@ SI18n.addPack("en", {
   "Gem status": "Gem status",
   "Unicorn status": "Unicorn status",
   "Crown status": "Crown status",
-  "Couldn’t do that. Try again.": "Couldn’t do that. Try again."
+  "Couldn’t do that. Try again.": "Couldn’t do that. Try again.",
+  "Viewer cap": "Viewer cap",
+  "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.": "Pause a live, including playback, when more people than this are watching. Off leaves every live playing.",
+  "Restart recording when the count drops": "Restart recording when the count drops",
+  "Live paused: over {count} viewers": "Live paused: over {count} viewers"
 });

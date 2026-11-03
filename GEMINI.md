@@ -15,5 +15,5 @@ Top must-not rules:
 - Never edit `.github/` without the owner's approval. Never use `git stash`. No force-push or history rewrite without asking. No PR comments.
 - Merge one PR at a time, only when CLEAN and green, then verify live (`version.json` matches main, watchdog returns 200) before the next.
 - Match X.com 1:1. Every new string in en, es, ru and hi. Every new feature behind its own switch.
-- Discord: no automated, scheduled or bulk sending; joins only on a user's tap; never solve captchas. Do not touch the ReGone websocket. TikTok workflows stay disabled.
+- Discord: no automated, scheduled or bulk sending; joins only on a user's tap; never solve captchas. Do not touch the ReGone websocket. TikTok workflows stay enabled.
 - Messages to other people are only drafted for the owner to send.

@@ -18,7 +18,7 @@ fetch (Actions / Worker proxy / bridges)
   -> client (app.js) renders; rich HTML only through the #369 allowlist sanitizer
 ```
 
-Adapters: `x_api_v2`, `fxtwitter`, `nitter_rss`, `rsshub_x` (X); `rsshub_threads` (Threads); `rsshub_instagram` (Instagram); `youtube_rss`, `youtube_community` (YouTube); `telegram`; `vk`; `discord` (merged by `merge_discord`); `generic_rss` (RSS/Atom, newsletters, Reddit/Discourse feeds); `fallbacks.parse_json_feed` (JSON Feed). TikTok (`tiktok_sync.py`) also emits this shape; its workflows are intentionally disabled.
+Adapters: `x_api_v2`, `fxtwitter`, `nitter_rss`, `rsshub_x` (X); `rsshub_threads` (Threads); `rsshub_instagram` (Instagram); `youtube_rss`, `youtube_community` (YouTube); `telegram`; `vk`; `discord` (merged by `merge_discord`); `generic_rss` (RSS/Atom, newsletters, Reddit/Discourse feeds); `fallbacks.parse_json_feed` (JSON Feed). TikTok (`tiktok_sync.py`) also emits this shape. Its fetch workflows stay enabled.
 
 ## Post
 

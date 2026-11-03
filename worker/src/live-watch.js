@@ -16,6 +16,17 @@ const CONTINUED = { part: 1, stale: 1, partial: 1, unblocked: 1, retry: 1 };
 // A new live waits when sixteen recorders are already running. A live that
 // already has a slot keeps it: the next part, a stale runner, and a retry
 // are not dropped to make room.
+/* Server recording stays off unless the owner turned the fallback on,
+   or this job was started by hand. A paused viewer cap holds the next
+   start until auto-restart is on. */
+export function recordingAllowed(job, pref) {
+  if (pref && pref.server === true) return true;
+  if (!job || typeof job !== "object") return false;
+  if (job.auto === true || job.record === true) return true;
+  if (job.active && job.active.manual === true) return true;
+  return false;
+}
+
 export function admitRecord(choice, handle, activeNames, cap = RECORD_CAP) {
   if (!choice || (choice.action !== "record" && choice.action !== "part")) return false;
   const names = (Array.isArray(activeNames) ? activeNames : []).map((name) => String(name || "").toLowerCase());
