@@ -508,11 +508,61 @@
     return { open: ACH_TIMES.open, hold: hold, fold: ACH_TIMES.fold, fade: ACH_TIMES.fade };
   }
 
+  /* The toast and the alert share the bottom of the screen. Lift the toast
+     above whichever alert is open so its buttons stay tappable. The toast
+     stays position:fixed; this only sets a pixel offset. */
+  var toastLiftObs = null;
+  function toastStyle() {
+    var doc = root.document;
+    var html = doc && doc.documentElement;
+    var style = html && html.style;
+    if (!style || !style.setProperty || !style.removeProperty) return null;
+    return style;
+  }
+  function applyToastLift(ach) {
+    var style = toastStyle();
+    if (!style) return;
+    if (!ach || !ach.isConnected || !ach.classList.contains("in") || ach.classList.contains("out") || !ach.getBoundingClientRect) {
+      style.removeProperty("--toast-above");
+      return;
+    }
+    var rect = ach.getBoundingClientRect();
+    if (!rect || rect.height < 1) {
+      style.removeProperty("--toast-above");
+      return;
+    }
+    var needed = Math.ceil((root.innerHeight || 0) - rect.top + 12);
+    if (needed < 0) needed = 0;
+    style.setProperty("--toast-above", needed + "px");
+  }
+  function liftToast() {
+    var doc = root.document;
+    if (!doc || !doc.querySelector) return;
+    var style = toastStyle();
+    var ach = doc.querySelector(".ach.in:not(.out)");
+    if (!ach) {
+      if (style) style.removeProperty("--toast-above");
+      if (toastLiftObs) { toastLiftObs.disconnect(); toastLiftObs = null; }
+      return;
+    }
+    if (root.ResizeObserver) {
+      if (!toastLiftObs || toastLiftObs.el !== ach) {
+        if (toastLiftObs) toastLiftObs.disconnect();
+        toastLiftObs = new root.ResizeObserver(function () { applyToastLift(ach); });
+        toastLiftObs.el = ach;
+        toastLiftObs.observe(ach);
+      }
+    }
+    applyToastLift(ach);
+  }
+  if (root.addEventListener) root.addEventListener("resize", liftToast);
+
   function popFinish(cur) {
     if (!cur || achCurrent !== cur) return;
     achCurrent = null;
     if (cur.el.parentNode) cur.el.parentNode.removeChild(cur.el);
     achBusy = false;
+    liftToast();
     if (cur.notice.onClose) try { cur.notice.onClose(cur.reason || "timeout"); } catch (err) { /* the queue moves on */ }
     achNext();
   }
@@ -526,6 +576,7 @@
     cur.timers = [];
     cur.el.classList.remove("open");
     cur.el.classList.add("out");
+    liftToast();
     setTimeout(function () { popFinish(cur); }, ACH_TIMES.fade);
     return true;
   }
@@ -573,10 +624,11 @@
     step(function () {
       el.classList.add("in");
       if (!alert) { chime(); rumble("pop"); } else if (notice.variant === "critical" || notice.variant === "limit") rumble("pop");
+      liftToast();
     }, 30);
-    step(function () { el.classList.add("open"); if (!alert) rumble("open"); if (notice.onShow) try { notice.onShow(el); } catch (err) { /* shown anyway */ } }, times.open);
-    step(function () { el.classList.remove("open"); }, times.open + times.hold);
-    step(function () { el.classList.add("out"); }, times.open + times.hold + times.fold);
+    step(function () { el.classList.add("open"); if (!alert) rumble("open"); if (notice.onShow) try { notice.onShow(el); } catch (err) { /* shown anyway */ } liftToast(); }, times.open);
+    step(function () { el.classList.remove("open"); liftToast(); }, times.open + times.hold);
+    step(function () { el.classList.add("out"); liftToast(); }, times.open + times.hold + times.fold);
     step(function () { cur.reason = "timeout"; popFinish(cur); }, times.open + times.hold + times.fold + times.fade);
   }
 
