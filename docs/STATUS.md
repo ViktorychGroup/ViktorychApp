@@ -52,7 +52,7 @@ The build the service worker is already running is the version on the device. `v
 
 ## Post card
 
-Timeline cards and replies use X’s header and action row. The row is reply, repost, like, views, then bookmark and share grouped at the right edge. Icons are 18.75px. Counts are 13px in the muted gray, in X’s compact form (2.2K, 7.4K, 151K, 5.2M; a comma decimal where the locale uses one). The header line is the name, verified badge, handle, and time, then one right-aligned group: the on-device explain mark, the Grok sparkle, and the vertical ⋯ menu. The sparkle is not in the action row. The card keeps a 40px avatar, a 12px gap, and 16px side padding on phone, tablet, and desktop. The share glyph is X’s arrow-out-of-a-box icon.
+Timeline cards and replies use X’s header and action row. The row is reply, repost, like, views, then bookmark and share grouped at the right edge. Icons are 18.75px. Counts are 13px in the muted gray, in X’s compact form (2.2K, 7.4K, 151K, 5.2M; a comma decimal where the locale uses one). The header line is the name, verified badge, handle, and time, then one right-aligned group: the on-device explain mark, the sparkle, and the vertical ⋯ menu. The sparkle is not in the action row. The card keeps a 40px avatar, a 12px gap, and 16px side padding on phone, tablet, and desktop. The share glyph is X’s arrow-out-of-a-box icon.
 
 ## Merged today
 

@@ -33,7 +33,7 @@ assert.ok(css.indexOf(".quote .actions { display: none") >= 0, "a nested action 
 assert.ok(css.indexOf("flex: 1 1 0%") >= 0 && css.indexOf("max-width: 25%") >= 0, "reply, repost, like, and views share flex slots");
 assert.ok(css.indexOf("width: 18.75px") >= 0 && css.indexOf(".action .count") >= 0, "icon and count sizes stay on the action bar");
 const barFn = extractFunction(app, "actionBar");
-assert.ok(barFn.indexOf("lai-action") < 0, "the action row does not include the Grok button");
+assert.ok(barFn.indexOf("lai-action") < 0, "the action row does not include the sparkle button");
 assert.ok(barFn.indexOf('class="action-more"') >= 0, "bookmark and share stay in their own group");
 assert.ok(app.indexOf('class="byline-end"') >= 0, "header tools sit in one right-aligned group");
 
