@@ -515,3 +515,9 @@
 @media (max-width: 499px) {
   .modal.xc-modal { width: 100%; min-height: 100%; max-height: none; height: 100%; border-radius: 0; }
 }
+/* Phones: the Home "What's happening?" bar drops the profile picture so the
+   placeholder starts at the left padding, like X mobile. Tablet/desktop keep it. */
+@media (max-width: 599px) {
+  .xc-inline[data-slot="post"] > :not(.xc-main):not(.xc-slim),
+  .xc-inline[data-slot="post"] .xc-slim > :not(.xc-slim-text) { display: none; }
+}
