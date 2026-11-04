@@ -12,7 +12,7 @@ import { keepOwnedStickers } from "./store.js";
 import { canSeeAudience, setListGrants } from "./audience.js";
 import { addCommunityPost, communityHomeRows } from "./communities.js";
 import { attachParents } from "./reply-context.js";
-import { visibleAvatarUrl } from "./profile-media.js";
+import { postAuthorFace, visibleAvatarUrl } from "./profile-media.js";
 import { POST_ACTION_SCHEMA, handlePostActions, decorate, quoteFor, viewerCanSee, notifyPost } from "./post-actions.js";
 
 const POST_MAX = 500;
@@ -328,6 +328,15 @@ export async function presentPost(env, request, row, viewerId) {
     }
     catch (err) { quote = { id: row.quote_id, unavailable: true }; }
   }
+  // The stored avatar column is a storage key, not something an <img> can load,
+  // so the author face comes from the viewer-aware resolver.
+  const face = await postAuthorFace(env, request, viewerId || "", row.author_id);
+  if (quote && !quote.unavailable && quote.authorId) {
+    const qFace = await postAuthorFace(env, request, viewerId || "", quote.authorId);
+    quote.authorAvatar = qFace.avatar;
+    quote.authorLocked = qFace.locked;
+    quote.authorOfficial = qFace.official;
+  }
   return {
     id: row.id,
     body: row.body,
@@ -337,7 +346,9 @@ export async function presentPost(env, request, row, viewerId) {
     authorId: row.author_id,
     authorName: (await viewerDisplay(env, request, row.author_id, viewerId, row.display_name)).name,
     authorHandle: (await viewerHandle(env, request, row.author_id, viewerId)).handle,
-    authorAvatar: row.avatar || "",
+    authorAvatar: face.avatar,
+    authorLocked: face.locked,
+    authorOfficial: face.official,
     media: media,
     quote: quote,
     audience: row.audience || "everyone",
@@ -481,7 +492,8 @@ export async function withParents(env, request, session, posts, skip) {
         if (row.author_id === session.public_id || (row.audience || "everyone") === "everyone") return true;
         return canSee(row, session.public_id, await audienceSets(env, session.public_id, [row.author_id]));
       },
-      avatarFor: (handle) => visibleAvatarUrl(env, request, { public_id: session.public_id }, handle)
+      avatarFor: (handle) => visibleAvatarUrl(env, request, { public_id: session.public_id }, handle),
+      faceFor: (authorId) => postAuthorFace(env, request, session.public_id, authorId)
     });
   } catch (err) { /* replies still list without their parents */ }
 }

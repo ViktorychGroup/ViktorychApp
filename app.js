@@ -2672,6 +2672,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<img decoding="async" class="ava${extra}" src="${esc(safeSrc)}" alt="" ${loadAttr} referrerpolicy="no-referrer" data-fallback="avatar" data-initials="${letter}" onerror="${onError}">`;
   }
 
+  // In-app authors carry the same lock and official badge as their profile name row.
+  function appMarks(post) {
+    if (!post || !post.appPost || !(post.appLocked || post.appOfficial)) return "";
+    const lib = window.ViktorychAccounts;
+    return lib && lib.authorMarks ? lib.authorMarks({ locked: !!post.appLocked, official: !!post.appOfficial }) : "";
+  }
+
   function affSlot(source) {
     if (!window.ViktorychAffiliations) return "";
     const direct = source && (source.authorId || source.publicId);
@@ -6615,7 +6622,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return `<div class="quote"${open}>
       <div class="quote-head">
         ${avatar(quoted.avatar, quoted.author || quoted.handle, isOrgVerified(asQuoted, quoted) ? "sq" : "")}
-        <span class="name">${esc(nickName(platform, quoted.handle, quoted.author || quoted.handle || tr("Post noun")))}${badge(quoted.verifiedType)}</span>
+        <span class="name">${esc(nickName(platform, quoted.handle, quoted.author || quoted.handle || tr("Post noun")))}${badge(quoted.verifiedType)}${appMarks(quoted)}</span>
         ${quotedHandle ? `<span class="handle">@${esc(quotedHandle)}</span>` : ""}
         ${quoted.date ? `<span class="dot">·</span><span class="time">${esc(relTime(quoted.date))}</span>` : ""}
       </div>
@@ -9752,7 +9759,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         ${avatar(face.avatar, post.author || post.handle, isOrgVerified(post, face) ? "sq" : "")}
         <div class="post-main">
           <div class="byline">
-            <a class="name" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}">${esc(nickName(post.platform, post.handle, post.author || post.handle || tr("Post noun")))}${badge(face.verified)}</a>${affSlot(post)}
+            <a class="name" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}">${esc(nickName(post.platform, post.handle, post.author || post.handle || tr("Post noun")))}${badge(face.verified)}${appMarks(post)}</a>${affSlot(post)}
             ${tombHandle ? `<a class="handle" href="${esc(accountHash(post.platform, post.handle))}" data-card="${esc((post.platform || "x") + ":" + post.handle)}">@${esc(tombHandle)}</a>` : ""}
             ${when}
             ${sourceBadge(post.platform)}
@@ -10188,7 +10195,7 @@ const here = parseRoute();
         ${avaCol}
         <div class="post-main">
           <div class="byline">
-            <a class="name" href="${esc(whoHref)}"${whoCard}>${esc(displayName)}${badge(face.verified)}</a>${affSlot(post)}
+            <a class="name" href="${esc(whoHref)}"${whoCard}>${esc(displayName)}${badge(face.verified)}${appMarks(post)}</a>${affSlot(post)}
             ${displayHandle ? `<a class="handle" href="${esc(whoHref)}"${whoCard}>@${esc(displayHandle)}</a>` : ""}
             <span class="dot">·</span>
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
@@ -12716,6 +12723,8 @@ const here = parseRoute();
       publicId: String(item.authorId || ""),
       feedId: item.authorId ? "app:" + item.authorId : "",
       avatar: String(item.authorAvatar || ""),
+      appLocked: !!item.authorLocked,
+      appOfficial: !!item.authorOfficial,
       text: String(item.body || ""),
       date: date,
       sortDate: date,
@@ -12759,6 +12768,8 @@ const here = parseRoute();
         author: String(item.quote.authorName || item.quote.authorHandle || ""),
         authorId: String(item.quote.authorId || ""),
         avatar: String(item.quote.authorAvatar || ""),
+        appLocked: !!item.quote.authorLocked,
+        appOfficial: !!item.quote.authorOfficial,
         text: String(item.quote.body || ""),
         date: item.quote.createdAt ? new Date(Number(item.quote.createdAt)).toISOString() : "",
         media: [],
@@ -15045,7 +15056,7 @@ const here = parseRoute();
     const face = authorFace(post);
     const statusHandle = internalPostHandle(post.handle || "", post);
     const names = `<div>
-            <a class="name" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(nickName(post.platform, post.handle, post.author || ""))}${badge(face.verified)}</a>${affSlot(post)}
+            <a class="name" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(nickName(post.platform, post.handle, post.author || ""))}${badge(face.verified)}${appMarks(post)}</a>${affSlot(post)}
             <a class="handle" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">@${esc(statusHandle)}</a>
           </div>
           <span class="status-end">${postSourceBadges(post)}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}${statusMenu(post)}</span>`;
@@ -20400,7 +20411,7 @@ if (STATE.histClear) {
       <div class="ava-col"><a data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author || post.handle, isOrgVerified(post, face) ? "sq" : "")}</a><div class="thread-line"></div></div>
       <div class="ancestor-main">
         <div class="byline">
-          <a class="name" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(nickName(post.platform, post.handle, post.author || post.handle))}${badge(face.verified)}</a>
+          <a class="name" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(nickName(post.platform, post.handle, post.author || post.handle))}${badge(face.verified)}${appMarks(post)}</a>
           <a class="handle" data-act="stop" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">@${esc(ancHandle)}</a>
           <span class="dot">·</span>
           <a class="time" data-act="stop" href="${esc(statusHash(post))}">${esc(relTime(post.date))}</a>

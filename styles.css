@@ -1890,6 +1890,8 @@ a.follow { display: inline-flex; align-items: center; justify-content: center; w
 .pname .name-row-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pname .protected-badge { display: inline-flex; width: 18px; height: 18px; flex: none; align-items: center; justify-content: center; }
 .pname .protected-badge svg { width: 18px; height: 18px; display: block; }
+.post .protected-badge, .quote .protected-badge { display: inline-flex; align-items: center; flex: none; margin-left: 2px; vertical-align: -2px; }
+.post .protected-badge svg, .quote .protected-badge svg { display: block; }
 .follow.pending { background: transparent; color: var(--text); border-color: #536471; }
 .follow.pending .u { display: none; }
 .follow.pending:hover .f { display: none; }

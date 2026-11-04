@@ -108,7 +108,7 @@ export async function quoteFor(env, request, quoteId, viewerId) {
     authorId: row.author_id,
     authorName: row.display_name,
     authorHandle: row.handle,
-    authorAvatar: row.avatar || "",
+    authorAvatar: "", // presentPost fills the viewer-aware face
     media: ((mediaRows && mediaRows.results) || []).map((item) => ({ id: item.id, mime: item.mime, size: item.size, alt: item.alt_text || "", url: new URL("/v1/posts/media/" + item.id, request.url).pathname }))
   };
 }
