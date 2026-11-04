@@ -68,7 +68,7 @@ The manifest's `display_override` is `window-controls-overlay`, `fullscreen`, `s
 
 **Reinstall guide.** A web app cannot uninstall or reinstall itself, and an installed Android app keeps the window mode it was installed with. An Android app open in `standalone` (installed before the manifest preferred `fullscreen`) shows a one-time card with the steps: uninstall from the icon, open the site in Chrome, tap Install. After that, the browser tab shows Install again as soon as Chrome offers `beforeinstallprompt`.
 
-**Quiet updates** (owner switch `auto_update`, on by default). The service worker already downloads a new build in the background, then `skipWaiting` and `clients.claim` run once and the page reloads once per build (the reload guard in `update.js`), so old and new files are not mixed. A ready update was applied when the app was hidden or the route changed; it now also applies after 20 seconds without a touch, key or scroll. Typing, a playing video or an open composer still hold it.
+**Quiet updates** (owner switch `auto_update`, on by default). The service worker already downloads a new build in the background, then `skipWaiting` and `clients.claim` run once and the page reloads once per build (the reload guard in `update.js`), so old and new files are not mixed. A ready update was applied when the app was hidden or the route changed; it now also applies once it has been ready, with the update pill showing, for 20 seconds without a touch, key or scroll. Typing, a playing video or an open composer still hold it.
 
 Test: `scripts/app_repair_test.mjs` in the `nav-layout` shard.
 
