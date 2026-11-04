@@ -55,6 +55,10 @@ The build the service worker is already running is the version on the device. `v
 
 Settings › Display has a For you switch, like uninstalling a module. Off removes the For You tab and the For you menu row, Home opens on Following (`#/` and `#/home` too), and `shared/for-you.js` is never requested: `index.html` leaves it out of the late scripts and the service worker leaves it out of the shell download (`FEATURE_FILES.forYou`). Turning it off also clears For You's saved memory (`viktorychapp-foryou-v1`, `foryou-communities-v1`), its scroll and saved Home copy. On brings the tab and script back after one reload. The owner switch `foryou_off` (feature-flags.js, Settings › Owner) turned off hides the choice and keeps For You on for everyone. Test: `scripts/foryou_off_test.mjs` (`foryou-off`, `home` shard).
 
+## Tab title privacy
+
+On a desktop (700px and wider) the tab title is only `ViktorychApp` on every page: no page name, unread count, search words or person's name in the tab, the window list or browser history. `withUnreadTitle` returns the app name there, and a watcher on `<title>` puts it back when any other script (Spaces, Inbox, the landing) writes one. Phones keep page titles. The TV app keeps the name the person picked for it (`FeedsTV.appTitle`). Test: `scripts/title_privacy_test.mjs` (`title-privacy`, `ui-fast` shard).
+
 ## Home composer on phones
 
 Below 600px the Home inline composer ("What's happening?") has no profile picture, collapsed or open, so the placeholder starts at the 16px left padding like X mobile (`x-compose.css`, last media block). Tablet and desktop keep the picture. Reply boxes are unchanged.
