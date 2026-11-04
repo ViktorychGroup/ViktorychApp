@@ -116,7 +116,7 @@
   function standalone() {
     if (typeof matchMedia !== "function" && typeof navigator === "undefined") return false;
     try {
-      if (typeof matchMedia === "function" && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches)) return true;
+      if (typeof matchMedia === "function" && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || (matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement))) return true;
     } catch (err) { /* matchMedia can throw in a locked document */ }
     return typeof navigator !== "undefined" && navigator.standalone === true;
   }

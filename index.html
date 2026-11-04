@@ -223,7 +223,7 @@
       } catch (err) { signed = false; }
       var installed = false;
       try {
-        installed = navigator.standalone === true || (window.matchMedia && (window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches));
+        installed = navigator.standalone === true || (window.matchMedia && (window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement)));
       } catch (err2) { installed = false; }
       // Installed desktop chrome before first paint (desktop-app.js keeps it in sync).
       try {
@@ -461,7 +461,7 @@
         if (savedNav.density === "compact" || savedNav.density === "comfy") document.documentElement.setAttribute("data-density", savedNav.density);
         if (savedNav.reduceMotion === true) document.documentElement.setAttribute("data-motion", "reduce");
         var metas = document.querySelectorAll('meta[name="theme-color"]');
-        var installed = (window.matchMedia && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches)) || navigator.standalone;
+        var installed = (window.matchMedia && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || (matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement))) || navigator.standalone;
         var barColor = installed ? "transparent" : themes.color(mode);
         for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", barColor);
         var scheme = document.querySelector('meta[name="color-scheme"]');

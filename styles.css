@@ -3559,7 +3559,7 @@ html.vk-fs .vk-fs-exit.on { transform: translate(-50%, 0); opacity: 1; pointer-e
   background: #111;
   border: 1px solid var(--line);
 }
-@media (display-mode: standalone), (display-mode: window-controls-overlay) {
+@media (display-mode: standalone), (display-mode: window-controls-overlay), (display-mode: fullscreen) {
   .topbar { padding-top: env(safe-area-inset-top); }
   .bottom-nav { padding-bottom: env(safe-area-inset-bottom); height: calc(53px + env(safe-area-inset-bottom)); }
 }
@@ -6835,7 +6835,7 @@ html[data-ava-shape="square"] :is(.ava, .ava img, .pava, .pava img, .m-ava .ava,
   .status-author .more-btn svg { transform: rotate(90deg); }
 }
 /* X mobile chrome: the translucent top bar slides away and the bottom bar
-   fades while scrolling down (html.chrome-hidden, set from one rAF scroll
+   slides off while scrolling down (html.chrome-hidden, set from one rAF scroll
    handler). Transform and opacity only, so it stays on the compositor. */
 @media (max-width: 499px) {
   .topbar { will-change: transform; transition: transform 0.2s ease; }
@@ -6853,12 +6853,27 @@ html[data-nav-layout="bar"] .topbar.is-hidden { transform: translateY(calc(-100%
   html[data-theme="default"] .bottom-nav { background: rgba(255, 255, 255, 0.62); }
   html[data-theme="dim"] .topbar,
   html[data-theme="dim"] .bottom-nav { background: rgba(21, 32, 43, 0.62); }
-  .bottom-nav, .fab { transition: opacity 0.18s ease; }
-  html.chrome-hidden .bottom-nav,
-  html.chrome-hidden .fab { opacity: 0.45; }
+  /* X app: the tab bar slides fully off the bottom edge while scrolling down
+     and back on the way up. Its icons and the floating buttons are never
+     faded; the buttons stay solid and drop to sit above the home indicator. */
+  .bottom-nav, .fab, .lai-fab { opacity: 1; transition: transform 0.2s ease; }
+  html.chrome-hidden:not(.bar-rest) .bottom-nav { transform: translate3d(0, calc(100% + env(safe-area-inset-bottom, 0px)), 0); }
+  html.chrome-hidden:not(.bar-rest) .fab,
+  html.chrome-hidden:not(.bar-rest) .lai-fab { transform: translate3d(0, 53px, 0); }
+  html.music-on.chrome-hidden:not(.bar-rest) .fab,
+  html.music-mini.chrome-hidden:not(.bar-rest) .fab,
+  html.chrome-hidden:not(.bar-rest) body.space-docked .fab { transform: none; }
+  html.keyboard-open .bottom-nav,
+  html.keyboard-open .fab { transform: translate3d(0, 140%, 0); }
 }
-@media (max-width: 499px) and (prefers-reduced-motion: reduce) {
-  .topbar, .bottom-nav, .fab { transition: none; }
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  @media (max-width: 1279px) {
+    .topbar, .bottom-nav,
+    html[data-theme] .topbar, html[data-theme] .bottom-nav { background: var(--bg, #000); }
+  }
+}
+@media (max-width: 1279px) and (prefers-reduced-motion: reduce) {
+  .topbar, .bottom-nav, .fab, .lai-fab { transition: none; }
 }
 
 /* Busy accounts: a folded run of posts is one thin row, X's "Show more" link

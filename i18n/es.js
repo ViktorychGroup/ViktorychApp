@@ -6069,5 +6069,6 @@ SI18n.addPack("es", {
   "Pick the frames to keep": "Elige los fotogramas que quieres guardar",
   "Save selected": "Guardar seleccionados",
   "Live frame grab": "Captura de un directo",
-  "A camera button on a live saves a full-size still, or a short burst, on this device.": "Un botón de cámara en un directo guarda una foto a tamaño completo, o una ráfaga corta, en este dispositivo."
+  "A camera button on a live saves a full-size still, or a short burst, on this device.": "Un botón de cámara en un directo guarda una foto a tamaño completo, o una ráfaga corta, en este dispositivo.",
+  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "Oculta las barras de estado y de navegación del teléfono. Desliza desde el borde superior o inferior para verlas."
 });

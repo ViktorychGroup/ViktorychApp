@@ -171,6 +171,7 @@
       if (window.matchMedia) {
         if (window.matchMedia("(display-mode: standalone)").matches) return true;
         if (window.matchMedia("(display-mode: window-controls-overlay)").matches) return true;
+        if (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) return true;
       }
     } catch (err) { /* a normal browser tab still gets the landing page */ }
     return false;
@@ -1978,7 +1979,7 @@ var numberNote = form.passkey
     else document.documentElement.setAttribute("data-theme", mode);
     var colors = { default: "#FFFFFF", dim: "#15202B", lightsout: "#000000" };
     var metas = document.querySelectorAll('meta[name="theme-color"]');
-    var installed = (window.matchMedia && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches)) || navigator.standalone;
+    var installed = (window.matchMedia && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || (matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement))) || navigator.standalone;
     var barColor = installed ? "transparent" : (themes ? themes.color(mode) : colors[mode]);
     for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", barColor);
     try {
