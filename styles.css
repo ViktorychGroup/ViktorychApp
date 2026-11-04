@@ -7684,10 +7684,13 @@ html[data-nav-layout="bar"] .topbar.compact-head.is-hidden { transform: translat
   html .aud-settings input, html .aud-settings select,
   html .feeds-org select, html .feeds-org .feeds-inline input, html .feeds-group-create input { font-size: 16px; }
 }
-/* Compact header, scrolled: only the tab row stays. The avatar row has moved
-   up behind the status bar, so it fades out instead of peeking through there. */
-.topbar.compact-head .mhead { transition: opacity 0.18s ease, visibility 0s linear 0s; }
-.topbar.compact-head.is-hidden .mhead { opacity: 0; visibility: hidden; transition: opacity 0.18s ease, visibility 0s linear 0.18s; }
+/* Compact header, scrolled: only the tab row stays. The avatar row and the
+   Home stories tray have moved up behind the status bar, so they fade out
+   instead of peeking through there. */
+.topbar.compact-head .mhead,
+.topbar.compact-head .story-shell { transition: opacity 0.18s ease, visibility 0s linear 0s; }
+.topbar.compact-head.is-hidden .mhead,
+.topbar.compact-head.is-hidden .story-shell { opacity: 0; visibility: hidden; transition: opacity 0.18s ease, visibility 0s linear 0.18s; }
 
 /* Tab strips like the X app (every row: Home, profile, notifications, search,
    lists): bold label in the text colour on the active tab, gray labels on the

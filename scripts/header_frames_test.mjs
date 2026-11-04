@@ -68,7 +68,8 @@ async function loadPlaywright() {
    than at rest, its own height never changes, nothing but the header sits
    at the top edge (no grey band), and it never drops below the top edge.
    Once hidden, the compact header leaves exactly the tab row pinned under
-   the safe area. Covers the browser tab, standalone and fullscreen, the
+   the safe area, with nothing of the avatar row or stories tray showing in
+   the strip above it. Covers the browser tab, standalone and fullscreen, the
    compact and classic header, the status bar mode, safe-area insets of 0,
    24 and 48px, and the home stories tray (demo accounts) that signed-in
    people always have. FULL=1 runs every combination. */
@@ -169,7 +170,14 @@ async function run(browser, origin, c) {
           pad: parseFloat(getComputedStyle(bar).paddingTop) || 0,
           tabsTop: tabs ? tabs.getBoundingClientRect().top : NaN,
           hid: bar.classList.contains("is-hidden"),
-          topEl: el ? (bar.contains(el) ? "bar" : el.tagName + "." + String(el.className).slice(0, 40)) : "none"
+          topEl: el ? (bar.contains(el) ? "bar" : el.tagName + "." + String(el.className).slice(0, 40)) : "none",
+          /* What shows in the safe-area strip above the tab row. */
+          inset: (() => {
+            const pad = parseFloat(getComputedStyle(bar).paddingTop) || 0;
+            if (pad < 4) return "";
+            const hit = document.elementFromPoint(Math.round(innerWidth / 2), Math.round(pad / 2));
+            return hit && hit.closest(".mhead, .story-shell") ? hit.closest(".mhead, .story-shell").className.split(" ")[0] : "";
+          })()
         });
       }
       window.__hfRaf = requestAnimationFrame(tick);
@@ -210,6 +218,7 @@ async function run(browser, origin, c) {
   if (!hidden.length) problems.push("header never tucked away while scrolling down");
   const settled = rec[down - 1];
   if (!c.classic && settled && settled.hid && Math.abs(settled.tabsTop - settled.pad) > 1) problems.push(`tucked compact header should leave the tab row at ${settled.pad}px, found ${settled.tabsTop}px`);
+  if (!c.classic && settled && settled.hid && settled.inset) problems.push(`tucked compact header still shows ${settled.inset} in the safe-area strip above the tabs`);
   const last = rec[rec.length - 1];
   if (last.hid) problems.push("header did not come back on the way up");
   return { label, problems, rest: Math.round(rest.h), frames: rec.length };
