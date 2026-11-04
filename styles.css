@@ -6855,7 +6855,7 @@ html[data-nav-layout="bar"] .topbar.is-hidden { transform: translateY(calc(-100%
   html[data-theme="dim"] .bottom-nav { background: rgba(21, 32, 43, 0.62); }
   .bottom-nav, .fab { transition: opacity 0.18s ease; }
   html.chrome-hidden .bottom-nav,
-  html.chrome-hidden .fab { opacity: 0; pointer-events: none; }
+  html.chrome-hidden .fab { opacity: 0.45; }
 }
 @media (max-width: 499px) and (prefers-reduced-motion: reduce) {
   .topbar, .bottom-nav, .fab { transition: none; }
