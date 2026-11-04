@@ -54,6 +54,10 @@ The build the service worker is already running is the version on the device. `v
 
 Below 600px the Home inline composer ("What's happening?") has no profile picture, collapsed or open, so the placeholder starts at the 16px left padding like X mobile (`x-compose.css`, last media block). Tablet and desktop keep the picture. Reply boxes are unchanged.
 
+## Post ring is keyboard only
+
+The ring around a post (`article.post.kb-focus` in `keys.css`) is a keyboard aid. It shows only after j/k (or the arrow keys) move it. A tap, a touch scroll or a mouse click only remembers that post as the start point for the next key press; they never paint the ring, and a later redraw does not put it back (`ringOn` in `keys.js`). Before, tapping Like or anything on a card painted a purple box around that card after the next redraw. Test: `scripts/post_ring_test.mjs` (`post-ring`, `nav-shell` shard).
+
 ## Post card
 
 Timeline cards and replies use X’s header and action row. The row is reply, repost, like, views, then bookmark and share grouped at the right edge. Icons are 18.75px. Counts are 13px in the muted gray, in X’s compact form (2.2K, 7.4K, 151K, 5.2M; a comma decimal where the locale uses one). The header line is the name, verified badge, handle, and time, then one right-aligned group: the on-device explain mark, the sparkle, and the vertical ⋯ menu. The sparkle is not in the action row. The card keeps a 40px avatar, a 12px gap, and 16px side padding on phone, tablet, and desktop. The share glyph is X’s arrow-out-of-a-box icon. In landscape, the overflow menu opens above an achievement alert so its items stay tappable. The music player is unchanged.
