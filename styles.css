@@ -7656,3 +7656,11 @@ input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 .action.lai-action:hover .ic::after {
   background: var(--blue-dim);
 }
+
+/* Repair app and the reinstall guide: a small card under the status bar. */
+.app-fix { position: fixed; z-index: 2147483000; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 12px); width: min(92vw, 420px); box-sizing: border-box; padding: 14px 44px 14px 16px; border-radius: 16px; background: var(--bg, #000); color: var(--text, #e7e9ea); border: 1px solid var(--line, #2f3336); box-shadow: 0 8px 28px rgba(0, 0, 0, .35); font-size: 15px; line-height: 1.35; }
+.app-fix[hidden] { display: none; }
+.app-fix p { margin: 0 0 10px; }
+.app-fix-go { min-height: 36px; padding: 0 16px; border-radius: 999px; border: 0; background: var(--text, #e7e9ea); color: var(--bg, #000); font-weight: 700; font-size: 15px; cursor: pointer; }
+.app-fix-go:disabled { opacity: .6; cursor: default; }
+.app-fix-x { position: absolute; top: 6px; right: 6px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: transparent; color: inherit; font-size: 22px; cursor: pointer; }

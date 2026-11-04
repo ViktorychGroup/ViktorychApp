@@ -1961,7 +1961,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2050,7 +2050,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       local_ai_setup: [tr("Local AI setup"), tr("Everyone sets up Local AI once before the chat opens: device check, model download, a quick test and preferences. Off opens the chat straight away.")],
       ext_nicknames: [tr("Custom names"), tr("Lets people give any account, from any network, a private name only they see.")],
       merged_profiles: [tr("Merged linked profiles"), tr("Linked profiles set to merge show on their owner's profile, and their own pages, links and follows lead there.")],
-      live_frame_grab: [tr("Live frame grab"), tr("A camera button on a live saves a full-size still, or a short burst, on this device.")]
+      live_frame_grab: [tr("Live frame grab"), tr("A camera button on a live saves a full-size still, or a short burst, on this device.")],
+      app_repair: [tr("Repair app"), tr("A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.")],
+      auto_update: [tr("Quiet updates"), tr("A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -18065,6 +18067,7 @@ const here = parseRoute();
         </div>
         <p class="phandle set-block">${esc(tr("A light tap when you press and hold a tab or pick from a shortcut menu."))}</p>
         ${fullScreenSwitch()}
+        ${repairRow()}
         <h2>${esc(tr("Home"))}</h2>
         ${homeFeatureSwitch("homePills", tr("Live pills row"), tr("Weather, scores and live spaces above the timeline. Off loads nothing for it."))}
         ${homeFeatureSwitch("stories", tr("Stories"), tr("The stories tray and viewer. Off loads nothing for it."))}
@@ -30080,6 +30083,150 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     });
   }
 
+  /* Repair app (switch app_repair). Repair drops the service worker and the
+     cached app files and feed copies, then loads the app from the network.
+     Login, settings, drafts (IndexedDB and localStorage), music downloads and
+     Local AI models stay. Home that has not shown its tabs and posts after a
+     while offers the same repair. An Android app installed before full
+     screen existed keeps its old window mode until it is reinstalled; a web
+     app cannot uninstall itself, so a one-time banner explains the steps and
+     the browser tab offers Install again afterwards. */
+  const REPAIR_CACHE = /^(shell-|data-|media-|live-)/;
+  const REINSTALL_SEEN_KEY = "viktorychapp-reinstall-seen";
+  const REINSTALL_PENDING_KEY = "viktorychapp-reinstall-pending";
+  const REPAIR_OFFERED_KEY = "viktorychapp-repair-offered";
+  function fixGet(store, key) { try { return store.getItem(key) || ""; } catch (err) { return ""; } }
+  function fixSet(store, key, value) { try { store.setItem(key, value); } catch (err) { /* private mode */ } }
+  function appRepairOn() {
+    return !serverOffList().includes("app_repair");
+  }
+  async function repairApp() {
+    if (STATE.repairing) return;
+    STATE.repairing = true;
+    const btns = document.querySelectorAll('[data-act="repair-app"]');
+    btns.forEach((btn) => { btn.disabled = true; btn.textContent = tr("Repairing…"); });
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all((regs || []).map((reg) => reg.unregister().catch(() => false)));
+      }
+    } catch (err) { /* nothing registered */ }
+    try {
+      if (window.caches && caches.keys) {
+        const names = await caches.keys();
+        await Promise.all(names.filter((name) => REPAIR_CACHE.test(name)).map((name) => caches.delete(name)));
+      }
+    } catch (err) { /* storage blocked */ }
+    try { sessionStorage.removeItem("sw-reload"); } catch (err) { /* private mode */ }
+    try {
+      const url = new URL(location.href);
+      url.searchParams.set("vapp", String(Date.now()));
+      location.replace(url.toString());
+    } catch (err) { location.reload(); }
+  }
+  function appFixBanner(kind, html) {
+    let el = document.getElementById("app-fix");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "app-fix";
+      el.className = "app-fix";
+      el.setAttribute("role", "status");
+      document.body.appendChild(el);
+    }
+    el.dataset.kind = kind;
+    el.innerHTML = html + `<button type="button" class="app-fix-x" data-act="app-fix-close" aria-label="${esc(tr("Close"))}">×</button>`;
+    el.hidden = false;
+  }
+  function appFixClose() {
+    const el = document.getElementById("app-fix");
+    if (!el) return;
+    if (el.dataset.kind === "reinstall") fixSet(localStorage, REINSTALL_SEEN_KEY, "1");
+    if (el.dataset.kind === "reinstall-finish") { try { localStorage.removeItem(REINSTALL_PENDING_KEY); } catch (err) { /* private mode */ } }
+    el.hidden = true;
+  }
+  function homeStuck() {
+    if (parseRoute().name !== "home" || STATE.modal || !navigator.onLine || STATE.netOffline) return false;
+    if (!accountToken()) return false;
+    if (!document.querySelector("#app .topbar .tabs[role='tablist']")) return true;
+    // For you always has posts once feeds load; an empty Following can be real.
+    const on = document.querySelector("#app .topbar .tabs [role='tab'][aria-selected='true']");
+    if (on && on.getAttribute("data-tab") && on.getAttribute("data-tab") !== "foryou") return false;
+    return !document.querySelector("#app article");
+  }
+  function checkHomeStuck(tries) {
+    if (!appRepairOn() || document.visibilityState === "hidden") { if (tries < 8) setTimeout(() => checkHomeStuck(tries + 1), 5000); return; }
+    if (fixGet(sessionStorage, REPAIR_OFFERED_KEY) === "1") return;
+    if (!homeStuck()) { if (tries < 8) setTimeout(() => checkHomeStuck(tries + 1), 5000); return; }
+    // Still stuck five seconds later: offer the repair once per session.
+    setTimeout(() => {
+      if (!homeStuck()) { if (tries < 8) setTimeout(() => checkHomeStuck(tries + 1), 5000); return; }
+      fixSet(sessionStorage, REPAIR_OFFERED_KEY, "1");
+      appFixBanner("repair", `<p>${esc(tr("Home is not loading. Repairing the app reloads its files; your login, drafts and settings stay."))}</p><button type="button" class="app-fix-go" data-act="repair-app">${esc(tr("Repair app"))}</button>`);
+    }, 5000);
+  }
+  function oldAndroidInstall() {
+    try {
+      if (!/Android/i.test(navigator.userAgent || "")) return false;
+      return matchMedia("(display-mode: standalone)").matches && !matchMedia("(display-mode: fullscreen)").matches;
+    } catch (err) { return false; }
+  }
+  function checkReinstall() {
+    if (!appRepairOn()) return;
+    if (oldAndroidInstall()) {
+      if (fixGet(localStorage, REINSTALL_SEEN_KEY) === "1") return;
+      appFixBanner("reinstall", `<p><b>${esc(tr("Full screen needs a reinstall"))}</b></p><p>${esc(tr("This app was installed before full screen was available, and an app cannot reinstall itself. 1. Press and hold the app icon and uninstall it. 2. Open this site in Chrome. 3. Tap Install."))}</p><button type="button" class="app-fix-go" data-act="reinstall-start">${esc(tr("Got it"))}</button>`);
+      return;
+    }
+    if (isStandalone()) { try { localStorage.removeItem(REINSTALL_PENDING_KEY); } catch (err) { /* private mode */ } return; }
+    const pendingAt = Number(fixGet(localStorage, REINSTALL_PENDING_KEY)) || 0;
+    if (!pendingAt || Date.now() - pendingAt > 14 * 86400000 || !STATE.installPrompt) return;
+    appFixBanner("reinstall-finish", `<p>${esc(tr("Finish reinstalling: tap Install to add the app back in full screen."))}</p><button type="button" class="app-fix-go" data-act="reinstall-go">${esc(tr("Install"))}</button>`);
+  }
+  function startAppFix() {
+    setTimeout(() => checkHomeStuck(0), 10000);
+    setTimeout(checkReinstall, 2500);
+    window.addEventListener("beforeinstallprompt", () => setTimeout(checkReinstall, 200));
+    window.addEventListener("appinstalled", () => {
+      try { localStorage.removeItem(REINSTALL_PENDING_KEY); } catch (err) { /* private mode */ }
+      const el = document.getElementById("app-fix");
+      if (el && el.dataset.kind === "reinstall-finish") el.hidden = true;
+    });
+    document.addEventListener("click", (event) => {
+      const btn = event.target && event.target.closest ? event.target.closest('[data-act="repair-app"], [data-act="app-fix-close"], [data-act="reinstall-start"], [data-act="reinstall-go"]') : null;
+      if (!btn) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const act = btn.dataset.act;
+      if (act === "repair-app") { repairApp(); return; }
+      if (act === "app-fix-close") { appFixClose(); return; }
+      if (act === "reinstall-start") {
+        fixSet(localStorage, REINSTALL_SEEN_KEY, "1");
+        fixSet(localStorage, REINSTALL_PENDING_KEY, String(Date.now()));
+        appFixClose();
+        return;
+      }
+      if (act === "reinstall-go") {
+        const prompt = STATE.installPrompt;
+        appFixClose();
+        if (prompt && prompt.prompt) {
+          try { const p = prompt.prompt(); if (p && p.catch) p.catch(() => {}); } catch (err) { /* the prompt was already used */ }
+        }
+      }
+    }, true);
+  }
+  window.ViktorychAppFix = {
+    repair: () => repairApp(),
+    stuck: () => homeStuck(),
+    // Run the Home check now instead of after its timers (tests and support).
+    checkNow: () => { if (appRepairOn() && homeStuck()) { fixSet(sessionStorage, REPAIR_OFFERED_KEY, "1"); appFixBanner("repair", `<p>${esc(tr("Home is not loading. Repairing the app reloads its files; your login, drafts and settings stay."))}</p><button type="button" class="app-fix-go" data-act="repair-app">${esc(tr("Repair app"))}</button>`); return true; } return false; },
+    reinstallCheck: () => checkReinstall()
+  };
+  function repairRow() {
+    if (!appRepairOn()) return "";
+    return `<h2>${esc(tr("Repair app"))}</h2><p class="phandle set-block">${esc(tr("Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay."))}</p><div class="theme-row"><button type="button" class="app-fix-go" data-act="repair-app">${esc(tr("Repair app"))}</button></div>`;
+  }
+
+
   let swStarted = false;
   let swReg = null;
   function registerSW() {
@@ -30168,6 +30315,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       });
     }
     bindGestures();
+    startAppFix();
     setTimeout(() => {
       if (STATE.modal || isStandalone() || !accountToken()) return;
       const choice = installChoice();

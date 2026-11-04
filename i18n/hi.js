@@ -6057,5 +6057,15 @@ SI18n.addPack("hi", {
   "Save selected": "चुने हुए सहेजें",
   "Live frame grab": "लाइव फ़्रेम",
   "A camera button on a live saves a full-size still, or a short burst, on this device.": "लाइव पर कैमरा बटन इस डिवाइस पर पूरा फ़्रेम या एक छोटी श्रृंखला सहेजता है।",
-  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "फ़ोन की स्टेटस बार और नेविगेशन बार छिपाएं। उन्हें देखने के लिए ऊपर या नीचे के किनारे से स्वाइप करें।"
+  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "फ़ोन की स्टेटस बार और नेविगेशन बार छिपाएं। उन्हें देखने के लिए ऊपर या नीचे के किनारे से स्वाइप करें।",
+  "Repairing…": "ठीक किया जा रहा है…",
+  "Repair app": "ऐप ठीक करें",
+  "Home is not loading. Repairing the app reloads its files; your login, drafts and settings stay.": "होम लोड नहीं हो रहा है। ऐप ठीक करने से उसकी फ़ाइलें फिर से लोड होती हैं; आपका लॉगिन, ड्राफ़्ट और सेटिंग्स बने रहते हैं।",
+  "Full screen needs a reinstall": "पूरी स्क्रीन के लिए फिर से इंस्टॉल करना होगा",
+  "This app was installed before full screen was available, and an app cannot reinstall itself. 1. Press and hold the app icon and uninstall it. 2. Open this site in Chrome. 3. Tap Install.": "यह ऐप पूरी स्क्रीन उपलब्ध होने से पहले इंस्टॉल हुआ था, और कोई ऐप खुद को फिर से इंस्टॉल नहीं कर सकता। 1. ऐप आइकन को दबाकर रखें और उसे अनइंस्टॉल करें। 2. यह साइट Chrome में खोलें। 3. इंस्टॉल पर टैप करें।",
+  "Finish reinstalling: tap Install to add the app back in full screen.": "फिर से इंस्टॉल करना पूरा करें: ऐप को पूरी स्क्रीन में वापस जोड़ने के लिए इंस्टॉल पर टैप करें।",
+  "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.": "कुछ गलत या पुराना दिख रहा है? यह ऐप को फिर से इंस्टॉल किए बिना उसकी फ़ाइलें फिर से लोड करता है। आपका लॉगिन, ड्राफ़्ट, सेटिंग्स और डाउनलोड बने रहते हैं।",
+  "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.": "सेटिंग्स में ऐप ठीक करें बटन, होम लोड न होने पर ठीक करने का सुझाव, और पूरी स्क्रीन से पहले इंस्टॉल हुए फ़ोन ऐप के लिए फिर से इंस्टॉल करने की गाइड।",
+  "Quiet updates": "शांत अपडेट",
+  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "डाउनलोड हुआ अपडेट उपयोग में थोड़े विराम के बाद एक बार रीलोड करके लागू होता है, ताकि पुरानी और नई ऐप फ़ाइलें कभी न मिलें।"
 });

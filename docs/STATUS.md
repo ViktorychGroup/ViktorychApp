@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `62805563`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `886ef6bd`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -61,6 +61,16 @@ Phones and tablets fill the screen. The page uses `viewport-fit=cover`, a theme 
 ## Full screen
 
 The manifest's `display_override` is `window-controls-overlay`, `fullscreen`, `standalone`. Desktop installs keep the title-bar overlay. The installed Android app opens immersive, without the status bar and navigation bar; a swipe from an edge shows them. Older installs keep their old mode until the app is reinstalled. `display` stays `standalone` for iOS, which cannot hide its status bar in a web app and keeps `black-translucent`. The installed checks also count `display-mode: fullscreen` when it is not a tab using the Fullscreen API. Settings > Display has a Full screen switch for browser tabs. It calls `requestFullscreen` on the tap, and a saved switch re-enters on the first tap after a load. The row is hidden where the Fullscreen API is missing, such as iPhone Safari, and inside the installed full-screen app.
+
+## Repair app and updates
+
+**Repair app** (Settings > Display, owner switch `app_repair`, on by default) unregisters the service worker, deletes the app-file and feed caches (`shell-*`, `data-*`, `media-*`, `live-*`), and reloads from the network. It keeps the login, settings, drafts and other IndexedDB and localStorage data, the `viktorych-prefs` cache, music downloads and Local AI models. When a signed-in Home has no tab row, or For you still has no posts after about 15 seconds online, a small card offers the same repair once per session.
+
+**Reinstall guide.** A web app cannot uninstall or reinstall itself, and an installed Android app keeps the window mode it was installed with. An Android app open in `standalone` (installed before the manifest preferred `fullscreen`) shows a one-time card with the steps: uninstall from the icon, open the site in Chrome, tap Install. After that, the browser tab shows Install again as soon as Chrome offers `beforeinstallprompt`.
+
+**Quiet updates** (owner switch `auto_update`, on by default). The service worker already downloads a new build in the background, then `skipWaiting` and `clients.claim` run once and the page reloads once per build (the reload guard in `update.js`), so old and new files are not mixed. A ready update was applied when the app was hidden or the route changed; it now also applies after 20 seconds without a touch, key or scroll. Typing, a playing video or an open composer still hold it.
+
+Test: `scripts/app_repair_test.mjs` in the `nav-layout` shard.
 
 ## Posts under the bars
 
