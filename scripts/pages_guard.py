@@ -254,7 +254,7 @@ def selftest() -> int:
     assert live_shell_sha('const VERSION = "viktorych-a278-__SW_VERSION__";') == ""
     live_sw = "c2b9cb0959b7a68187171bda4af3af0fd596d274"
     stale = "3a6f2de18453d5416d9ed99ab622047825a105db"
-    sw_text = 'const VERSION = "viktorych-a279-' + live_sw + '";'
+    sw_text = 'const VERSION = "viktorych-a280-' + live_sw + '";'
     assert builds_match(sw_text, live_sw)
     assert not builds_match(sw_text, stale)
     assert builds_match(sw_text, "")
