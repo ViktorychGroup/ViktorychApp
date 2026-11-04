@@ -11953,12 +11953,65 @@ const here = parseRoute();
     const list = homeShaped(route);
     const count = (STATE.feedShown && STATE.feedShown[tab]) || FEED_PAGE;
     if (count < list.length) {
+      const next = Math.min(list.length, count + FEED_PAGE);
+      /* Adding the next page by rebuilding the whole shell took about 230ms
+         inside the scroll observer and froze the feed. Insert the new cards
+         a few at a time on later frames. Fall back to a full paint if the
+         list is not on screen. */
+      if (document.getElementById("archive-more")) {
+        if (!STATE.feedShown) STATE.feedShown = {};
+        pumpHomeCards(tab, list, count, next);
+        return;
+      }
       if (!STATE.feedShown) STATE.feedShown = {};
-      STATE.feedShown[tab] = Math.min(list.length, count + FEED_PAGE);
+      STATE.feedShown[tab] = next;
       render({ y: window.scrollY });
       return;
     }
     loadNextShard();
+  }
+
+  function appendHomeCards(tab, list, from, to) {
+    const sentinel = document.getElementById("archive-more");
+    if (!sentinel || !sentinel.isConnected || !sentinel.parentNode) return false;
+    const slice = list.slice(from, to);
+    if (!slice.length) return false;
+    const html = groupThreads(slice).map((p) => (p && p.busyGroup) ? busyRow(p) : card(p, null, { eager: false })).join("");
+    if (!html) return false;
+    const tpl = document.createElement("template");
+    tpl.innerHTML = html;
+    sentinel.parentNode.insertBefore(tpl.content, sentinel);
+    if (to >= list.length) {
+      const end = document.createElement("template");
+      end.innerHTML = timelineSentinel(to, list.length);
+      sentinel.replaceWith(end.content);
+    }
+    if (!STATE.feedCutoff) STATE.feedCutoff = {};
+    const last = slice[slice.length - 1];
+    STATE.feedCutoff[tab] = last ? String(last.id || "") : "";
+    return true;
+  }
+
+  function pumpHomeCards(tab, list, from, to) {
+    const step = 8;
+    let at = from;
+    const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+    const pump = () => {
+      if (parseRoute().name !== "home" || (parseRoute().tab || "foryou") !== tab) return;
+      const end = Math.min(to, at + step);
+      if (!appendHomeCards(tab, list, at, end)) {
+        if (!STATE.feedShown) STATE.feedShown = {};
+        STATE.feedShown[tab] = to;
+        render({ y: window.scrollY });
+        return;
+      }
+      at = end;
+      if (!STATE.feedShown) STATE.feedShown = {};
+      STATE.feedShown[tab] = end;
+      if (at < to) raf(pump);
+      else raf(() => { watchHydration(); bindPlayers(); });
+    };
+    raf(pump);
   }
 
   function timelineSentinel(shown, total) {
