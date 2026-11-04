@@ -103,6 +103,7 @@ const PAGE_STEPS = [
     paths: [file("profile_chrome_test.mjs"), file("mention_suggest_test.mjs"), file("friend_state_test.mjs"), file("my_devices_test.mjs"), file("feeds_page_test.mjs"), file("feed_requests_approve_test.mjs"), ...APP]
   }),
   step("foryou-chunks", "node scripts/foryou_chunks_test.mjs", { needs: ["pw", "browser"], paths: [file("foryou_chunks_test.mjs"), ...APP] }),
+  step("foryou-off", "node scripts/foryou_off_test.mjs", { needs: ["pw", "browser"], paths: [file("foryou_off_test.mjs"), ...APP] }),
   step("home-tabs", "node scripts/home_tabs_test.mjs", {
     weight: 170, needs: ["pw", "browser"], timing: true,
     paths: [file("home_tabs_test.mjs"), file("boot_speed_test.mjs"), file("custom_tab_reload_test.mjs"), ...APP]
@@ -225,7 +226,7 @@ const SHARDS = {
   sw: ["sw-update"],
   "ui-profile": ["profile"],
   "ui-drawer": ["drawer"],
-  home: ["home-tabs", "foryou-chunks"],
+  home: ["home-tabs", "foryou-chunks", "foryou-off"],
   "compose-core": ["compose-ai", "compose-page"],
   "compose-a": ["community-home", "communities-hub", "own-post", "author-marks", "post-page"],
   "compose-b": ["music-dock", "video-fallback", "device-guard", "usernames"],
@@ -252,7 +253,7 @@ const REQUIRED_PAGE = [
   "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
   "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name",
-  "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks"
+  "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off"
 ];
 
 export function stepsFor(suite) {
