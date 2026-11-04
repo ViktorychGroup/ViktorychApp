@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `6ac5caa8`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `f8c078a0`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -20,7 +20,7 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
-**Current state.** Main is `6ac5caa8` (the signed-out landing paints before the site stylesheet). This pull request adds the next page of Home posts a few cards at a time, so scrolling does not rebuild the whole feed. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
+**Current state.** Main is `f8c078a0` (Home adds older posts without rebuilding the feed). This pull request shows a like, repost, follow, or compose press on the current frame, and does the full redraw on the next one. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
 
 ## Speed log
 
@@ -32,6 +32,7 @@ Desktop, CPU slowed 4×, unless a row says otherwise. Each row is the change tha
 | Music code | `music.js` 125 KB, `ytm.js` 58 KB and `music.css` 27 KB (210 KB) download with every visit | Those files load when music is opened, or when a song is already queued so the mini player returns. The dock check passed on phone, desktop, tablet and landscape. Live at `f38acb31`. |
 | Signed-out first paint | Phone, 4G, CPU slowed 4×, live site: first paint and largest text 2.0s, the landing paragraph, layout shift 0. `styles.css` (273 KB) finished at 1.8s and held that paint. | Live after: first paint and largest text 1.55s. `styles.css` finished at 2.3s, after the paint. Layout shift 0.015. Signed-in visits still wait for the sheet. Live at `6ac5caa8`. |
 | Home scroll, next page | CPU slowed 4×, phone width. Loading the next posts rebuilt the whole shell inside the scroll observer: 226ms of script, frame 287ms (237ms blocking). | The new cards are inserted eight at a time on later frames. The longest app script in that scroll was 36ms. Feed clicks and community scroll still passed. |
+| Like, repost, follow, compose | The new state waited for a full page redraw inside the tap. | The control flips (or presses) before that redraw. The redraw runs on the next frame. |
 
 ## Version publish
 
