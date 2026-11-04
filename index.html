@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <style>
     /* First paint. The landing and the home skeleton are in the HTML, so the
        largest text does not wait for the app. Same sizes as the real landing. */
@@ -461,7 +461,9 @@
         if (savedNav.density === "compact" || savedNav.density === "comfy") document.documentElement.setAttribute("data-density", savedNav.density);
         if (savedNav.reduceMotion === true) document.documentElement.setAttribute("data-motion", "reduce");
         var metas = document.querySelectorAll('meta[name="theme-color"]');
-        for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", themes.color(mode));
+        var installed = (window.matchMedia && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches)) || navigator.standalone;
+        var barColor = installed ? "transparent" : themes.color(mode);
+        for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", barColor);
         var scheme = document.querySelector('meta[name="color-scheme"]');
         if (scheme) scheme.setAttribute("content", mode === "default" ? "light" : "dark");
         var bar = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
