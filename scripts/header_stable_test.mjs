@@ -1,0 +1,225 @@
+import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { sharedStaticServer } from "./smoke_runtime.mjs";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function fail(message) {
+  console.error(message);
+  process.exitCode = 1;
+  throw new Error(message);
+}
+
+function mime(file) {
+  if (file.endsWith(".js") || file.endsWith(".mjs")) return "text/javascript; charset=utf-8";
+  if (file.endsWith(".css")) return "text/css; charset=utf-8";
+  if (file.endsWith(".html")) return "text/html; charset=utf-8";
+  if (file.endsWith(".json")) return "application/json; charset=utf-8";
+  if (file.endsWith(".svg")) return "image/svg+xml";
+  if (file.endsWith(".png")) return "image/png";
+  if (file.endsWith(".webp")) return "image/webp";
+  if (file.endsWith(".ico")) return "image/x-icon";
+  if (file.endsWith(".webmanifest")) return "application/manifest+json";
+  return "application/octet-stream";
+}
+
+function startServer() {
+  const shared = sharedStaticServer();
+  if (shared) return Promise.resolve(shared);
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, "http://127.0.0.1");
+    let rel = decodeURIComponent(url.pathname);
+    if (rel.endsWith("/")) rel += "index.html";
+    const file = path.normalize(path.join(root, rel));
+    if (file !== root && !file.startsWith(root + path.sep)) {
+      res.writeHead(403);
+      res.end();
+      return;
+    }
+    fs.readFile(file, (err, data) => {
+      if (err) {
+        res.writeHead(404);
+        res.end("missing");
+        return;
+      }
+      res.writeHead(200, { "content-type": mime(file), "cache-control": "no-store" });
+      res.end(data);
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve(server));
+  });
+}
+
+async function loadPlaywright() {
+  const spec = process.env.PLAYWRIGHT_CORE || "playwright-core";
+  const href = spec.startsWith("/") ? pathToFileURL(spec).href : spec;
+  const mod = await import(href);
+  return mod.chromium || (mod.default && mod.default.chromium);
+}
+const PROBE = `(() => {
+  const bar = document.querySelector("#app .topbar.tall");
+  if (!bar) return null;
+  const r = bar.getBoundingClientRect();
+  const head = bar.querySelector(".mhead");
+  const tabs = bar.querySelector(".tabs-bar");
+  const hr = head.getBoundingClientRect();
+  const tr = tabs.getBoundingClientRect();
+  const hs = getComputedStyle(head);
+  const top = document.elementFromPoint(Math.round(innerWidth / 2), 2);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  return {
+    barTop: r.top, barBottom: r.bottom, barH: r.height, pad: parseFloat(getComputedStyle(bar).paddingTop) || 0,
+    headTop: hr.top, headH: hr.height, tabsTop: tr.top, rows: r.bottom - tr.top,
+    headShown: hs.visibility !== "hidden" && hs.opacity !== "0",
+    hidden: bar.classList.contains("is-hidden"),
+    topIsBar: !!(top && bar.contains(top)),
+    color: meta ? meta.getAttribute("content") : ""
+  };
+})()`;
+
+const near = (a, b) => Math.abs(a - b) <= 1;
+
+async function open(browser, origin, opts) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2, serviceWorkers: "block" });
+  await context.addInitScript((o) => {
+    try { localStorage.setItem("viktorychapp-welcome-v1", JSON.stringify({ step: 2, done: true })); } catch (err) {}
+    if (o.standalone) {
+      const real = window.matchMedia.bind(window);
+      window.matchMedia = (q) => {
+        if (/display-mode:\s*standalone/.test(String(q))) return { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent() { return false; } };
+        return real(q);
+      };
+    }
+    if (o.screen) {
+      window.__scr = o.screen;
+      Object.defineProperty(Screen.prototype, "height", { configurable: true, get() { return window.__scr.height; } });
+      Object.defineProperty(Screen.prototype, "availHeight", { configurable: true, get() { return window.__scr.avail; } });
+    }
+  }, opts);
+  const page = await context.newPage();
+  const cdp = await context.newCDPSession(page);
+  const inset = async (top) => { await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top, topMax: top } }); await sleep(250); };
+  await inset(opts.inset == null ? 24 : opts.inset);
+  const errors = [];
+  page.on("pageerror", (err) => { if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(String(err && err.message || err).slice(0, 200)); });
+  await page.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#app .topbar.tall.compact-head .mhead .m-ava", { timeout: 20000 });
+  await page.waitForFunction(() => document.querySelectorAll("#app article").length > 2, null, { timeout: 20000 });
+  await sleep(400);
+  return { context, page, errors, inset };
+}
+
+async function settle(page) { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); await sleep(450); }
+
+async function scrollDown(page) {
+  for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, 300); await sleep(110); }
+  await page.waitForFunction(() => { const b = document.querySelector("#app .topbar.tall"); return !!b && b.classList.contains("is-hidden"); }, null, { timeout: 5000 }).catch(() => {});
+  await settle(page);
+}
+
+async function scrollUp(page) {
+  await page.mouse.wheel(0, -300); await sleep(150);
+  await page.waitForFunction(() => { const b = document.querySelector("#app .topbar.tall"); return !!b && !b.classList.contains("is-hidden"); }, null, { timeout: 5000 }).catch(() => {});
+  await settle(page);
+}
+
+// At rest: one inset of padding, the avatar row right under it, nothing else
+// painting over the status bar area.
+function atRest(h, ref, sat, label) {
+  if (!h) fail(label + ": no header");
+  if (h.hidden) fail(label + ": header is hidden at rest");
+  if (!near(h.barTop, 0)) fail(label + ": header does not start at the top " + JSON.stringify(h));
+  if (!near(h.pad, sat)) fail(label + ": header padding is not one safe-area inset (" + sat + ") " + JSON.stringify(h));
+  if (!near(h.headTop, sat)) fail(label + ": avatar row is not right under the status bar " + JSON.stringify(h));
+  if (!near(h.barH, ref + sat)) fail(label + ": header height " + h.barH + " is not the reference " + (ref + sat));
+  if (!h.headShown) fail(label + ": avatar row is not shown at rest");
+  if (!h.topIsBar) fail(label + ": something other than the header paints behind the status bar");
+}
+
+function scrolled(h, rows, sat, label) {
+  if (!h.hidden) fail(label + ": header did not hide on scroll");
+  if (!near(h.tabsTop, sat)) fail(label + ": tab row is not pinned under the status bar " + JSON.stringify(h));
+  if (!near(h.barBottom, sat + rows)) fail(label + ": scrolled header is not tabs-only " + JSON.stringify({ bottom: h.barBottom, want: sat + rows }));
+  if (h.headShown) fail(label + ": avatar row still shows behind the status bar");
+  if (!h.topIsBar) fail(label + ": scrolled header leaves a band behind the status bar");
+}
+
+async function cycle(run, ref, rows, sat, label) {
+  atRest(await run.page.evaluate(PROBE), ref, sat, label + " rest");
+  await scrollDown(run.page);
+  scrolled(await run.page.evaluate(PROBE), rows, sat, label + " scrolled");
+  await scrollUp(run.page);
+  await run.page.evaluate(() => window.scrollTo(0, 0));
+  await settle(run.page);
+  atRest(await run.page.evaluate(PROBE), ref, sat, label + " back");
+}
+
+async function main() {
+  const chromium = await loadPlaywright();
+  if (!chromium) fail("Playwright chromium is missing");
+  const server = await startServer();
+  const origin = "http://127.0.0.1:" + server.address().port;
+  const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--no-sandbox", "--disable-gpu"] });
+  try {
+    // Browser tab with a 24px status-bar inset.
+    let run = await open(browser, origin, {});
+    let h = await run.page.evaluate(PROBE);
+    const ref = h.barH - h.pad;
+    const rows = h.barBottom - h.tabsTop;
+    if (!near(h.pad, 24) || ref < 90 || rows < 40) fail("unexpected reference header " + JSON.stringify(h));
+    await cycle(run, ref, rows, 24, "tab");
+    // Resize: short (keyboard), landscape, and back; the header returns to the same size.
+    for (const [w, ht] of [[390, 420], [844, 390], [390, 844]]) {
+      await run.page.setViewportSize({ width: w, height: ht });
+      await settle(run.page);
+    }
+    await cycle(run, ref, rows, 24, "after resize");
+    // The inset changes mid-session (status bar shown or hidden): still one inset.
+    await run.inset(0); await settle(run.page);
+    atRest(await run.page.evaluate(PROBE), ref, 0, "no inset");
+    await run.inset(40); await settle(run.page);
+    await cycle(run, ref, rows, 40, "inset 40");
+    await run.inset(24); await settle(run.page);
+    atRest(await run.page.evaluate(PROBE), ref, 24, "inset back");
+    if (run.errors.length) fail("page errors: " + run.errors.join(" | "));
+    await run.context.close();
+
+    // Installed app drawn under the status bar: the page is taller than the
+    // free screen area, so the inset stays and the bar is see-through.
+    run = await open(browser, origin, { standalone: true, screen: { height: 844, avail: 772 } });
+    h = await run.page.evaluate(PROBE);
+    if (h.color !== "transparent") fail("installed app under the status bar lost its see-through bar " + JSON.stringify(h));
+    await cycle(run, ref, rows, 24, "installed under bar");
+    await run.context.close();
+
+    // Installed app that Chrome placed below the status bar while env() still
+    // reports it: no second gap, and the status bar takes the header colour
+    // instead of a grey band.
+    run = await open(browser, origin, { standalone: true, screen: { height: 844 + 24 + 48, avail: 844 } });
+    h = await run.page.evaluate(PROBE);
+    if (!h.color || h.color === "transparent") fail("status bar is left transparent while the page sits below it " + JSON.stringify(h));
+    await cycle(run, ref, rows, 0, "installed below bar");
+    // Display mode / full screen change: the page now covers the screen.
+    await run.page.evaluate(() => { window.__scr.height = 844; window.__scr.avail = 772; window.dispatchEvent(new Event("resize")); });
+    await settle(run.page);
+    h = await run.page.evaluate(PROBE);
+    if (h.color !== "transparent") fail("bar did not turn see-through after the page moved under it " + JSON.stringify(h));
+    await cycle(run, ref, rows, 24, "installed after mode change");
+    await run.context.close();
+
+    // A reported inset taller than every system bar together is capped (fat header).
+    run = await open(browser, origin, { standalone: true, inset: 60, screen: { height: 844, avail: 820 } });
+    await cycle(run, ref, rows, 24, "installed oversized inset");
+    await run.context.close();
+    console.log("header-stable ok");
+  } finally {
+    await browser.close();
+    if (server.close && !sharedStaticServer()) server.close();
+  }
+}
+
+main().catch((err) => { if (!process.exitCode) process.exitCode = 1; console.error(err && err.message || err); });

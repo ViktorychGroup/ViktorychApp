@@ -202,6 +202,7 @@ const NAV_STEPS = [
   step("app-repair", "node scripts/app_repair_test.mjs", { needs: ["pw", "browser"], paths: [file("app_repair_test.mjs"), ...APP] }),
   step("swipe-tabs", "node scripts/swipe_tabs_test.mjs", { needs: ["pw", "browser"], paths: [file("swipe_tabs_test.mjs"), ...APP] }),
   step("compact-header", "node scripts/compact_header_test.mjs", { needs: ["pw", "browser"], paths: [file("compact_header_test.mjs"), ...APP] }),
+  step("header-stable", "node scripts/header_stable_test.mjs", { needs: ["pw", "browser"], paths: [file("header_stable_test.mjs"), ...APP] }),
   step("profile-layout", "node scripts/profile_layout_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_layout_test.mjs"), ...APP] }),
   step("menu-pages", "node scripts/menu_pages_test.mjs", { weight: 40, needs: ["pw", "browser"], paths: [file("menu_pages_test.mjs"), ...APP] }),
   step("about-layout", "node scripts/about_layout_test.mjs", { needs: ["pw"], paths: [file("about_layout_test.mjs")] }),
@@ -230,7 +231,7 @@ const SHARDS = {
 const NAV_SHARDS = {
   "nav-reach": ["home-reach"],
   "nav-shell": ["nav-custom", "bottom-nav", "dock", "profile-tabs-order", "profile-tabs"],
-  "nav-layout": ["landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "profile-layout", "menu-pages"],
+  "nav-layout": ["landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "profile-layout", "menu-pages"],
   "nav-pages": ["about-layout", "points-layout", "stories-layout", "ios"]
 };
 
@@ -449,7 +450,7 @@ function selftest() {
   if (none.length !== PAGE_STEPS.length) throw new Error("no local diff must run the full suite");
   for (const name of Object.keys(SHARDS)) shardSteps(name, PAGE_STEPS);
   const navIds = new Set(NAV_STEPS.map((item) => item.id));
-  for (const id of ["nav-custom", "bottom-nav", "home-reach", "profile-tabs-order", "profile-tabs", "dock", "landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "profile-layout", "menu-pages", "about-layout", "points-layout", "stories-layout", "ios"]) {
+  for (const id of ["nav-custom", "bottom-nav", "home-reach", "profile-tabs-order", "profile-tabs", "dock", "landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "profile-layout", "menu-pages", "about-layout", "points-layout", "stories-layout", "ios"]) {
     if (!navIds.has(id)) throw new Error("missing nav step " + id);
   }
   console.log("smoke_run selftest ok");
