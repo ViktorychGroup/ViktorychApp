@@ -6082,5 +6082,14 @@ SI18n.addPack("es", {
   "Quiet updates": "Actualizaciones discretas",
   "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "Una actualización descargada se aplica tras una breve pausa de uso, con una sola recarga, para que los archivos viejos y nuevos nunca se mezclen.",
   "Swipe between tabs": "Deslizar entre pestañas",
-  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "En teléfonos y tabletas, deslizar de lado en Inicio o en un perfil abre la pestaña siguiente o la anterior."
+  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "En teléfonos y tabletas, deslizar de lado en Inicio o en un perfil abre la pestaña siguiente o la anterior.",
+  "Open Local AI": "Abrir IA local",
+  "Classic header": "Encabezado clásico",
+  "Show the app name at the top of Home on phones, with Settings on the right.": "Muestra el nombre de la app arriba en Inicio en teléfonos, con Configuración a la derecha.",
+  "Show phone status bar": "Mostrar la barra de estado del teléfono",
+  "Keep the phone's clock and battery visible, in your theme's colour. On Android, an app installed in full screen cannot show it.": "Mantiene visibles el reloj y la batería del teléfono, en el color de tu tema. En Android, una app instalada en pantalla completa no puede mostrarla.",
+  "Compact Home header": "Encabezado compacto de Inicio",
+  "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.": "En teléfonos, Inicio no muestra el nombre de la app, el icono derecho abre la IA local y las pestañas se quedan arriba al desplazarse. Desactivado vuelve al encabezado clásico.",
+  "Phone status bar option": "Opción de barra de estado del teléfono",
+  "A Display setting that keeps the phone's status bar visible in the theme colour.": "Un ajuste de Pantalla que mantiene visible la barra de estado del teléfono en el color del tema."
 });

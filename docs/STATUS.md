@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `9e4c0173`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `bcfb4a44`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -77,6 +77,12 @@ Test: `scripts/app_repair_test.mjs` in the `nav-layout` shard.
 On a phone or tablet (under 1000px wide), a sideways drag on Home or on a profile moves the content with the finger, and the tab underline slides toward the next tab. Letting go past a quarter of the screen, or after a quick flick, opens that tab; a shorter drag springs back. The drag only counts once it is clearly sideways (1.5 times more sideways than vertical after 10px), so scrolling up and down is never taken. Drags that start on the tab row, a sideways scroller (pills, stories), an input, a video, or within 20px of a screen edge (the browser's back swipe) are left alone. With reduced motion the swipe still switches, without the sliding. Owner switch `swipe_tabs`, on by default. Test: `scripts/swipe_tabs_test.mjs` in the `nav-layout` shard.
 
 The fresh-login report (feeds and tabs missing after a first login on a reinstalled app) did not reproduce locally and was closed by the owner; Repair app (above) is the user-side fix for a stuck install.
+
+## Compact Home header and status bar
+
+On a phone, the Home header has no app name: the drawer button (your picture) on the left and a sparkle on the right that opens Local AI (`#/ai`; it opens Settings when Local AI is off for everyone). When the header slides away on scroll, only the part above the tabs leaves, so the tab row (and the pills under it) stays pinned at the top under the status bar (`--keep-tabs-y`, set in `paintChromeHidden`). Display settings has **Classic header** (app name in the middle, Settings on the right, the whole bar slides away) and **Show phone status bar** (`statusBar`): the installed app's `theme-color` is the theme colour (light `#FFFFFF`, dim `#15202B`, dark `#000000`) instead of `transparent`, the Full screen switch hides, and the reinstall-for-full-screen card is not offered. Owner switches `compact_header` (off = classic header for everyone) and `status_bar` (off hides the option). Test: `scripts/compact_header_test.mjs` in the `nav-layout` shard.
+
+Android limitation: an app installed in `fullscreen` display mode cannot show the system status bar; no web API brings it back, and an installed app cannot change its own display mode. With the setting on, the bar shows in a browser tab and in apps installed as `standalone`; on an older full-screen install the user has to open the app from the browser or reinstall it. On iOS the status bar is always shown, and `black-translucent` (fixed when the app is added to the Home Screen) keeps drawing the page behind it, so the setting changes only the colour where the browser uses `theme-color`.
 
 ## Posts under the bars
 

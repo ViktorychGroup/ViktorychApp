@@ -6079,5 +6079,14 @@ SI18n.addPack("en", {
   "Quiet updates": "Quiet updates",
   "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.",
   "Swipe between tabs": "Swipe between tabs",
-  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab."
+  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.",
+  "Open Local AI": "Open Local AI",
+  "Classic header": "Classic header",
+  "Show the app name at the top of Home on phones, with Settings on the right.": "Show the app name at the top of Home on phones, with Settings on the right.",
+  "Show phone status bar": "Show phone status bar",
+  "Keep the phone's clock and battery visible, in your theme's colour. On Android, an app installed in full screen cannot show it.": "Keep the phone's clock and battery visible, in your theme's colour. On Android, an app installed in full screen cannot show it.",
+  "Compact Home header": "Compact Home header",
+  "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.": "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.",
+  "Phone status bar option": "Phone status bar option",
+  "A Display setting that keeps the phone's status bar visible in the theme colour.": "A Display setting that keeps the phone's status bar visible in the theme colour."
 });

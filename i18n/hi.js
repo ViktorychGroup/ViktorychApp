@@ -6069,5 +6069,14 @@ SI18n.addPack("hi", {
   "Quiet updates": "शांत अपडेट",
   "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "डाउनलोड हुआ अपडेट उपयोग में थोड़े विराम के बाद एक बार रीलोड करके लागू होता है, ताकि पुरानी और नई ऐप फ़ाइलें कभी न मिलें।",
   "Swipe between tabs": "टैब के बीच स्वाइप",
-  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "फ़ोन और टैबलेट पर होम या प्रोफ़ाइल पर बगल में स्वाइप करने से अगला या पिछला टैब खुलता है।"
+  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "फ़ोन और टैबलेट पर होम या प्रोफ़ाइल पर बगल में स्वाइप करने से अगला या पिछला टैब खुलता है।",
+  "Open Local AI": "लोकल AI खोलें",
+  "Classic header": "क्लासिक हेडर",
+  "Show the app name at the top of Home on phones, with Settings on the right.": "फ़ोन पर होम के ऊपर ऐप का नाम दिखाएँ, दाईं ओर सेटिंग्स के साथ।",
+  "Show phone status bar": "फ़ोन का स्टेटस बार दिखाएँ",
+  "Keep the phone's clock and battery visible, in your theme's colour. On Android, an app installed in full screen cannot show it.": "फ़ोन की घड़ी और बैटरी आपकी थीम के रंग में दिखती रहें। Android पर पूरी स्क्रीन में इंस्टॉल किया गया ऐप इसे नहीं दिखा सकता।",
+  "Compact Home header": "कॉम्पैक्ट होम हेडर",
+  "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.": "फ़ोन पर होम में ऐप का नाम नहीं दिखता, दायाँ आइकन लोकल AI खोलता है और स्क्रॉल करते समय टैब ऊपर रहते हैं। बंद करने पर क्लासिक हेडर लौट आता है।",
+  "Phone status bar option": "फ़ोन स्टेटस बार विकल्प",
+  "A Display setting that keeps the phone's status bar visible in the theme colour.": "डिस्प्ले की एक सेटिंग जो फ़ोन का स्टेटस बार थीम के रंग में दिखाए रखती है।"
 });

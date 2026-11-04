@@ -385,6 +385,8 @@ settings-registry.js|Turns off most animations and moving effects.
 settings-registry.js|Shape of profile pictures: round or square.
 settings-registry.js|Small vibrations when you tap buttons on phones.
 settings-registry.js|Hides the status bar and navigation bar of the phone in a browser tab after a tap.
+settings-registry.js|On phones, shows the app name at the top of Home with Settings on the right instead of the compact header.
+settings-registry.js|Keeps the phone's clock and battery visible in the theme colour instead of drawing the app under them.
 settings-registry.js|Logo in the desktop sidebar: default mark, your own text, or hidden.
 settings-registry.js|Which items the desktop sidebar shows and their order.
 settings-registry.js|Time stamp that travels with the sidebar order.

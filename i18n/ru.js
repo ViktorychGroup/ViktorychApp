@@ -6081,5 +6081,14 @@ SI18n.addPack("ru", {
   "Quiet updates": "Тихие обновления",
   "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "Загруженное обновление применяется после короткой паузы в использовании, с одной перезагрузкой, чтобы старые и новые файлы приложения не смешивались.",
   "Swipe between tabs": "Свайп между вкладками",
-  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "На телефонах и планшетах свайп вбок на Главной или в профиле открывает следующую или предыдущую вкладку."
+  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "На телефонах и планшетах свайп вбок на Главной или в профиле открывает следующую или предыдущую вкладку.",
+  "Open Local AI": "Открыть локальный ИИ",
+  "Classic header": "Классический заголовок",
+  "Show the app name at the top of Home on phones, with Settings on the right.": "Показывать название приложения вверху Главной на телефонах, с настройками справа.",
+  "Show phone status bar": "Показывать строку состояния телефона",
+  "Keep the phone's clock and battery visible, in your theme's colour. On Android, an app installed in full screen cannot show it.": "Часы и заряд батареи телефона остаются видны, в цвете вашей темы. На Android приложение, установленное в полноэкранном режиме, не может её показать.",
+  "Compact Home header": "Компактный заголовок Главной",
+  "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.": "На телефонах Главная без названия приложения, правый значок открывает локальный ИИ, а вкладки остаются вверху при прокрутке. Выключение возвращает классический заголовок.",
+  "Phone status bar option": "Настройка строки состояния телефона",
+  "A Display setting that keeps the phone's status bar visible in the theme colour.": "Настройка экрана, которая оставляет строку состояния телефона видимой в цвете темы."
 });
