@@ -26038,7 +26038,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
      quarter of the screen, or with a quick flick, opens that tab. Up and
      down scrolling is never taken: the drag only counts once it is clearly
      sideways. Owner switch: swipe_tabs. */
-  const SWIPE_SKIP = "input, textarea, select, button.tab-caret, [contenteditable], video, audio, iframe, .tabs, .modal, .sheet, .drawer, .lightbox, .viewer, [data-no-swipe], [data-hscroll], .story-shell, .story-tray, .sp-row-wrap";
+  const SWIPE_SKIP = "input, textarea, select, button.tab-caret, [contenteditable], video, audio, iframe, .tabs, .modal, .sheet, .drawer, .lightbox, .viewer, [data-no-swipe], .app-fix, [data-hscroll], .story-shell, .story-tray, .sp-row-wrap";
   function swipeTabsOn() { return !serverOffList().includes("swipe_tabs"); }
   function swipeTablist() {
     const app = document.getElementById("app");
