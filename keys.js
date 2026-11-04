@@ -59,6 +59,9 @@
   var menuOpeners = {};
   var sawKeyboard = false;
   var focusId = "";
+  // The post ring is a keyboard aid: it shows only after a key moved it, never
+  // after a tap, a touch scroll or a mouse click (those just remember the spot).
+  var ringOn = false;
   var focusRoute = "";
   var positions = {};
   var chordHash = "";
@@ -654,6 +657,7 @@
     focusId = el.getAttribute("data-post") || "";
     focusRoute = routeKey();
     positions[focusRoute] = focusId;
+    ringOn = true;
     el.classList.add("kb-focus");
     if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
     if (!el.getAttribute("aria-keyshortcuts")) el.setAttribute("aria-keyshortcuts", postAria());
@@ -691,7 +695,7 @@
     var key = routeKey();
     if (focusRoute !== key && positions[key]) { focusId = positions[key]; focusRoute = key; }
     var el = currentPost();
-    if (el && !el.classList.contains("kb-focus")) {
+    if (ringOn && el && !el.classList.contains("kb-focus")) {
       el.classList.add("kb-focus");
       el.setAttribute("tabindex", "-1");
     }
@@ -754,7 +758,8 @@
     doc.addEventListener("pointerdown", function (event) {
       var post = event.target && event.target.closest && event.target.closest("article.post[data-post]");
       if (post) { focusId = post.getAttribute("data-post") || ""; focusRoute = routeKey(); positions[focusRoute] = focusId; }
-      doc.querySelectorAll("article.post.kb-focus").forEach(function (el) { if (el !== post) el.classList.remove("kb-focus"); });
+      ringOn = false;
+      doc.querySelectorAll("article.post.kb-focus").forEach(function (el) { el.classList.remove("kb-focus"); });
     }, true);
     if (root.MutationObserver) {
       var queued = false;
