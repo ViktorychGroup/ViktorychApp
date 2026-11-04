@@ -193,7 +193,37 @@ def pick_head() -> int:
     return 0
 
 
+def manifest_sha(path: Path) -> str:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    text = str(payload.get("sha") or "").strip().lower()
+    return text if SHA_RE.fullmatch(text) else ""
+
+
+def builds_match(sw_text: str, manifest: str) -> bool:
+    """False only when both files name a sha and those shas differ."""
+    sw = live_shell_sha(sw_text)
+    man = (manifest or "").strip().lower()
+    if not sw or not man:
+        return True
+    return sw == man
+
+
 def superseded(sha: str, url: str) -> int:
+    site = Path("_site")
+    sw_file = site / "sw.js"
+    man_file = site / "version.json"
+    if sw_file.is_file() and man_file.is_file():
+        sw_text = sw_file.read_text(encoding="utf-8", errors="replace")
+        man = manifest_sha(man_file)
+        if not builds_match(sw_text, man):
+            sw = live_shell_sha(sw_text)
+            print(f"ERROR: version.json sha {man} does not match sw.js VERSION {sw}", file=sys.stderr)
+            return 1
     go = "true"
     try:
         request = urllib.request.Request(url, headers={"User-Agent": UA, "Cache-Control": "no-cache"})
@@ -222,6 +252,12 @@ def selftest() -> int:
     assert not shell_changed(["data/communities/x.json", "feeds.json", ""])
     assert live_shell_sha('const VERSION = "viktorych-a278-' + "a" * 40 + '";') == "a" * 40
     assert live_shell_sha('const VERSION = "viktorych-a278-__SW_VERSION__";') == ""
+    live_sw = "c2b9cb0959b7a68187171bda4af3af0fd596d274"
+    stale = "3a6f2de18453d5416d9ed99ab622047825a105db"
+    sw_text = 'const VERSION = "viktorych-a279-' + live_sw + '";'
+    assert builds_match(sw_text, live_sw)
+    assert not builds_match(sw_text, stale)
+    assert builds_match(sw_text, "")
 
     now = time.time()
     later = datetime.fromtimestamp(now + 5, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
