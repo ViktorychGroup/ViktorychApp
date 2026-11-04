@@ -26072,9 +26072,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   function onChromeScroll() {
     scrollTick = 0;
     paintProfileChrome();
-    const homeStories = parseRoute().name === "home" && document.querySelector(".story-shell");
+    /* Home with a stories tray slides away like every other page: the
+       avatar row and the tray leave together and only the tab row stays.
+       Keeping the whole header (tray included) on screen gave a fat header
+       that also changed height while scrolling. */
     const isBarNav = document.documentElement.getAttribute("data-nav-layout") === "bar";
-    if (window.innerWidth >= 1280 || homeStories) {
+    if (window.innerWidth >= 1280) {
       STATE.headerHidden = false;
       paintChromeHidden(false);
       return;
@@ -31602,7 +31605,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         api: function (path, opts) { return window.ViktorychAccounts && window.ViktorychAccounts.call ? window.ViktorychAccounts.call(path, opts) : Promise.resolve({ status: 503 }); },
         apiRoot: accountsApi,
         toast: toast,
-        notesOn: function () { return !STATE.settings || STATE.settings.storyNotes !== false; }
+        notesOn: function () { return !STATE.settings || STATE.settings.storyNotes !== false; },
+        headerSlides: function () { return (window.innerWidth || 0) < 1280; }
       });
       if (window.AudienceLists) {
         window.AudienceLists.bind({
