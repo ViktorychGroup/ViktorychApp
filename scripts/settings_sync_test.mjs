@@ -25,6 +25,12 @@ test("a fresh device takes the account's settings, then its own edits win", () =
   assert.equal(edited.prefsAt.appearance, 3000);
   picked = reg.pick(edited, remote, reg.neverSynced());
   assert.equal(picked.values.appearance, "light", "the newer local edit wins");
+  const freshEdit = reg.pick(
+    { translateAuto: false, prefsAt: { translateAuto: 5000 } },
+    { translateAuto: true, prefsAt: {} },
+    true
+  );
+  assert.equal(freshEdit.values.translateAuto, false, "a stamped local edit wins on a fresh device");
 });
 
 test("device-only choices by category, by setting and by the master switch", () => {

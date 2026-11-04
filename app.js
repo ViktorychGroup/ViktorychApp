@@ -31635,6 +31635,13 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     set: (patch) => {
       if (!STATE.settings || !patch || typeof patch !== "object") return;
       Object.assign(STATE.settings, patch);
+      /* The first sync treats an unstamped value as "the account's copy
+         wins". A switch the person just moved has to carry a newer stamp,
+         or that sync puts the old value back. */
+      const at = STATE.settings.prefsAt && typeof STATE.settings.prefsAt === "object" ? Object.assign({}, STATE.settings.prefsAt) : {};
+      const now = Date.now();
+      Object.keys(patch).forEach((key) => { if (key !== "prefsAt") at[key] = now; });
+      STATE.settings.prefsAt = at;
       saveSettings();
       applyTheme();
       render();
