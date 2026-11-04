@@ -6067,5 +6067,15 @@ SI18n.addPack("en", {
   "Save selected": "Save selected",
   "Live frame grab": "Live frame grab",
   "A camera button on a live saves a full-size still, or a short burst, on this device.": "A camera button on a live saves a full-size still, or a short burst, on this device.",
-  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them."
+  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.",
+  "Repairing…": "Repairing…",
+  "Repair app": "Repair app",
+  "Home is not loading. Repairing the app reloads its files; your login, drafts and settings stay.": "Home is not loading. Repairing the app reloads its files; your login, drafts and settings stay.",
+  "Full screen needs a reinstall": "Full screen needs a reinstall",
+  "This app was installed before full screen was available, and an app cannot reinstall itself. 1. Press and hold the app icon and uninstall it. 2. Open this site in Chrome. 3. Tap Install.": "This app was installed before full screen was available, and an app cannot reinstall itself. 1. Press and hold the app icon and uninstall it. 2. Open this site in Chrome. 3. Tap Install.",
+  "Finish reinstalling: tap Install to add the app back in full screen.": "Finish reinstalling: tap Install to add the app back in full screen.",
+  "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.": "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.",
+  "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.": "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.",
+  "Quiet updates": "Quiet updates",
+  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix."
 });

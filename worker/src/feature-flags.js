@@ -52,7 +52,11 @@ export const FEATURES = {
   // before the chat opens. No server endpoints; choices sync with prefs.
   local_ai_setup: { paths: [] },
   // Lossless stills from a live, on the owner's device. No server endpoints.
-  live_frame_grab: { paths: [] }
+  live_frame_grab: { paths: [] },
+  // Repair app button, the Home-stuck repair offer and the reinstall guide.
+  app_repair: { paths: [] },
+  // Apply a downloaded update after a pause in use (one reload).
+  auto_update: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

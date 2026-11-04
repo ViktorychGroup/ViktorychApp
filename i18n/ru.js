@@ -6069,5 +6069,15 @@ SI18n.addPack("ru", {
   "Save selected": "Сохранить выбранные",
   "Live frame grab": "Кадр с эфира",
   "A camera button on a live saves a full-size still, or a short burst, on this device.": "Кнопка камеры на эфире сохраняет полноразмерный кадр или короткую серию на этом устройстве.",
-  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "Скрывает строку состояния и панель навигации телефона. Чтобы увидеть их, проведите от верхнего или нижнего края."
+  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "Скрывает строку состояния и панель навигации телефона. Чтобы увидеть их, проведите от верхнего или нижнего края.",
+  "Repairing…": "Восстановление…",
+  "Repair app": "Восстановить приложение",
+  "Home is not loading. Repairing the app reloads its files; your login, drafts and settings stay.": "Главная не загружается. Восстановление заново загрузит файлы приложения; вход, черновики и настройки сохранятся.",
+  "Full screen needs a reinstall": "Для полного экрана нужна переустановка",
+  "This app was installed before full screen was available, and an app cannot reinstall itself. 1. Press and hold the app icon and uninstall it. 2. Open this site in Chrome. 3. Tap Install.": "Это приложение установлено до появления полноэкранного режима, а приложение не может переустановить себя само. 1. Нажмите и удерживайте значок приложения и удалите его. 2. Откройте этот сайт в Chrome. 3. Нажмите «Установить».",
+  "Finish reinstalling: tap Install to add the app back in full screen.": "Завершите переустановку: нажмите «Установить», чтобы вернуть приложение в полноэкранном режиме.",
+  "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.": "Что-то выглядит неправильно или устарело? Это заново загрузит файлы приложения без переустановки. Вход, черновики, настройки и загрузки сохранятся.",
+  "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.": "Кнопка «Восстановить приложение» в настройках, предложение восстановления, если главная не загружается, и инструкция по переустановке для приложений, установленных до полноэкранного режима.",
+  "Quiet updates": "Тихие обновления",
+  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "Загруженное обновление применяется после короткой паузы в использовании, с одной перезагрузкой, чтобы старые и новые файлы приложения не смешивались."
 });

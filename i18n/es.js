@@ -6070,5 +6070,15 @@ SI18n.addPack("es", {
   "Save selected": "Guardar seleccionados",
   "Live frame grab": "Captura de un directo",
   "A camera button on a live saves a full-size still, or a short burst, on this device.": "Un botón de cámara en un directo guarda una foto a tamaño completo, o una ráfaga corta, en este dispositivo.",
-  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "Oculta las barras de estado y de navegación del teléfono. Desliza desde el borde superior o inferior para verlas."
+  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "Oculta las barras de estado y de navegación del teléfono. Desliza desde el borde superior o inferior para verlas.",
+  "Repairing…": "Reparando…",
+  "Repair app": "Reparar la app",
+  "Home is not loading. Repairing the app reloads its files; your login, drafts and settings stay.": "El inicio no carga. Reparar la app vuelve a cargar sus archivos; tu sesión, borradores y ajustes se conservan.",
+  "Full screen needs a reinstall": "La pantalla completa requiere reinstalar",
+  "This app was installed before full screen was available, and an app cannot reinstall itself. 1. Press and hold the app icon and uninstall it. 2. Open this site in Chrome. 3. Tap Install.": "Esta app se instaló antes de que existiera la pantalla completa, y una app no puede reinstalarse sola. 1. Mantén pulsado el icono de la app y desinstálala. 2. Abre este sitio en Chrome. 3. Toca Instalar.",
+  "Finish reinstalling: tap Install to add the app back in full screen.": "Termina de reinstalar: toca Instalar para volver a añadir la app en pantalla completa.",
+  "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.": "¿Algo se ve mal o desactualizado? Esto vuelve a cargar los archivos de la app sin reinstalarla. Tu sesión, borradores, ajustes y descargas se conservan.",
+  "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.": "Un botón Reparar la app en Ajustes, una oferta de reparación cuando el inicio no carga y una guía para reinstalar las apps del teléfono instaladas antes de la pantalla completa.",
+  "Quiet updates": "Actualizaciones discretas",
+  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "Una actualización descargada se aplica tras una breve pausa de uso, con una sola recarga, para que los archivos viejos y nuevos nunca se mezclen."
 });

@@ -942,6 +942,27 @@
     applyNow(true);
   }
 
+  /* Quiet updates (switch auto_update): a downloaded update also applies
+     once it has been ready for 20 seconds without a touch, key or scroll, with the same one-reload
+     guard and the same blocks (typing, a playing video, an open composer). */
+  var IDLE_APPLY_MS = 20000;
+  var lastInput = Date.now();
+  function autoUpdateOn() {
+    try {
+      var off = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]");
+      return !(Array.isArray(off) && off.indexOf("auto_update") >= 0);
+    } catch (err) { return true; }
+  }
+  var readySince = 0;
+  function idleApply(now) {
+    // The 20 seconds start when the update is ready, so the pill is seen first.
+    if (!state.ready || !state.pending) { readySince = 0; return; }
+    if (!readySince) readySince = now;
+    if (!autoUpdateOn() || document.visibilityState === "hidden") return;
+    if (now - Math.max(lastInput, readySince) < IDLE_APPLY_MS) return;
+    maybeSilentApply();
+  }
+
   function applyNow(auto) {
     if (updateBlocked()) { state.deferApply = true; return; }
     if (auto !== true) {
@@ -1522,7 +1543,10 @@
     document.addEventListener("play", refreshBusy, true);
     document.addEventListener("pause", refreshBusy, true);
     document.addEventListener("ended", refreshBusy, true);
-    setInterval(function () { refreshBusy(); flushDeferredApply(); }, 1500);
+    ["pointerdown", "keydown", "wheel", "touchstart", "scroll"].forEach(function (name) {
+      window.addEventListener(name, function () { lastInput = Date.now(); }, { passive: true, capture: true });
+    });
+    setInterval(function () { refreshBusy(); flushDeferredApply(); idleApply(Date.now()); }, 1500);
     setInterval(function () {
       if (document.visibilityState !== "hidden" && claimCheck(Date.now())) checkRemote();
     }, CHECK_MS);
