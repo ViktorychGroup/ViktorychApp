@@ -7688,3 +7688,21 @@ html[data-nav-layout="bar"] .topbar.compact-head.is-hidden { transform: translat
    up behind the status bar, so it fades out instead of peeking through there. */
 .topbar.compact-head .mhead { transition: opacity 0.18s ease, visibility 0s linear 0s; }
 .topbar.compact-head.is-hidden .mhead { opacity: 0; visibility: hidden; transition: opacity 0.18s ease, visibility 0s linear 0.18s; }
+
+/* Tab strips like the X app (every row: Home, profile, notifications, search,
+   lists): bold label in the text colour on the active tab, gray labels on the
+   rest, one thin rounded underline the width of the active label only (not the
+   menu caret), the hairline divider under the whole row, and no boxes or pills
+   behind a tab on touch screens. */
+.tab.on span:not(.tab-grip)::after,
+.ptabs .tab.on > .ptab-marquee::after { height: 3px; }
+.reply-tabs-thin .tab.on span:not(.tab-grip)::after { height: 3px; }
+.tab.on span:not(.tab-grip) span:not(.tab-grip)::after { content: none !important; }
+.tab-pair.on::after { content: none; }
+.tab-pair .tab.on > span:not(.tab-grip)::after { content: ""; }
+.tab-caret { width: 24px; height: 24px; margin-left: 2px; }
+.tab-caret svg { width: 14px; height: 14px; }
+.ptabs .tab, .ptabs .ptab-edit { padding: 0 16px; }
+@media (hover: none) {
+  .tab:hover, .tab-caret:hover, .tab-manage:hover { background: transparent; }
+}
