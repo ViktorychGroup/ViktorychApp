@@ -167,7 +167,14 @@ async function run(browser, port, size) {
     if ((await page.locator(".ext-graph-list .connect-row .follow").count()) < 20) fail(label + " follow pills");
     if (!(await page.locator(".ext-graph-list .connect-bio").count())) fail(label + " bios");
     await shot(page, label + "-x-following");
-    await page.locator("#ext-graph-more").scrollIntoViewIfNeeded();
+    // Scroll the sentinel inside the page. Holding the node with
+    // scrollIntoViewIfNeeded races the redraw that replaces it once the
+    // next page arrives, which showed up as "not attached" while waiting
+    // for the element to be stable. The checks below stay the same.
+    await page.evaluate(() => {
+      const el = document.getElementById("ext-graph-more");
+      if (el) el.scrollIntoView({ block: "center" });
+    });
     await page.waitForFunction(() => document.querySelectorAll(".ext-graph-list .connect-row").length === 26, null, { timeout: 15000 });
     if (await page.locator("#ext-graph-more").count()) fail(label + " sentinel stays after last page");
     if (counts.x !== 2) fail(label + " x page reads " + counts.x);
