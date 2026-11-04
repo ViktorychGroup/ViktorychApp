@@ -384,6 +384,7 @@ settings-registry.js|Text size in pixels for posts and menus. 15 is normal.
 settings-registry.js|Turns off most animations and moving effects.
 settings-registry.js|Shape of profile pictures: round or square.
 settings-registry.js|Small vibrations when you tap buttons on phones.
+settings-registry.js|Hides the status bar and navigation bar of the phone in a browser tab after a tap.
 settings-registry.js|Logo in the desktop sidebar: default mark, your own text, or hidden.
 settings-registry.js|Which items the desktop sidebar shows and their order.
 settings-registry.js|Time stamp that travels with the sidebar order.

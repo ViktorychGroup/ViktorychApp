@@ -6068,5 +6068,6 @@ SI18n.addPack("ru", {
   "Pick the frames to keep": "Выберите кадры, которые оставить",
   "Save selected": "Сохранить выбранные",
   "Live frame grab": "Кадр с эфира",
-  "A camera button on a live saves a full-size still, or a short burst, on this device.": "Кнопка камеры на эфире сохраняет полноразмерный кадр или короткую серию на этом устройстве."
+  "A camera button on a live saves a full-size still, or a short burst, on this device.": "Кнопка камеры на эфире сохраняет полноразмерный кадр или короткую серию на этом устройстве.",
+  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "Скрывает строку состояния и панель навигации телефона. Чтобы увидеть их, проведите от верхнего или нижнего края."
 });

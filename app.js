@@ -17398,7 +17398,7 @@ const here = parseRoute();
   }
 
   function isStandalone() {
-    return matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || navigator.standalone === true;
+    return matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || (matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) || navigator.standalone === true;
   }
 
   window.installPromptNow = installPromptNow;
@@ -17647,6 +17647,35 @@ const here = parseRoute();
     return out + "</details>";
   }
 
+  /* Full screen in a browser tab: the Fullscreen API, entered only from a tap.
+     The installed Android app is already full screen from its manifest, and
+     iPhone Safari has no Fullscreen API, so the row is hidden there. */
+  function fullScreenSupported() {
+    const el = document.documentElement;
+    return !!(el && typeof el.requestFullscreen === "function" && document.fullscreenEnabled !== false);
+  }
+  function fullScreenInstalled() {
+    try { return matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement; } catch (err) { return false; }
+  }
+  function enterFullScreen() {
+    if (!fullScreenSupported() || document.fullscreenElement) return;
+    try {
+      const p = document.documentElement.requestFullscreen({ navigationUI: "hide" });
+      if (p && p.catch) p.catch(() => {});
+    } catch (err) { /* the browser refused; the switch stays on for the next tap */ }
+  }
+  function fullScreenSwitch() {
+    if (!fullScreenSupported() || fullScreenInstalled()) return "";
+    const on = !!STATE.settings.fullScreen;
+    return `<button class="tab-switch${on ? " on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}" data-act="full-screen"><span>${esc(tr("Full screen"))}</span><i></i></button><p class="phandle">${esc(tr("Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them."))}</p>`;
+  }
+  (function resumeFullScreen() {
+    const tap = () => {
+      document.removeEventListener("pointerup", tap, true);
+      if (STATE.settings && STATE.settings.fullScreen && !fullScreenInstalled()) enterFullScreen();
+    };
+    document.addEventListener("pointerup", tap, true);
+  })();
   function homeFeatureSwitch(key, label, note) {
     const on = userFeatureOn(key);
     const blocked = featureOn(key) !== on;
@@ -18035,6 +18064,7 @@ const here = parseRoute();
           ${hapticBtn(false, tr("Off"))}
         </div>
         <p class="phandle set-block">${esc(tr("A light tap when you press and hold a tab or pick from a shortcut menu."))}</p>
+        ${fullScreenSwitch()}
         <h2>${esc(tr("Home"))}</h2>
         ${homeFeatureSwitch("homePills", tr("Live pills row"), tr("Weather, scores and live spaces above the timeline. Off loads nothing for it."))}
         ${homeFeatureSwitch("stories", tr("Stories"), tr("The stories tray and viewer. Off loads nothing for it."))}
@@ -23516,6 +23546,16 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       goHash("#/customize");
       return;
     }
+    if (act === "full-screen") {
+      STATE.settings.fullScreen = !STATE.settings.fullScreen;
+      saveSettings();
+      if (STATE.settings.fullScreen) enterFullScreen();
+      else if (document.fullscreenElement && document.exitFullscreen) {
+        try { const p = document.exitFullscreen(); if (p && p.catch) p.catch(() => {}); } catch (err) { /* already left */ }
+      }
+      render();
+      return;
+    }
     if (act === "pz-look") {
       const key = el.dataset.key;
       const val = el.dataset.value;
@@ -25973,6 +26013,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     else if (y < lastY - 8 || y < 40) STATE.headerHidden = false;
     lastY = y;
     paintChromeHidden(STATE.headerHidden);
+    paintBarRest(false);
+    clearTimeout(barRestTimer);
+    if (STATE.headerHidden) barRestTimer = setTimeout(() => paintBarRest(true), 1200);
+  }
+  /* Once scrolling stops, the tab bar and the post button slide back so
+     navigation is always one tap away; the top bar stays tucked away. */
+  let barRestTimer = 0;
+  function paintBarRest(on) {
+    const root = document.documentElement;
+    if (root.classList.contains("bar-rest") !== on) root.classList.toggle("bar-rest", on);
   }
   window.addEventListener("scroll", () => {
     if (!scrollTick) scrollTick = requestAnimationFrame(onChromeScroll);
@@ -26438,7 +26488,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (STATE.settings && STATE.settings.avatarShape === "square") document.documentElement.setAttribute("data-ava-shape", "square");
     else document.documentElement.removeAttribute("data-ava-shape");
     applyNavLayout();
-    const installed = window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || window.navigator.standalone;
+    const installed = window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) || window.navigator.standalone;
     const color = installed ? "transparent" : (THEME_COLORS[theme] || "#000000");
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", color));
     const scheme = document.querySelector('meta[name="color-scheme"]');

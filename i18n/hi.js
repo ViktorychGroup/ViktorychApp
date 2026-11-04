@@ -6056,5 +6056,6 @@ SI18n.addPack("hi", {
   "Pick the frames to keep": "रखने के लिए फ़्रेम चुनें",
   "Save selected": "चुने हुए सहेजें",
   "Live frame grab": "लाइव फ़्रेम",
-  "A camera button on a live saves a full-size still, or a short burst, on this device.": "लाइव पर कैमरा बटन इस डिवाइस पर पूरा फ़्रेम या एक छोटी श्रृंखला सहेजता है।"
+  "A camera button on a live saves a full-size still, or a short burst, on this device.": "लाइव पर कैमरा बटन इस डिवाइस पर पूरा फ़्रेम या एक छोटी श्रृंखला सहेजता है।",
+  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "फ़ोन की स्टेटस बार और नेविगेशन बार छिपाएं। उन्हें देखने के लिए ऊपर या नीचे के किनारे से स्वाइप करें।"
 });

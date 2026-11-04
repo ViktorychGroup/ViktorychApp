@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `2a7a242c`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `62805563`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -58,9 +58,13 @@ Timeline cards and replies use X’s header and action row. The row is reply, re
 
 Phones and tablets fill the screen. The page uses `viewport-fit=cover`, a theme color, and the standalone status bar `black-translucent`. The top bar is translucent and blurred and its padding is the top inset, so it draws under the status bar. The bottom tab bar’s height includes the home-indicator inset and the icons stay in the 53px above it. The column fills `100dvh`, so there is no empty band under the home indicator. On a phone the music bar sits above the tab bar; on a tablet it sits above the home indicator. Landscape still pads the left and right insets, and an iPad-sized window keeps the icon rail.
 
+## Full screen
+
+The manifest's `display_override` is `window-controls-overlay`, `fullscreen`, `standalone`. Desktop installs keep the title-bar overlay. The installed Android app opens immersive, without the status bar and navigation bar; a swipe from an edge shows them. Older installs keep their old mode until the app is reinstalled. `display` stays `standalone` for iOS, which cannot hide its status bar in a web app and keeps `black-translucent`. The installed checks also count `display-mode: fullscreen` when it is not a tab using the Fullscreen API. Settings > Display has a Full screen switch for browser tabs. It calls `requestFullscreen` on the tap, and a saved switch re-enters on the first tap after a load. The row is hidden where the Fullscreen API is missing, such as iPhone Safari, and inside the installed full-screen app.
+
 ## Posts under the bars
 
-On a phone, and on a tablet or iPad split view under 1280px wide, the top bar and the bottom tab bar are translucent and blurred. Posts scroll underneath them. Scrolling down slides the header up until only the status-bar strip remains, still blurred, and fades the tab bar and the post button to half, as X does. Both stay tappable while faded. Scrolling up brings both back. The profile banner and its floating header meet the top of the screen. Modals, the drawer, and the video viewer use the dynamic viewport height and pad their controls for the insets. The music bar stays above the home indicator, or above the tab bar on a phone. Desktop, 1280px and wider, is unchanged.
+On a phone, and on a tablet or iPad split view under 1280px wide, the top bar and the bottom tab bar are translucent and blurred. Posts scroll underneath them. Scrolling down slides the header up until only the status-bar strip remains, still blurred, and slides the tab bar fully off the bottom edge. The icons are never faded. The post button and the Local AI button stay fully solid and drop 53px to sit above the home indicator. Scrolling up brings everything back. When scrolling stops for 1.2s, the tab bar and buttons slide back (`html.bar-rest`) so navigation is always one tap away; the header stays tucked away. Browsers without backdrop-filter get a solid bar. The profile banner and its floating header meet the top of the screen. Modals, the drawer, and the video viewer use the dynamic viewport height and pad their controls for the insets. The music bar stays above the home indicator, or above the tab bar on a phone. Desktop, 1280px and wider, is unchanged.
 
 An installed app can draw under the system bars. iOS standalone uses `black-translucent`, so the page shows through the status bar and the home indicator. An installed Android app does the same when Chrome honors `viewport-fit=cover` and a transparent theme color, with `safe-area-inset-*` and, where the browser supports it, `safe-area-max-inset-bottom`. A normal Android browser tab cannot draw under the status bar: that bar stays a solid strip in the theme color (black, dim `#15202B`, or white). The manifest splash stays lights-out black; the open app switches the theme color for a browser tab, and uses transparent for an installed app.
 

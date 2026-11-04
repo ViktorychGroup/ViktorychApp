@@ -6066,5 +6066,6 @@ SI18n.addPack("en", {
   "Pick the frames to keep": "Pick the frames to keep",
   "Save selected": "Save selected",
   "Live frame grab": "Live frame grab",
-  "A camera button on a live saves a full-size still, or a short burst, on this device.": "A camera button on a live saves a full-size still, or a short burst, on this device."
+  "A camera button on a live saves a full-size still, or a short burst, on this device.": "A camera button on a live saves a full-size still, or a short burst, on this device.",
+  "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them.": "Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them."
 });
