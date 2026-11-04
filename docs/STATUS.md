@@ -59,6 +59,10 @@ Settings › Display has a For you switch, like uninstalling a module. Off remov
 
 On a desktop (700px and wider, with a mouse) the tab title is only `ViktorychApp` on every page: no page name, unread count, search words or person's name in the tab, the window list or browser history. `withUnreadTitle` returns the app name there, and a watcher on `<title>` puts it back when any other script (Spaces, Inbox, the landing) writes one. Phones and touch tablets keep page titles. The TV app keeps the name the person picked for it (`FeedsTV.appTitle`). Test: `scripts/title_privacy_test.mjs` (`title-privacy`, `ui-fast` shard).
 
+## Desktop corner buttons
+
+On a desktop (700px and wider with a mouse) the + post button and the Local AI button are 56px squares with 16px corners, like the corner dock launchers, and they stack in one column above the right dock square with 12px gaps. Before, the round Local AI button sat on top of the dock's messages square. Above a bottom bar the column lifts 53px with the dock. Phones and touch tablets keep the round buttons. Test: `scripts/desktop_squares_test.mjs` (`desktop-squares`, `ui-fast` shard).
+
 ## Home composer on phones
 
 Below 600px the Home inline composer ("What's happening?") has no profile picture, collapsed or open, so the placeholder starts at the 16px left padding like X mobile (`x-compose.css`, last media block). Tablet and desktop keep the picture. Reply boxes are unchanged.
