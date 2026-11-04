@@ -7706,3 +7706,137 @@ html[data-nav-layout="bar"] .topbar.compact-head.is-hidden { transform: translat
 @media (hover: none) {
   .tab:hover, .tab-caret:hover, .tab-manage:hover { background: transparent; }
 }
+
+/* Visible updates (switch update_notice): the small Updating toast and the
+   full-screen What's new page. Always dark and edge to edge; CSS-only
+   animations, none with reduced motion. */
+.upd-status {
+  position: fixed;
+  top: calc(10px + var(--sat, env(safe-area-inset-top, 0px)));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000003;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 7px 14px 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(22, 24, 28, 0.92);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #e7e9ea;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  animation: upd-status-in 180ms ease-out;
+}
+.upd-status[hidden] { display: none; }
+.upd-spin {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(231, 233, 234, 0.25);
+  border-top-color: #1d9bf0;
+  animation: upd-spin 800ms linear infinite;
+}
+@keyframes upd-spin { to { transform: rotate(360deg); } }
+@keyframes upd-status-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
+.upd-wn {
+  position: fixed;
+  inset: 0;
+  z-index: 1000004;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+  color: #e7e9ea;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
+  overscroll-behavior: contain;
+  animation: upd-wn-in 200ms ease-out;
+}
+.upd-wn-x {
+  position: absolute;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  right: calc(8px + env(safe-area-inset-right, 0px));
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #e7e9ea;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.upd-wn-x svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.upd-wn-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 56px 20px 16px;
+  text-align: center;
+}
+.upd-wn-logo { display: block; width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 16px; }
+.upd-wn-title { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.01em; }
+.upd-wn-ver { margin: 6px 0 0; color: #71767b; font-size: 14px; }
+.upd-wn-cards { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 10px; text-align: left; }
+.upd-wn-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #16181c;
+  border: 1px solid #2f3336;
+  font-size: 15px;
+  line-height: 1.4;
+  animation: upd-wn-card 260ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 40ms + 60ms);
+}
+.upd-wn-ic {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(29, 155, 240, 0.14);
+  color: #1d9bf0;
+}
+.upd-wn-ic svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.upd-wn-text { padding-top: 6px; }
+.upd-wn-foot {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 12px 20px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.upd-wn-go {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 999px;
+  background: #e7e9ea;
+  color: #0f1419;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+.upd-wn-go:focus:not(:focus-visible), .upd-wn-x:focus:not(:focus-visible) { outline: none; }
+@keyframes upd-wn-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes upd-wn-card { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.upd-wn.upd-reduce, .upd-wn.upd-reduce .upd-wn-card, .upd-status.upd-reduce, .upd-status.upd-reduce .upd-spin { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .upd-wn, .upd-wn-card, .upd-status, .upd-spin { animation: none; }
+}

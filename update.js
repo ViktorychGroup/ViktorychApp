@@ -29,6 +29,7 @@
   var RELOAD_SHA_KEY = "viktorychapp-update-reload-sha";
   var TOAST_KEY = "viktorychapp-update-toast";
   var NOTES_SEEN_KEY = "viktorychapp-notes-seen";
+  var LAST_BUILD_KEY = "viktorychapp-wn-last";
   var RING = 2 * Math.PI * 44;
 
   function tr(key, vars) {
@@ -246,6 +247,26 @@
     if (mode !== "overlay") return mode;
     if (s && s.phase === "offer" && !s.critical && !s.forced) return "toast";
     return "blocking";
+  }
+
+  /* Visible updates (switch update_notice). The small status toast: "updating"
+     while the new build downloads or applies, "" otherwise. The ready state
+     is the pill, which then reads "Update ready, tap to restart". The full
+     screen look (a critical or failed update) has its own screen. */
+  function statusKind(s, look) {
+    if (!s || look === "blocking" || s.phase === "error" || s.critical) return "";
+    if (s.phase === "working" || s.phase === "done") return "updating";
+    if (s.preBusy && !s.ready) return "updating";
+    return "";
+  }
+
+  /* One simple icon per changelog line, picked from its words. */
+  function noteIcon(text) {
+    var t = String(text || "").toLowerCase();
+    if (/\b(fix|fixed|fixes|bug|repair|no longer|stays?|stable|crash|broken)\b/.test(t)) return "fix";
+    if (/\b(fast|faster|speed|smooth|smoother|quick|lighter|load|loads|loading|seamless)\b/.test(t)) return "fast";
+    if (/\b(look|looks|icon|icons|tab|tabs|header|theme|design|style|layout|screen)\b/.test(t)) return "look";
+    return "new";
   }
 
   function appliedSha() {
@@ -503,6 +524,9 @@
   }
 
   function updateBlocked() {
+    // A tap on "tap to restart" is the person's go-ahead; drafts are saved
+    // by captureState and put back after the reload.
+    if (state.userGo) return false;
     return shouldDeferApply({ modal: composerOpen(), typed: typedText() });
   }
 
@@ -547,6 +571,14 @@
       + '<div class="upd-actions"><button type="button" class="upd-go" id="upd-go"></button><button type="button" class="upd-later" id="upd-later"></button><button type="button" class="upd-later" id="upd-hard" hidden></button><button type="button" class="upd-later" id="upd-reset" hidden></button></div>'
       + '</div></div>';
     document.body.appendChild(rootEl);
+    var statusEl = document.createElement("div");
+    statusEl.id = "upd-status";
+    statusEl.className = "upd-status";
+    statusEl.hidden = true;
+    statusEl.setAttribute("role", "status");
+    statusEl.setAttribute("aria-live", "polite");
+    statusEl.innerHTML = '<span class="upd-spin" aria-hidden="true"></span><span id="upd-status-text"></span>';
+    document.body.appendChild(statusEl);
     var steps = rootEl.querySelector("#upd-steps");
     ["download", "install", "activate", "clean"].forEach(function (name) {
       var li = document.createElement("li");
@@ -563,7 +595,8 @@
     });
     rootEl.querySelector("#upd-pill").addEventListener("click", function () {
       if (state.ready && state.pending && state.phase === "offer") {
-        applyNow(false);
+        if (visibleOn()) tapRestart();
+        else applyNow(false);
         return;
       }
       state.forced = true;
@@ -603,6 +636,8 @@
       hard: rootEl.querySelector("#upd-hard"),
       reset: rootEl.querySelector("#upd-reset"),
       arc: rootEl.querySelector(".upd-arc"),
+      status: statusEl,
+      statusText: statusEl.querySelector("#upd-status-text"),
       logo: rootEl.querySelector(".upd-logo")
     };
     dom.arc.style.strokeDasharray = String(RING);
@@ -635,9 +670,14 @@
     box.overlay.hidden = look !== "toast" && look !== "blocking";
     box.overlay.classList.toggle("upd-toast", look === "toast");
     box.overlay.setAttribute("aria-modal", look === "blocking" ? "true" : "false");
+    var visible = visibleOn();
     box.pill.textContent = (state.ready && state.phase === "offer")
-      ? tr("Update ready · Tap to refresh")
+      ? (visible ? tr("Update ready, tap to restart") : tr("Update ready · Tap to refresh"))
       : tr("App update");
+    var kind = visible ? statusKind(state, look) : "";
+    box.status.hidden = !kind;
+    box.statusText.textContent = kind ? tr("Updating ViktorychApp…") : "";
+    box.status.classList.toggle("upd-reduce", reduce);
     box.brand.textContent = tr("ViktorychApp");
     box.logo.alt = tr("ViktorychApp");
     var title = tr("Update available");
@@ -747,6 +787,7 @@
     if (state.preWorker !== worker) { state.ready = false; state.preTries = 0; }
     state.preWorker = worker;
     state.preBusy = true;
+    if (visibleOn()) paint();
     clearTimeout(preTimer);
     // A worker the browser stops mid-download never answers; ask again.
     preTimer = setTimeout(function () { state.preBusy = false; retryPredownload(); }, 5 * 60 * 1000);
@@ -953,6 +994,12 @@
       return !(Array.isArray(off) && off.indexOf("auto_update") >= 0);
     } catch (err) { return true; }
   }
+  function visibleOn() {
+    try {
+      var off = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]");
+      return !(Array.isArray(off) && off.indexOf("update_notice") >= 0);
+    } catch (err) { return true; }
+  }
   var readySince = 0;
   function idleApply(now) {
     // The 20 seconds start when the update is ready, so the pill is seen first.
@@ -961,6 +1008,17 @@
     if (!autoUpdateOn() || document.visibilityState === "hidden") return;
     if (now - Math.max(lastInput, readySince) < IDLE_APPLY_MS) return;
     maybeSilentApply();
+  }
+
+  /* "Update ready, tap to restart": one quick apply and reload with the small
+     Updating toast instead of the full progress screen. */
+  function tapRestart() {
+    state.userGo = true;
+    state.applyRetries = 0;
+    state.forced = false;
+    state.deferApply = false;
+    state.silent = true;
+    applyNow(true);
   }
 
   function applyNow(auto) {
@@ -1052,6 +1110,7 @@
     var previous = document.getElementById("upd-notes-sheet");
     if (previous && previous.parentNode) previous.parentNode.removeChild(previous);
     var lines = releaseLines(notes);
+    if (visibleOn()) return showWhatsNewPage(sha, lines);
     var root = document.createElement("div");
     root.id = "upd-notes-sheet";
     root.className = "upd-notes-sheet";
@@ -1097,6 +1156,146 @@
     document.addEventListener("keydown", onKey, true);
     document.body.appendChild(root);
     return true;
+  }
+
+  var NOTE_ICONS = {
+    fix: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-5 5a1.4 1.4 0 0 0 2 2l5-5a4 4 0 0 0 5.4-5.4l-2.4 2.4-2-2z"/>',
+    fast: '<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/>',
+    look: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M3.5 9.5h17"/>',
+    new: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.5 2.5M15.2 15.2l2.5 2.5M6.3 17.7l2.5-2.5M15.2 8.8l2.5-2.5"/>'
+  };
+
+  /* What's new as a full screen, edge to edge, dark page: our logo, one card
+     per changelog line, one Continue button. Swipe or close dismisses it.
+     The animations are CSS only and off with reduced motion. */
+  function showWhatsNewPage(sha, lines) {
+    if (!lines.length) lines = [tr("Fixes and improvements")];
+    var root = document.createElement("div");
+    root.id = "upd-notes-sheet";
+    root.className = "upd-wn";
+    if (reducedMotion()) root.classList.add("upd-reduce");
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-labelledby", "upd-notes-sheet-title");
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "upd-wn-x";
+    close.setAttribute("aria-label", tr("Close"));
+    close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+    root.appendChild(close);
+    var body = document.createElement("div");
+    body.className = "upd-wn-body";
+    var logo = document.createElement("img");
+    logo.className = "upd-wn-logo";
+    logo.src = "icons/icon-192.png";
+    logo.alt = tr("ViktorychApp");
+    logo.width = 64;
+    logo.height = 64;
+    body.appendChild(logo);
+    var title = document.createElement("h2");
+    title.id = "upd-notes-sheet-title";
+    title.className = "upd-wn-title";
+    title.textContent = tr("What's new");
+    body.appendChild(title);
+    if (sha) {
+      var ver = document.createElement("p");
+      ver.className = "upd-wn-ver";
+      ver.textContent = tr("Version {version}", { version: sha.slice(0, 7) });
+      body.appendChild(ver);
+    }
+    var list = document.createElement("ul");
+    list.className = "upd-wn-cards";
+    var n;
+    for (n = 0; n < lines.length; n++) {
+      var item = document.createElement("li");
+      item.className = "upd-wn-card";
+      item.style.setProperty("--i", String(n));
+      var kind = noteIcon(lines[n]);
+      item.setAttribute("data-icon", kind);
+      var ic = document.createElement("span");
+      ic.className = "upd-wn-ic";
+      ic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + NOTE_ICONS[kind] + '</svg>';
+      var text = document.createElement("span");
+      text.className = "upd-wn-text";
+      text.textContent = lines[n];
+      item.appendChild(ic);
+      item.appendChild(text);
+      list.appendChild(item);
+    }
+    body.appendChild(list);
+    root.appendChild(body);
+    var foot = document.createElement("div");
+    foot.className = "upd-wn-foot";
+    var go = document.createElement("button");
+    go.type = "button";
+    go.id = "upd-gotit";
+    go.className = "upd-wn-go";
+    go.textContent = tr("Continue");
+    foot.appendChild(go);
+    root.appendChild(foot);
+    var sx = 0;
+    var sy = 0;
+    var tracking = false;
+    function closePage() {
+      document.removeEventListener("keydown", onKey, true);
+      document.documentElement.classList.remove("upd-wn-open");
+      if (root.parentNode) root.parentNode.removeChild(root);
+    }
+    function onKey(event) {
+      if (event.key !== "Escape" || !root.parentNode) return;
+      event.preventDefault();
+      closePage();
+    }
+    root.addEventListener("touchstart", function (event) {
+      var t = event.touches && event.touches[0];
+      if (!t) return;
+      tracking = true;
+      sx = t.clientX;
+      sy = t.clientY;
+    }, { passive: true });
+    root.addEventListener("touchend", function (event) {
+      if (!tracking) return;
+      tracking = false;
+      var t = event.changedTouches && event.changedTouches[0];
+      if (!t) return;
+      var dx = t.clientX - sx;
+      var dy = t.clientY - sy;
+      var atTop = body.scrollTop <= 0;
+      if ((dy > 90 && atTop && Math.abs(dy) > Math.abs(dx)) || (Math.abs(dx) > 110 && Math.abs(dx) > Math.abs(dy) * 1.5)) closePage();
+    }, { passive: true });
+    go.addEventListener("click", closePage);
+    close.addEventListener("click", closePage);
+    document.addEventListener("keydown", onKey, true);
+    document.documentElement.classList.add("upd-wn-open");
+    document.body.appendChild(root);
+    try { go.focus({ preventScroll: true }); } catch (err) { /* the button is still clickable */ }
+    return true;
+  }
+
+  /* An app the system closed takes its new build on the next cold start,
+     with no reload this page could note. The first time a device runs a
+     build it has not seen before, What's new opens for it (never on the
+     very first run). */
+  var buildNoted = false;
+  function noteRunningBuild(sha) {
+    sha = normSha(sha);
+    // Only the build this page started on; an update applied in this page
+    // gets its own What's new after its reload.
+    if (!sha || buildNoted || typeof document === "undefined") return;
+    buildNoted = true;
+    if (!visibleOn() || state.expectingController || state.phase === "working" || state.phase === "done") return;
+    var last = normSha(readStore(localStorage, LAST_BUILD_KEY));
+    if (last === sha) return;
+    writeStore(localStorage, LAST_BUILD_KEY, sha);
+    if (!last || !shouldShowNotes(sha, seenNotes())) return;
+    if (typeof fetch !== "function") return;
+    fetch("version.json?t=" + Date.now(), { cache: "no-store", credentials: "same-origin" }).then(function (res) {
+      return res && res.ok ? res.json() : null;
+    }).catch(function () { return null; }).then(function (doc) {
+      var notes = doc && normSha(doc.sha) === sha ? notesOf(doc) : [];
+      if (document.getElementById("upd-notes-sheet")) return;
+      showReleaseNotes(sha, notes);
+    });
   }
 
   function consumeUpdatedToast() {
@@ -1198,6 +1397,7 @@
     if (data.type === "sw-version" && data.sha) {
       state.currentSha = normSha(data.sha);
       state.currentBuilt = isoBuilt(data.built);
+      noteRunningBuild(state.currentSha);
       if (state.waiting) reviewWaiting(state.heardSha);
       else if (state.phase === "offer" && (!state.pendingSha || state.pendingSha === state.currentSha)) state.pending = false;
       paint();
@@ -1592,6 +1792,8 @@
     blocksReloadFor: blocksReload,
     blocksReload: blocksReloadNow,
     showReleaseNotes: showReleaseNotes,
+    statusKind: statusKind,
+    noteIcon: noteIcon,
     onControllerChange: onControllerChange,
     shouldOfferReset: shouldOfferReset,
     shouldFallback: shouldFallback,

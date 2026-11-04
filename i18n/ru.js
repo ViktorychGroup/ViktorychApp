@@ -6094,5 +6094,10 @@ SI18n.addPack("ru", {
   "Allow page zoom": "Разрешить масштабирование страницы",
   "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.": "Разрешить масштабировать всю страницу двумя пальцами на телефонах. Фото всегда можно увеличить в просмотрщике.",
   "Pinch-zoom lock": "Блокировка масштабирования жестом",
-  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "На телефонах страница не масштабируется двумя пальцами или двойным касанием, как установленное приложение. Фото по-прежнему увеличиваются в просмотрщике."
+  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "На телефонах страница не масштабируется двумя пальцами или двойным касанием, как установленное приложение. Фото по-прежнему увеличиваются в просмотрщике.",
+  "Update ready, tap to restart": "Обновление готово, нажмите для перезапуска",
+  "Updating ViktorychApp…": "Обновление ViktorychApp…",
+  "Fixes and improvements": "Исправления и улучшения",
+  "Visible updates": "Видимые обновления",
+  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "Небольшое уведомление «Обновление» во время загрузки, уведомление «нажмите для перезапуска», когда вы заняты, и полноэкранная страница «Что нового» после каждого обновления."
 });
