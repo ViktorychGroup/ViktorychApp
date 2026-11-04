@@ -26049,7 +26049,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (on && el.classList.contains("compact-head")) {
         const tabs = el.querySelector(".tabs-bar");
         const pad = parseFloat(getComputedStyle(el).paddingTop) || 0;
-        if (tabs) el.style.setProperty("--keep-tabs-y", Math.max(0, Math.round(tabs.offsetTop - pad)) + "px");
+        if (tabs) {
+          el.style.setProperty("--keep-tabs-y", Math.max(0, Math.round(tabs.offsetTop - pad)) + "px");
+          /* Clip the header right under the tab row, so the pills row leaves too. */
+          el.style.setProperty("--keep-tabs-cut", Math.max(0, Math.round(el.offsetHeight - tabs.offsetTop - tabs.offsetHeight)) + "px");
+        }
       }
       if (el.classList.contains("is-hidden") !== on) el.classList.toggle("is-hidden", on);
     });
