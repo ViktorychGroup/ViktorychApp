@@ -630,15 +630,33 @@
       requestRender();
       return Promise.resolve(false);
     }
-    return navigator.storage.persist().then(function (ok) {
-      persistState = ok ? "granted" : "denied";
-      requestRender();
-      return !!ok;
-    }).catch(function () {
-      persistState = "denied";
-      requestRender();
-      return false;
+    /* persist() and the redraw it triggers were landing inside a scroll
+       (about 80ms). Wait until scrolling has been quiet. */
+    if (askPersist.pending) return askPersist.pending;
+    askPersist.pending = new Promise(function (resolve) {
+      var run = function () {
+        navigator.storage.persist().then(function (ok) {
+          persistState = ok ? "granted" : "denied";
+          setTimeout(function () { requestRender(); }, 0);
+          resolve(!!ok);
+        }).catch(function () {
+          persistState = "denied";
+          resolve(false);
+        });
+      };
+      if (typeof window === "undefined" || !window.addEventListener) { setTimeout(run, 0); return; }
+      var timer = 0;
+      var kick = function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          window.removeEventListener("scroll", kick);
+          run();
+        }, 700);
+      };
+      window.addEventListener("scroll", kick, { passive: true });
+      kick();
     });
+    return askPersist.pending;
   }
 
   /* Slider stops: every step that fits this device's quota, the saved

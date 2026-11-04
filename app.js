@@ -14710,15 +14710,39 @@ const here = parseRoute();
 
   function extGraphMore(el) {
     const FL = window.ViktorychFollowLists;
-    if (!FL || !el) return;
+    if (!FL || !el || !el.isConnected) return;
+    if (el.getAttribute("data-busy") === "1") return;
     const platform = el.getAttribute("data-platform") || "x";
     const tab = el.getAttribute("data-tab") === "followers" ? "followers" : "following";
     const subject = extGraphSubject(platform, el.getAttribute("data-handle") || "");
     if (!subject.ready) return;
     const row = FL.state(platform, subject.handle, tab);
-    if (row && row.error) row.error = false;
-    FL.load(platform, subject, tab, render, true);
-    render();
+    if (!row || row.loading || !row.cursor) return;
+    if (row.error) row.error = false;
+    const list = el.previousElementSibling;
+    if (!list || !list.classList.contains("ext-graph-list")) {
+      FL.load(platform, subject, tab, render, true);
+      return;
+    }
+    /* Append the next page onto the list that is already on screen.
+       Rebuilding the whole view here replaced the sentinel while a scroll
+       was still using that node. */
+    el.setAttribute("data-busy", "1");
+    const before = row.items.length;
+    FL.load(platform, subject, tab, function () {
+      const next = FL.state(platform, subject.handle, tab);
+      const items = (next && next.items) || [];
+      if (!list.isConnected || !next || next.error) { render(); return; }
+      const fresh = items.slice(before);
+      if (fresh.length) list.insertAdjacentHTML("beforeend", extGraphRows(fresh));
+      if (!el.isConnected) return;
+      if (!next.cursor) el.remove();
+      else {
+        el.removeAttribute("data-busy");
+        el.textContent = "";
+        requestAnimationFrame(function () { if (el.isConnected) extGraphMore(el); });
+      }
+    }, true);
   }
 
   function connectionsView(route) {

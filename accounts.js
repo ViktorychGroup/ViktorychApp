@@ -736,10 +736,16 @@
     return row;
   }
   function pulseKeep(key, mark, res) {
-    res.text().then(function (text) {
-      if (typeof text !== "string" || text.length > 4 * 1024 * 1024) return;
-      pulseBodies[key] = { mark: mark, text: text, at: Date.now(), token: sessionTail() };
-    }).catch(function () {});
+    /* Reading a large body blocks the frame it lands on. A scroll was seeing
+       about 110ms of that. Keep the copy when the thread is idle instead. */
+    var read = function () {
+      res.text().then(function (text) {
+        if (typeof text !== "string" || text.length > 4 * 1024 * 1024) return;
+        pulseBodies[key] = { mark: mark, text: text, at: Date.now(), token: sessionTail() };
+      }).catch(function () {});
+    };
+    var idle = typeof requestIdleCallback === "function" ? requestIdleCallback : function (fn) { return setTimeout(fn, 300); };
+    idle(read, { timeout: 2500 });
   }
   function sessionTail() {
     var session = readSession();
