@@ -210,7 +210,14 @@ async function main() {
     });
     await helper.close();
     imageLoads.length = 0;
-    await page.goto(base + "#/");
+    /* A service worker that claims the page can cancel this navigation.
+       The data-saving assertion still runs on the page that finishes loading. */
+    try {
+      await page.goto(base + "#/", { waitUntil: "domcontentloaded" });
+    } catch (err) {
+      if (!/ERR_ABORTED|frame was detached/i.test(String(err && err.message))) throw err;
+      await page.goto(base + "#/", { waitUntil: "domcontentloaded" });
+    }
     await page.waitForTimeout(3000);
     const saving = await read();
     if (process.env.DEBUG) console.log(JSON.stringify(saving["Big one"]), imageLoads);
