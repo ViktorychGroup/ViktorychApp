@@ -1932,6 +1932,7 @@ SI18n.addPack("ru", {
   "Version {version}": "Версия {version}",
   "{done} of {total} files": "{done} из {total} файлов",
   "App update": "Обновление",
+  "Update ready · Tap to refresh": "Обновление готово · Нажмите, чтобы обновить",
   "Connected keys": "Подключённые ключи",
   "Attachments: {n}": "Вложения: {n}",
   "Checking with Discord…": "Проверяем в Discord…",

@@ -5334,6 +5334,7 @@ html[data-theme="default"] .dloc-section.xk-device .dloc-status.is-calm { color:
 }
 
 body.upd-open { overflow: hidden; }
+.upd-root { pointer-events: none; }
 .upd-root[hidden] { display: none; }
 .upd-pill {
   position: fixed;
@@ -5349,10 +5350,14 @@ body.upd-open { overflow: hidden; }
   color: var(--text);
   border-radius: 999px;
   font: inherit;
+  font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
   padding: 8px 14px 8px 10px;
   box-shadow: 0 2px 12px var(--shadow);
   cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 .upd-pill::before {
   content: "";
@@ -5372,6 +5377,7 @@ body.upd-open { overflow: hidden; }
   padding: calc(28px + env(safe-area-inset-top)) 24px calc(28px + env(safe-area-inset-bottom));
   background: var(--bg);
   color: var(--text);
+  pointer-events: auto;
 }
 .upd-overlay[hidden] { display: none; }
 .upd-overlay.upd-toast,

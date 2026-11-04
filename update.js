@@ -1,9 +1,12 @@
 /* Update for the installed app. A new worker downloads its files in the
    background. The running service worker build is the truth: a mismatch
-   with version.json is not an update, and each build is offered, applied
-   and reloaded at most once on a device. What's new is a small note. A
-   full-screen step is only for a critical update or a failed one. Drafts,
-   the route, and the scroll position are written down before the reload. */
+   with version.json is not an update, and each build is applied and
+   reloaded at most once on a device. Later means not right now. A
+   downloaded update stays as a small pill until it is applied, on the next
+   hide, reopen, or navigation when nothing is being composed. What's new
+   is one sheet after that apply. A full-screen step is only for a critical
+   update or a failed one. Drafts, the route, and the scroll position are
+   written down before the reload. */
 (function (root, factory) {
   var api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -62,6 +65,8 @@
     if (s.phase === "working" || s.phase === "done" || s.phase === "error") return "overlay";
     // The new version is still downloading in the background.
     if (s.ready === false) return "idle";
+    // Downloaded and waiting. Later does not skip it, so the pill stays.
+    if (s.ready === true && s.phase === "offer" && !s.critical && !s.forced) return "pill";
     if (s.snoozeUntil && now < s.snoozeUntil) return "idle";
     if (s.forced) return "overlay";
     if (s.busy) return "pill";
@@ -235,7 +240,7 @@
   }
 
   /* Full screen only for a critical offer, a forced one, or a failure.
-     A normal ready offer stays on the page. decide() itself stays the same. */
+     A downloaded update stays a pill until that build is applied. */
   function presentation(s, now) {
     var mode = decide(s, now);
     if (mode !== "overlay") return mode;
@@ -325,7 +330,8 @@
     if (state.remoteSha && state.remoteSha !== sha) state.critical = false;
     predownload(state.waiting);
     paint();
-    if (state.quiet && state.ready) maybeSilentApply();
+    // A build already seen still waits for hide, reopen, or navigation.
+    if (state.quiet && state.ready && document.visibilityState === "hidden") maybeSilentApply();
   }
 
   function considerWaiting(worker) {
@@ -556,6 +562,10 @@
       steps.appendChild(li);
     });
     rootEl.querySelector("#upd-pill").addEventListener("click", function () {
+      if (state.ready && state.pending && state.phase === "offer") {
+        applyNow(false);
+        return;
+      }
       state.forced = true;
       state.phase = state.phase === "error" ? "error" : "offer";
       paint();
@@ -625,11 +635,9 @@
     box.overlay.hidden = look !== "toast" && look !== "blocking";
     box.overlay.classList.toggle("upd-toast", look === "toast");
     box.overlay.setAttribute("aria-modal", look === "blocking" ? "true" : "false");
-    if (look === "toast" && state.pendingSha) {
-      rememberOffer(state.pendingSha);
-      if (state.notes.length) markNotesSeen(state.pendingSha);
-    }
-    box.pill.textContent = tr("App update");
+    box.pill.textContent = (state.ready && state.phase === "offer")
+      ? tr("Update ready · Tap to refresh")
+      : tr("App update");
     box.brand.textContent = tr("ViktorychApp");
     box.logo.alt = tr("ViktorychApp");
     var title = tr("Update available");
@@ -662,7 +670,7 @@
       item.classList.toggle("is-done", rank > here || state.phase === "done");
       item.classList.toggle("is-now", state.phase === "working" && rank === here);
     }
-    var showNotes = state.phase === "offer" && state.notes.length > 0;
+    var showNotes = look !== "pill" && state.phase === "offer" && state.notes.length > 0;
     // One time only: removing the icon keeps data on Android and computers.
     if (showNotes && state.tipLine == null) {
       var dd = window.ViktorychDeviceData;
@@ -713,9 +721,11 @@
     }
   }
 
+  /* Later is "not right now". The build stays pending and the pill stays. */
   function snooze() {
     state.snoozeUntil = Date.now() + SNOOZE_MS;
     state.forced = false;
+    state.quiet = false;
     if (state.phase !== "error") state.phase = "offer";
     writeStore(localStorage, SNOOZE_KEY, String(state.snoozeUntil));
     paint();
@@ -760,7 +770,7 @@
       state.ready = true;
       state.preTries = 0;
       paint();
-      if (state.quiet) maybeSilentApply();
+      if (state.quiet && document.visibilityState === "hidden") maybeSilentApply();
       return;
     }
     // shell-pending: the files are not all in yet. Nothing is shown.
@@ -921,7 +931,7 @@
   }
 
   function maybeSilentApply() {
-    if (applying || state.reloaded || state.critical || state.forced) return;
+    if (applying || state.reloaded || state.critical) return;
     if (!state.ready || !state.pending || state.phase === "error" || state.phase === "working") return;
     if (updateBlocked()) { state.deferApply = true; return; }
     if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) return;
