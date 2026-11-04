@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `886ef6bd`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `9e4c0173`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -71,6 +71,12 @@ The manifest's `display_override` is `window-controls-overlay`, `fullscreen`, `s
 **Quiet updates** (owner switch `auto_update`, on by default). The service worker already downloads a new build in the background, then `skipWaiting` and `clients.claim` run once and the page reloads once per build (the reload guard in `update.js`), so old and new files are not mixed. A ready update was applied when the app was hidden or the route changed; it now also applies once it has been ready, with the update pill showing, for 20 seconds without a touch, key or scroll. Typing, a playing video or an open composer still hold it.
 
 Test: `scripts/app_repair_test.mjs` in the `nav-layout` shard.
+
+## Swipe between tabs
+
+On a phone or tablet (under 1000px wide), a sideways drag on Home or on a profile moves the content with the finger, and the tab underline slides toward the next tab. Letting go past a quarter of the screen, or after a quick flick, opens that tab; a shorter drag springs back. The drag only counts once it is clearly sideways (1.5 times more sideways than vertical after 10px), so scrolling up and down is never taken. Drags that start on the tab row, a sideways scroller (pills, stories), an input, a video, or within 20px of a screen edge (the browser's back swipe) are left alone. With reduced motion the swipe still switches, without the sliding. Owner switch `swipe_tabs`, on by default. Test: `scripts/swipe_tabs_test.mjs` in the `nav-layout` shard.
+
+The fresh-login report (feeds and tabs missing after a first login on a reinstalled app) did not reproduce locally and was closed by the owner; Repair app (above) is the user-side fix for a stuck install.
 
 ## Posts under the bars
 

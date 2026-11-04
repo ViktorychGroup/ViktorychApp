@@ -56,7 +56,10 @@ export const FEATURES = {
   // Repair app button, the Home-stuck repair offer and the reinstall guide.
   app_repair: { paths: [] },
   // Apply a downloaded update after a pause in use (one reload).
-  auto_update: { paths: [] }
+  auto_update: { paths: [] },
+  // Sideways swipe between Home and profile tabs on touch screens. No server
+  // endpoints; on by default, off keeps tabs to taps only.
+  swipe_tabs: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

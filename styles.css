@@ -7664,3 +7664,7 @@ input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 .app-fix-go { min-height: 36px; padding: 0 16px; border-radius: 999px; border: 0; background: var(--text, #e7e9ea); color: var(--bg, #000); font-weight: 700; font-size: 15px; cursor: pointer; }
 .app-fix-go:disabled { opacity: .6; cursor: default; }
 .app-fix-x { position: absolute; top: 6px; right: 6px; width: 34px; height: 34px; border: 0; border-radius: 50%; background: transparent; color: inherit; font-size: 22px; cursor: pointer; }
+
+/* Swipe between tabs: the underline follows the finger toward the next tab. */
+.tabs.swiping .tab.on span:not(.tab-grip)::after,
+.tabs.swiping .tab-pair.on::after { transform: translateX(var(--swipe-ind, 0px)); }

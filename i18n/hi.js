@@ -6067,5 +6067,7 @@ SI18n.addPack("hi", {
   "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.": "कुछ गलत या पुराना दिख रहा है? यह ऐप को फिर से इंस्टॉल किए बिना उसकी फ़ाइलें फिर से लोड करता है। आपका लॉगिन, ड्राफ़्ट, सेटिंग्स और डाउनलोड बने रहते हैं।",
   "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.": "सेटिंग्स में ऐप ठीक करें बटन, होम लोड न होने पर ठीक करने का सुझाव, और पूरी स्क्रीन से पहले इंस्टॉल हुए फ़ोन ऐप के लिए फिर से इंस्टॉल करने की गाइड।",
   "Quiet updates": "शांत अपडेट",
-  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "डाउनलोड हुआ अपडेट उपयोग में थोड़े विराम के बाद एक बार रीलोड करके लागू होता है, ताकि पुरानी और नई ऐप फ़ाइलें कभी न मिलें।"
+  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "डाउनलोड हुआ अपडेट उपयोग में थोड़े विराम के बाद एक बार रीलोड करके लागू होता है, ताकि पुरानी और नई ऐप फ़ाइलें कभी न मिलें।",
+  "Swipe between tabs": "टैब के बीच स्वाइप",
+  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "फ़ोन और टैबलेट पर होम या प्रोफ़ाइल पर बगल में स्वाइप करने से अगला या पिछला टैब खुलता है।"
 });

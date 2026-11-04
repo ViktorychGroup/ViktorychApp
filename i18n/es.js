@@ -6080,5 +6080,7 @@ SI18n.addPack("es", {
   "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.": "¿Algo se ve mal o desactualizado? Esto vuelve a cargar los archivos de la app sin reinstalarla. Tu sesión, borradores, ajustes y descargas se conservan.",
   "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.": "Un botón Reparar la app en Ajustes, una oferta de reparación cuando el inicio no carga y una guía para reinstalar las apps del teléfono instaladas antes de la pantalla completa.",
   "Quiet updates": "Actualizaciones discretas",
-  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "Una actualización descargada se aplica tras una breve pausa de uso, con una sola recarga, para que los archivos viejos y nuevos nunca se mezclen."
+  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "Una actualización descargada se aplica tras una breve pausa de uso, con una sola recarga, para que los archivos viejos y nuevos nunca se mezclen.",
+  "Swipe between tabs": "Deslizar entre pestañas",
+  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "En teléfonos y tabletas, deslizar de lado en Inicio o en un perfil abre la pestaña siguiente o la anterior."
 });

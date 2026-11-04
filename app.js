@@ -1961,7 +1961,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2052,7 +2052,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       merged_profiles: [tr("Merged linked profiles"), tr("Linked profiles set to merge show on their owner's profile, and their own pages, links and follows lead there.")],
       live_frame_grab: [tr("Live frame grab"), tr("A camera button on a live saves a full-size still, or a short burst, on this device.")],
       app_repair: [tr("Repair app"), tr("A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.")],
-      auto_update: [tr("Quiet updates"), tr("A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.")]
+      auto_update: [tr("Quiet updates"), tr("A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.")],
+      swipe_tabs: [tr("Swipe between tabs"), tr("On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -26030,6 +26031,143 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   window.addEventListener("scroll", () => {
     if (!scrollTick) scrollTick = requestAnimationFrame(onChromeScroll);
   }, { passive: true });
+
+  /* Swipe between tabs like the X app: on a phone or tablet a sideways
+     drag on the timeline (or a profile) moves the content with the finger
+     and slides the tab underline toward the next tab; letting go past a
+     quarter of the screen, or with a quick flick, opens that tab. Up and
+     down scrolling is never taken: the drag only counts once it is clearly
+     sideways. Owner switch: swipe_tabs. */
+  const SWIPE_SKIP = "input, textarea, select, button.tab-caret, [contenteditable], video, audio, iframe, .tabs, .modal, .sheet, .drawer, .lightbox, .viewer, [data-no-swipe], [data-hscroll], .story-shell, .story-tray, .sp-row-wrap";
+  function swipeTabsOn() { return !serverOffList().includes("swipe_tabs"); }
+  function swipeTablist() {
+    const app = document.getElementById("app");
+    if (!app) return null;
+    const lists = [...app.querySelectorAll(".topbar .tabs[role='tablist'], .tabs.ptabs[role='tablist']")];
+    return lists.find((el) => el.getBoundingClientRect().height > 0 && el.querySelectorAll("[role='tab']").length > 1) || null;
+  }
+  function swipeScrollsSideways(el) {
+    for (let node = el; node && node !== document.body; node = node.parentElement) {
+      if (node.scrollWidth > node.clientWidth + 2) {
+        const ox = getComputedStyle(node).overflowX;
+        if (ox === "auto" || ox === "scroll") return true;
+      }
+    }
+    return false;
+  }
+  function swipeContent(list) {
+    const bar = list.closest(".topbar") || list;
+    const out = [];
+    for (let node = bar.nextElementSibling; node; node = node.nextElementSibling) out.push(node);
+    return out;
+  }
+  function swipeMotion() {
+    try { return !(matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.getAttribute("data-motion") === "reduce"); }
+    catch (err) { return true; }
+  }
+  let swipe = null;
+  function swipeIndicator(list, on) {
+    return on.closest(".tab-pair") || on;
+  }
+  function swipePaint(dx) {
+    const s = swipe;
+    if (!s) return;
+    const target = dx < 0 ? s.next : s.prev;
+    const travel = target ? dx : dx * 0.3;
+    if (s.motion) {
+      for (const node of s.content) {
+        node.style.transition = "none";
+        node.style.transform = "translate3d(" + travel + "px,0,0)";
+      }
+    }
+    let shift = 0;
+    if (target) {
+      const a = s.cur.getBoundingClientRect();
+      const b = swipeIndicator(s.list, target).getBoundingClientRect();
+      shift = ((b.left + b.width / 2) - (a.left + a.width / 2)) * Math.min(1, Math.abs(dx) / s.width);
+    }
+    s.list.classList.add("swiping");
+    s.list.style.setProperty("--swipe-ind", shift + "px");
+  }
+  function swipeReset(nodes, animate) {
+    for (const node of nodes) {
+      node.style.transition = animate ? "transform 180ms ease-out" : "";
+      node.style.transform = "";
+      if (animate) setTimeout(() => { node.style.transition = ""; }, 200);
+    }
+  }
+  function swipeEnd(cancel) {
+    const s = swipe;
+    swipe = null;
+    if (!s || !s.locked) return;
+    const dx = s.dx;
+    const dt = Math.max(1, Date.now() - s.t);
+    const fast = Math.abs(dx) / dt > 0.45 && Math.abs(dx) > 40;
+    const target = dx < 0 ? s.next : s.prev;
+    const go = !cancel && target && (Math.abs(dx) > s.width * 0.25 || fast);
+    s.list.classList.remove("swiping");
+    s.list.style.removeProperty("--swipe-ind");
+    if (!go) { swipeReset(s.content, s.motion); return; }
+    const finish = () => {
+      swipeReset(s.content, false);
+      target.click();
+      if (!s.motion) return;
+      /* The new tab's content comes in from the side it was pulled from. */
+      requestAnimationFrame(() => {
+        const list = swipeTablist();
+        if (!list) return;
+        const fresh = swipeContent(list);
+        for (const node of fresh) { node.style.transition = "none"; node.style.transform = "translate3d(" + (dx < 0 ? 40 : -40) + "px,0,0)"; }
+        requestAnimationFrame(() => swipeReset(fresh, true));
+      });
+    };
+    if (!s.motion) { finish(); return; }
+    for (const node of s.content) {
+      node.style.transition = "transform 160ms ease-out";
+      node.style.transform = "translate3d(" + (dx < 0 ? -s.width : s.width) + "px,0,0)";
+    }
+    setTimeout(finish, 150);
+  }
+  document.addEventListener("touchstart", (event) => {
+    swipe = null;
+    if (event.touches.length !== 1 || window.innerWidth >= 1000 || !swipeTabsOn()) return;
+    const t = event.touches[0];
+    // The screen edges belong to the browser's own back swipe.
+    if (t.clientX < 20 || t.clientX > window.innerWidth - 20) return;
+    const el = event.target;
+    if (!el || !el.closest || !el.closest("#app") || el.closest(SWIPE_SKIP) || swipeScrollsSideways(el)) return;
+    if (document.querySelector(".modal, .lightbox, #onb-layer .oobe, #account-layer .acct-modal")) return;
+    const list = swipeTablist();
+    if (!list) return;
+    const tabs = [...list.querySelectorAll("[role='tab']")];
+    const i = tabs.findIndex((tab) => tab.classList.contains("on") || tab.getAttribute("aria-selected") === "true");
+    if (i < 0) return;
+    swipe = {
+      x: t.clientX, y: t.clientY, dx: 0, t: Date.now(), locked: false,
+      list: list, cur: swipeIndicator(list, tabs[i]), prev: tabs[i - 1] || null, next: tabs[i + 1] || null,
+      content: swipeContent(list), width: window.innerWidth, motion: swipeMotion()
+    };
+  }, { passive: true });
+  document.addEventListener("touchmove", (event) => {
+    const s = swipe;
+    if (!s || event.touches.length !== 1) return;
+    const t = event.touches[0];
+    const dx = t.clientX - s.x;
+    const dy = t.clientY - s.y;
+    if (!s.locked) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      // Up and down wins unless the drag is clearly sideways.
+      if (Math.abs(dx) < Math.abs(dy) * 1.5) { swipe = null; return; }
+      s.locked = true;
+      s.x = t.clientX;
+      s.t = Date.now();
+    }
+    if (event.cancelable) event.preventDefault();
+    s.dx = t.clientX - s.x;
+    swipePaint(s.dx);
+  }, { passive: false });
+  document.addEventListener("touchend", () => swipeEnd(false), { passive: true });
+  document.addEventListener("touchcancel", () => swipeEnd(true), { passive: true });
 
   let hoverTimer = 0;
   document.addEventListener("mouseover", (event) => {
