@@ -1367,6 +1367,7 @@
 
   window.FeedsTV = {
     settingsHtml: settingsHtml,
+    appTitle: appTitle,
     attach: attach,
     focus: function (el) { if (TV.on && el) setFocus(el, false); },
     enabled: function () { return TV.on; }
