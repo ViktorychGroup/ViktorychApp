@@ -413,9 +413,11 @@
   // unread count, search or person's name shows in the tab, window list or
   // history, whoever writes document.title. Phones keep page titles, and
   // the TV app keeps the name the person picked for it.
+  // A desktop: wide, with a mouse. Phones and touch tablets keep page titles.
+  const DESKTOP_TITLE_MQ = "(min-width: 700px) and (hover: hover) and (pointer: fine)";
   function desktopTitleOn() {
     if (window.FeedsTV && window.FeedsTV.appTitle && window.FeedsTV.appTitle()) return false;
-    return !!(window.matchMedia && window.matchMedia("(min-width: 700px)").matches);
+    return !!(window.matchMedia && window.matchMedia(DESKTOP_TITLE_MQ).matches);
   }
   function plainAppTitle() {
     return productName("app") || "ViktorychApp";
@@ -430,7 +432,7 @@
     const el = document.querySelector("title");
     if (el && window.MutationObserver) new MutationObserver(fix).observe(el, { childList: true, characterData: true, subtree: true });
     if (window.matchMedia) {
-      const mq = window.matchMedia("(min-width: 700px)");
+      const mq = window.matchMedia(DESKTOP_TITLE_MQ);
       if (mq.addEventListener) mq.addEventListener("change", fix);
     }
   }

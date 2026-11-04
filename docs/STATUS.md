@@ -57,7 +57,7 @@ Settings › Display has a For you switch, like uninstalling a module. Off remov
 
 ## Tab title privacy
 
-On a desktop (700px and wider) the tab title is only `ViktorychApp` on every page: no page name, unread count, search words or person's name in the tab, the window list or browser history. `withUnreadTitle` returns the app name there, and a watcher on `<title>` puts it back when any other script (Spaces, Inbox, the landing) writes one. Phones keep page titles. The TV app keeps the name the person picked for it (`FeedsTV.appTitle`). Test: `scripts/title_privacy_test.mjs` (`title-privacy`, `ui-fast` shard).
+On a desktop (700px and wider, with a mouse) the tab title is only `ViktorychApp` on every page: no page name, unread count, search words or person's name in the tab, the window list or browser history. `withUnreadTitle` returns the app name there, and a watcher on `<title>` puts it back when any other script (Spaces, Inbox, the landing) writes one. Phones and touch tablets keep page titles. The TV app keeps the name the person picked for it (`FeedsTV.appTitle`). Test: `scripts/title_privacy_test.mjs` (`title-privacy`, `ui-fast` shard).
 
 ## Home composer on phones
 
