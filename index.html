@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'self'">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content, maximum-scale=1, user-scalable=no">
   <style>
     /* First paint. The landing and the home skeleton are in the HTML, so the
        largest text does not wait for the app. Same sizes as the real landing. */
@@ -452,6 +452,12 @@
         themes.apply(mode);
         var savedNav = raw ? JSON.parse(raw) : {};
         var navLayout = savedNav.navLayout === "bar" ? "bar" : "auto";
+        var zoomOff = [];
+        try { zoomOff = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]") || []; } catch (err) {}
+        if (savedNav.pageZoom === true || (zoomOff.indexOf && zoomOff.indexOf("zoom_lock") >= 0)) {
+          var vp = document.querySelector('meta[name="viewport"]');
+          if (vp) vp.setAttribute("content", "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content");
+        }
         document.documentElement.setAttribute("data-nav-layout", navLayout);
         if (navLayout === "bar" && savedNav.navLayoutLand === true) document.documentElement.setAttribute("data-nav-bar-land", "1");
         else document.documentElement.removeAttribute("data-nav-bar-land");

@@ -51,6 +51,8 @@
     words: "classic header logo app name top bar compact encabezado clásico классический заголовок क्लासिक हेडर" });
   add({ id: "statusBar", label: t("Show phone status bar"), desc: "Keeps the phone's clock and battery visible in the theme colour instead of drawing the app under them.", type: "bool", def: false, store: "state", key: "statusBar", page: "#/settings/display", cat: "look", risk: "safe", sync: "device",
     words: "status bar clock battery notch barra de estado строка состояния статус बार स्टेटस बार" });
+  add({ id: "pageZoom", label: t("Allow page zoom"), desc: "Lets two fingers zoom the whole page on phones instead of keeping it fixed like an app.", type: "bool", def: false, store: "state", key: "pageZoom", page: "#/settings/display", cat: "look", risk: "safe", sync: "device",
+    words: "zoom pinch magnify page zoom accessibility ampliar zoom масштаб увеличение ज़ूम" });
   add({ id: "brandLogo", label: t("Sidebar logo"), desc: "Logo in the desktop sidebar: default mark, your own text, or hidden.", type: "object", store: "state", key: "brandLogo", page: "#/settings/display", cat: "look", risk: "safe", sync: "account", ai: false, words: "logo sidebar brand logotipo логотип लोगो" });
   add({ id: "navCustom", label: t("Sidebar"), desc: "Which items the desktop sidebar shows and their order.", type: "object", store: "state", key: "navCustom", page: "#/settings/display/navigation", cat: "look", risk: "safe", sync: "account", ai: false, words: "sidebar menu items order barra lateral боковая панель साइडबार" });
   add({ id: "navCustomAt", label: t("Sidebar"), desc: "Time stamp that travels with the sidebar order.", type: "data", store: "state", key: "navCustomAt", cat: "look", sync: "account", ai: false });

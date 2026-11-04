@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `dabbf068`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `d0e902aa`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -85,6 +85,10 @@ On a phone, the Home header has no app name: the drawer button (your picture) on
 Header size is fixed: at rest it is one status-bar inset plus the avatar row, the tab row and the pills; scrolled down only the avatar row leaves (it fades so it does not peek through behind the status bar) and the tab row sits right under the status bar. Every top inset in `styles.css` reads `var(--sat, env(safe-area-inset-top, 0px))`. `applySafeTop()` (called from `applyTheme`, again on resize, orientation, full-screen and display-mode changes) sets `--sat` only when `env()` disagrees with where the page is: an installed app that Chrome placed below the status bar (the page is no taller than `screen.availHeight`) gets `--sat: 0px`, `data-sat-below` on `<html>` and the theme colour as `theme-color` instead of `transparent`, so there is no second gap and no grey band; an inset taller than all system bars together is capped. Test: `scripts/header_stable_test.mjs` (`header-stable`, `nav-layout` shard) checks rest and scrolled heights across resize, landscape, inset changes and installed modes.
 
 Android limitation: an app installed in `fullscreen` display mode cannot show the system status bar; no web API brings it back, and an installed app cannot change its own display mode. With the setting on, the bar shows in a browser tab and in apps installed as `standalone`; on an older full-screen install the user has to open the app from the browser or reinstall it. On iOS the status bar is always shown, and `black-translucent` (fixed when the app is added to the Home Screen) keeps drawing the page behind it, so the setting changes only the colour where the browser uses `theme-color`.
+
+## Pinch-zoom lock
+
+On phones the page does not zoom, like an installed app: the viewport meta adds `maximum-scale=1, user-scalable=no` (set in `index.html` and kept in step by `applyZoomLock()` from `applyTheme`), iOS Safari's `gesturestart`/`gesturechange` are cancelled (it ignores `user-scalable=no`), and double-tap zoom stays off through `touch-action: manipulation` on `html, body`. The photo viewer zooms pictures itself (two-finger pinch on `#viewer-img`), so photos still zoom. Every text field is at least 16px on phones so iOS never zooms in on focus; the fields that were 13 to 15px (Settings, Messages and History search, Feeds, the presence form and audiences) get 16px from one rule at the end of `styles.css`. Display settings has **Allow page zoom** (`pageZoom`) to turn the lock off for one person; the owner switch `zoom_lock` turns it off for everyone and hides the setting. Test: `scripts/zoom_lock_test.mjs` in the `nav-layout` shard.
 
 ## Storage permission notice
 
@@ -235,6 +239,7 @@ scripts/smoke-all.sh --changed
 
 | PR | State | What it needs |
 | --- | --- | --- |
+| #571 Swipe through custom Home tabs too (velocity snap, tab strip follows) | Parked by the owner, open as-is | CI failed `swipe-tabs` ("swipe right did not return to For you" on CI only; passes locally), plus `compose-c` and `signup-flows`. Pick up later: fix the right-swipe check on CI, rebase, green CI. |
 | #459 Desktop right column: unified Who to follow + People you may know; collapsed Friends shows who is online | In progress, DIRTY | Merge main, fix the stamp, green CI, then merge. |
 | #458 For you: community posts from Reddit, forums and NZlay; titles on their own line; joined row fix | In progress, DIRTY | Finish the Communities rows (below), merge main, green CI. |
 | #413 Gift NFTs (off by default) | DIRTY, old base | Owner decision (wallet/minting). Ships switched off. |

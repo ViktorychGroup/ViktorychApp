@@ -7676,6 +7676,14 @@ input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 }
 html[data-nav-layout="bar"] .topbar.compact-head.is-hidden { transform: translateY(calc(-1 * var(--keep-tabs-y, 0px))); }
 
+/* Phones: text fields stay at 16px or more, so iOS never zooms in on focus now that pinch zoom is locked. */
+@media (pointer: coarse), (max-width: 999px) {
+  html #settings-q, html #dmsgs-q, html #hist-q, html #feeds-q, html #add-account, html #nl-add-input,
+  html #feeds-group, html #feeds-status, html #feeds-sort,
+  html .presence-form input, html .presence-form select,
+  html .aud-settings input, html .aud-settings select,
+  html .feeds-org select, html .feeds-org .feeds-inline input, html .feeds-group-create input { font-size: 16px; }
+}
 /* Compact header, scrolled: only the tab row stays. The avatar row has moved
    up behind the status bar, so it fades out instead of peeking through there. */
 .topbar.compact-head .mhead { transition: opacity 0.18s ease, visibility 0s linear 0s; }
