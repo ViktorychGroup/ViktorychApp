@@ -171,7 +171,10 @@
         if (v.saveData) return [tr("Your browser asks to save data"), tr("Switch on Data saver here too, so this app downloads less."), tr("Turn on Data saver")];
         return [tr("You're on mobile data"), tr("Switch on Data saver to load lighter images and skip autoplay."), tr("Turn on Data saver")];
       } },
-    { id: "persist-denied", icon: "shield", kind: "flag", canAuto: false, href: "#/settings/storage", target: "#stor-persist",
+    /* Notice only: the browser alone decides persistence and a plain tab is
+       usually refused, so a pop-out over the page on a first visit (and over
+       sign-up) helps nobody. It stays in Notifications and Storage settings. */
+    { id: "persist-denied", icon: "shield", kind: "flag", canAuto: false, noPop: true, href: "#/settings/storage", target: "#stor-persist",
       label: function () { return tr("Persistent storage"); },
       page: function () { return tr("Storage settings"); },
       copy: function () {
@@ -537,6 +540,7 @@
     var entry = logAlert(def, level, v).log.pop();
     s.log.push(entry);
     var rank = RANK[level];
+    if (def.noPop) return;
     if (!def.silent && !(rank < RANK.critical && quietNow(p))) feedback(def, level, entry);
     var wantsRedirect = rank >= RANK.critical && autoOn(def.id) && !session().done[def.id];
     if (wantsRedirect) {
