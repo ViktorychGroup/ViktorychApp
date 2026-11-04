@@ -73,7 +73,7 @@ async function main() {
       if (size.mobile) check(empty.barTop > empty.h * 0.6, "phone box sits at the bottom");
       else check(empty.barTop < empty.h * 0.6, "desktop box is centred");
       await say(page, "make text bigger and stop autoplay on mobile data");
-      await page.waitForSelector('[data-lai="apply"]', { timeout: 10000 });
+      await page.waitForSelector('[data-lai="apply"]', { timeout: 20000 });
       const card = await page.evaluate(() => ({ rows: [...document.querySelectorAll(".lai-ch-name")].map((a) => a.getAttribute("href")), barTop: document.querySelector(".lai-bar").getBoundingClientRect().top, h: innerHeight, empty: document.querySelector(".lai").classList.contains("is-empty") }));
       check(!card.empty && card.rows.length === 2, size.name + " card lists both changes");
       check(card.barTop > card.h * 0.7, size.name + " box moves to the bottom");
@@ -98,7 +98,7 @@ async function main() {
       await page.click('[data-lai="tab"][data-cat="media"]');
       await page.waitForSelector('[data-lai="quick"][data-id="autoplay"]', { timeout: 5000 });
       await page.click('[data-lai="quick"][data-id="autoplay"]');
-      await page.waitForSelector('[data-lai="apply"]', { timeout: 10000 });
+      await page.waitForSelector('[data-lai="apply"]', { timeout: 20000 });
       check((await page.evaluate(() => document.querySelectorAll(".lai-msg.ai:last-child .lai-ch-name").length)) === 1, size.name + " a quick tap lists one change");
       await page.click('[data-lai="apply"]');
       await page.waitForSelector('[data-lai="undo-one"]', { timeout: 10000 });

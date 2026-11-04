@@ -124,7 +124,7 @@ async function main() {
       if (/img\.fixture\.test|i\.ytimg\.com|pbs\.twimg\.com/.test(url)) { imageLoads.push(url); return route.fulfill({ status: 200, contentType: "image/png", body: PIXEL }); }
       return route.fulfill({ status: 404, body: "{}" });
     });
-    const page = ctx.pages()[0] || await ctx.newPage();
+    let page = ctx.pages()[0] || await ctx.newPage();
     page.on("pageerror", (err) => console.error("pageerror", err.message));
     await page.addInitScript((FOLLOWS) => {
       if (location.protocol !== "http:") return;
@@ -215,7 +215,9 @@ async function main() {
     try {
       await page.goto(base + "#/", { waitUntil: "domcontentloaded" });
     } catch (err) {
-      if (!/ERR_ABORTED|frame was detached/i.test(String(err && err.message))) throw err;
+      const msg = String(err && err.message || err);
+      if (!/ERR_ABORTED|frame was detached|crashed/i.test(msg)) throw err;
+      page = await ctx.newPage();
       await page.goto(base + "#/", { waitUntil: "domcontentloaded" });
     }
     await page.waitForTimeout(3000);
