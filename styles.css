@@ -566,6 +566,7 @@ html[data-nav="icons"] .nav-folder-child {
   width: 600px;
   flex: 0 0 600px;
   min-height: 100vh;
+  min-height: 100dvh;
   border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
   min-width: 0;

@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `2de9baad`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `722dd3db`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -53,6 +53,19 @@ The build the service worker is already running is the version on the device. `v
 ## Post card
 
 Timeline cards and replies use X’s header and action row. The row is reply, repost, like, views, then bookmark and share grouped at the right edge. Icons are 18.75px. Counts are 13px in the muted gray, in X’s compact form (2.2K, 7.4K, 151K, 5.2M; a comma decimal where the locale uses one). The header line is the name, verified badge, handle, and time, then one right-aligned group: the on-device explain mark, the sparkle, and the vertical ⋯ menu. The sparkle is not in the action row. The card keeps a 40px avatar, a 12px gap, and 16px side padding on phone, tablet, and desktop. The share glyph is X’s arrow-out-of-a-box icon. In landscape, the overflow menu opens above an achievement alert so its items stay tappable. The music player is unchanged.
+
+## Edge to edge
+
+Phones and tablets fill the screen. The page uses `viewport-fit=cover`, a theme color, and the standalone status bar `black-translucent`. The top bar is translucent and blurred and its padding is the top inset, so it draws under the status bar. The bottom tab bar’s height includes the home-indicator inset and the icons stay in the 53px above it. The column fills `100dvh`, so there is no empty band under the home indicator. On a phone the music bar sits above the tab bar; on a tablet it sits above the home indicator. Landscape still pads the left and right insets, and an iPad-sized window keeps the icon rail.
+
+## Layout backlog
+
+Not started. Measured against the current X web layout:
+
+- Post detail still uses 22.5px action icons and 14px counts, and bookmark and share sit in the same row as reply, repost, and like.
+- The profile name is 20px on a 24px line, and the cover overlap is not the same as X’s profile header.
+- Compose is a single row with 8px vertical padding; X’s compose box is taller and the tools sit on their own line.
+- A full-size tablet uses the icon rail. Only a window narrower than 500px uses the bottom tabs.
 
 ## Merged today
 

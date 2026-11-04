@@ -264,7 +264,7 @@
 
 html.music-on .center { padding-bottom: 96px; }
 
-.mu-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 24; }
+.mu-dock { position: fixed; left: 0; right: 0; bottom: env(safe-area-inset-bottom, 0px); z-index: 24; }
 .mu-dock[hidden] { display: none !important; }
 /* The bar runs along the whole bottom on desktop, above the sidebar, and the
    sidebar's account button moves up so the bar never covers it. */
