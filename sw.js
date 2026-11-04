@@ -1675,7 +1675,8 @@ async function logUpdate(row) {
 const PREFS_CACHE = "viktorych-prefs";
 const FEATURE_FILES = {
   homePills: ["./scores.js", "./scores.css", "./weather.js", "./weather.css", "./shared/pill-data.js"],
-  stories: ["./stories.js", "./stories.css"]
+  stories: ["./stories.js", "./stories.css"],
+  forYou: ["./shared/for-you.js"]
 };
 async function offFeatureFiles() {
   try {

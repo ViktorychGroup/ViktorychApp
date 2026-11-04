@@ -6097,5 +6097,8 @@ SI18n.addPack("en", {
   "Updating ViktorychApp…": "Updating ViktorychApp…",
   "Fixes and improvements": "Fixes and improvements",
   "Visible updates": "Visible updates",
-  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update."
+  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.",
+  "For You switch": "For You switch",
+  "Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.": "Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.",
+  "The For You tab and its ranking. Off makes Following your Home, loads nothing for it and clears its saved data.": "The For You tab and its ranking. Off makes Following your Home, loads nothing for it and clears its saved data."
 });

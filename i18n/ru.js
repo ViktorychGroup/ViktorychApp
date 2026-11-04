@@ -6099,5 +6099,8 @@ SI18n.addPack("ru", {
   "Updating ViktorychApp…": "Обновление ViktorychApp…",
   "Fixes and improvements": "Исправления и улучшения",
   "Visible updates": "Видимые обновления",
-  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "Небольшое уведомление «Обновление» во время загрузки, уведомление «нажмите для перезапуска», когда вы заняты, и полноэкранная страница «Что нового» после каждого обновления."
+  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "Небольшое уведомление «Обновление» во время загрузки, уведомление «нажмите для перезапуска», когда вы заняты, и полноэкранная страница «Что нового» после каждого обновления.",
+  "For You switch": "Переключатель «Для вас»",
+  "Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.": "Каждый может отключить «Для вас» в настройках: главной становится «Подписки», и ничего для «Для вас» не загружается.",
+  "The For You tab and its ranking. Off makes Following your Home, loads nothing for it and clears its saved data.": "Вкладка «Для вас» и её подбор. Если выключено, главной становится «Подписки», для неё ничего не загружается, а её сохранённые данные удаляются."
 });

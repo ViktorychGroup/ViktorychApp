@@ -1154,6 +1154,13 @@
     migrateLocal: migrateLocal,
     saveRoute: saveRoute,
     readRoute: readRoute,
+    /* Forget one page's saved copy (For You off drops the Home copy). */
+    dropRoute: function (hash) {
+      if (hash == null) return;
+      var store = local();
+      swrDrop(routeKey(String(hash)), store);
+      swrWriteIndex(store);
+    },
     routeKey: routeKey,
     wipePrivate: function (store) { wipePrivateRoutes(store || local()); },
     start: start

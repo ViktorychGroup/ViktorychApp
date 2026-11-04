@@ -1958,10 +1958,28 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   const SERVER_OFF_KEY = "viktorychapp-server-off";
   /* Friends master switch (friends-pref.js): true while the signed-in
      person has Friends off, so every friend surface is left out. */
+  function forYouOff() {
+    /* For You turned off in Settings > Home (owner switch foryou_off lets
+       people do that). Self-contained: parseRoute calls this early and often. */
+    const settings = STATE.settings || null;
+    const memo = STATE.fyOffMemo;
+    if (memo && memo.settings === settings && memo.value === (settings ? settings.forYou : undefined)) return memo.off;
+    let off = false;
+    try {
+      const server = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]") || [];
+      if (!(Array.isArray(server) && server.includes("foryou_off"))) {
+        off = settings && typeof settings.forYou === "boolean" ? !settings.forYou : localStorage.getItem("viktorychapp-off-foryou") === "1";
+      }
+    } catch (err) { off = !!(settings && settings.forYou === false); }
+    STATE.fyOffMemo = { settings, value: settings ? settings.forYou : undefined, off };
+    return off;
+  }
+  /* The tab Home opens on: For You, or Following when For You is off. */
+  function homeFirstTab() { return forYouOff() ? "following" : "foryou"; }
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -1980,6 +1998,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       localStorage.setItem(SERVER_OFF_KEY, JSON.stringify(list || []));
       localStorage.setItem(SERVER_OFF_KEY + "-at", String(Date.now()));
     } catch (err) { /* private mode keeps the old list */ }
+    STATE.fyOffMemo = null;
     if (typeof syncFeatureFlags === "function") syncFeatureFlags();
   }
   function syncServerFeatures(force) {
@@ -2057,6 +2076,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
       status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
+      foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
       update_notice: [tr("Visible updates"), tr("A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
@@ -10228,7 +10248,7 @@ const here = parseRoute();
 
   function parseRoute() {
     try { return parseRouteInner(); }
-    catch (err) { return { name: "home", tab: "foryou", query: new URLSearchParams() }; }
+    catch (err) { return { name: "home", tab: homeFirstTab(), query: new URLSearchParams() }; }
   }
 
   function parseRouteInner() {
@@ -10246,7 +10266,7 @@ const here = parseRoute();
       try { return decodeURIComponent(part); } catch (err) { return part; }
     });
     if (!parts.length || parts[0] === "home") {
-      let tab = "foryou";
+      let tab = homeFirstTab();
       if (parts[1] === "following") tab = "following";
       else if (parts[1] === "tab") tab = "list:" + (parts[2] || "");
       else if (parts[1] === "cat") tab = "cat:" + (parts[2] || "");
@@ -10344,7 +10364,7 @@ const here = parseRoute();
       handle = parts[1] || "";
       rest = parts.slice(2);
     } else {
-      return { name: "home", tab: "foryou", query };
+      return { name: "home", tab: homeFirstTab(), query };
     }
     if (rest[0] === "status" && rest[1]) return { name: "status", platform, handle, id: rest.slice(1).join("/"), query };
     if (rest[0] === "followers" || rest[0] === "following" || rest[0] === "followers_you_follow" || rest[0] === "friends" || rest[0] === "mutuals" || rest[0] === "requests") return { name: "connections", platform, handle, tab: rest[0], query };
@@ -11295,11 +11315,13 @@ const here = parseRoute();
      index.html before any script loads, so an off feature downloads nothing.
      SYNCED_UI_PREFS lists the settings keys that follow the account across
      devices. */
-  const HOME_FEATURE_FLAGS = { homePills: "viktorychapp-off-home-pills", stories: "viktorychapp-off-stories" };
+  const HOME_FEATURE_FLAGS = { homePills: "viktorychapp-off-home-pills", stories: "viktorychapp-off-stories", forYou: "viktorychapp-off-foryou" };
   const SYNCED_UI_PREFS = ["homePills", "stories"];
   window.ViktorychPrefs = Object.assign(window.ViktorychPrefs || {}, { synced: SYNCED_UI_PREFS.slice(), flags: Object.assign({}, HOME_FEATURE_FLAGS) });
   const SERVER_FEATURE_FOR = { homePills: "pills", stories: "stories" };
   function featureOn(key) {
+    // For You: the owner switch foryou_off decides whether people may turn it off.
+    if (key === "forYou") return !forYouOff();
     // The owner's server switch wins over this device's choice.
     if (SERVER_FEATURE_FOR[key] && serverOffList().includes(SERVER_FEATURE_FOR[key])) return false;
     return userFeatureOn(key);
@@ -11327,6 +11349,7 @@ const here = parseRoute();
     caches.open("viktorych-prefs").then((cache) => cache.put("./__prefs/off.json", new Response(body, { headers: { "content-type": "application/json" } }))).catch(() => {});
   }
   function featureLoaded(key) {
+    if (key === "forYou") return !!window.ForYou;
     return key === "stories" ? !!window.Stories : !!(window.WeatherPills || window.SoccerScores);
   }
 
@@ -11366,7 +11389,7 @@ const here = parseRoute();
       <div class="tabs-bar">
         <button class="tab-arrow left" type="button" data-act="tab-scroll" data-dir="-1" aria-label="${tr("Scroll tabs left")}" hidden>${icon("chevL")}</button>
         <div class="tabs" role="tablist" data-hscroll="home-tabs" aria-label="${tr("Home timeline")}">
-          ${tabWithMenu("foryou", tr("For you"))}
+          ${forYouOff() ? "" : tabWithMenu("foryou", tr("For you"))}
           ${tabWithMenu("following", tr("Following"))}
           ${cats.map((item) => tabWithMenu("cat:" + item.id, item.name, item.emoji ? `<span class="tab-emoji">${esc(item.emoji)}</span>` : "", item.id)).join("")}
           ${lists.map((l) => tabWithMenu("list:" + l.id, l.name)).join("")}
@@ -11448,6 +11471,27 @@ const here = parseRoute();
   /* Cards in the first paint of a timeline, and per later chunk. */
   const FEED_FIRST = 6;
   const FEED_STEP = 4;
+
+  /* For You off is like removing the module: its ranking memory, the
+     communities mix and its saved scroll go too. On starts fresh. */
+  function clearForYouData() {
+    try { localStorage.removeItem("viktorychapp-foryou-v1"); } catch (err) { /* storage blocked */ }
+    try { removeStored(localStorage, "foryou-communities-v1"); } catch (err) { /* storage blocked */ }
+    STATE.forYouMemory = null;
+    STATE.forYouSnap = null;
+    STATE.forYouAcceptNew = false;
+    if (STATE.feedShown) delete STATE.feedShown.foryou;
+    if (STATE.feedCutoff) delete STATE.feedCutoff.foryou;
+    if (typeof SCROLLS === "object" && SCROLLS) delete SCROLLS["home:foryou"];
+    if (STATE.settings && STATE.settings.tabViews) delete STATE.settings.tabViews.foryou;
+    if (window.ViktorychLocal && window.ViktorychLocal.dropRoute) {
+      ["", "#", "#/", "#/home", homeHash("foryou")].forEach((hash) => {
+        try { window.ViktorychLocal.dropRoute(hash); } catch (err) { /* nothing saved */ }
+      });
+    }
+    const route = parseRoute();
+    if (route.name === "home" && route.tab === "foryou") history.replaceState(null, "", homeHash("following"));
+  }
 
   function forYouMemory() {
     if (!window.ForYou) return null;
@@ -17891,6 +17935,7 @@ const here = parseRoute();
         <h3>${esc(tr("Banners"))}</h3><div class="theme-row" role="group" aria-label="${esc(tr("Banners"))}">${face("banners", "show", tr("Show"))}${face("banners", "default", tr("Default"))}${face("banners", "none", tr("None"))}</div>`)}
       ${sec(tr("Home"), `${homeFeatureSwitch("homePills", tr("Live pills row"), tr("Weather, scores and live spaces above the timeline. Off loads nothing for it."))}
         ${homeFeatureSwitch("stories", tr("Stories"), tr("The stories tray and viewer. Off loads nothing for it."))}
+        ${serverOffList().includes("foryou_off") ? "" : homeFeatureSwitch("forYou", tr("For you"), tr("The For You tab and its ranking. Off makes Following your Home, loads nothing for it and clears its saved data."))}
         ${sw("story-notes", notesOn, tr("Show notes"), tr("Notes sit above stories. Turn this off to hide them."))}
         ${friendsOffNow() ? "" : sw("toggle-privacy-pref", friendsOn, tr("Friends panel"), tr("Show active friends beside the home feed."), ` data-key="friendsRail"`)}
         ${localAiOn() ? sw("ai-fab", !!st.aiFab, tr("Local AI button"), tr("A round button on every page that opens Local AI."), "") : ""}
@@ -18178,6 +18223,7 @@ const here = parseRoute();
         <h2>${esc(tr("Home"))}</h2>
         ${homeFeatureSwitch("homePills", tr("Live pills row"), tr("Weather, scores and live spaces above the timeline. Off loads nothing for it."))}
         ${homeFeatureSwitch("stories", tr("Stories"), tr("The stories tray and viewer. Off loads nothing for it."))}
+        ${serverOffList().includes("foryou_off") ? "" : homeFeatureSwitch("forYou", tr("For you"), tr("The For You tab and its ranking. Off makes Following your Home, loads nothing for it and clears its saved data."))}
         ${deviceSyncSwitches()}
         <h2>${esc(tr("Banners"))}</h2>
         <div class="theme-row" role="group" aria-label="${esc(tr("Banners"))}">
@@ -20886,7 +20932,7 @@ if (STATE.histClear) {
     if (route.name === "messages" && window.FeedsDiscord) return (window.ProfileGifts && window.ProfileGifts.dmBar ? window.ProfileGifts.dmBar() : "") + window.FeedsDiscord.page(route);
     if (route.name === "messages") return (window.ProfileGifts && window.ProfileGifts.dmBar ? window.ProfileGifts.dmBar() : "") + notesView(tr("Inbox"), tr("Welcome to your inbox"), tr("Private conversations aren’t part of this reader."));
     if (route.name === "sources") return sourcesView();
-    return homeView({ tab: "foryou", query: new URLSearchParams() });
+    return homeView({ tab: homeFirstTab(), query: new URLSearchParams() });
   }
 
   let lastKey = "";
@@ -21962,7 +22008,7 @@ if (STATE.histClear) {
     if (route.name === "spaces" && window.Spaces && window.Spaces.__shell && window.Spaces.start && !(window.ViktorychAccounts && window.ViktorychAccounts.blocking && window.ViktorychAccounts.blocking())) window.Spaces.start();
     if (route.name === "drive") {
       if (window.ViktorychDrive && !window.ViktorychDrive.visible()) {
-        route = { name: "home", tab: "foryou", query: route.query || new URLSearchParams() };
+        route = { name: "home", tab: homeFirstTab(), query: route.query || new URLSearchParams() };
       } else if (!window.ViktorychDrive) {
         ensureLazy("drive");
       }
@@ -23210,6 +23256,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const on = !userFeatureOn(key);
       STATE.settings[key] = on;
       STATE.settings.prefsAt = Object.assign({}, STATE.settings.prefsAt || {}, { [key]: Date.now() });
+      STATE.fyOffMemo = null;
+      if (key === "forYou" && !on) clearForYouData();
       saveSettings();
       render();
       /* Off has to stop work that already started, and on needs files that
@@ -24939,7 +24987,7 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
       const now = route.name === "home" ? (route.tab || "foryou") : "";
       const lists = (STATE.settings.lists || []).filter((list) => list && list.id).slice(0, 6);
       return [
-        navRow(tr("For you"), { "data-act": "navmenu", "data-do": "home", "data-tab": "foryou" }, { icon: "home", on: now === "foryou" }),
+        forYouOff() ? "" : navRow(tr("For you"), { "data-act": "navmenu", "data-do": "home", "data-tab": "foryou" }, { icon: "home", on: now === "foryou" }),
         navRow(tr("Following"), { "data-act": "navmenu", "data-do": "home", "data-tab": "following" }, { icon: "user", on: now === "following" })
       ].concat(lists.length ? [navHead(tr("Lists"))] : [])
         .concat(lists.map((list) => navRow(list.name || tr("Lists"), { "data-act": "navmenu", "data-do": "home", "data-tab": "list:" + list.id }, { icon: "lists", on: now === "list:" + list.id })))
@@ -27524,12 +27572,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
 
   function currentHomeTab() {
     const route = parseRoute();
-    if (!route || route.name !== "home") return (window.HomeFresh && window.HomeFresh.activeTab) ? window.HomeFresh.activeTab(location.hash) : "foryou";
-    return route.tab || "foryou";
+    if (!route || route.name !== "home") {
+      const tab = (window.HomeFresh && window.HomeFresh.activeTab) ? window.HomeFresh.activeTab(location.hash) : "foryou";
+      return tab === "foryou" ? homeFirstTab() : tab;
+    }
+    return route.tab || homeFirstTab();
   }
 
   function visibleHomeTabs() {
-    const ids = ["foryou", "following"];
+    const ids = forYouOff() ? ["following"] : ["foryou", "following"];
     const seen = { foryou: true, following: true };
     ((STATE.settings && STATE.settings.lists) || []).forEach((list) => {
       if (!list || !list.id || !list.pinned) return;
@@ -30972,7 +31023,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }
       const tab = route.tab === "following" ? "following" : "foryou";
       if (dx < 0 && tab === "foryou") goHash(homeHash("following"));
-      else if (dx > 0 && tab === "following") goHash(homeHash("foryou"));
+      else if (dx > 0 && tab === "following" && !forYouOff()) goHash(homeHash("foryou"));
     }, { passive: true });
   }
 
@@ -31108,7 +31159,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
 
   function homeTabIds() {
-    const ids = ["foryou", "following"];
+    const ids = forYouOff() ? ["following"] : ["foryou", "following"];
     const seen = { foryou: true, following: true };
     ((STATE.settings && STATE.settings.lists) || []).forEach((list) => {
       if (!list || !list.id) return;
@@ -31262,7 +31313,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       try { return decodeURIComponent(part); } catch (err) { return part; }
     });
     if (!parts.length || parts[0] === "home" || parts[0] === "following" || parts[0] === "tab" || parts[0] === "cat") {
-      let tab = "foryou";
+      let tab = homeFirstTab();
       if (parts[0] === "following" || parts[1] === "following") tab = "following";
       else if (parts[0] === "tab" && parts[1]) tab = "list:" + parts[1];
       else if (parts[1] === "tab" && parts[2]) tab = "list:" + parts[2];
@@ -31471,7 +31522,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const pill = window.ViktorychLocal ? window.ViktorychLocal.readPill() : [];
     if (pill && pill.length) STATE.pendingFeed = { posts: pill, feeds: (snap && snap.feeds) || [] };
     const painted = window.ViktorychLocal && window.ViktorychLocal.wasRestored();
-    const bootTab = window.HomeFresh && window.HomeFresh.activeTab ? window.HomeFresh.activeTab(location.hash) : "foryou";
+    let bootTab = window.HomeFresh && window.HomeFresh.activeTab ? window.HomeFresh.activeTab(location.hash) : "foryou";
+    if (bootTab === "foryou") bootTab = homeFirstTab();
     if ((SCROLLS["home:" + bootTab] || 0) >= 40) homeRead = true;
     if (snap && window.HomeFresh && window.HomeFresh.stale(snap)) STATE.homeFreshBar = true;
     if (snap) {

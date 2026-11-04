@@ -69,7 +69,10 @@ export const FEATURES = {
   zoom_lock: { paths: [] },
   // Visible updates: the small Updating toast, "tap to restart" and the
   // full-screen What's new page. No server endpoints.
-  update_notice: { paths: [] }
+  update_notice: { paths: [] },
+  // For You off switch in Settings > Home: Following becomes Home and the
+  // ranking code is not loaded. No server endpoints. On by default.
+  foryou_off: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 
