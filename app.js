@@ -21541,12 +21541,14 @@ if (STATE.histClear) {
     if (routePaintState.render) followRoute();
   }
 
-  /* Home is parked as live DOM when you leave it. Coming back puts that DOM
-     back before any new posts are woven in, so the click is not blocked by
-     a full rebuild. A newer address still wins: a parked frame is used only
-     when commitFrameDecision says this render is the current hash. */
-  let homePark = null;
-  let homeRefreshTimer = 0;
+  /* The main tabs are parked as live DOM when you leave them. Coming
+     back puts that DOM back before any new data is woven in, so the click
+     is not blocked by a full rebuild. A newer address still wins: a parked
+     frame is used only when commitFrameDecision says this render is the
+     current hash. */
+  const VIEW_PARK_MAX = 8;
+  const viewParks = new Map();
+  let viewRefreshTimer = 0;
   function homeStamp(route) {
     const data = STATE.data;
     const list = data && data.posts;
@@ -21576,42 +21578,86 @@ if (STATE.histClear) {
       ARCHIVE.posts.length
     ].join("|");
   }
-  function parkHomeDom() {
-    if (!homePark || !homePark.live) return;
-    const app = document.getElementById("app");
-    if (!app || !app.firstChild) { homePark.live = false; return; }
-    const frag = document.createDocumentFragment();
-    scrollLock = true;
-    while (app.firstChild) frag.appendChild(app.firstChild);
-    scrollLock = false;
-    frag.querySelectorAll("video, audio").forEach((el) => { try { el.pause(); } catch (err) { /* already stopped */ } });
-    homePark.frag = frag;
-    homePark.y = window.scrollY || 0;
-    homePark.live = false;
+  function parkKey(route) {
+    if (!route) return "";
+    if (route.name === "home" || route.name === "explore" || route.name === "notifications") return routeScrollKey();
+    if (route.name === "messages" && !route.sms && !route.mail) return routeScrollKey();
+    if (route.name === "communities" || route.name === "profile" || route.name === "user") return routeScrollKey();
+    return "";
   }
-  function restoreHomeDom() {
+  function viewStamp(route) {
+    if (route.name === "home") return homeStamp(route);
+    const posts = STATE.data && STATE.data.posts ? STATE.data.posts.length : 0;
+    return [(location.hash || "#/"), STATE.loading ? 1 : 0, STATE.error ? 1 : 0, posts].join("|");
+  }
+  function evictParks() {
+    if (viewParks.size <= VIEW_PARK_MAX) return;
+    const ranked = [];
+    viewParks.forEach((slot, key) => { if (!slot.live) ranked.push([key, slot.at || 0]); });
+    ranked.sort((a, b) => a[1] - b[1]);
+    while (viewParks.size > VIEW_PARK_MAX && ranked.length) {
+      const dropped = viewParks.get(ranked[0][0]);
+      if (dropped && dropped.root) dropped.root.remove();
+      viewParks.delete(ranked.shift()[0]);
+    }
+  }
+  /* One wrapper per tab, so leaving and coming back moves a single node.
+     Walking every child on a CPU slowed 4× stayed above 50ms. The wrapper
+     is detached while parked, so document-wide queries do not see it. */
+  function wrapLive(app) {
+    const root = document.createElement("div");
+    root.className = "view-slot";
+    while (app.firstChild) root.appendChild(app.firstChild);
+    app.appendChild(root);
+    return root;
+  }
+  function parkLiveView() {
+    viewParks.forEach((slot, key) => {
+      if (!slot.live || !slot.root) return;
+      slot.root.querySelectorAll("video, audio").forEach((el) => { try { el.pause(); } catch (err) { /* already stopped */ } });
+      slot.root.querySelectorAll(".center.route-wait").forEach((el) => el.classList.remove("route-wait"));
+      scrollLock = true;
+      slot.root.remove();
+      scrollLock = false;
+      slot.y = SCROLLS[key] || window.scrollY || slot.y || 0;
+      slot.live = false;
+      slot.at = Date.now();
+    });
+  }
+  function restoreView(slot) {
     const app = document.getElementById("app");
-    if (!app || !homePark || !homePark.frag) return false;
+    if (!app || !slot || !slot.root) return false;
     scrollLock = true;
     while (app.firstChild) app.removeChild(app.firstChild);
-    app.appendChild(homePark.frag);
+    app.appendChild(slot.root);
     scrollLock = false;
-    homePark.frag = null;
-    homePark.live = true;
+    const center = slot.root.querySelector("main.center");
+    if (center) center.classList.remove("route-wait");
+    slot.live = true;
+    slot.shown = true;
+    slot.at = Date.now();
+    queueMicrotask(() => { slot.shown = false; });
     return true;
   }
-  function scheduleHomeRefresh(delayMs) {
-    clearTimeout(homeRefreshTimer);
+  function parkedReady(route) {
+    const key = parkKey(route);
+    const slot = key ? viewParks.get(key) : null;
+    return !!(slot && !slot.live && slot.root && !slot.force);
+  }
+  function scheduleViewRefresh(key, delayMs) {
+    clearTimeout(viewRefreshTimer);
     const start = () => {
-      homeRefreshTimer = 0;
-      if (renderHeld()) { scheduleHomeRefresh(200); return; }
+      viewRefreshTimer = 0;
+      if (renderHeld()) { scheduleViewRefresh(key, 200); return; }
       const routeNow = parseRoute();
-      if (routeNow.name !== "home" || !homePark || !homePark.live) return;
-      if (homeStamp(routeNow) === homePark.stamp) return;
-      homePark.force = true;
+      if (parkKey(routeNow) !== key) return;
+      const slot = viewParks.get(key);
+      if (!slot || !slot.live) return;
+      if (viewStamp(routeNow) === slot.stamp) return;
+      slot.force = true;
       render();
     };
-    if (delayMs) homeRefreshTimer = setTimeout(start, delayMs);
+    if (delayMs) viewRefreshTimer = setTimeout(start, delayMs);
     else {
       const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
       raf(() => raf(start));
@@ -21740,27 +21786,39 @@ if (STATE.histClear) {
       let html = "";
       let decision = null;
       route = parseRoute();
-      const stamp = route.name === "home" ? homeStamp(route) : "";
+      const key = parkKey(route);
+      const stamp = key ? viewStamp(route) : "";
+      const slot = key ? viewParks.get(key) : null;
       decision = commitFrameDecision({ token: STATE.renderGen, builtHash: location.hash || "#/" }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
-      const parkedAway = !!(decision && decision.commit && route.name === "home" && homePark && !homePark.live && homePark.frag);
-      if (parkedAway && restoreHomeDom()) {
-        y = SCROLLS[routeScrollKey()] || homePark.y || 0;
+      const parkedAway = !!(decision && decision.commit && slot && !slot.live && slot.root && !slot.force);
+      if (parkedAway) parkLiveView();
+      if (parkedAway && restoreView(slot)) {
+        y = SCROLLS[key] || slot.y || 0;
         STATE.holdY = y;
         applied = true;
         paintedHash = decision.hash;
-        nextKey = routeScrollKey();
+        nextKey = key;
         STATE.scrollKey = nextKey;
         lastKey = location.hash || "#/";
         document.title = withUnreadTitle(routeTitle(route, "", "", ""));
         if (window.SIntelMusic && window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(route);
         window.scrollTo(0, y);
-        if (homePark.stamp !== stamp) scheduleHomeRefresh(350);
+        if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
-      } else if (decision && decision.commit && route.name === "home" && homePark && homePark.live && homePark.stamp !== stamp && !homePark.force && !inUserInput()) {
-        scheduleHomeRefresh(0);
+      } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force) {
+        slot.shown = false;
         applied = true;
         paintedHash = decision.hash;
-        nextKey = routeScrollKey();
+        nextKey = key;
+        STATE.scrollKey = nextKey;
+        lastKey = location.hash || "#/";
+        if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
+        return;
+      } else if (decision && decision.commit && slot && slot.live && slot.stamp !== stamp && !slot.force && !inUserInput()) {
+        scheduleViewRefresh(key, 0);
+        applied = true;
+        paintedHash = decision.hash;
+        nextKey = key;
         STATE.scrollKey = nextKey;
         lastKey = location.hash || "#/";
         return;
@@ -21776,11 +21834,16 @@ if (STATE.histClear) {
           if (!decision || decision.reason !== "stale-hash") break;
         }
         if (!decision || !decision.commit) return;
-        if (homePark && homePark.force) homePark.force = false;
-        if (homePark && homePark.live && route.name !== "home") parkHomeDom();
-        if (route.name === "home" && homePark && homePark.stamp !== stamp) homePark = null;
+        if (slot && slot.force) slot.force = false;
+        parkLiveView();
         commitApp(html);
-        if (route.name === "home") homePark = { stamp: route.name === "home" ? homeStamp(route) : stamp, live: true, frag: null, y: window.scrollY || 0 };
+        if (key) {
+          const prev = viewParks.get(key);
+          if (prev && prev.root) prev.root.remove();
+          const appNow = document.getElementById("app");
+          viewParks.set(key, { stamp: viewStamp(route), live: true, root: appNow ? wrapLive(appNow) : null, y: window.scrollY || 0, at: Date.now(), force: false, shown: false });
+          evictParks();
+        }
       }
       applied = true;
       paintedHash = decision.hash;
@@ -22632,8 +22695,10 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (!selected) {
         STATE.tabMenu = null;
         homeRead = (SCROLLS["home:" + tab] || 0) >= 40;
-        refreshHomeTabs([tab]);
         goHash(homeHash(tab));
+        /* The parked Following page is already back. Refresh after this
+           click so the fetch does not hold the switch. */
+        setTimeout(() => refreshHomeTabs([tab]), 0);
         return;
       }
       if (pageY() > 4) {
@@ -26035,6 +26100,58 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const leavingKey = STATE.scrollKey;
     if (/^#\/(?:home)?(?:[/?]|$)|^#?$/.test(prevHash)) rememberCardHeights();
     const nextRoute = parseRoute();
+    if (parkedReady(nextRoute)) {
+      const fastKey = parkKey(nextRoute);
+      const fastSlot = viewParks.get(fastKey);
+      const fastY = SCROLLS[fastKey] || (fastSlot && fastSlot.y) || 0;
+      routing = true;
+      scrollFreeze = true;
+      parkLiveView();
+      if (fastSlot && restoreView(fastSlot) && (location.hash || "#/") === nextHash) {
+        STATE.holdY = fastY;
+        STATE.scrollKey = fastKey;
+        lastKey = nextHash;
+        window.scrollTo(0, fastY);
+        if (fastY > 0 && fastKey !== leavingKey) holdRestore(fastKey, fastY);
+        STATE.modal = null;
+        STATE.drawer = false;
+        STATE.drawerSheet = "";
+        STATE.drawerEdit = false;
+        STATE.accountMenu = false;
+        STATE.noteGear = false;
+        STATE.menu = null;
+        STATE.profileMenu = null;
+        STATE.share = null;
+        STATE.groupMenu = null;
+        STATE.bellMenu = null;
+        paintNavNow(nextRoute, true);
+        if (fastSlot.stamp !== viewStamp(nextRoute)) scheduleViewRefresh(fastKey, 350);
+        /* Cover layout and the home anchor walk the whole page. On a long
+           Communities list that held the click past 50ms, so they run after
+           the page is back. */
+        setTimeout(() => {
+          if ((location.hash || "#/") !== nextHash) return;
+          if (window.SIntelMusic && window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(nextRoute);
+          if (fastY > 0 && fastKey !== leavingKey) settleHomeAnchor(fastKey);
+        }, 0);
+        if (nextRoute.name === "home") {
+          const nextTab = nextRoute.tab || "foryou";
+          const prevTab = window.HomeFresh && window.HomeFresh.activeTab ? window.HomeFresh.activeTab(prevHash) : "";
+          if (prevTab && prevTab !== nextTab) {
+            homeRead = (SCROLLS["home:" + nextTab] || 0) >= 40;
+            setTimeout(() => refreshHomeTabs([nextTab]), 0);
+          }
+        }
+        STATE.renderGen = (STATE.renderGen || 0) + 1;
+        routePaintState = routePaintDecision(routePaintState, { type: "hash", hash: nextHash });
+        paintToken = routePaintState.token;
+        routePaintState = routePaintDecision(routePaintState, { type: "finish", token: paintToken, paintedHash: nextHash, hash: nextHash });
+        routing = false;
+        scrollFreeze = false;
+        STATE.holdY = null;
+        return;
+      }
+    }
     if (nextRoute.name === "home") {
       const nextTab = nextRoute.tab || "foryou";
       const prevTab = window.HomeFresh && window.HomeFresh.activeTab ? window.HomeFresh.activeTab(prevHash) : "";
@@ -26073,7 +26190,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (y > 0) restoreWhenTall(key, y);
     routePaintState = routePaintDecision(routePaintState, { type: "hash", hash: location.hash || "#/" });
     const token = routePaintState.token;
-    afterNextPaint(() => {
+    const paintRoute = () => {
       if (token !== routePaintState.token) {
         followRoute();
         return;
@@ -26087,7 +26204,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
           scrollFreeze = false;
         }
       });
-    });
+    };
+    /* A tab we already built is put back above, in this turn. Anything else
+       still waits for the next frame so a cold build does not block the click. */
+    if (parkedReady(nextRoute)) paintRoute();
+    else afterNextPaint(paintRoute);
   });
 
   function afterNextPaint(fn) {
@@ -26097,7 +26218,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     setTimeout(go, 100);
   }
 
-  function paintNavNow(route) {
+  function paintNavNow(route, ready) {
     try {
       document.querySelectorAll("a.nav-item[href], .bottom-nav a[href]").forEach((a) => {
         const on = sameNavSection(route, a.getAttribute("href") || "");
@@ -26105,6 +26226,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         if (on) a.setAttribute("aria-current", "page");
         else a.removeAttribute("aria-current");
       });
+      if (ready) return;
       const center = document.querySelector("main.center");
       if (center) center.classList.add("route-wait");
     } catch (err) { /* the render paints it anyway */ }
