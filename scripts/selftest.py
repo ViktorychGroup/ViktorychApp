@@ -1520,7 +1520,8 @@ def main() -> None:
         if banned.search(path.read_text(encoding="utf-8", errors="ignore")):
             banned_hits.append(str(path.relative_to(ROOT)))
     check(not banned_hits, "the old radio host is gone: " + ", ".join(banned_hits))
-    check(page.index('src="i18n.js"') < page.index('src="marks.js"') < page.index('src="music.js"') < page.index('src="app.js"') and "brand.js" not in page and 'href="music.css"' in page, "the page loads translations and marks before music")
+    lazy_reg = (ROOT / "shared" / "lazy-modules.js").read_text(encoding="utf-8")
+    check(page.index('src="i18n.js"') < page.index('src="marks.js"') < page.index('src="app.js"') and "brand.js" not in page and 'src="music.js"' not in page and 'src="ytm.js"' not in page and 'href="music.css"' not in page and 'music: { classic: true, scripts: ["ytm.js", "music.js", "music.css"] }' in lazy_reg and "ensureMusic" in app and "viktorych-music-now-v1" in app, "music loads when it is opened, after translations and marks, and a saved song still brings the player back")
     check("music.js" in worker and "music.css" in worker and "i18n.js" in worker and "marks.js" in worker and "brand.js" not in worker and "data/music.json" in worker, "the service worker precaches music mode and refreshes its catalog")
     check("music.js" in deployed_paths() and "music.css" in deployed_paths() and "hls-1.7.3.min.js" in deployed_paths() and "data/music.json" in deployed_paths() and "assemble_site" in (ROOT / "scripts" / "discord_publish.py").read_text(encoding="utf-8"), "the deploy publishes ViktorychMusic")
     music_js = (ROOT / "music.js").read_text(encoding="utf-8")
