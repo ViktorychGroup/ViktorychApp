@@ -207,6 +207,32 @@
    "ai": false
   },
   {
+   "id": "classicHeader",
+   "label": "Classic header",
+   "desc": "On phones, shows the app name at the top of Home with Settings on the right instead of the compact header.",
+   "type": "bool",
+   "def": false,
+   "store": "state",
+   "key": "classicHeader",
+   "page": "#/settings/display",
+   "cat": "look",
+   "risk": "safe",
+   "sync": "device"
+  },
+  {
+   "id": "statusBar",
+   "label": "Show phone status bar",
+   "desc": "Keeps the phone's clock and battery visible in the theme colour instead of drawing the app under them.",
+   "type": "bool",
+   "def": false,
+   "store": "state",
+   "key": "statusBar",
+   "page": "#/settings/display",
+   "cat": "look",
+   "risk": "safe",
+   "sync": "device"
+  },
+  {
    "id": "brandLogo",
    "label": "Sidebar logo",
    "desc": "Logo in the desktop sidebar: default mark, your own text, or hidden.",

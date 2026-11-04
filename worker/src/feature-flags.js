@@ -59,7 +59,12 @@ export const FEATURES = {
   auto_update: { paths: [] },
   // Sideways swipe between Home and profile tabs on touch screens. No server
   // endpoints; on by default, off keeps tabs to taps only.
-  swipe_tabs: { paths: [] }
+  swipe_tabs: { paths: [] },
+  // Compact Home header on phones (no app name, Local AI icon, pinned tabs).
+  // No server endpoints; off brings back the classic header for everyone.
+  compact_header: { paths: [] },
+  // "Show phone status bar" option in Display settings. No server endpoints.
+  status_bar: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

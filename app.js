@@ -1961,7 +1961,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2053,7 +2053,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       live_frame_grab: [tr("Live frame grab"), tr("A camera button on a live saves a full-size still, or a short burst, on this device.")],
       app_repair: [tr("Repair app"), tr("A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.")],
       auto_update: [tr("Quiet updates"), tr("A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.")],
-      swipe_tabs: [tr("Swipe between tabs"), tr("On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.")]
+      swipe_tabs: [tr("Swipe between tabs"), tr("On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.")],
+      compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
+      status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -11338,12 +11340,16 @@ const here = parseRoute();
       const expanded = STATE.tabMenu === id;
       return `<div class="tab-pair on">${tabBtn(id, label, true, face, noteId)}<button class="tab-caret" type="button" data-act="tab-options" data-tab="${esc(id)}" aria-label="${esc(tr("{label} options", { label: label }))}" aria-expanded="${expanded ? "true" : "false"}" aria-haspopup="menu">${icon("caret")}</button></div>`;
     };
-    return `<div class="topbar tall">
+    const compact = compactHeaderOn();
+    const rightIcon = compact && localAiOn()
+      ? `<a class="m-icon m-ai" href="#/ai" aria-label="${esc(tr("Open Local AI"))}">${icon("spark")}</a>`
+      : `<a class="m-icon" href="#/settings" aria-label="${tr("Settings")}">${icon("spark")}</a>`;
+    return `<div class="topbar tall${compact ? " compact-head" : ""}">
       <h1 class="vh">${tr("Home")}</h1>
       <div class="mhead">
         <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}">${viewerFace()}</button>
-        ${mobileLogo()}
-        <a class="m-icon" href="#/settings" aria-label="${tr("Settings")}">${icon("spark")}</a>
+        ${compact ? "" : mobileLogo()}
+        ${rightIcon}
       </div>
       ${featureOn("stories") && window.Stories && window.Stories.homeTray ? window.Stories.homeTray() : ""}
       <div class="tabs-bar">
@@ -12930,6 +12936,14 @@ const here = parseRoute();
     return lib.interleave(items, { tab });
   }
 
+  /* Compact Home header on phones (owner switch compact_header): no app name,
+     the right icon opens Local AI, and when the header slides away on scroll
+     the tab row stays pinned under the status bar. Classic header is a
+     user setting. */
+  function compactHeaderOn() { return !serverOffList().includes("compact_header") && !(STATE.settings && STATE.settings.classicHeader); }
+  /* Phone status bar mode (owner switch status_bar): the installed app keeps a
+     solid status bar in the theme colour instead of drawing under it. */
+  function statusBarOn() { return !serverOffList().includes("status_bar") && !!(STATE.settings && STATE.settings.statusBar); }
   function mobileLogo() {
     return `<a class="m-logo" href="#/" aria-label="${productName("app")}">${markSvg("app", "logo-full")}${markSvg("appShort", "logo-short")}</a>`;
   }
@@ -17667,15 +17681,27 @@ const here = parseRoute();
       if (p && p.catch) p.catch(() => {});
     } catch (err) { /* the browser refused; the switch stays on for the next tap */ }
   }
+  function headerSwitches() {
+    let out = "";
+    if (!serverOffList().includes("compact_header")) {
+      const on = !!STATE.settings.classicHeader;
+      out += `<button class="tab-switch${on ? " on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}" data-act="classic-header"><span>${esc(tr("Classic header"))}</span><i></i></button><p class="phandle">${esc(tr("Show the app name at the top of Home on phones, with Settings on the right."))}</p>`;
+    }
+    if (!serverOffList().includes("status_bar")) {
+      const on = !!STATE.settings.statusBar;
+      out += `<button class="tab-switch${on ? " on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}" data-act="status-bar"><span>${esc(tr("Show phone status bar"))}</span><i></i></button><p class="phandle">${esc(tr("Keep the phone's clock and battery visible, in your theme's colour. On Android, an app installed in full screen cannot show it."))}</p>`;
+    }
+    return out;
+  }
   function fullScreenSwitch() {
-    if (!fullScreenSupported() || fullScreenInstalled()) return "";
+    if (!fullScreenSupported() || fullScreenInstalled() || statusBarOn()) return "";
     const on = !!STATE.settings.fullScreen;
     return `<button class="tab-switch${on ? " on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}" data-act="full-screen"><span>${esc(tr("Full screen"))}</span><i></i></button><p class="phandle">${esc(tr("Hide the phone's status and navigation bars. Swipe from the top or bottom edge to see them."))}</p>`;
   }
   (function resumeFullScreen() {
     const tap = () => {
       document.removeEventListener("pointerup", tap, true);
-      if (STATE.settings && STATE.settings.fullScreen && !fullScreenInstalled()) enterFullScreen();
+      if (STATE.settings && STATE.settings.fullScreen && !fullScreenInstalled() && !statusBarOn()) enterFullScreen();
     };
     document.addEventListener("pointerup", tap, true);
   })();
@@ -18068,6 +18094,7 @@ const here = parseRoute();
         </div>
         <p class="phandle set-block">${esc(tr("A light tap when you press and hold a tab or pick from a shortcut menu."))}</p>
         ${fullScreenSwitch()}
+        ${headerSwitches()}
         ${repairRow()}
         <h2>${esc(tr("Home"))}</h2>
         ${homeFeatureSwitch("homePills", tr("Live pills row"), tr("Weather, scores and live spaces above the timeline. Off loads nothing for it."))}
@@ -21720,6 +21747,7 @@ if (STATE.histClear) {
       (s.lists || []).length,
       s.appearance || "",
       s.navLayout || "",
+      compactHeaderOn() ? "ch" : "",
       document.documentElement.lang || "",
       document.documentElement.getAttribute("data-theme") || "",
       document.documentElement.getAttribute("data-fs") || "",
@@ -23548,6 +23576,25 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       STATE.accountMenu = false;
       STATE.pzEnter = Date.now();
       goHash("#/customize");
+      return;
+    }
+    if (act === "classic-header") {
+      STATE.settings.classicHeader = !STATE.settings.classicHeader;
+      saveSettings();
+      render();
+      return;
+    }
+    if (act === "status-bar") {
+      STATE.settings.statusBar = !STATE.settings.statusBar;
+      if (STATE.settings.statusBar) {
+        STATE.settings.fullScreen = false;
+        if (document.fullscreenElement && document.exitFullscreen) {
+          try { const p = document.exitFullscreen(); if (p && p.catch) p.catch(() => {}); } catch (err) { /* already left */ }
+        }
+      }
+      saveSettings();
+      applyTheme();
+      render();
       return;
     }
     if (act === "full-screen") {
@@ -25984,6 +26031,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const on = !!hidden;
     if (root.classList.contains("chrome-hidden") !== on) root.classList.toggle("chrome-hidden", on);
     document.querySelectorAll(".topbar").forEach((el) => {
+      if (on && el.classList.contains("compact-head")) {
+        const tabs = el.querySelector(".tabs-bar");
+        const pad = parseFloat(getComputedStyle(el).paddingTop) || 0;
+        if (tabs) el.style.setProperty("--keep-tabs-y", Math.max(0, Math.round(tabs.offsetTop - pad)) + "px");
+      }
       if (el.classList.contains("is-hidden") !== on) el.classList.toggle("is-hidden", on);
     });
   }
@@ -26630,7 +26682,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     else document.documentElement.removeAttribute("data-ava-shape");
     applyNavLayout();
     const installed = window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) || window.navigator.standalone;
-    const color = installed ? "transparent" : (THEME_COLORS[theme] || "#000000");
+    const color = installed && !statusBarOn() ? "transparent" : (THEME_COLORS[theme] || "#000000");
+    if (statusBarOn()) document.documentElement.setAttribute("data-status-bar", "1");
+    else document.documentElement.removeAttribute("data-status-bar");
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", color));
     const scheme = document.querySelector('meta[name="color-scheme"]');
     if (scheme) scheme.setAttribute("content", theme === "default" ? "light" : "dark");
@@ -30311,7 +30365,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   function checkReinstall() {
     if (!appRepairOn()) return;
     if (oldAndroidInstall()) {
-      if (fixGet(localStorage, REINSTALL_SEEN_KEY) === "1") return;
+      if (fixGet(localStorage, REINSTALL_SEEN_KEY) === "1" || statusBarOn()) return;
       appFixBanner("reinstall", `<p><b>${esc(tr("Full screen needs a reinstall"))}</b></p><p>${esc(tr("This app was installed before full screen was available, and an app cannot reinstall itself. 1. Press and hold the app icon and uninstall it. 2. Open this site in Chrome. 3. Tap Install."))}</p><button type="button" class="app-fix-go" data-act="reinstall-start">${esc(tr("Got it"))}</button>`);
       return;
     }

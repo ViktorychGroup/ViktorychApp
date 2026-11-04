@@ -7668,3 +7668,10 @@ input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(
 /* Swipe between tabs: the underline follows the finger toward the next tab. */
 .tabs.swiping .tab.on span:not(.tab-grip)::after,
 .tabs.swiping .tab-pair.on::after { transform: translateX(var(--swipe-ind, 0px)); }
+/* Compact Home header (compact_header): shorter row with no app name, and when
+   the bar slides away on scroll only the part above the tabs leaves, so the
+   tab row stays pinned under the status bar (--keep-tabs-y is set from JS). */
+@media (max-width: 499px) {
+  .topbar.compact-head.is-hidden { transform: translateY(calc(-1 * var(--keep-tabs-y, 0px))); }
+}
+html[data-nav-layout="bar"] .topbar.compact-head.is-hidden { transform: translateY(calc(-1 * var(--keep-tabs-y, 0px))); }
