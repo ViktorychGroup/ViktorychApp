@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `bcfb4a44`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `feb0850b`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -233,6 +233,7 @@ scripts/smoke-all.sh --changed
 
 | PR | State | What it needs |
 | --- | --- | --- |
+| #571 Swipe through custom Home tabs too (velocity snap, tab strip follows) | Parked by the owner, open as-is | CI failed `swipe-tabs` ("swipe right did not return to For you" on CI only; passes locally), plus `compose-c` and `signup-flows`. Pick up later: fix the right-swipe check on CI, rebase, green CI. |
 | #459 Desktop right column: unified Who to follow + People you may know; collapsed Friends shows who is online | In progress, DIRTY | Merge main, fix the stamp, green CI, then merge. |
 | #458 For you: community posts from Reddit, forums and NZlay; titles on their own line; joined row fix | In progress, DIRTY | Finish the Communities rows (below), merge main, green CI. |
 | #413 Gift NFTs (off by default) | DIRTY, old base | Owner decision (wallet/minting). Ships switched off. |
