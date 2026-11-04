@@ -32,6 +32,10 @@ assert.ok(quoteFn.indexOf("actionBar(") < 0 && quoteFn.indexOf('class="actions"'
 assert.ok(css.indexOf(".quote .actions { display: none") >= 0, "a nested action row inside a quote stays hidden");
 assert.ok(css.indexOf("flex: 1 1 0%") >= 0 && css.indexOf("max-width: 25%") >= 0, "reply, repost, like, and views share flex slots");
 assert.ok(css.indexOf("width: 18.75px") >= 0 && css.indexOf(".action .count") >= 0, "icon and count sizes stay on the action bar");
+const barFn = extractFunction(app, "actionBar");
+assert.ok(barFn.indexOf("lai-action") < 0, "the action row does not include the Grok button");
+assert.ok(barFn.indexOf('class="action-more"') >= 0, "bookmark and share stay in their own group");
+assert.ok(app.indexOf('class="byline-end"') >= 0, "header tools sit in one right-aligned group");
 
 function icon() {
   return '<span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z"/></svg></span>';
@@ -209,6 +213,25 @@ rows.forEach((row) => {
 const narrow = rows.filter((row) => row.case === "feed" && (row.w === 320 || row.w === 390));
 assert.strictEqual(narrow.length, 2, "320 and 390 timeline rows");
 console.log("action bar layout checks passed");
+
+{
+  const vm = require("vm");
+  vm.runInThisContext(fs.readFileSync(path.join(ROOT, "i18n.js"), "utf8"));
+  vm.runInThisContext(fs.readFileSync(path.join(ROOT, "i18n/en.js"), "utf8"));
+  vm.runInThisContext(fs.readFileSync(path.join(ROOT, "i18n/es.js"), "utf8"));
+  const i18n = globalThis.SI18n;
+  i18n.setLang("en");
+  assert.strictEqual(i18n.formatCount(2200), "2.2K");
+  assert.strictEqual(i18n.formatCount(7400), "7.4K");
+  assert.strictEqual(i18n.formatCount(151000), "151K");
+  assert.strictEqual(i18n.formatCount(5200000), "5.2M");
+  assert.strictEqual(i18n.formatCount(999), "999");
+  i18n.setLang("es");
+  assert.strictEqual(i18n.formatCount(2200), "2,2K");
+  assert.strictEqual(i18n.formatCount(279000), "279K");
+  assert.strictEqual(i18n.formatCount(5200000), "5,2M");
+  console.log("compact counts match X");
+}
 
 // Rides along (workflow files are not edited here): Settings > Free tier
 // usage always finishes loading.
