@@ -6529,7 +6529,6 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const quoteOnX = replyOnX ? `<button type="button" data-act="xc-quote" data-id="${esc(id)}">${tr("Quote on X")}</button>` : "";
     const repostMenu = menuOpen ? `<div class="menu repost-menu" data-act="stop" role="menu" aria-label="${esc(tr("Repost"))}"><button type="button" data-act="repost-do" data-id="${esc(id)}">${reposted ? tr("Undo repost") : tr("Repost")}</button><button type="button" data-act="quote-open" data-id="${esc(id)}">${tr("Quote")}</button>${quoteOnX}</div>` : "";
     const repostBtn = `<span class="repost-wrap">${btn("repost", "repost", "repost", tr("Repost"), shownCount(stats.reposts, reposted ? 1 : 0), tr("Repost"))}${repostMenu}</span>`;
-    const laiBtn = localAiOn() ? btn("lai-action", "lai-post", "spark", tr("Explain this post"), "", tr("Explain this post")) : "";
     if (detail) {
       return `<div class="actions status-actions">
       <div class="action-stats">
@@ -6551,7 +6550,6 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         ${btn("views", "open-status", "views", tr("Views"), shownCount(stats.views, 0), tr("Views"))}
       </div>
       <div class="action-more">
-        ${laiBtn}
         ${btn("bookmark", "bookmark", booked ? "bookmarkOn" : "bookmark", tr("Bookmark"), "", tr("Bookmark"))}
         ${btn("share", "share", "share", tr("Share"), "", tr("Share"))}
       </div>
@@ -10189,9 +10187,7 @@ const here = parseRoute();
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
             ${asAccount ? linkedSourceBadge(post.platform) : postSourceBadges(post)}
-            ${shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}
-            ${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}
-            <button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}">${icon("more")}</button>
+            <span class="byline-end">${shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}<button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}">${icon("more")}</button></span>
           </div>
           ${reply}
           ${discordMeta(post)}

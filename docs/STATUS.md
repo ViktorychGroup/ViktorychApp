@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `f70a4ef5`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `2de9baad`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -49,6 +49,10 @@ The phone signup flow was run five times locally on the 390×844 size after the 
 ## App updates
 
 The build the service worker is already running is the version on the device. `version.json` is published only after the live check, so it can lag that build when the check has not passed. A mismatch does not offer an update. The live loop was service worker `c2b9cb09` with `version.json` still `3a6f2de`: that difference does not reload the page or open the update screen, and each service-worker build reloads at most once. The next publish writes `version.json` from the sha already stamped into `sw.js`, and fails if those shas differ. A missing or unreadable `version.json` leaves the open copy alone. Each build is offered and applied at most once on a device, and the page reloads at most once for that build. The new files download in the background. While that download is ready, a small pill stays on the page (Update ready · Tap to refresh). A swipe or a tap outside does not remove it, and Later only means not right now: it does not skip that build. The pill goes away when the build is applied. Tap applies it immediately. Otherwise it applies the next time the app is hidden or opened again, or on the next navigation. An open composer, a modal, or typed text holds that apply until it closes. Each service-worker build still reloads at most once. Right after that build is applied, What's new appears once: a bottom sheet on a phone and a centered card on a desktop, with the changelog and Got it. It does not block the page, and it does not come back for that build. A full-screen step is only for a critical update or a failed one. Unchanged files already on the device, matched by hash, are not downloaded again. `skipWaiting` and `clients.claim` run once for a worker, so the page does not reload twice.
+
+## Post card
+
+Timeline cards and replies use X’s header and action row. The row is reply, repost, like, views, then bookmark and share grouped at the right edge. Icons are 18.75px. Counts are 13px in the muted gray, in X’s compact form (2.2K, 7.4K, 151K, 5.2M; a comma decimal where the locale uses one). The header line is the name, verified badge, handle, and time, then one right-aligned group: the on-device explain mark, the sparkle, and the vertical ⋯ menu. The sparkle is not in the action row. The card keeps a 40px avatar, a 12px gap, and 16px side padding on phone, tablet, and desktop. The share glyph is X’s arrow-out-of-a-box icon. In landscape, the overflow menu opens above an achievement alert so its items stay tappable. The music player is unchanged.
 
 ## Merged today
 

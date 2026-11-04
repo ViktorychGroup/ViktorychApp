@@ -156,17 +156,10 @@
     if (!isFinite(n)) return "";
     var abs = Math.abs(n);
     var loc = locale();
-    var floor = Number(compactFrom) > 0 ? Number(compactFrom) : 10000;
+    var floor = Number(compactFrom) > 0 ? Number(compactFrom) : 1000;
     if (abs < floor) {
       try { return intl("NumberFormat", loc, { maximumFractionDigits: 0 }).format(Math.trunc(n)); }
       catch (err) { return String(Math.trunc(n)); }
-    }
-    if (lang === "hi") {
-      // Indian grouping: हज़ार, लाख, करोड़, अरब.
-      try {
-        return new Intl.NumberFormat("hi-IN", { notation: "compact", maximumFractionDigits: 1 }).format(n)
-          .replace("क॰", "करोड़").replace("अ॰", "अरब").replace("ख॰", "खरब");
-      } catch (err) { /* the generic suffixes below */ }
     }
     var div = abs < 1e6 ? 1e3 : abs < 1e9 ? 1e6 : 1e9;
     var suffix = abs < 1e6 ? t("num.k") : abs < 1e9 ? t("num.m") : t("num.b");
