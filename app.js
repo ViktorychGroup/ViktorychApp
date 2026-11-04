@@ -6820,7 +6820,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   }
   var blockChannel = null;
   var blockTab = Math.random().toString(36).slice(2);
-  try { blockChannel = typeof BroadcastChannel === "function" ? new BroadcastChannel("viktorych-blocks") : null; } catch (err) { blockChannel = null; }
+  if (typeof document !== "undefined" && typeof BroadcastChannel === "function") {
+    try { blockChannel = new BroadcastChannel("viktorych-blocks"); } catch (err) { blockChannel = null; }
+  }
   if (typeof window.addEventListener === "function") window.addEventListener("viktorych-blocks", () => { blocksChanged(); if (STATE.settings) render({ y: window.scrollY }); });
 
   /* Why this device hides a post or comment: "account", "post", "source",
