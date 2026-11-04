@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `bcfb4a44`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `feb0850b`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -83,6 +83,10 @@ The fresh-login report (feeds and tabs missing after a first login on a reinstal
 On a phone, the Home header has no app name: the drawer button (your picture) on the left and a sparkle on the right that opens Local AI (`#/ai`; it opens Settings when Local AI is off for everyone). When the header slides away on scroll, only the part above the tabs leaves, so the tab row (and the pills under it) stays pinned at the top under the status bar (`--keep-tabs-y`, set in `paintChromeHidden`). Display settings has **Classic header** (app name in the middle, Settings on the right, the whole bar slides away) and **Show phone status bar** (`statusBar`): the installed app's `theme-color` is the theme colour (light `#FFFFFF`, dim `#15202B`, dark `#000000`) instead of `transparent`, the Full screen switch hides, and the reinstall-for-full-screen card is not offered. Owner switches `compact_header` (off = classic header for everyone) and `status_bar` (off hides the option). Test: `scripts/compact_header_test.mjs` in the `nav-layout` shard.
 
 Android limitation: an app installed in `fullscreen` display mode cannot show the system status bar; no web API brings it back, and an installed app cannot change its own display mode. With the setting on, the bar shows in a browser tab and in apps installed as `standalone`; on an older full-screen install the user has to open the app from the browser or reinstall it. On iOS the status bar is always shown, and `black-translucent` (fixed when the app is added to the Home Screen) keeps drawing the page behind it, so the setting changes only the colour where the browser uses `theme-color`.
+
+## Storage permission notice
+
+"This browser may clear saved posts" (`persist-denied` in `setting-alerts.js`) is a notice only (`noPop`): it is kept in Notifications and Storage settings but never pops out over the page. Since #558 asks for persistent storage once scrolling is quiet, a fresh browser tab got the info pop-out within seconds of the first visit, on top of sign-up; on CI it covered buttons and broke `shard-signup-flows` on main. Test: `scripts/setting_alerts_test.js`.
 
 ## Posts under the bars
 
