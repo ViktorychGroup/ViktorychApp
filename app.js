@@ -11445,6 +11445,9 @@ const here = parseRoute();
   }
 
   const FEED_PAGE = ((window.ViktorychIos && window.ViktorychIos.lite) || (window.ViktorychTVMode && window.ViktorychTVMode.pref("fewerPosts") === true)) ? 12 : 25;
+  /* Cards in the first paint of a timeline, and per later chunk. */
+  const FEED_FIRST = 6;
+  const FEED_STEP = 4;
 
   function forYouMemory() {
     if (!window.ForYou) return null;
@@ -11957,10 +11960,18 @@ const here = parseRoute();
     const tab = route.tab || "foryou";
     if (!STATE.feedShown) STATE.feedShown = {};
     if (!STATE.feedCutoff) STATE.feedCutoff = {};
-    let count = STATE.feedShown[tab] || FEED_PAGE;
-    if (count < FEED_PAGE) count = FEED_PAGE;
+    /* First paint of a tab draws a small batch so the first post shows
+       fast; topUpHome() adds the rest of the page in small idle chunks. */
+    let count = STATE.feedShown[tab] || FEED_FIRST;
+    if (count < FEED_FIRST) count = FEED_FIRST;
+    /* Feeds keep arriving after the first paint and each arrival repaints
+       the page. Until the reader scrolls on, those repaints draw only the
+       first batch (the rest is below the fold and is topped up when idle). */
+    watchFeedGrown();
+    const resting = !(STATE.feedGrown && STATE.feedGrown[tab]) && (window.scrollY || 0) < 80;
+    if (resting) count = FEED_FIRST;
     const prev = STATE.feedCutoff[tab];
-    if (prev && tabSort(tab) !== "popular") {
+    if (prev && !resting && tabSort(tab) !== "popular") {
       const at = list.findIndex((post) => String((post && post.id) || "") === prev);
       if (at >= 0 && at + 1 > count) count = at + 1;
     }
@@ -11968,7 +11979,46 @@ const here = parseRoute();
     const last = page[page.length - 1];
     STATE.feedCutoff[tab] = last ? String(last.id || "") : "";
     STATE.feedShown[tab] = count;
+    if (count < FEED_PAGE && list.length > count) topUpHome(tab);
     return page;
+  }
+
+  /* Fill the first page after the first paint: a few cards per idle slot,
+     appended before the sentinel, so there is no big burst or long task. */
+  /* Once the reader scrolls a tab, its repaints keep everything shown so
+     scroll restore and the cutoff logic work as before. */
+  function watchFeedGrown() {
+    if (STATE.feedGrownWatch) return;
+    STATE.feedGrownWatch = true;
+    window.addEventListener("scroll", () => {
+      if ((window.scrollY || 0) < 80) return;
+      const route = parseRoute();
+      if (route.name !== "home") return;
+      if (!STATE.feedGrown) STATE.feedGrown = {};
+      STATE.feedGrown[route.tab || "foryou"] = true;
+    }, { passive: true });
+  }
+
+  function topUpHome(tab) {
+    const homeTopUps = STATE.homeTopUps || (STATE.homeTopUps = {});
+    if (homeTopUps[tab]) return;
+    homeTopUps[tab] = true;
+    const idle = (fn) => (typeof requestIdleCallback === "function" ? requestIdleCallback(fn, { timeout: 300 }) : setTimeout(fn, 32));
+    const step = () => {
+      const route = parseRoute();
+      if (route.name !== "home" || (route.tab || "foryou") !== tab) { homeTopUps[tab] = false; return; }
+      if (STATE.loading) { setTimeout(() => idle(step), 250); return; }
+      const list = homeShaped(route);
+      const count = (STATE.feedShown && STATE.feedShown[tab]) || FEED_FIRST;
+      const goal = Math.min(list.length, FEED_PAGE);
+      if (count >= goal) { homeTopUps[tab] = false; return; }
+      const end = Math.min(goal, count + FEED_STEP);
+      if (!appendHomeCards(tab, list, count, end)) { homeTopUps[tab] = false; return; }
+      STATE.feedShown[tab] = end;
+      if (end < goal) idle(step);
+      else { homeTopUps[tab] = false; watchHydration(); bindPlayers(); }
+    };
+    idle(step);
   }
 
   function revealMoreTimeline() {
@@ -11982,8 +12032,12 @@ const here = parseRoute();
       return;
     }
     const tab = route.tab || "foryou";
+    /* The first page is still filling in; it re-checks the sentinel when done. */
+    if (STATE.homeTopUps && STATE.homeTopUps[tab]) return;
+    if (!STATE.feedGrown) STATE.feedGrown = {};
     const list = homeShaped(route);
     const count = (STATE.feedShown && STATE.feedShown[tab]) || FEED_PAGE;
+    if ((window.scrollY || 0) >= 80 || count >= FEED_PAGE) STATE.feedGrown[tab] = true;
     if (count < list.length) {
       const next = Math.min(list.length, count + FEED_PAGE);
       /* Adding the next page by rebuilding the whole shell took about 230ms
@@ -12025,7 +12079,7 @@ const here = parseRoute();
   }
 
   function pumpHomeCards(tab, list, from, to) {
-    const step = 8;
+    const step = FEED_STEP;
     let at = from;
     const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
     const pump = () => {
