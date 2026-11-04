@@ -193,6 +193,20 @@
    "sync": "account"
   },
   {
+   "id": "fullScreen",
+   "label": "Full screen",
+   "desc": "Hides the status bar and navigation bar of the phone in a browser tab after a tap.",
+   "type": "bool",
+   "def": false,
+   "store": "state",
+   "key": "fullScreen",
+   "page": "#/settings/display",
+   "cat": "look",
+   "risk": "safe",
+   "sync": "device",
+   "ai": false
+  },
+  {
    "id": "brandLogo",
    "label": "Sidebar logo",
    "desc": "Logo in the desktop sidebar: default mark, your own text, or hidden.",
