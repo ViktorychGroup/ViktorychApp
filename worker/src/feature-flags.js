@@ -64,7 +64,9 @@ export const FEATURES = {
   // No server endpoints; off brings back the classic header for everyone.
   compact_header: { paths: [] },
   // "Show phone status bar" option in Display settings. No server endpoints.
-  status_bar: { paths: [] }
+  status_bar: { paths: [] },
+  // Pinch-zoom lock on phones (viewport, iOS gesture events). No server endpoints.
+  zoom_lock: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

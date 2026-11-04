@@ -6090,5 +6090,9 @@ SI18n.addPack("ru", {
   "Compact Home header": "Компактный заголовок Главной",
   "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.": "На телефонах Главная без названия приложения, правый значок открывает локальный ИИ, а вкладки остаются вверху при прокрутке. Выключение возвращает классический заголовок.",
   "Phone status bar option": "Настройка строки состояния телефона",
-  "A Display setting that keeps the phone's status bar visible in the theme colour.": "Настройка экрана, которая оставляет строку состояния телефона видимой в цвете темы."
+  "A Display setting that keeps the phone's status bar visible in the theme colour.": "Настройка экрана, которая оставляет строку состояния телефона видимой в цвете темы.",
+  "Allow page zoom": "Разрешить масштабирование страницы",
+  "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.": "Разрешить масштабировать всю страницу двумя пальцами на телефонах. Фото всегда можно увеличить в просмотрщике.",
+  "Pinch-zoom lock": "Блокировка масштабирования жестом",
+  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "На телефонах страница не масштабируется двумя пальцами или двойным касанием, как установленное приложение. Фото по-прежнему увеличиваются в просмотрщике."
 });

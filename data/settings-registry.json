@@ -233,6 +233,19 @@
    "sync": "device"
   },
   {
+   "id": "pageZoom",
+   "label": "Allow page zoom",
+   "desc": "Lets two fingers zoom the whole page on phones instead of keeping it fixed like an app.",
+   "type": "bool",
+   "def": false,
+   "store": "state",
+   "key": "pageZoom",
+   "page": "#/settings/display",
+   "cat": "look",
+   "risk": "safe",
+   "sync": "device"
+  },
+  {
    "id": "brandLogo",
    "label": "Sidebar logo",
    "desc": "Logo in the desktop sidebar: default mark, your own text, or hidden.",

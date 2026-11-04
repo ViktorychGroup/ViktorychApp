@@ -1961,7 +1961,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2055,7 +2055,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       auto_update: [tr("Quiet updates"), tr("A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.")],
       swipe_tabs: [tr("Swipe between tabs"), tr("On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.")],
       compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
-      status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")]
+      status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
+      zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -17681,6 +17682,11 @@ const here = parseRoute();
       if (p && p.catch) p.catch(() => {});
     } catch (err) { /* the browser refused; the switch stays on for the next tap */ }
   }
+  function pageZoomSwitch() {
+    if (serverOffList().includes("zoom_lock")) return "";
+    const on = !!STATE.settings.pageZoom;
+    return `<button class="tab-switch${on ? " on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}" data-act="page-zoom"><span>${esc(tr("Allow page zoom"))}</span><i></i></button><p class="phandle">${esc(tr("Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer."))}</p>`;
+  }
   function headerSwitches() {
     let out = "";
     if (!serverOffList().includes("compact_header")) {
@@ -18095,6 +18101,7 @@ const here = parseRoute();
         <p class="phandle set-block">${esc(tr("A light tap when you press and hold a tab or pick from a shortcut menu."))}</p>
         ${fullScreenSwitch()}
         ${headerSwitches()}
+        ${pageZoomSwitch()}
         ${repairRow()}
         <h2>${esc(tr("Home"))}</h2>
         ${homeFeatureSwitch("homePills", tr("Live pills row"), tr("Weather, scores and live spaces above the timeline. Off loads nothing for it."))}
@@ -23578,6 +23585,13 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       goHash("#/customize");
       return;
     }
+    if (act === "page-zoom") {
+      STATE.settings.pageZoom = !STATE.settings.pageZoom;
+      saveSettings();
+      applyZoomLock();
+      render();
+      return;
+    }
     if (act === "classic-header") {
       STATE.settings.classicHeader = !STATE.settings.classicHeader;
       saveSettings();
@@ -26674,6 +26688,29 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     else document.documentElement.removeAttribute("data-nav-bar-land");
   }
 
+  /* Pinch-zoom lock (owner switch zoom_lock): on phones the page never zooms,
+     like an installed app. iOS Safari ignores user-scalable=no, so its pinch
+     gesture is cancelled too; double-tap zoom is already off through
+     touch-action: manipulation. The photo and video viewer and the Drive
+     viewer zoom pictures themselves and keep working. "Allow page zoom" in
+     Display settings turns the lock off for one person. */
+  const VIEWPORT_OPEN = "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content";
+  const VIEWPORT_LOCKED = VIEWPORT_OPEN + ", maximum-scale=1, user-scalable=no";
+  function zoomLockOn() { return !serverOffList().includes("zoom_lock") && !(STATE.settings && STATE.settings.pageZoom); }
+  function applyZoomLock() {
+    const on = zoomLockOn();
+    const meta = document.querySelector('meta[name="viewport"]');
+    const want = on ? VIEWPORT_LOCKED : VIEWPORT_OPEN;
+    if (meta && meta.getAttribute("content") !== want) meta.setAttribute("content", want);
+    if (on) document.documentElement.setAttribute("data-zoom-lock", "1");
+    else document.documentElement.removeAttribute("data-zoom-lock");
+  }
+  ["gesturestart", "gesturechange"].forEach((type) => {
+    document.addEventListener(type, (event) => {
+      if (zoomLockOn() && event.cancelable) event.preventDefault();
+    }, { passive: false });
+  });
+
   function applyTheme() {
     const theme = resolvedTheme();
     if (THEMES.apply) THEMES.apply(theme);
@@ -26681,6 +26718,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (STATE.settings && STATE.settings.avatarShape === "square") document.documentElement.setAttribute("data-ava-shape", "square");
     else document.documentElement.removeAttribute("data-ava-shape");
     applyNavLayout();
+    applyZoomLock();
     const installed = window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) || window.navigator.standalone;
     const color = installed && !statusBarOn() ? "transparent" : (THEME_COLORS[theme] || "#000000");
     if (statusBarOn()) document.documentElement.setAttribute("data-status-bar", "1");

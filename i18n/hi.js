@@ -6078,5 +6078,9 @@ SI18n.addPack("hi", {
   "Compact Home header": "कॉम्पैक्ट होम हेडर",
   "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.": "फ़ोन पर होम में ऐप का नाम नहीं दिखता, दायाँ आइकन लोकल AI खोलता है और स्क्रॉल करते समय टैब ऊपर रहते हैं। बंद करने पर क्लासिक हेडर लौट आता है।",
   "Phone status bar option": "फ़ोन स्टेटस बार विकल्प",
-  "A Display setting that keeps the phone's status bar visible in the theme colour.": "डिस्प्ले की एक सेटिंग जो फ़ोन का स्टेटस बार थीम के रंग में दिखाए रखती है।"
+  "A Display setting that keeps the phone's status bar visible in the theme colour.": "डिस्प्ले की एक सेटिंग जो फ़ोन का स्टेटस बार थीम के रंग में दिखाए रखती है।",
+  "Allow page zoom": "पेज ज़ूम की अनुमति दें",
+  "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.": "फ़ोन पर दो उंगलियों से पूरा पेज ज़ूम करने दें। फ़ोटो को व्यूअर में हमेशा ज़ूम किया जा सकता है।",
+  "Pinch-zoom lock": "पिंच-ज़ूम लॉक",
+  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "फ़ोन पर पेज दो उंगलियों या डबल टैप से ज़ूम नहीं होता, जैसे इंस्टॉल किया गया ऐप। फ़ोटो व्यूअर में अब भी ज़ूम होती हैं।"
 });

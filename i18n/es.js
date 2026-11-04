@@ -6091,5 +6091,9 @@ SI18n.addPack("es", {
   "Compact Home header": "Encabezado compacto de Inicio",
   "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.": "En teléfonos, Inicio no muestra el nombre de la app, el icono derecho abre la IA local y las pestañas se quedan arriba al desplazarse. Desactivado vuelve al encabezado clásico.",
   "Phone status bar option": "Opción de barra de estado del teléfono",
-  "A Display setting that keeps the phone's status bar visible in the theme colour.": "Un ajuste de Pantalla que mantiene visible la barra de estado del teléfono en el color del tema."
+  "A Display setting that keeps the phone's status bar visible in the theme colour.": "Un ajuste de Pantalla que mantiene visible la barra de estado del teléfono en el color del tema.",
+  "Allow page zoom": "Permitir zoom de página",
+  "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.": "Permite ampliar toda la página con dos dedos en teléfonos. Las fotos siempre se pueden ampliar en el visor.",
+  "Pinch-zoom lock": "Bloqueo del zoom con dos dedos",
+  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "En teléfonos la página no se amplía con dos dedos ni con doble toque, como una app instalada. Las fotos se siguen ampliando en el visor."
 });

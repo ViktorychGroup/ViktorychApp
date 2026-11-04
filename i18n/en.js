@@ -6088,5 +6088,9 @@ SI18n.addPack("en", {
   "Compact Home header": "Compact Home header",
   "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.": "On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.",
   "Phone status bar option": "Phone status bar option",
-  "A Display setting that keeps the phone's status bar visible in the theme colour.": "A Display setting that keeps the phone's status bar visible in the theme colour."
+  "A Display setting that keeps the phone's status bar visible in the theme colour.": "A Display setting that keeps the phone's status bar visible in the theme colour.",
+  "Allow page zoom": "Allow page zoom",
+  "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.": "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.",
+  "Pinch-zoom lock": "Pinch-zoom lock",
+  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer."
 });
