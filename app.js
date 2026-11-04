@@ -21652,7 +21652,7 @@ if (STATE.histClear) {
     if (!route) return "";
     if (route.name === "home" || route.name === "explore" || route.name === "notifications") return routeScrollKey();
     if (route.name === "messages" && !route.sms && !route.mail) return routeScrollKey();
-    if (route.name === "communities" || route.name === "profile" || route.name === "user") return routeScrollKey();
+    if (route.name === "communities" || route.name === "profile" || route.name === "user" || route.name === "status") return routeScrollKey();
     return "";
   }
   function viewStamp(route) {
@@ -26133,6 +26133,31 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       noteArticle(post, { scroll: ratio, touch: false });
     }, 400);
   }, { passive: true });
+  const warmedOpen = new Set();
+  function warmOpen(node) {
+    if (!node || !node.closest) return;
+    const link = node.closest("a[href^='#']");
+    const href = link ? (link.getAttribute("href") || "") : "";
+    const bare = href.split("?")[0];
+    const article = node.closest("article.post[data-post]");
+    const id = article ? article.getAttribute("data-post") : "";
+    const key = bare || id;
+    if (!key || warmedOpen.has(key)) return;
+    warmedOpen.add(key);
+    if (warmedOpen.size > 40) warmedOpen.delete(warmedOpen.values().next().value);
+    if (id) {
+      const post = findAnyPost(id);
+      if (post) STATE.shared[String(post.statusId || post.id || id)] = post;
+    }
+    const profile = bare.match(/^#\/@([^/]+)$/);
+    if (profile && window.ViktorychAccounts && window.ViktorychAccounts.ensureProfile) {
+      let handle = profile[1];
+      try { handle = decodeURIComponent(handle); } catch (err) { /* keep the raw handle */ }
+      window.ViktorychAccounts.ensureProfile(handle);
+    }
+  }
+  document.addEventListener("pointerover", (event) => warmOpen(event.target), { passive: true });
+  document.addEventListener("touchstart", (event) => warmOpen(event.target), { passive: true, capture: true });
   document.addEventListener("click", (event) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const navLink = event.target.closest && event.target.closest("a.nav-item[href], .bottom-nav a[href]");
