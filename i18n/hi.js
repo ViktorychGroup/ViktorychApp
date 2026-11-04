@@ -1635,6 +1635,7 @@ SI18n.addPack("hi", {
   "Version {version}": "वर्शन {version}",
   "{done} of {total} files": "{total} में से {done} फ़ाइलें",
   "App update": "ऐप अपडेट",
+  "Update ready · Tap to refresh": "अपडेट तैयार है · रीफ़्रेश के लिए टैप करें",
   "Connected keys": "कनेक्ट की गई कीज़",
   "Attachments: {n}": "अटैचमेंट: {n}",
   "Checking with Discord…": "Discord से जाँच हो रही है…",

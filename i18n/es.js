@@ -1932,6 +1932,7 @@ SI18n.addPack("es", {
   "Version {version}": "Versión {version}",
   "{done} of {total} files": "{done} de {total} archivos",
   "App update": "Actualización",
+  "Update ready · Tap to refresh": "Actualización lista · Toca para actualizar",
   "Connected keys": "Claves conectadas",
   "Attachments: {n}": "Adjuntos: {n}",
   "Checking with Discord…": "Comprobando con Discord…",

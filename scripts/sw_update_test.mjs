@@ -1,7 +1,7 @@
 /* Service worker update. An old worker can move to a new one, a file that
    fails once is tried again, a file that keeps failing never shows an error
-   (the background download tries again later), and What's new shows only
-   once the new version's files are all in. */
+   (the background download tries again later). A downloaded update stays as
+   a pill until it is applied. What's new is one sheet after that apply. */
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -203,24 +203,27 @@ async function openApp(browser, url) {
 
 async function offerUpdate(page) {
   await page.evaluate(() => window.ViktorychUpdate.poke());
-  await page.waitForSelector("#upd-go", { state: "visible", timeout: 15000 });
-  await page.click("#upd-go");
+  await page.waitForSelector("#upd-pill", { state: "visible", timeout: 15000 });
+  await page.click("#upd-pill");
 }
 
 async function registrationState(page) {
   return page.evaluate(() => navigator.serviceWorker.getRegistration().then((registration) => {
     const root = document.getElementById("upd-root");
     const go = document.getElementById("upd-go");
+    const pill = document.getElementById("upd-pill");
+    const overlay = document.getElementById("upd-overlay");
     const phase = root ? root.getAttribute("data-phase") || "" : "";
     const waiting = registration && registration.waiting;
+    const screen = !!(root && overlay && go && !root.hidden && !overlay.hidden && !go.hidden);
     /* The new worker stays waiting for the whole download. A second
        apply-update aborts that download, so this only reports state. */
     return {
       phase: phase,
       installing: !!(registration && registration.installing),
       waiting: !!waiting,
-      failed: !!(root && go && !root.hidden && !go.hidden && phase === "error" && !(registration && registration.installing)),
-      offer: !!(root && go && !root.hidden && !go.hidden && phase === "offer")
+      failed: !!(screen && phase === "error" && !(registration && registration.installing)),
+      offer: !!(root && !root.hidden && phase === "offer" && ((pill && !pill.hidden) || screen))
     };
   })).catch(() => null);
 }
@@ -239,7 +242,9 @@ async function waitSha(page, expected) {
       detail = await registrationState(page);
       if (detail && (detail.failed || detail.offer)) {
         nudged += 1;
-        await page.click("#upd-go").catch(() => {});
+        const pill = await page.$("#upd-pill");
+        if (pill && await pill.isVisible()) await page.click("#upd-pill").catch(() => {});
+        else await page.click("#upd-go").catch(() => {});
       }
     }
     await page.waitForTimeout(300);
@@ -335,18 +340,22 @@ async function shownState(page) {
   return page.evaluate(() => {
     const root = document.getElementById("upd-root");
     const go = document.getElementById("upd-go");
+    const pill = document.getElementById("upd-pill");
+    const overlay = document.getElementById("upd-overlay");
     const title = document.getElementById("upd-title");
+    const screen = !!(root && overlay && go && !root.hidden && !overlay.hidden && !go.hidden);
     return {
-      visible: !!(root && !root.hidden && go && !go.hidden),
-      error: !!(title && /didn't finish/.test(title.textContent || "")),
-      notes: !!(document.getElementById("upd-notes") && !document.getElementById("upd-notes").hidden)
+      visible: screen,
+      pill: !!(root && !root.hidden && pill && !pill.hidden),
+      error: !!(screen && title && /didn't finish/.test(title.textContent || "")),
+      notes: !!(document.getElementById("upd-notes") && !document.getElementById("upd-notes").hidden && overlay && !overlay.hidden)
     };
   });
 }
 
 /* A file that keeps failing: nothing is shown (no error, no Retry, no
-   offer) while the new version downloads in the background. Once the file
-   is back, What's new shows and Update now finishes. */
+   pill) while the new version downloads in the background. Once the file
+   is back, the pill stays until the update is applied. What's new follows. */
 async function testSilentUntilReady(browser) {
   const { server, state, url } = await startServer();
   const { context, page } = await openApp(browser, url);
@@ -357,19 +366,22 @@ async function testSilentUntilReady(browser) {
     await page.evaluate(() => window.ViktorychUpdate.poke());
     await waitLogged(page, "styles.css", "http-503");
     const during = await shownState(page);
-    assert(!during.visible && !during.error, "an update that is still downloading was shown: " + JSON.stringify(during));
+    assert(!during.visible && !during.pill && !during.error, "an update that is still downloading was shown: " + JSON.stringify(during));
     state.fail = null;
     await page.evaluate(() => window.ViktorychUpdate.poke());
-    await page.waitForSelector("#upd-go", { state: "visible", timeout: 60000 });
+    await page.waitForSelector("#upd-pill", { state: "visible", timeout: 60000 });
     const ready = await shownState(page);
-    assert(ready.notes && !ready.error, "What's new did not show once the files were in: " + JSON.stringify(ready));
-    await page.click("#upd-go");
+    assert(ready.pill && !ready.notes && !ready.error, "a ready update did not stay a pill: " + JSON.stringify(ready));
+    await page.click("#upd-pill");
     await waitSha(page, NEW);
+    await page.waitForSelector("#upd-notes-sheet", { timeout: 8000 });
+    await page.click("#upd-gotit");
+    await page.waitForFunction(() => !document.getElementById("upd-notes-sheet"));
   } finally {
     await context.close();
     server.close();
   }
-  console.log("a failing file stayed silent, What's new showed once the files were in");
+  console.log("a failing file stayed silent, then the pill applied and What's new showed once");
 }
 
 /* With a manifest, the next update downloads only the files that changed,
@@ -450,7 +462,7 @@ async function assertStaysIdle(page, ms, label) {
   await page.evaluate(() => window.ViktorychUpdate.poke());
   while (Date.now() - started < ms) {
     const shown = await shownState(page);
-    assert(!shown.visible && !shown.error, label + " offered an update " + JSON.stringify(shown));
+    assert(!shown.visible && !shown.pill && !shown.error, label + " offered an update " + JSON.stringify(shown));
     await page.waitForTimeout(250);
   }
   watch = false;
@@ -504,7 +516,7 @@ async function testVersionMismatchIdle(browser) {
     await running.page.waitForTimeout(1500);
     assert(extra === 0, "version.json older than the service worker reloaded the page");
     const again = await shownState(running.page);
-    assert(!again.visible && !again.error, "version.json older than the service worker showed an update");
+    assert(!again.visible && !again.pill && !again.error, "version.json older than the service worker showed an update");
     assert(await shaOf(running.page) === NEW, "the running build changed after the stale version file");
   } finally {
     await running.context.close();
@@ -540,7 +552,7 @@ async function testLiveLag(browser) {
     await opened.page.waitForTimeout(1200);
     assert(extra === 0, "the live lag reloaded the page");
     const shown = await shownState(opened.page);
-    assert(!shown.visible && !shown.error, "the live lag showed the update screen");
+    assert(!shown.visible && !shown.pill && !shown.error, "the live lag showed the update screen");
   } finally {
     await opened.context.close();
     server.close();
@@ -624,12 +636,99 @@ async function testNotesOnce(browser) {
   console.log("What's new showed once per build");
 }
 
+async function setLifecycle(page, state) {
+  const visible = state === "active" || state === "visible";
+  await page.evaluate((next) => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => next });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, visible ? "visible" : "hidden");
+}
+
+/* Later, Escape, and a tap outside do not skip the build. The pill stays.
+   Hide while a composer is open does not apply. Hide after it closes does,
+   once, and What's new follows. */
+async function testDismissThenHide(browser) {
+  const { server, state, url } = await startServer();
+  const { context, page } = await openApp(browser, url);
+  try {
+    state.version = NEW;
+    state.built = NEW_BUILT;
+    await page.evaluate(() => window.ViktorychUpdate.poke());
+    await page.waitForSelector("#upd-pill", { state: "visible", timeout: 60000 });
+    const label = await page.locator("#upd-pill").innerText();
+    assert(/Update ready/.test(label), "the pill did not offer a refresh: " + label);
+    await page.evaluate(() => {
+      document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      const later = document.getElementById("upd-later");
+      if (later) later.click();
+    });
+    await page.waitForTimeout(300);
+    const after = await shownState(page);
+    assert(after.pill && !after.visible, "dismiss removed the waiting update: " + JSON.stringify(after));
+    assert(await shaOf(page) === OLD, "dismiss applied the build");
+    await page.evaluate(() => {
+      const modal = document.createElement("div");
+      modal.className = "xc-modal";
+      modal.id = "hold-modal";
+      document.body.appendChild(modal);
+      const area = document.createElement("textarea");
+      area.id = "hold-text";
+      area.value = "draft";
+      document.body.appendChild(area);
+      location.hash = "#/compose";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await page.waitForTimeout(500);
+    assert(await shaOf(page) === OLD, "navigation applied the build while composing");
+    await setLifecycle(page, "hidden");
+    await page.waitForTimeout(600);
+    assert(await shaOf(page) === OLD, "hiding the app applied the build while composing");
+    const held = await shownState(page);
+    assert(held.pill, "the pill left while the composer was open");
+    await page.evaluate(() => {
+      const modal = document.getElementById("hold-modal");
+      const area = document.getElementById("hold-text");
+      if (modal) modal.remove();
+      if (area) area.remove();
+    });
+    let reloads = 0;
+    page.on("framenavigated", () => { reloads += 1; });
+    await setLifecycle(page, "active");
+    const started = Date.now();
+    let sha = "";
+    while (Date.now() - started < 180000) {
+      try { sha = await shaOf(page); } catch (err) { sha = ""; }
+      if (sha === NEW) break;
+      await page.waitForTimeout(300);
+    }
+    assert(sha === NEW, "reopen did not apply the downloaded build (" + sha + ")");
+    await page.waitForSelector("#upd-notes-sheet", { timeout: 8000 });
+    const notes = await page.locator("#upd-notes-sheet").innerText();
+    assert(notes.includes("What's new") && notes.includes("Got it"), "What's new did not follow the apply: " + notes);
+    await page.click("#upd-gotit");
+    await page.waitForFunction(() => !document.getElementById("upd-notes-sheet"));
+    const again = await page.evaluate((sha) => window.ViktorychUpdate.showReleaseNotes(sha, ["A test note"]), NEW);
+    assert(again === false, "What's new showed again for the applied build");
+    const before = reloads;
+    await setLifecycle(page, "hidden");
+    await page.waitForTimeout(1200);
+    assert(await shaOf(page) === NEW, "a second hide left the new build");
+    assert(reloads === before, "a second hide reloaded again (" + (reloads - before) + ")");
+  } finally {
+    await context.close();
+    server.close();
+  }
+  console.log("dismiss left the pill, hide applied once, and compose held it");
+}
+
 const browser = await chromium.launch({
   headless: true,
   executablePath: chromeBin(),
   args: ["--no-sandbox", "--disable-dev-shm-usage"]
 });
 try {
+  await testDismissThenHide(browser);
   await testVersionMismatchIdle(browser);
   await testLiveLag(browser);
   await testNotesOnce(browser);

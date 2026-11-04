@@ -20,7 +20,8 @@ assert.strictEqual(update.decide({ pending: true, phase: "error", busy: true }, 
 // What's new waits until the new version's files are all downloaded.
 assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: false }, now), "idle");
 assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: false, forced: true }, now), "idle");
-assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: true }, now), "overlay");
+assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: true }, now), "pill");
+assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: true, snoozeUntil: now + 10 }, now), "pill");
 assert.strictEqual(update.decide({ pending: true, phase: "working", ready: false }, now), "overlay");
 // Background download retries back off and level out at five minutes.
 assert.strictEqual(update.predownloadDelay(0), 15000);
@@ -99,7 +100,8 @@ assert.strictEqual(update.reloadAllowed(NEWER, "", ""), true);
 assert.strictEqual(update.reloadAllowed(NEWER, NEWER, ""), false);
 assert.strictEqual(update.reloadAllowed(NEWER, "", NEWER), false);
 assert.strictEqual(update.reloadAllowed(OLDER, NEWER, NEWER), true);
-assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true }, now), "toast");
+assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true }, now), "pill");
+assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true, snoozeUntil: now + 10 }, now), "pill");
 assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true, critical: true }, now), "blocking");
 assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true, forced: true }, now), "blocking");
 assert.strictEqual(update.presentation({ pending: true, phase: "error" }, now), "blocking");
