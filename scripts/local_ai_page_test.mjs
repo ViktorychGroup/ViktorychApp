@@ -36,11 +36,34 @@ async function loadPlaywright() {
 }
 function check(ok, msg) { if (!ok) throw new Error("local ai page: " + msg); }
 const settings = (page) => page.evaluate(() => JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}"));
-// Type into the box and send. press() focuses the box first, so a re-render
-// between fill and Enter can't swallow the message.
+// Type and send in one turn inside the page. A redraw between fill and
+// Enter was leaving the box empty, so Apply never appeared.
+async function until(page, selector, timeout) {
+  try {
+    await page.waitForSelector(selector, { timeout });
+  } catch (err) {
+    const snap = await page.evaluate(() => {
+      const s = window.ViktorychLocalAIPage && window.ViktorychLocalAIPage._state;
+      const c = s && s.chats && s.chats[0];
+      const msg = c && c.msgs && c.msgs[c.msgs.length - 1];
+      const box = document.querySelector(".lai-input");
+      return { setup: !!(s && s.setup), busy: !!(s && s.busy), n: c && c.msgs.length, state: msg && msg.state, streaming: msg && msg.streaming, text: String(msg && msg.text || "").slice(0, 160), box: box ? box.value.slice(0, 80) : "" };
+    }).catch(() => null);
+    throw new Error("local ai page: missing " + selector + " " + JSON.stringify(snap));
+  }
+}
 async function say(page, text) {
-  await page.fill(".lai-input", text);
-  await page.press(".lai-input", "Enter");
+  const sent = await page.evaluate((value) => {
+    const box = document.querySelector(".lai-input");
+    if (!box) return "no-input";
+    box.value = value;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    const form = box.closest("form");
+    if (form && form.requestSubmit) { form.requestSubmit(); return "submit"; }
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    return "key";
+  }, text);
+  if (sent === "no-input") throw new Error("local ai page: message box missing");
 }
 // Saves can land a moment after the click on a busy runner, so wait for them.
 const settled = (page, fn) => page.waitForFunction(fn, null, { timeout: 8000 }).catch(() => {});
@@ -73,7 +96,7 @@ async function main() {
       if (size.mobile) check(empty.barTop > empty.h * 0.6, "phone box sits at the bottom");
       else check(empty.barTop < empty.h * 0.6, "desktop box is centred");
       await say(page, "make text bigger and stop autoplay on mobile data");
-      await page.waitForSelector('[data-lai="apply"]', { timeout: 20000 });
+      await until(page, '[data-lai="apply"]', 10000);
       const card = await page.evaluate(() => ({ rows: [...document.querySelectorAll(".lai-ch-name")].map((a) => a.getAttribute("href")), barTop: document.querySelector(".lai-bar").getBoundingClientRect().top, h: innerHeight, empty: document.querySelector(".lai").classList.contains("is-empty") }));
       check(!card.empty && card.rows.length === 2, size.name + " card lists both changes");
       check(card.barTop > card.h * 0.7, size.name + " box moves to the bottom");
@@ -98,7 +121,7 @@ async function main() {
       await page.click('[data-lai="tab"][data-cat="media"]');
       await page.waitForSelector('[data-lai="quick"][data-id="autoplay"]', { timeout: 5000 });
       await page.click('[data-lai="quick"][data-id="autoplay"]');
-      await page.waitForSelector('[data-lai="apply"]', { timeout: 20000 });
+      await until(page, '[data-lai="apply"]', 10000);
       check((await page.evaluate(() => document.querySelectorAll(".lai-msg.ai:last-child .lai-ch-name").length)) === 1, size.name + " a quick tap lists one change");
       await page.click('[data-lai="apply"]');
       await page.waitForSelector('[data-lai="undo-one"]', { timeout: 10000 });
