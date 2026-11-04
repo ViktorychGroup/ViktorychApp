@@ -99,7 +99,9 @@ async function openHome(browser, origin, extra, off) {
   if (off) await context.addInitScript(() => { try { localStorage.setItem("viktorychapp-server-off", JSON.stringify(["swipe_tabs"])); } catch (err) {} });
   const page = await context.newPage();
   const errors = [];
-  page.on("pageerror", (err) => errors.push(String(err && err.message || err).slice(0, 200)));
+  // Only errors thrown by the app's own files count; a browser add-on on the
+  // test machine can throw into the page too.
+  page.on("pageerror", (err) => { if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(String(err && err.message || err).slice(0, 200)); });
   await page.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#app .topbar .tabs [role='tab'][data-tab='following']", { timeout: 20000 });
   await page.waitForFunction(() => document.querySelectorAll("#app article").length > 2, null, { timeout: 20000 });
