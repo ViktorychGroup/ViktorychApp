@@ -25963,7 +25963,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     paintProfileChrome();
     const homeStories = parseRoute().name === "home" && document.querySelector(".story-shell");
     const isBarNav = document.documentElement.getAttribute("data-nav-layout") === "bar";
-    if ((window.innerWidth >= 500 && !isBarNav) || homeStories) {
+    if (window.innerWidth >= 1280 || homeStories) {
       STATE.headerHidden = false;
       paintChromeHidden(false);
       return;
@@ -26438,7 +26438,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (STATE.settings && STATE.settings.avatarShape === "square") document.documentElement.setAttribute("data-ava-shape", "square");
     else document.documentElement.removeAttribute("data-ava-shape");
     applyNavLayout();
-    const color = THEME_COLORS[theme] || "#000000";
+    const installed = window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || window.navigator.standalone;
+    const color = installed ? "transparent" : (THEME_COLORS[theme] || "#000000");
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", color));
     const scheme = document.querySelector('meta[name="color-scheme"]');
     if (scheme) scheme.setAttribute("content", theme === "default" ? "light" : "dark");

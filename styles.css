@@ -1847,6 +1847,12 @@ a.follow { display: inline-flex; align-items: center; justify-content: center; w
   background: rgba(0, 0, 0, 0.9);
   backdrop-filter: blur(12px);
 }
+@media (max-width: 1279px) {
+  .profile-chrome.is-solid { background: color-mix(in srgb, var(--bg) 62%, transparent); }
+  html[data-theme="default"] .profile-chrome.is-solid { background: rgba(255, 255, 255, 0.72); }
+  html[data-theme="dim"] .profile-chrome.is-solid { background: rgba(21, 32, 43, 0.72); }
+  html[data-theme="lightsout"] .profile-chrome.is-solid { background: rgba(0, 0, 0, 0.55); }
+}
 .profile-chrome.is-solid .pfloat-btn { background: transparent; }
 .pfloat-btn {
   width: 34px;
@@ -2534,6 +2540,7 @@ button.show-replies {
 .drawer {
   width: min(280px, 80vw);
   height: 100%;
+  height: 100dvh;
   background: var(--sheet);
   padding: calc(12px + env(safe-area-inset-top, 0px)) 0 calc(24px + env(safe-area-inset-bottom, 0px));
   overflow: auto;
@@ -2845,7 +2852,7 @@ button.show-replies {
     right: 0;
     transition: transform 0.2s ease;
   }
-  .topbar.is-hidden { transform: translateY(-100%); }
+  .topbar.is-hidden { transform: translateY(calc(-100% + env(safe-area-inset-top, 0px))); }
   .topbar {
     padding-top: env(safe-area-inset-top);
     padding-left: var(--safe-l, env(safe-area-inset-left, 0px));
@@ -2892,8 +2899,8 @@ button.show-replies {
     left: 0;
     right: 0;
     bottom: 0;
-    height: calc(53px + env(safe-area-inset-bottom));
-    padding-bottom: env(safe-area-inset-bottom);
+    height: calc(53px + env(safe-area-inset-bottom, env(safe-area-max-inset-bottom, 0px)));
+    padding-bottom: env(safe-area-inset-bottom, env(safe-area-max-inset-bottom, 0px));
     padding-left: var(--safe-l, env(safe-area-inset-left, 0px));
     padding-right: var(--safe-r, env(safe-area-inset-right, 0px));
     background: var(--topbar);
@@ -2948,7 +2955,7 @@ button.show-replies {
   }
   .post { padding: 12px 16px 4px; }
   .modal-back { padding: 0; align-items: stretch; }
-  .modal { width: 100%; max-height: none; height: 100%; border-radius: 0; }
+  .modal { width: 100%; max-height: none; height: 100%; height: 100dvh; border-radius: 0; padding-top: env(safe-area-inset-top, 0px); }
   .empty h2 { font-size: 23px; line-height: 28px; }
   #toast { bottom: max(calc(76px + env(safe-area-inset-bottom)), var(--toast-above, 0px)); }
 }
@@ -6832,14 +6839,23 @@ html[data-ava-shape="square"] :is(.ava, .ava img, .pava, .pava img, .m-ava .ava,
    handler). Transform and opacity only, so it stays on the compositor. */
 @media (max-width: 499px) {
   .topbar { will-change: transform; transition: transform 0.2s ease; }
-  .topbar.is-hidden { transform: translateY(-100%); }
+  .topbar.is-hidden { transform: translateY(calc(-100% + env(safe-area-inset-top, 0px))); }
 }
 html[data-nav-layout="bar"] .topbar { will-change: transform; transition: transform 0.2s ease; }
-html[data-nav-layout="bar"] .topbar.is-hidden { transform: translateY(-100%); }
+html[data-nav-layout="bar"] .topbar.is-hidden { transform: translateY(calc(-100% + env(safe-area-inset-top, 0px))); }
 @media (max-width: 1279px) {
+  .topbar, .bottom-nav {
+    background: rgba(0, 0, 0, 0.45);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+  }
+  html[data-theme="default"] .topbar,
+  html[data-theme="default"] .bottom-nav { background: rgba(255, 255, 255, 0.62); }
+  html[data-theme="dim"] .topbar,
+  html[data-theme="dim"] .bottom-nav { background: rgba(21, 32, 43, 0.62); }
   .bottom-nav, .fab { transition: opacity 0.18s ease; }
   html.chrome-hidden .bottom-nav,
-  html.chrome-hidden .fab { opacity: 0.45; }
+  html.chrome-hidden .fab { opacity: 0; pointer-events: none; }
 }
 @media (max-width: 499px) and (prefers-reduced-motion: reduce) {
   .topbar, .bottom-nav, .fab { transition: none; }

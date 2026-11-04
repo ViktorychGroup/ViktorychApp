@@ -1978,7 +1978,9 @@ var numberNote = form.passkey
     else document.documentElement.setAttribute("data-theme", mode);
     var colors = { default: "#FFFFFF", dim: "#15202B", lightsout: "#000000" };
     var metas = document.querySelectorAll('meta[name="theme-color"]');
-    for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", themes ? themes.color(mode) : colors[mode]);
+    var installed = (window.matchMedia && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches)) || navigator.standalone;
+    var barColor = installed ? "transparent" : (themes ? themes.color(mode) : colors[mode]);
+    for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", barColor);
     try {
       var key = "viktorychapp-settings-v1";
       var raw = localStorage.getItem(key);

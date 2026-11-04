@@ -264,7 +264,7 @@
 
 html.music-on .center { padding-bottom: 96px; }
 
-.mu-dock { position: fixed; left: 0; right: 0; bottom: env(safe-area-inset-bottom, 0px); z-index: 24; }
+.mu-dock { position: fixed; left: 0; right: 0; bottom: env(safe-area-inset-bottom, env(safe-area-max-inset-bottom, 0px)); z-index: 24; }
 .mu-dock[hidden] { display: none !important; }
 /* The bar runs along the whole bottom on desktop, above the sidebar, and the
    sidebar's account button moves up so the bar never covers it. */
@@ -419,7 +419,7 @@ html.ytm-card .center { padding-bottom: 320px; }
 @media (max-width: 499px) {
   html.music-on .topbar:not(.tall) { border-bottom: 1px solid var(--line); }
   html.music-on .center { padding-bottom: calc(196px + env(safe-area-inset-bottom)); }
-  html.music-on .mu-dock { bottom: calc(53px + env(safe-area-inset-bottom)); }
+  html.music-on .mu-dock { bottom: calc(53px + env(safe-area-inset-bottom, env(safe-area-max-inset-bottom, 0px))); }
   html.music-on .fab { bottom: calc(156px + env(safe-area-inset-bottom)); }
   .mu-bar { height: auto; min-height: 56px; padding-bottom: 8px; }
   .mu-id .mu-art { width: 40px; height: 40px; }
