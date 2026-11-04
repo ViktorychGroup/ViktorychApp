@@ -94,9 +94,16 @@ const STATE = `(() => {
   };
 })()`;
 
-async function openHome(browser, origin, extra, off) {
+async function openHome(browser, origin, extra, off, settings) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2, serviceWorkers: "block", ...extra });
   if (off) await context.addInitScript(() => { try { localStorage.setItem("viktorychapp-server-off", JSON.stringify(["swipe_tabs"])); } catch (err) {} });
+  if (settings) await context.addInitScript((seed) => {
+    try {
+      if (sessionStorage.getItem("swipe-seeded")) return;
+      sessionStorage.setItem("swipe-seeded", "1");
+      localStorage.setItem("viktorychapp-settings-v1", JSON.stringify(seed));
+    } catch (err) {}
+  }, settings);
   const page = await context.newPage();
   const errors = [];
   // Only errors thrown by the app's own files count; a browser add-on on the
@@ -171,6 +178,35 @@ async function main() {
     if (still.moved && still.moved !== "none") fail("reduced motion still slid the timeline " + JSON.stringify(still));
     await release(run.cdp);
     if (!(await waitTab(run.page, "following"))) fail("reduced motion swipe did not switch");
+    await run.context.close();
+
+    // Custom tabs to the right of Following are part of the cycle:
+    // For you -> Following -> custom tab 1 -> custom tab 2, and the strip
+    // scrolls so the open tab stays in view.
+    const custom = (id, name) => ({ id: id, name: name, description: "", bannerColor: "#1d9bf0", members: [], pinned: true, created: "2026-01-01T00:00:00.000Z" });
+    run = await openHome(browser, origin, {}, false, { appearance: "lightsout", lists: [custom("lst_swipe_a", "Custom tab one"), custom("lst_swipe_b", "Custom tab two"), custom("lst_swipe_c", "Custom tab three")] });
+    const ids = await run.page.evaluate(() => [...document.querySelectorAll("#app .topbar .tabs[role='tablist'] [role='tab']")].map((el) => el.getAttribute("data-tab")));
+    if (ids.indexOf("list:lst_swipe_a") !== 2 || ids.indexOf("list:lst_swipe_b") !== 3) fail("custom tabs are not right after Following " + JSON.stringify(ids));
+    const visible = (want) => run.page.evaluate((tab) => {
+      const list = document.querySelector("#app .topbar .tabs[role='tablist']");
+      const el = list && list.querySelector("[role='tab'][data-tab='" + tab + "']");
+      if (!el) return false;
+      const a = list.getBoundingClientRect();
+      const b = el.getBoundingClientRect();
+      return b.left >= a.left - 1 && b.right <= a.right + 1;
+    }, want);
+    for (const want of ["following", "list:lst_swipe_a", "list:lst_swipe_b", "list:lst_swipe_c"]) {
+      await drag(run.cdp, [320, y], [80, y + 4], 8, 0);
+      await release(run.cdp);
+      if (!(await waitTab(run.page, want))) fail("swipe did not open " + want + " " + JSON.stringify(await run.page.evaluate(STATE)));
+      await sleep(700);
+      if (!(await visible(want))) fail("open tab " + want + " is not scrolled into view on the tab strip");
+    }
+    // Swiping right goes back to the previous custom tab.
+    await drag(run.cdp, [80, y], [330, y], 6, 0);
+    await release(run.cdp);
+    if (!(await waitTab(run.page, "list:lst_swipe_b"))) fail("a right swipe did not go back one custom tab");
+    if (run.errors.length) fail("page errors: " + run.errors.join(" | "));
     await run.context.close();
 
     // The owner switch turns it off.
