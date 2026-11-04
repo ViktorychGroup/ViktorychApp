@@ -3303,6 +3303,9 @@ button.show-replies {
 }
 .pill svg, .yt-c-likes svg { width: 18px; height: 18px; fill: currentColor; }
 .pill.on { color: var(--link, var(--blue)); }
+.pill:active, .follow:active, .fab:active, .post-btn:active, .pill.is-pressed, .follow.is-pressed, .fab.is-pressed, .post-btn.is-pressed {
+  transform: scale(0.92);
+}
 .pill-group .pill { background: transparent; border-radius: 0; }
 .pill-group .pill + .pill { border-left: 1px solid var(--line); }
 .desc { background: var(--search); border-radius: 12px; padding: 12px; margin-top: 8px; }

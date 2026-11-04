@@ -21734,6 +21734,14 @@ if (STATE.histClear) {
     }
   }
 
+  /* A like, follow, repost or compose tap paints its new state on this frame.
+     The full page rebuild waits for the next one, so the press is not stuck
+     behind that work. */
+  function deferPaint(run) {
+    const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+    raf(() => { try { run(); } catch (err) { /* the control already shows the tap */ } });
+  }
+
   function render(opts) {
     if (!routeDomReady && parseRoute().name !== "home") {
       followRoute();
@@ -22451,21 +22459,25 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "compose") {
-      STATE.composeVia = "app";
-      STATE.modal = "compose";
-      if (window.ViktorychXCompose && window.ViktorychXCompose.preparePost) window.ViktorychXCompose.preparePost(STATE.composeSeed || "");
-      const drafts = window.ViktorychLocal;
-      if (!STATE.composeSeed && drafts && drafts.readDoc) {
-        drafts.readDoc("drafts", "compose").then((saved) => {
-          const text = saved && saved.text ? String(saved.text) : "";
-          if (STATE.modal === "compose" && text && !STATE.composeSeed) {
-            STATE.composeSeed = text;
-            if (window.ViktorychXCompose && window.ViktorychXCompose.preparePost) window.ViktorychXCompose.preparePost(text);
-            render();
-          }
-        }).catch(() => {});
-      }
-      render();
+      el.classList.add("is-pressed");
+      /* The composer is a full paint. Show the press on this frame, then open. */
+      deferPaint(() => {
+        STATE.composeVia = "app";
+        STATE.modal = "compose";
+        if (window.ViktorychXCompose && window.ViktorychXCompose.preparePost) window.ViktorychXCompose.preparePost(STATE.composeSeed || "");
+        const drafts = window.ViktorychLocal;
+        if (!STATE.composeSeed && drafts && drafts.readDoc) {
+          drafts.readDoc("drafts", "compose").then((saved) => {
+            const text = saved && saved.text ? String(saved.text) : "";
+            if (STATE.modal === "compose" && text && !STATE.composeSeed) {
+              STATE.composeSeed = text;
+              if (window.ViktorychXCompose && window.ViktorychXCompose.preparePost) window.ViktorychXCompose.preparePost(text);
+              render();
+            }
+          }).catch(() => {});
+        }
+        render();
+      });
       return;
     }
     if (act === "game-share") {
@@ -23207,7 +23219,9 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       }
       const on = ids.some((item) => isFollowed(item));
       if (!on && ids.length > 1 && window.FeedsPeople && window.FeedsPeople.pick && window.FeedsPeople.pick(ids, el)) return;
-      applyFollow(ids, !on);
+      el.classList.toggle("following", !on);
+      el.setAttribute("aria-pressed", !on ? "true" : "false");
+      deferPaint(() => applyFollow(ids, !on));
       return;
     }
     if (act && act.indexOf("pymk-") === 0 && window.ViktorychPYMK) {
@@ -23290,12 +23304,18 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "like" || act === "bookmark") {
-      toggleReaction(act, el.dataset.id);
+      const on = !el.classList.contains("on");
+      el.classList.toggle("on", on);
+      el.setAttribute("aria-pressed", on ? "true" : "false");
+      deferPaint(() => toggleReaction(act, el.dataset.id));
       return;
     }
     if (act === "repost") {
-      STATE.repostMenu = STATE.repostMenu === el.dataset.id ? null : el.dataset.id;
-      render();
+      el.classList.add("is-pressed");
+      deferPaint(() => {
+        STATE.repostMenu = STATE.repostMenu === el.dataset.id ? null : el.dataset.id;
+        render();
+      });
       return;
     }
     if (act === "repost-do") {
