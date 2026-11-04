@@ -316,8 +316,22 @@
       window.__homeFreshBoot = boot;
     })();
   </script>
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="customize.css">
+  <script>
+    /* Signed out, the landing is already painted from the inline styles.
+       The big site sheet must not hold that first paint. Signed in, it stays
+       render-blocking so the home shell does not flash unstyled. */
+    (function () {
+      var wall = document.documentElement.getAttribute("data-wall") === "1";
+      ["styles.css", "customize.css"].forEach(function (href) {
+        if (wall) document.write('<link rel="stylesheet" href="' + href + '" media="print" onload="this.media=\'all\'">');
+        else document.write('<link rel="stylesheet" href="' + href + '">');
+      });
+    })();
+  </script>
+  <noscript>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="customize.css">
+  </noscript>
   <script>
     (function () {
       try {

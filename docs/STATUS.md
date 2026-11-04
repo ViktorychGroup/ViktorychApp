@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `53ce5e57`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `f38acb31`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -20,7 +20,7 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
-**Current state.** Main is `53ce5e57` (the main tabs stay ready). This pull request loads the music player only when music is opened, or when a song is already queued. The player itself is unchanged. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
+**Current state.** Main is `f38acb31` (music loads when it is opened). This pull request lets the signed-out landing paint without waiting for the big site stylesheet. Signed-in visits still block on that sheet so the home shell does not flash. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
 
 ## Speed log
 
@@ -29,7 +29,8 @@ Desktop, CPU slowed 4×, unless a row says otherwise. Each row is the change tha
 | Change | Before | After |
 | --- | --- | --- |
 | Main tabs, return | Explore 69ms, Notifications 75ms, Messages 52ms, Profile 74ms, Following 235ms, Communities 330ms. Scroll from that visit was not kept. | Explore 44ms, Notifications 34ms, Messages 39ms, Profile 43ms, Following 64ms, Communities 108ms. Explore, Notifications, Messages and Communities came back at 420px. Profile and Following settle at 96px, as they did before. |
-| Music code | `music.js` 125 KB, `ytm.js` 58 KB and `music.css` 27 KB (210 KB) download with every visit | Those files load when music is opened, or when a song is already queued so the mini player returns. The dock check passed on phone, desktop, tablet and landscape. |
+| Music code | `music.js` 125 KB, `ytm.js` 58 KB and `music.css` 27 KB (210 KB) download with every visit | Those files load when music is opened, or when a song is already queued so the mini player returns. The dock check passed on phone, desktop, tablet and landscape. Live at `f38acb31`. |
+| Signed-out first paint | Phone, 4G, CPU slowed 4×, live site: first paint and largest text 2.0s, the landing paragraph, layout shift 0. `styles.css` (273 KB) finished at 1.8s and held that paint. | The signed-out page no longer waits for `styles.css` or `customize.css`. On the same throttle locally, first paint was 1.9s and `styles.css` finished at 6.2s, so the paint was already up. Layout shift 0.015. Signed-in visits still wait for the sheet. |
 
 ## Version publish
 
