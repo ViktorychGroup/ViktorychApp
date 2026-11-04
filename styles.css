@@ -7691,6 +7691,56 @@ html[data-nav-layout="bar"] .topbar.compact-head.is-hidden { transform: translat
 .topbar.compact-head .story-shell { transition: opacity 0.18s ease, visibility 0s linear 0s; }
 .topbar.compact-head.is-hidden .mhead,
 .topbar.compact-head.is-hidden .story-shell { opacity: 0; visibility: hidden; transition: opacity 0.18s ease, visibility 0s linear 0.18s; }
+/* The header is one unit, like the X app: one translucent blurred background
+   behind the status strip, the avatar row, the tabs and the live pills row.
+   The pills row has no band of its own, and the tint is strong enough that
+   tab labels stay readable over any post or image scrolling underneath.
+   On the compact Home header the tint and blur sit on a layer behind the
+   content (::after), so when the header tucks away the layer can stop right
+   under the tab row (--keep-tabs-cut is set from JS): the pills row leaves
+   with the avatar row and no band is left floating over the posts. Its top
+   moves down as the header slides up, so the layer stays at the top edge and
+   never reaches far off screen (Chrome then drops the blur), and a clip-path
+   is not used because it turns the backdrop blur off in Chrome. */
+@media (max-width: 1279px) {
+  .topbar .sp-row-wrap { background: transparent; }
+  .topbar { background: rgba(0, 0, 0, 0.85); }
+  html[data-theme="default"] .topbar { background: rgba(255, 255, 255, 0.85); }
+  html[data-theme="dim"] .topbar { background: rgba(21, 32, 43, 0.85); }
+  html .topbar.compact-head { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .topbar.compact-head::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+    transition: top 0.2s ease, bottom 0.2s ease;
+  }
+  html[data-theme="default"] .topbar.compact-head::after { background: rgba(255, 255, 255, 0.85); }
+  html[data-theme="dim"] .topbar.compact-head::after { background: rgba(21, 32, 43, 0.85); }
+  html[data-flag] .topbar.compact-head::after { background: var(--flag-stripe) bottom / 100% 2px no-repeat, var(--topbar); }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  @media (max-width: 1279px) {
+    html[data-theme] .topbar.compact-head::after, .topbar.compact-head::after { background: var(--bg, #000); }
+  }
+}
+@media (prefers-reduced-motion: reduce) { .topbar.compact-head::after { transition: none; } }
+@media (max-width: 499px) {
+  .topbar.compact-head.is-hidden { pointer-events: none; }
+  .topbar.compact-head.is-hidden::after { top: var(--keep-tabs-y, 0px); bottom: var(--keep-tabs-cut, 0px); pointer-events: auto; }
+  .topbar.compact-head.is-hidden .tabs-bar { pointer-events: auto; }
+  .topbar.compact-head.is-hidden .sp-row-wrap { visibility: hidden; opacity: 0; }
+}
+html[data-nav-layout="bar"] .topbar.compact-head.is-hidden { pointer-events: none; }
+html[data-nav-layout="bar"] .topbar.compact-head.is-hidden::after { top: var(--keep-tabs-y, 0px); bottom: var(--keep-tabs-cut, 0px); pointer-events: auto; }
+html[data-nav-layout="bar"] .topbar.compact-head.is-hidden .tabs-bar { pointer-events: auto; }
+html[data-nav-layout="bar"] .topbar.compact-head.is-hidden .sp-row-wrap { visibility: hidden; opacity: 0; }
 
 /* Tab strips like the X app (every row: Home, profile, notifications, search,
    lists): bold label in the text colour on the active tab, gray labels on the

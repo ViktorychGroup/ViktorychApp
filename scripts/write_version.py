@@ -268,10 +268,10 @@ def selftest() -> None:
     assert previous_from_payload(None)["sha"] == ""
     live_sw = "c2b9cb0959b7a68187171bda4af3af0fd596d274"
     stale = "3a6f2de18453d5416d9ed99ab622047825a105db"
-    stamped = 'const VERSION = "viktorych-a279-' + live_sw + '";'
+    stamped = 'const VERSION = "viktorych-a280-' + live_sw + '";'
     assert worker_sha(stamped) == live_sw
     assert resolve_build_sha(stamped, stale) == live_sw
-    assert resolve_build_sha("const VERSION = \"viktorych-a279-__SW_VERSION__\";", live_sw) == live_sw
+    assert resolve_build_sha("const VERSION = \"viktorych-a280-__SW_VERSION__\";", live_sw) == live_sw
     print("write_version ok")
 
 

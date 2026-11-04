@@ -171,6 +171,34 @@ async function run(browser, origin, c) {
           tabsTop: tabs ? tabs.getBoundingClientRect().top : NaN,
           hid: bar.classList.contains("is-hidden"),
           topEl: el ? (bar.contains(el) ? "bar" : el.tagName + "." + String(el.className).slice(0, 40)) : "none",
+          /* The tab row's own backdrop: the first non-transparent background
+             from the tab row up to the header, and the backdrop filter there. */
+          ...(() => {
+            if (!tabs) return { tabsAlpha: NaN, tabsBf: "", tabsHit: true, below: false };
+            let alpha = 0, bf = "none";
+            for (let e = tabs; e && alpha === 0; e = e === bar ? null : e.parentElement) {
+              const cs = getComputedStyle(e);
+              const m = cs.backgroundColor.match(/rgba?\(([^)]+)\)/);
+              const parts = m ? m[1].split(/[ ,\/]+/).filter(Boolean) : [];
+              alpha = parts.length === 4 ? parseFloat(parts[3]) : (parts.length === 3 ? 1 : 0);
+              bf = cs.backdropFilter || cs.webkitBackdropFilter || "none";
+              /* The compact header keeps its tint on a layer behind it. */
+              if (alpha === 0 && e === bar) {
+                const after = getComputedStyle(bar, "::after");
+                const am = after.content !== "none" ? after.backgroundColor.match(/rgba?\(([^)]+)\)/) : null;
+                const ap = am ? am[1].split(/[ ,\/]+/).filter(Boolean) : [];
+                alpha = ap.length === 4 ? parseFloat(ap[3]) : (ap.length === 3 ? 1 : 0);
+                bf = after.backdropFilter || after.webkitBackdropFilter || "none";
+              }
+            }
+            const tr = tabs.getBoundingClientRect();
+            const visTop = Math.max(0, tr.top), visBottom = Math.min(innerHeight, tr.bottom);
+            const mid = Math.round((visTop + visBottom) / 2);
+            const onScreen = visBottom - visTop >= 2;
+            const hitTabs = onScreen ? document.elementFromPoint(Math.round(innerWidth / 2), mid) : null;
+            const hitBelow = onScreen ? document.elementFromPoint(Math.round(innerWidth / 2), Math.round(tr.bottom + 8)) : null;
+            return { tabsAlpha: alpha, tabsBf: bf, tabsHit: !onScreen || !!(hitTabs && bar.contains(hitTabs)), below: !!(hitBelow && bar.contains(hitBelow)), tabsBottom: tr.bottom };
+          })(),
           /* What shows in the safe-area strip above the tab row. */
           inset: (() => {
             const pad = parseFloat(getComputedStyle(bar).paddingTop) || 0;
@@ -219,6 +247,18 @@ async function run(browser, origin, c) {
   const settled = rec[down - 1];
   if (!c.classic && settled && settled.hid && Math.abs(settled.tabsTop - settled.pad) > 1) problems.push(`tucked compact header should leave the tab row at ${settled.pad}px, found ${settled.tabsTop}px`);
   if (!c.classic && settled && settled.hid && settled.inset) problems.push(`tucked compact header still shows ${settled.inset} in the safe-area strip above the tabs`);
+  /* Every frame: the tab row has a solid-enough background of its own (the
+     header's tint at 80% or more), so labels stay readable over any post. */
+  const thin = rec.find((f) => !(f.tabsAlpha >= 0.8));
+  if (thin) problems.push(`tab row background is too transparent (alpha ${thin.tabsAlpha}, backdrop ${thin.tabsBf}) at scrollY ${thin.y}`);
+  const covered = rec.find((f) => !f.tabsHit);
+  if (covered) problems.push(`something covers the tab row at scrollY ${covered.y}`);
+  /* Every frame with the compact header tucked and the tabs pinned: nothing of
+     the header (the pills row) shows under the tab row over the posts. */
+  if (!c.classic) {
+    const band = rec.find((f) => f.hid && Math.abs(f.tabsTop - f.pad) <= 1 && f.below);
+    if (band) problems.push(`tucked compact header still shows a band under the tab row (below ${band.tabsBottom}px) at scrollY ${band.y}`);
+  }
   const last = rec[rec.length - 1];
   if (last.hid) problems.push("header did not come back on the way up");
   return { label, problems, rest: Math.round(rest.h), frames: rec.length };
