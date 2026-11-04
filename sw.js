@@ -4,7 +4,7 @@ const VERSION = "viktorych-a279-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-04T04:22:30.000Z-scroll-idle
+// cache-bust: 2026-11-04T04:55:00.000Z-peer-race
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -1141,17 +1141,9 @@ async function serveMedia(request, extraHeaders) {
       }
     } catch (err) { /* Cache Storage is the fallback */ }
   }
-  const asked = await askPeer(request);
-  if (asked && asked.bytes && !asked.skip) {
-    const peerHit = peerResponseFrom(asked, request);
-    if (peerHit) {
-      const dbPeer = await idb();
-      if (!asked.counted) await self.ViktorychStorage.bump(dbPeer, "peerBytes", peerHit.headers.get("content-length"));
-      await rememberPeer(request, peerHit.clone());
-      return peerHit;
-    }
-  }
-  const countOrigin = !!(asked && asked.miss && !asked.skip);
+  /* Ask a nearby peer, but do not wait for it before the saved copy or
+     the CDN. The first good answer is the one that plays. */
+  const peerTask = askPeer(request);
   const cache = await caches.open(MEDIA);
   const fullReq = new Request(request.url, { method: "GET" });
   const db = await idb();
@@ -1197,7 +1189,29 @@ async function serveMedia(request, extraHeaders) {
   try {
     const authed = headers.has("Authorization");
     if (authed && rangeHeader) headers.set("Range", rangeHeader);
-    const res = await fetchMediaOrigin(request, headers, authed);
+    const originTask = fetchMediaOrigin(request, headers, authed).then((res) => ({ res: res }), (err) => ({ err: err }));
+    const peerWrap = peerTask.then((asked) => {
+      if (!(asked && asked.bytes && !asked.skip)) return null;
+      const peerHit = peerResponseFrom(asked, request);
+      return peerHit ? { peerHit: peerHit, asked: asked } : null;
+    }).catch(() => null);
+    let winner = await Promise.race([
+      peerWrap.then((hit) => hit || originTask),
+      originTask
+    ]);
+    if (winner && typeof winner.then === "function") winner = await winner;
+    if (winner && winner.peerHit) {
+      const dbPeer = await idb();
+      if (!winner.asked.counted) await self.ViktorychStorage.bump(dbPeer, "peerBytes", winner.peerHit.headers.get("content-length"));
+      await rememberPeer(request, winner.peerHit.clone());
+      originTask.then((out) => {
+        const late = out && out.res;
+        if (late && late.body && late.body.cancel) late.body.cancel();
+      }).catch(() => {});
+      return winner.peerHit;
+    }
+    if (winner && winner.err) throw winner.err;
+    const res = winner && winner.res;
     const store = res && ((res.type === "opaque" && !corsPictureHost(request)) || self.ViktorychStorage.revalidateAction(res.status) === "store");
     if (store && !rangeHeader) {
       let inOpfs = false;
@@ -1217,13 +1231,27 @@ async function serveMedia(request, extraHeaders) {
         await rememberMedia(rangeKey, self.ViktorychStorage.byteLengthOf(res), self.ViktorychStorage.categoryOf(request.url), MEDIA);
       }
     }
-    if (countOrigin && res && (res.ok || res.status === 206)) {
-      await self.ViktorychStorage.bump(db, "originBytes", self.ViktorychStorage.byteLengthOf(res));
-      if (peerOn) teachOrigin(request, res);
+    if (res && (res.ok || res.status === 206)) {
+      const originLen = self.ViktorychStorage.byteLengthOf(res);
+      peerTask.then((asked) => {
+        if (!(asked && asked.miss && !asked.skip)) return;
+        self.ViktorychStorage.bump(db, "originBytes", originLen);
+        if (peerOn) teachOrigin(request, res);
+      }).catch(() => {});
     }
     if (res) broadcast({ type: "storage-online" });
     return res;
   } catch (err) {
+    const asked = await peerTask.catch(() => null);
+    if (asked && asked.bytes && !asked.skip) {
+      const peerHit = peerResponseFrom(asked, request);
+      if (peerHit) {
+        const dbPeer = await idb();
+        if (!asked.counted) await self.ViktorychStorage.bump(dbPeer, "peerBytes", peerHit.headers.get("content-length"));
+        await rememberPeer(request, peerHit.clone());
+        return peerHit;
+      }
+    }
     if (cached) {
       broadcast({ type: "storage-offline" });
       if (rangeHeader) {

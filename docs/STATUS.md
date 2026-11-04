@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `b26f12bf`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `4dbba231`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -20,7 +20,7 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
-**Current state.** Main is `b26f12bf` (each account keeps its own saved home). This pull request keeps a large response body and the persistent-storage request off the scroll. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
+**Current state.** Main is `4dbba231` (feed body reads and the storage permission stay off the scroll). This pull request starts a public media segment from a nearby peer at the same time as the CDN, and a copy already on the device is returned without waiting for that peer. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
 
 ## Speed log
 
@@ -35,7 +35,8 @@ Desktop, CPU slowed 4×, unless a row says otherwise. Each row is the change tha
 | Like, repost, follow, compose | The new state waited for a full page redraw inside the tap. | The control flips (or presses) before that redraw. The redraw runs on the next frame. |
 | Open a post or profile | A post was rebuilt on every return. A profile fetch started at the click. | Leaving a post keeps that page and puts it back, same as the main tabs. A profile link starts its fetch on hover or touch. Live at `93c99f1a`. |
 | Saved home, per account | Phone, CPU slowed 4×. The last account's home was painted for the next account on the device (the restored screen included that home). Same-account warm open, feed held 3s: content at 203ms. | The other account does not get that screen. Same-account warm open, feed held 3s: content at 166ms. Route copies are stored per account. IndexedDB still fills them in and the page paints when that copy arrives. Sign-out still wipes the store. Likes, reposts, follows and posts still apply immediately and retry from the outbox when online. |
-| Scroll, remaining long tasks | Phone, CPU slowed 4×. During a scroll the feed response body read took 112ms and persistent storage took about 80ms. Worst frame 118ms (58ms blocking). | Those two wait until scrolling is quiet or the thread is idle. Worst frame in the same scroll was 83ms (18ms blocking). Longest app script 25ms. |
+| Scroll, remaining long tasks | Phone, CPU slowed 4×. During a scroll the feed response body read took 112ms and persistent storage took about 80ms. Worst frame 118ms (58ms blocking). | Those two wait until scrolling is quiet or the thread is idle. Worst frame in the same scroll was 83ms (18ms blocking). Longest app script 25ms. Live at `4dbba231`. |
+| Public media from a peer | A segment already saved on the device still waited for a peer reply before that copy was returned. The reply is given up to 700ms, and the CDN request started only after it. | The saved copy is returned without that wait. The CDN request starts while the peer is asked. The first good answer is used. Peer bytes stay the public segment files the page already checked by hash. A peer miss or a bad answer does not hold the CDN. |
 
 ## Version publish
 
