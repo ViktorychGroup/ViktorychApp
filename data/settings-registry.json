@@ -2100,6 +2100,17 @@
    "cat": "data",
    "sync": "account",
    "ai": false
+  },
+  {
+   "id": "notePrefsSet",
+   "label": "notePrefsSet",
+   "desc": "Internal app data.",
+   "type": "data",
+   "store": "state",
+   "key": "notePrefsSet",
+   "cat": "data",
+   "sync": "account",
+   "ai": false
   }
  ],
  "macros": [
