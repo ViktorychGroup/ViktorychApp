@@ -121,6 +121,7 @@ const PAGE_STEPS = [
     paths: [file("one_sidebar_test.mjs"), ...APP]
   }),
   step("title-privacy", "node scripts/title_privacy_test.mjs", { needs: ["pw", "browser"], paths: [file("title_privacy_test.mjs"), /^(tv|spaces|discord-ui|accounts)\.js$/, ...APP] }),
+  step("desktop-squares", "node scripts/desktop_squares_test.mjs", { needs: ["pw", "browser"], paths: [file("desktop_squares_test.mjs"), /^dock\.(js|css)$/, ...APP] }),
   step("privacy", "node scripts/privacy_lists_test.mjs", {
     weight: 30, needs: ["pw", "browser"],
     paths: [file("privacy_lists_test.mjs"), file("external_following_test.mjs"), /^privacy-screen\.js$/, ...APP]
@@ -223,7 +224,7 @@ const NAV_STEPS = [
 const SHARDS = {
   checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you"],
   site: ["about-layout", "points-layout", "stories-layout", "assemble-site", "smoke-site", "smoke-mirror", "yt-embed", "x-video", "ios", "live"],
-  "ui-fast": ["notifications", "pill-fit", "sidebar", "privacy", "title-privacy"],
+  "ui-fast": ["notifications", "pill-fit", "sidebar", "privacy", "title-privacy", "desktop-squares"],
   sw: ["sw-update"],
   "ui-profile": ["profile"],
   "ui-drawer": ["drawer"],
@@ -254,7 +255,7 @@ const REQUIRED_PAGE = [
   "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
   "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name",
-  "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy"
+  "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares"
 ];
 
 export function stepsFor(suite) {
