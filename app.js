@@ -26132,12 +26132,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         node.style.transform = "translate3d(" + travel + "px,0,0)";
       }
     }
-    let shift = 0;
-    if (target) {
-      const a = s.cur.getBoundingClientRect();
-      const b = swipeIndicator(s.list, target).getBoundingClientRect();
-      shift = ((b.left + b.width / 2) - (a.left + a.width / 2)) * Math.min(1, Math.abs(dx) / s.width);
-    }
+    // Tab centres were measured once when the drag locked, so a move only
+    // writes transforms and never forces a layout.
+    const gap = dx < 0 ? s.nextGap : s.prevGap;
+    const shift = target ? gap * Math.min(1, Math.abs(dx) / s.width) : 0;
     s.list.classList.add("swiping");
     s.list.style.setProperty("--swipe-ind", shift + "px");
   }
@@ -26153,8 +26151,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     swipe = null;
     if (!s || !s.locked) return;
     const dx = s.dx;
-    const dt = Math.max(1, Date.now() - s.t);
-    const fast = Math.abs(dx) / dt > 0.45 && Math.abs(dx) > 40;
+    // Velocity from the last ~100ms of the drag, so a slow drag that ends in
+    // a flick still snaps over, and a fast start that stops does not.
+    const now = Date.now();
+    const list = s.samples;
+    let k = list.length - 1;
+    while (k > 0 && now - list[k - 1].t <= 100) k -= 1;
+    if (k === list.length - 1 && k > 0) k -= 1;
+    const first = list[k] || { x: 0, t: s.t };
+    const v = (dx - first.x) / Math.max(16, now - first.t);
+    const fast = Math.abs(v) > 0.45 && Math.abs(dx) > 30 && (v < 0) === (dx < 0);
     const target = dx < 0 ? s.next : s.prev;
     const go = !cancel && target && (Math.abs(dx) > s.width * 0.25 || fast);
     s.list.classList.remove("swiping");
@@ -26162,7 +26168,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (!go) { swipeReset(s.content, s.motion); return; }
     const finish = () => {
       swipeReset(s.content, false);
-      target.click();
+      swipeOpen(target);
+      // The tab strip is drawn again after the route changes; check again
+      // once it has been rebuilt and its saved scroll restored.
+      [0, 160, 450].forEach((ms) => setTimeout(swipeRevealTab, ms));
       if (!s.motion) return;
       /* The new tab's content comes in from the side it was pulled from. */
       requestAnimationFrame(() => {
@@ -26180,6 +26189,43 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     setTimeout(finish, 150);
   }
+  /* Keep the open tab in view on the tab strip after a swipe, so custom tabs
+     past the screen edge scroll in as they open. */
+  function swipeRevealTab() {
+    const list = swipeTablist();
+    if (!list) return;
+    const on = list.querySelector("[role='tab'][aria-selected='true']");
+    if (!on) return;
+    const box = swipeIndicator(list, on);
+    const lr = list.getBoundingClientRect();
+    const r = box.getBoundingClientRect();
+    const pad = 24;
+    let delta = 0;
+    if (r.left < lr.left + pad) delta = r.left - lr.left - pad;
+    else if (r.right > lr.right - pad) delta = r.right - lr.right + pad;
+    if (!delta) return;
+    const smooth = swipeMotion() ? "smooth" : "auto";
+    try { list.scrollBy({ left: delta, behavior: smooth }); } catch (err) { list.scrollLeft += delta; }
+  }
+  /* Open the tab the swipe landed on directly. A synthetic click right
+     after a touch drag is swallowed by the tap guards on some phones. */
+  function swipeOpen(target) {
+    if (target.getAttribute("data-act") === "htab" && target.dataset.tab) {
+      const tab = target.dataset.tab;
+      STATE.tabMenu = null;
+      homeRead = (SCROLLS["home:" + tab] || 0) >= 40;
+      goHash(homeHash(tab));
+      setTimeout(() => refreshHomeTabs([tab]), 0);
+      return;
+    }
+    const href = target.getAttribute("href");
+    if (href && href.charAt(0) === "#") { goHash(href); return; }
+    target.click();
+  }
+  function swipeCentre(el) {
+    const r = el.getBoundingClientRect();
+    return r.left + r.width / 2;
+  }
   document.addEventListener("touchstart", (event) => {
     swipe = null;
     if (event.touches.length !== 1 || window.innerWidth >= 1000 || !swipeTabsOn()) return;
@@ -26195,7 +26241,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const i = tabs.findIndex((tab) => tab.classList.contains("on") || tab.getAttribute("aria-selected") === "true");
     if (i < 0) return;
     swipe = {
-      x: t.clientX, y: t.clientY, dx: 0, t: Date.now(), locked: false,
+      x: t.clientX, y: t.clientY, dx: 0, t: Date.now(), locked: false, samples: [], prevGap: 0, nextGap: 0,
       list: list, cur: swipeIndicator(list, tabs[i]), prev: tabs[i - 1] || null, next: tabs[i + 1] || null,
       content: swipeContent(list), width: window.innerWidth, motion: swipeMotion()
     };
@@ -26213,9 +26259,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       s.locked = true;
       s.x = t.clientX;
       s.t = Date.now();
+      const here = swipeCentre(s.cur);
+      if (s.prev) s.prevGap = swipeCentre(swipeIndicator(s.list, s.prev)) - here;
+      if (s.next) s.nextGap = swipeCentre(swipeIndicator(s.list, s.next)) - here;
     }
     if (event.cancelable) event.preventDefault();
     s.dx = t.clientX - s.x;
+    s.samples.push({ x: s.dx, t: Date.now() });
+    if (s.samples.length > 12) s.samples.shift();
     swipePaint(s.dx);
   }, { passive: false });
   document.addEventListener("touchend", () => swipeEnd(false), { passive: true });
@@ -30764,6 +30815,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         if (startX < 28 && dx > 72) history.back();
         return;
       }
+      // The tab swipe below handles every Home tab (custom tabs too); this
+      // older two-tab swipe would send a custom tab back to Following.
+      if (swipeTabsOn() && window.innerWidth < 1000) return;
       const tab = route.tab === "following" ? "following" : "foryou";
       if (dx < 0 && tab === "foryou") goHash(homeHash("following"));
       else if (dx > 0 && tab === "following") goHash(homeHash("foryou"));
