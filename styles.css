@@ -5842,6 +5842,9 @@ header.nav.nav-land { display: none; }
   }
   .nav.nav-land .nav-land-more > summary { list-style: none; cursor: pointer; }
   .nav.nav-land .nav-land-more > summary::-webkit-details-marker { display: none; }
+  /* The overflow menu must sit above a bottom achievement alert.
+     The bar itself stays under that alert until the menu is open. */
+  .nav.nav-land:has(.nav-land-more[open]) { z-index: 120; }
   .nav.nav-land .nav-land-menu {
     position: absolute;
     left: calc(100% + 8px);
