@@ -6816,9 +6816,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     blockHashes = null;
     blockReasons = new WeakMap();
     publishBlockHeader();
-    if (blockChannel) { try { blockChannel.postMessage(blockVersion); } catch (err) { /* the storage event still reaches other tabs */ } }
+    if (blockChannel) { try { blockChannel.postMessage({ tab: blockTab, v: blockVersion }); } catch (err) { /* the storage event still reaches other tabs */ } }
   }
   var blockChannel = null;
+  var blockTab = Math.random().toString(36).slice(2);
   try { blockChannel = typeof BroadcastChannel === "function" ? new BroadcastChannel("viktorych-blocks") : null; } catch (err) { blockChannel = null; }
   if (typeof window.addEventListener === "function") window.addEventListener("viktorych-blocks", () => { blocksChanged(); if (STATE.settings) render({ y: window.scrollY }); });
 
@@ -6993,7 +6994,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (event.key === BLOCK_HEADER_KEY && event.newValue === (window.__viktorychBlockHeader || null)) return;
     applyBlocksFromDisk();
   });
-  if (blockChannel) blockChannel.addEventListener("message", () => applyBlocksFromDisk());
+  if (blockChannel) blockChannel.addEventListener("message", (event) => {
+    if (event.data && event.data.tab === blockTab) return;
+    applyBlocksFromDisk();
+  });
 
   function sameThread(parent, child) {
     if (!parent || !child) return false;
