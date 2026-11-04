@@ -6816,6 +6816,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     blockHashes = null;
     blockReasons = new WeakMap();
     publishBlockHeader();
+    if (blockChannel) { try { blockChannel.postMessage({ tab: blockTab, v: blockVersion }); } catch (err) { /* the storage event still reaches other tabs */ } }
+  }
+  var blockChannel = null;
+  var blockTab = Math.random().toString(36).slice(2);
+  if (typeof document !== "undefined" && typeof BroadcastChannel === "function") {
+    try { blockChannel = new BroadcastChannel("viktorych-blocks"); } catch (err) { blockChannel = null; }
   }
   if (typeof window.addEventListener === "function") window.addEventListener("viktorych-blocks", () => { blocksChanged(); if (STATE.settings) render({ y: window.scrollY }); });
 
@@ -6963,11 +6969,11 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return !!(b && b.types && (b.types[account] || []).indexOf(kind) >= 0);
   }
 
-  /* Another tab changed the rules: apply them here at once. */
-  if (typeof window.addEventListener === "function") window.addEventListener("storage", (event) => {
-    if (!event || !STATE.settings) return;
-    if (event.key !== BLOCK_HEADER_KEY && event.key !== storeName("settings-v1")) return;
-    if (event.key === BLOCK_HEADER_KEY && event.newValue === (window.__viktorychBlockHeader || null)) return;
+  /* Another tab changed the rules: apply them here at once. The storage
+     event is the fallback. A sync echo used to replace the new block list
+     before that event landed, so the other tab kept the posts. */
+  function applyBlocksFromDisk() {
+    if (!STATE.settings) return;
     let next = null;
     try { next = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { next = null; }
     if (!next) return;
@@ -6983,6 +6989,16 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     blockReasons = new WeakMap();
     window.__viktorychBlockHeader = blockHeader();
     render({ y: window.scrollY });
+  }
+  if (typeof window.addEventListener === "function") window.addEventListener("storage", (event) => {
+    if (!event || !STATE.settings) return;
+    if (event.key !== BLOCK_HEADER_KEY && event.key !== storeName("settings-v1")) return;
+    if (event.key === BLOCK_HEADER_KEY && event.newValue === (window.__viktorychBlockHeader || null)) return;
+    applyBlocksFromDisk();
+  });
+  if (blockChannel) blockChannel.addEventListener("message", (event) => {
+    if (event.data && event.data.tab === blockTab) return;
+    applyBlocksFromDisk();
   });
 
   function sameThread(parent, child) {

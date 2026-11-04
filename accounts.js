@@ -2964,13 +2964,18 @@ var numberNote = form.passkey
     return api("/v1/sync", { method: "PUT", token: session.token, body: { payload: payload, baseUpdatedAt: base || 0, device: syncDeviceId() } }).then(function (body) {
       pushing = false;
       if (body.status === 409 && body.payload) {
-        var merged = mergePayload(payload, body.payload);
+        var merged = mergePayload(localSnapshot(), body.payload);
         applySnapshot(merged);
         return pushPayload(merged, body.updatedAt);
       }
       if (body.status === 200) {
         rememberSync(body.updatedAt);
-        applySnapshot(body.payload || payload);
+        /* The server echoes the body we sent. Writing that copy back drops
+           a block or other edit made while the request was in flight, so
+           another open tab never sees it. Merge with what is on disk now;
+           a newer block list wins. */
+        var echoed = body.payload || payload;
+        applySnapshot(mergePayload(localSnapshot(), echoed));
       }
     }).catch(function () { pushing = false; });
   }

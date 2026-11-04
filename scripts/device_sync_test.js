@@ -45,6 +45,16 @@ let merged = accounts.mergePayload(
   { homePills: true, stories: false, prefsAt: { homePills: 150, stories: 300 } }
 );
 assert.equal(merged.homePills, false, "local pills choice is newer");
+const keptBlocks = accounts.mergePayload(
+  { blocks: { at: 50, accounts: ["x:sample_old"], posts: [], sources: [], types: {} } },
+  { blocks: { at: 10, accounts: [], posts: [], sources: [], types: {} } }
+);
+assert.deepEqual(keptBlocks.blocks.accounts, ["x:sample_old"], "a newer local block list beats the copy a sync echo sends back");
+const remoteBlocks = accounts.mergePayload(
+  { blocks: { at: 10, accounts: [], posts: [], sources: [], types: {} } },
+  { blocks: { at: 80, accounts: ["x:sample_other"], posts: [], sources: [], types: {} } }
+);
+assert.deepEqual(remoteBlocks.blocks.accounts, ["x:sample_other"], "a newer block list from another device still wins");
 assert.equal(merged.stories, false, "remote stories choice is newer");
 assert.deepEqual(JSON.parse(JSON.stringify(merged.prefsAt)), { homePills: 200, stories: 300 });
 
