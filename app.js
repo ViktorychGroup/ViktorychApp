@@ -20566,6 +20566,14 @@ if (STATE.histClear) {
     if (html.length < 150000 && !/type="password"|<script/i.test(html)) local.saveRoute(key, html);
     return html;
   }
+  window.addEventListener("viktorych-route", () => {
+    if (lfLive) return;
+    const local = window.ViktorychLocal;
+    const key = String(location.hash || "#/").slice(0, 300);
+    const saved = local && local.readRoute ? local.readRoute(key) : "";
+    if (!saved) return;
+    render({ y: window.scrollY || 0 });
+  });
   window.ViktorychRouteSnap = { loading: routeLoading };
 
   function view(route) {
