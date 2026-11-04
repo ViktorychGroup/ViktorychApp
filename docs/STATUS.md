@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `feb0850b`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `d0e902aa`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -82,11 +82,17 @@ The fresh-login report (feeds and tabs missing after a first login on a reinstal
 
 On a phone, the Home header has no app name: the drawer button (your picture) on the left and a sparkle on the right that opens Local AI (`#/ai`; it opens Settings when Local AI is off for everyone). When the header slides away on scroll, only the part above the tabs leaves, so the tab row (and the pills under it) stays pinned at the top under the status bar (`--keep-tabs-y`, set in `paintChromeHidden`). Display settings has **Classic header** (app name in the middle, Settings on the right, the whole bar slides away) and **Show phone status bar** (`statusBar`): the installed app's `theme-color` is the theme colour (light `#FFFFFF`, dim `#15202B`, dark `#000000`) instead of `transparent`, the Full screen switch hides, and the reinstall-for-full-screen card is not offered. Owner switches `compact_header` (off = classic header for everyone) and `status_bar` (off hides the option). Test: `scripts/compact_header_test.mjs` in the `nav-layout` shard.
 
+Header size is fixed: at rest it is one status-bar inset plus the avatar row, the tab row and the pills; scrolled down only the avatar row leaves (it fades so it does not peek through behind the status bar) and the tab row sits right under the status bar. Every top inset in `styles.css` reads `var(--sat, env(safe-area-inset-top, 0px))`. `applySafeTop()` (called from `applyTheme`, again on resize, orientation, full-screen and display-mode changes) sets `--sat` only when `env()` disagrees with where the page is: an installed app that Chrome placed below the status bar (the page is no taller than `screen.availHeight`) gets `--sat: 0px`, `data-sat-below` on `<html>` and the theme colour as `theme-color` instead of `transparent`, so there is no second gap and no grey band; an inset taller than all system bars together is capped. Test: `scripts/header_stable_test.mjs` (`header-stable`, `nav-layout` shard) checks rest and scrolled heights across resize, landscape, inset changes and installed modes.
+
 Android limitation: an app installed in `fullscreen` display mode cannot show the system status bar; no web API brings it back, and an installed app cannot change its own display mode. With the setting on, the bar shows in a browser tab and in apps installed as `standalone`; on an older full-screen install the user has to open the app from the browser or reinstall it. On iOS the status bar is always shown, and `black-translucent` (fixed when the app is added to the Home Screen) keeps drawing the page behind it, so the setting changes only the colour where the browser uses `theme-color`.
 
 ## Pinch-zoom lock
 
 On phones the page does not zoom, like an installed app: the viewport meta adds `maximum-scale=1, user-scalable=no` (set in `index.html` and kept in step by `applyZoomLock()` from `applyTheme`), iOS Safari's `gesturestart`/`gesturechange` are cancelled (it ignores `user-scalable=no`), and double-tap zoom stays off through `touch-action: manipulation` on `html, body`. The photo viewer zooms pictures itself (two-finger pinch on `#viewer-img`), so photos still zoom. Every text field is at least 16px on phones so iOS never zooms in on focus; the fields that were 13 to 15px (Settings, Messages and History search, Feeds, the presence form and audiences) get 16px from one rule at the end of `styles.css`. Display settings has **Allow page zoom** (`pageZoom`) to turn the lock off for one person; the owner switch `zoom_lock` turns it off for everyone and hides the setting. Test: `scripts/zoom_lock_test.mjs` in the `nav-layout` shard.
+
+## Storage permission notice
+
+"This browser may clear saved posts" (`persist-denied` in `setting-alerts.js`) is a notice only (`noPop`): it is kept in Notifications and Storage settings but never pops out over the page. Since #558 asks for persistent storage once scrolling is quiet, a fresh browser tab got the info pop-out within seconds of the first visit, on top of sign-up; on CI it covered buttons and broke `shard-signup-flows` on main. Test: `scripts/setting_alerts_test.js`.
 
 ## Posts under the bars
 

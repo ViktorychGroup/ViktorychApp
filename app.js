@@ -26711,6 +26711,68 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }, { passive: false });
   });
 
+  // One top inset for the whole page. CSS reads var(--sat, env(safe-area-inset-top)).
+  // An installed Android app is drawn under the status bar only when Chrome
+  // honours viewport-fit=cover; when it does not, the page starts below the bar
+  // while env() can still report the bar's height, which gives a second gap
+  // (a solid band over the header). The page's own height against the screen
+  // tells the two apart: under the bar the page is taller than the free area.
+  function safeTopProbe() {
+    let el = document.getElementById("sat-probe");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "sat-probe";
+      el.setAttribute("aria-hidden", "true");
+      el.style.cssText = "position:fixed;left:0;top:0;width:0;height:env(safe-area-inset-top,0px);visibility:hidden;pointer-events:none";
+      document.body.appendChild(el);
+    }
+    return el.getBoundingClientRect().height || 0;
+  }
+
+  function applySafeTop(installed) {
+    const root = document.documentElement;
+    if (!document.body) return false;
+    const env = safeTopProbe();
+    const scr = window.screen || {};
+    const full = Number(scr.height) || 0;
+    const free = Number(scr.availHeight) || 0;
+    const page = window.innerHeight || 0;
+    const landscape = (window.innerWidth || 0) > page;
+    let sat = null;
+    let below = false;
+    if (installed && env > 0 && !document.fullscreenElement && !landscape && full && free && free < full - 1 && page <= free + 1) {
+      sat = 0;
+      below = true;
+    } else if (installed && env > 0 && full && free && free < full - 1 && !landscape) {
+      const room = full - free;
+      if (env > room + 1) sat = room;
+    }
+    if (sat == null) root.style.removeProperty("--sat");
+    else root.style.setProperty("--sat", sat + "px");
+    if (below) root.setAttribute("data-sat-below", "1");
+    else root.removeAttribute("data-sat-below");
+    if (!applySafeTop.bound) {
+      applySafeTop.bound = true;
+      let queued = 0;
+      const again = () => {
+        if (queued) return;
+        queued = requestAnimationFrame(() => { queued = 0; const was = applySafeTop.below; if (applySafeTop(installedApp()) !== was) applyTheme(); });
+      };
+      window.addEventListener("resize", again, { passive: true });
+      window.addEventListener("orientationchange", again, { passive: true });
+      document.addEventListener("fullscreenchange", again);
+      ["(display-mode: standalone)", "(display-mode: fullscreen)", "(display-mode: window-controls-overlay)"].forEach((query) => {
+        try { window.matchMedia(query).addEventListener("change", again); } catch (err) { /* old engines have no change event */ }
+      });
+    }
+    applySafeTop.below = below;
+    return below;
+  }
+
+  function installedApp() {
+    return !!(window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) || window.navigator.standalone);
+  }
+
   function applyTheme() {
     const theme = resolvedTheme();
     if (THEMES.apply) THEMES.apply(theme);
@@ -26719,8 +26781,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     else document.documentElement.removeAttribute("data-ava-shape");
     applyNavLayout();
     applyZoomLock();
-    const installed = window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) || window.navigator.standalone;
-    const color = installed && !statusBarOn() ? "transparent" : (THEME_COLORS[theme] || "#000000");
+    const installed = installedApp();
+    const below = applySafeTop(!!installed);
+    const color = installed && !statusBarOn() && !below ? "transparent" : (THEME_COLORS[theme] || "#000000");
     if (statusBarOn()) document.documentElement.setAttribute("data-status-bar", "1");
     else document.documentElement.removeAttribute("data-status-bar");
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", color));

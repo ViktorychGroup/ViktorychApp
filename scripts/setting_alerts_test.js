@@ -393,6 +393,14 @@ const popsOf = (t, id) => t.shows.filter((s) => s.id === id);
   assert.equal(t.ach.popCurrent().variant, "critical", "critical shows in quiet hours, at the custom 90%");
 }
 
+// Persistent storage refused: a notice in the log only, never a pop-out.
+{
+  const t = setup({ at: new Date(2026, 9, 5, 12, 0, 0).getTime(), prefs: { autoOpen: false } });
+  t.sa.evaluate({ "persist-denied": { level: "info", vars: {} } });
+  assert.equal(t.shows.length, 0, "persist-denied does not pop out");
+  assert(t.sa.state().log.some((e) => e.id === "persist-denied"), "persist-denied stays as a notice");
+}
+
 // Data cap meter, fast burn, and alerts reported by other parts of the app.
 {
   const t = setup({ at: new Date(2026, 9, 5, 12, 0, 0).getTime(), prefs: { autoOpen: false } });
