@@ -20367,6 +20367,19 @@ if (STATE.histClear) {
   function ensureLazy(name) {
     if (window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure(name);
   }
+  /* A saved queue means the mini player was open. Load the player for that,
+     and for the music page. Every other visit leaves the files alone. */
+  function musicSessionOpen() {
+    try {
+      const data = JSON.parse(localStorage.getItem("viktorych-music-now-v1") || "null");
+      return !!(data && Array.isArray(data.queue) && data.queue.length);
+    } catch (err) { return false; }
+  }
+  function ensureMusic() {
+    if (window.SIntelMusic || !window.ViktorychLazy || !window.ViktorychLazy.ensure) return;
+    const page = parseRoute().name === "music";
+    window.ViktorychLazy.ensure("music", !page);
+  }
   /* #/messages/s/… and #/messages/join/… belong to the app's own servers (servers-ui.js). */
   function nativeServerHash(hash) {
     return /^#\/messages\/(?:s|join)\//.test(hash || "");
@@ -20503,7 +20516,11 @@ if (STATE.histClear) {
   window.ViktorychRouteSnap = { loading: routeLoading };
 
   function view(route) {
-    if (route.name === "music") return (window.SIntelMusic && window.SIntelMusic.page(route)) || pageHead(productName("music")) + emptyBlock(tr("{music} isn’t available", { music: productName("music") }), tr("Reload the page."));
+    if (route.name === "music") {
+      if (window.SIntelMusic && window.SIntelMusic.page) return window.SIntelMusic.page(route);
+      ensureMusic();
+      return lazySkeleton(productName("music"));
+    }
     if (route.name === "contacts") {
       if (!featureOn("contacts")) return pageHead(tr("Contacts")) + emptyBlock(tr("Contacts"), tr("Contacts is turned off right now."));
       if (window.ViktorychContacts) return window.ViktorychContacts.page(route);
@@ -31192,6 +31209,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const info = event.detail || {};
     if (info.name === "shorts") bindShortsModule();
     if (info.name === "communities") bindCommunitiesModule();
+    if (info.name === "music" && window.SIntelMusic) {
+      if (window.SIntelMusic.install) window.SIntelMusic.install(PATH);
+      bindShellModules(false);
+      if (window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(parseRoute());
+    }
     if (!info.silent || (info.name === "servers" && parseRoute().name === "messages")) render();
   });
   setTimeout(deviceHello, 6000);
@@ -31204,6 +31226,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
      still skips it. Opening Shorts still paints, because that call is not
      quiet. */
   if (window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure("shorts", true);
+  if (musicSessionOpen() || parseRoute().name === "music") ensureMusic();
   setTimeout(() => {
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();
