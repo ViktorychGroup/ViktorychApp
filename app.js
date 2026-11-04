@@ -243,12 +243,26 @@
   const FLAG_THEME_IDS = Object.keys(THEMES.flags || {});
 
   const SILHOUETTE_SVG = `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-2.67 0-8 1.34-8 4v1h16v-1c0-2.66-5.33-4-8-4z"/></svg>`;
+  /* X-style line icons: drawn with a stroke, never filled, so a closed folder,
+     Profile, Friends, Feeds and the post button read as outlines like X. */
+  const XLINE = {
+    folder: `<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 9.7v8.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>`,
+    folderOpen: `<path d="M3 18V7.5A1.5 1.5 0 0 1 4.5 6h4.6l2 2.2h7.4A1.5 1.5 0 0 1 20 9.7V11"/><path d="M3.2 18.6 5.8 12a1.5 1.5 0 0 1 1.4-1h13.4a1 1 0 0 1 .9 1.4l-2.6 6.7a1.5 1.5 0 0 1-1.4.9H4.5a1.4 1.4 0 0 1-1.3-1.4z"/>`,
+    profile: `<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c.6-3.9 3.6-6.3 7.5-6.3s6.9 2.4 7.5 6.3z"/>`,
+    friends: `<circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 20c.5-3.4 3.1-5.5 6.5-5.5s6 2.1 6.5 5.5z"/><path d="M15.5 5.2a3.5 3.5 0 0 1 0 6.6"/><path d="M17.8 14.6c2 .7 3.4 2.6 3.7 5.4"/>`,
+    feeds: `<path d="M12 3 2.8 8 12 13l9.2-5z"/><path d="m2.8 12 9.2 5 9.2-5"/><path d="m2.8 16 9.2 5 9.2-5"/>`,
+    compose: `<path d="M3.5 7h6M6.5 4v6"/><path d="M17 5.2a2.1 2.1 0 0 1 3 3L10.4 17.8 6.5 19l1.2-3.9z"/><path d="m15.3 6.9 3 3"/>`
+  };
+  /* The Viktorychs coin: black inside, white lines, a thin rim so it still shows on dark themes. */
+  const COIN_SVG = `<svg class="vk-coin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.6" fill="#000" stroke="rgba(255,255,255,.45)" stroke-width="1"/><circle cx="12" cy="12" r="7.8" fill="none" stroke="#fff" stroke-width="1" opacity=".6"/><path d="M8.7 8.3 12 15.9l3.3-7.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const icon = (name) => name === "clock"
     ? `<svg class="clock" viewBox="0 0 24 24" aria-hidden="true">${LINE.clock}</svg>`
+    : name === "coin" ? COIN_SVG
+    : XLINE[name] ? `<svg class="xline" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${XLINE[name]}</g></svg>`
     : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PATH[name] || ""}"/></svg>`;
   if (window.SIntelMusic && window.SIntelMusic.install) window.SIntelMusic.install(PATH);
   // Shared with feature modules so their icons come from the same set as the app.
-  window.ViktorychIcons = { has: (name) => !!PATH[name], svg: (name) => (PATH[name] || name === "clock" ? icon(name) : "") };
+  window.ViktorychIcons = { has: (name) => !!(PATH[name] || XLINE[name]) || name === "coin", svg: (name) => (PATH[name] || XLINE[name] || name === "clock" || name === "coin" ? icon(name) : "") };
   const LINE = {
     clock: `<circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l2.8 1.7"/>`,
     lock: `<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>`,
@@ -10542,9 +10556,9 @@ const here = parseRoute();
         return { id, href: sec.href, icon: sec.icon, label, active: (r) => r.name === "messages" && !!(inbox && inbox.navActive && inbox.navActive(id, location.hash)), visible: () => !!(inbox && inbox.navVisible && inbox.navVisible(id)) };
       }
       case "online":
-        return { id: "online", href: "#/online", icon: "user", label: tr("Friends"), barLabel: tr("Online"), active: (r) => r.name === "online" };
+        return { id: "online", href: "#/online", icon: "friends", label: tr("Friends"), barLabel: tr("Online"), active: (r) => r.name === "online" };
       case "feeds":
-        return { id: "feeds", href: "#/feeds", icon: "spark", label: tr("Feeds"), active: (r) => r.name === "feeds" || r.name === "sourcelists" || r.name === "feedrequests" };
+        return { id: "feeds", href: "#/feeds", icon: "feeds", label: tr("Feeds"), active: (r) => r.name === "feeds" || r.name === "sourcelists" || r.name === "feedrequests" };
       case "lists":
         return { id: "lists", href: "#/lists", icon: "lists", label: tr("Lists"), active: (r) => r.name === "lists" || r.name === "list" };
       case "history":
@@ -10851,7 +10865,7 @@ const here = parseRoute();
     const brand = music ? window.SIntelMusic.brand() : brandLink();
     const post = music
       ? `<button class="post-btn" data-act="music-add" aria-label="${tr("Add song")}" data-tooltip="${tr("Add song")}"><span class="post-label">${tr("Add song")}</span><svg class="post-ico" viewBox="0 0 24 24"><path d="${PATH.plus}"/></svg></button>`
-      : `<button class="post-btn" data-act="compose" aria-label="${tr("Post")}" data-tooltip="${tr("Post")}"><span class="post-label">${tr("Post")}</span><svg class="post-ico" viewBox="0 0 24 24"><path d="${PATH.feather}"/></svg></button>`;
+      : `<button class="post-btn" data-act="compose" aria-label="${tr("Post")}" data-tooltip="${tr("Post")}"><span class="post-label">${tr("Post")}</span>${icon("compose").replace("<svg class=\"xline\"", "<svg class=\"xline post-ico\"")}</button>`;
     const split = extraClass ? "" : `<div class="nav-split" role="separator" tabindex="0" aria-orientation="vertical" aria-label="${tr("Resize sidebar")}" aria-valuemin="88" aria-valuemax="275" aria-valuenow="275"></div>`;
     const pillRaw = (window.ViktorychAccounts && window.ViktorychAccounts.pillInner && window.ViktorychAccounts.pillInner()) || `<span class="ava initials">?</span><span class="account-meta"><b>${tr("Sign in")}</b><span>${tr("Not signed in")}</span></span>`;
     const pillInner = String(pillRaw).replace(/\sdata-acct="[^"]*"/g, "");
@@ -11125,7 +11139,7 @@ const here = parseRoute();
   function bottom(route) {
     if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.bottomHtml) return window.SIntelMusic.bottomHtml(route, icon);
     const links = bottomBarItems().map((def) => bottomNavLink(def, route)).join("");
-    return `<nav class="bottom-nav" aria-label="${tr("Primary")}">${links}</nav><button class="fab" data-act="compose" aria-label="${tr("Post")}">${icon("plus")}</button>`;
+    return `<nav class="bottom-nav" aria-label="${tr("Primary")}">${links}</nav><button class="fab" data-act="compose" aria-label="${tr("Post")}">${icon("compose")}</button>`;
   }
 
   function bottomNavSettings() {
@@ -18702,17 +18716,17 @@ const here = parseRoute();
     if (id === "home") return { id: id, href: "#/", icon: "home", label: tr("Home"), locked: true };
     if (id === "explore") return { id: id, href: "#/explore", icon: "search", label: tr("Explore") };
     if (id === "notifications") return { id: id, href: "#/notifications", icon: "bell", label: tr("Notifications") };
-    if (id === "profile") return { id: id, href: drawerProfileHref() || "#/settings", icon: "user", label: tr("Profile") };
-    if (id === "online") return { id: id, href: "#/online", icon: "user", label: tr("Friends"), extra: onlineCountHtml() };
+    if (id === "profile") return { id: id, href: drawerProfileHref() || "#/settings", icon: "profile", label: tr("Profile") };
+    if (id === "online") return { id: id, href: "#/online", icon: "friends", label: tr("Friends"), extra: onlineCountHtml() };
     if (id === "premium") return { id: id, href: "#/settings", icon: "check", label: tr("Premium"), extra: `<span class="drawer-pill">${esc(tr("New"))}</span>` };
     if (id === "communities") return { id: id, href: "#/communities", icon: "communities", label: tr("Communities") };
     if (id === "bookmarks") return { id: id, href: "#/bookmarks", icon: "bookmark", label: tr("Bookmarks") };
-    if (id === "points") return { id: id, href: "#/points", icon: "spark", label: tr("Viktorychs"), extra: `<span class="points-pill" data-points-balance></span>` };
+    if (id === "points") return { id: id, href: "#/points", icon: "coin", label: tr("Viktorychs"), extra: `<span class="points-pill" data-points-balance></span>` };
     if (id === "lists") return { id: id, href: "#/lists", icon: "lists", label: tr("Lists") };
     if (id === "spaces") return { id: id, href: drawerSpacesHref(), icon: "mic", label: tr("Spaces") };
     if (id === "golive") return { id: id, href: "", icon: "video", label: tr("Go live"), act: "go-live" };
     if (id === "requests") return { id: id, href: drawerRequestsHref(), icon: "user", label: tr("Requests"), extra: requestsCountHtml() };
-    if (id === "studio") return { id: id, href: "#/feeds", icon: "spark", label: tr("Creator Studio") };
+    if (id === "studio") return { id: id, href: "#/feeds", icon: "feeds", label: tr("Creator Studio") };
     if (id === "help") return { id: id, href: "#/settings/resources", icon: "help", label: tr("Help Center") };
     if (id === "localai") return localAiOn() ? { id: id, href: "#/ai", icon: "spark", label: tr("Local AI") } : null;
     if (id === "settings") return { id: id, href: "#/settings", icon: "gear", label: tr("Settings and privacy"), locked: true };

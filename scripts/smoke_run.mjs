@@ -211,6 +211,7 @@ const NAV_STEPS = [
   step("update-notice", "node scripts/update_notice_test.mjs", { needs: ["pw", "browser"], paths: [file("update_notice_test.mjs"), /^update\.js$/, ...APP] }),
   step("header-stable", "node scripts/header_stable_test.mjs", { needs: ["pw", "browser"], paths: [file("header_stable_test.mjs"), ...APP] }),
   step("post-ring", "node scripts/post_ring_test.mjs", { needs: ["pw", "browser"], paths: [file("post_ring_test.mjs"), /^keys\.(js|css)$/, ...APP] }),
+  step("x-icons", "node scripts/x_icons_test.mjs", { needs: ["pw", "browser"], paths: [file("x_icons_test.mjs"), /^gifts-ui\.js$/, ...APP] }),
   step("header-frames", "node scripts/header_frames_test.mjs", { needs: ["pw", "browser"], paths: [file("header_frames_test.mjs"), ...APP] }),
   step("tabs-look", "node scripts/tabs_look_test.mjs", { needs: ["pw", "browser"], paths: [file("tabs_look_test.mjs"), ...APP] }),
   step("profile-layout", "node scripts/profile_layout_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_layout_test.mjs"), ...APP] }),
@@ -240,7 +241,7 @@ const SHARDS = {
 
 const NAV_SHARDS = {
   "nav-reach": ["home-reach"],
-  "nav-shell": ["nav-custom", "bottom-nav", "dock", "profile-tabs-order", "profile-tabs", "post-ring"],
+  "nav-shell": ["nav-custom", "bottom-nav", "dock", "profile-tabs-order", "profile-tabs", "post-ring", "x-icons"],
   "nav-layout": ["landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "zoom-lock", "update-notice", "profile-layout", "menu-pages"],
   "nav-pages": ["about-layout", "points-layout", "stories-layout", "ios"]
 };

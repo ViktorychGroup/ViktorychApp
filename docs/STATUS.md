@@ -62,6 +62,9 @@ On a desktop (700px and wider, with a mouse) the tab title is only `ViktorychApp
 ## Desktop corner buttons
 
 On a desktop (700px and wider with a mouse) the + post button and the Local AI button are 56px squares with 16px corners, like the corner dock launchers, and they stack in one column above the right dock square with 12px gaps. Before, the round Local AI button sat on top of the dock's messages square. Above a bottom bar the column lifts 53px with the dock. Phones and touch tablets keep the round buttons. Test: `scripts/desktop_squares_test.mjs` (`desktop-squares`, `ui-fast` shard).
+## X-style icons
+
+Closed folders, Profile, Friends, Feeds (also Creator Studio) and the post buttons use X-style line icons (`XLINE` in `app.js`, drawn with a stroke and never filled, class `xline`). Profile is one person, Friends is two people, Feeds is stacked layers, and Local AI keeps its spark, so no two menu rows share an icon. The phone post button and the collapsed desktop Post button show a pen with a small plus. The Viktorychs coin is one icon (`icon("coin")`, also `ViktorychGifts.coin()`): black inside with white lines and a thin light rim so it still shows on dark themes. It is the drawer and sidebar icon for Viktorychs and sits next to every Viktorychs amount. Test: `scripts/x_icons_test.mjs` (`x-icons`, `nav-shell` shard).
 
 ## Home composer on phones
 

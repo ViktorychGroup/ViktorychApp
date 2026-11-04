@@ -7924,3 +7924,8 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .upd-wn, .upd-wn-card, .upd-status, .upd-spin { animation: none; }
 }
+
+/* X-style line icons on the filled post buttons keep the button's text colour. */
+.fab svg.xline { color: #fff; }
+.post-btn .post-ico.xline { color: var(--on-fill); }
+.fab svg.xline g, .post-btn .post-ico.xline g { stroke-width: 2; }
