@@ -6077,5 +6077,7 @@ SI18n.addPack("en", {
   "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.": "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.",
   "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.": "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.",
   "Quiet updates": "Quiet updates",
-  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix."
+  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.",
+  "Swipe between tabs": "Swipe between tabs",
+  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab."
 });

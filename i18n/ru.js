@@ -6079,5 +6079,7 @@ SI18n.addPack("ru", {
   "Something looks wrong or out of date? This reloads the app's files without reinstalling. Your login, drafts, settings and downloads stay.": "Что-то выглядит неправильно или устарело? Это заново загрузит файлы приложения без переустановки. Вход, черновики, настройки и загрузки сохранятся.",
   "A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.": "Кнопка «Восстановить приложение» в настройках, предложение восстановления, если главная не загружается, и инструкция по переустановке для приложений, установленных до полноэкранного режима.",
   "Quiet updates": "Тихие обновления",
-  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "Загруженное обновление применяется после короткой паузы в использовании, с одной перезагрузкой, чтобы старые и новые файлы приложения не смешивались."
+  "A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.": "Загруженное обновление применяется после короткой паузы в использовании, с одной перезагрузкой, чтобы старые и новые файлы приложения не смешивались.",
+  "Swipe between tabs": "Свайп между вкладками",
+  "On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.": "На телефонах и планшетах свайп вбок на Главной или в профиле открывает следующую или предыдущую вкладку."
 });
