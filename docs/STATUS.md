@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `bcfb4a44`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `feb0850b`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -74,7 +74,7 @@ Test: `scripts/app_repair_test.mjs` in the `nav-layout` shard.
 
 ## Swipe between tabs
 
-On a phone or tablet (under 1000px wide), a sideways drag on Home or on a profile moves the content with the finger, and the tab underline slides toward the next tab. Letting go past a quarter of the screen, or after a quick flick, opens that tab; a shorter drag springs back. The drag only counts once it is clearly sideways (1.5 times more sideways than vertical after 10px), so scrolling up and down is never taken. Drags that start on the tab row, a sideways scroller (pills, stories), an input, a video, or within 20px of a screen edge (the browser's back swipe) are left alone. With reduced motion the swipe still switches, without the sliding. Owner switch `swipe_tabs`, on by default. Test: `scripts/swipe_tabs_test.mjs` in the `nav-layout` shard.
+On a phone or tablet (under 1000px wide), a sideways drag on Home or on a profile moves the content with the finger, and the tab underline slides toward the next tab. Letting go past a quarter of the screen, or after a quick flick, opens that tab; a shorter drag springs back. The drag only counts once it is clearly sideways (1.5 times more sideways than vertical after 10px), so scrolling up and down is never taken. Drags that start on the tab row, a sideways scroller (pills, stories), an input, a video, or within 20px of a screen edge (the browser's back swipe) are left alone. With reduced motion the swipe still switches, without the sliding. Owner switch `swipe_tabs`, on by default. Every tab on the Home strip is in the cycle: For you, Following, then the custom tabs (categories, pinned Lists, pinned communities) in strip order. The older For you/Following-only swipe in `bindGestures` is skipped while `swipe_tabs` is on, because it sent a custom tab back to Following. A drag only writes transforms: tab centres are measured once when the drag locks, and the underline moves in proportion. The snap uses the speed of the last ~100ms, so a short quick flick switches. The tab opens through the route (`swipeOpen`), not a synthetic click, and the tab strip scrolls so the open tab stays in view (`swipeRevealTab`). Test: `scripts/swipe_tabs_test.mjs` in the `nav-layout` shard, including three custom tabs (Following lands on custom tab 1, then 2 and 3, each scrolled into view, and back).
 
 The fresh-login report (feeds and tabs missing after a first login on a reinstalled app) did not reproduce locally and was closed by the owner; Repair app (above) is the user-side fix for a stuck install.
 
