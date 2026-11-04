@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `1350f31b`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `201f99d5`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -20,7 +20,7 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
-**Current state.** #544 puts Home back immediately and is the live `version.json` (`2fd7f0da`). #546 reads the DevTools port Chrome actually opens and is on main as `3a6f2de1`. This pull request paints the signed-out landing from the HTML. Still open after that: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs) and lazy-loaded music. The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
+**Current state.** Main is `201f99d5`. This pull request keeps Explore, Notifications, Messages, a profile, Following, and Communities ready, the same way Home already was. Music still loads with the app. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
 
 ## Version publish
 
@@ -71,6 +71,14 @@ Do not start these unless the owner asks.
 ## Cold first paint
 
 Signed out, the landing text is in `index.html` with the critical layout in a style block, so the largest text does not wait for the app. The home skeleton (the two opening posts) is in the HTML too. The app replaces that shell when it is ready. Phone, 4G, CPU slowed 4×, signed out, gate on: largest text was 9.0s (the landing paragraph, after the app loaded). It is now 3.5s, the same moment as the first paint, and the layout shift score stayed 0. The music player and the update flow are unchanged.
+
+## Main tabs stay ready
+
+Leaving Explore, Notifications, Messages, a profile, Following, or Communities keeps that page. Coming back puts the same page in place and restores the scroll position. A background refresh can follow. Home already worked this way.
+
+Desktop, CPU slowed 4×. Before, the return built the page again. Time until the new title was showing: Explore 69ms, Notifications 75ms, Messages 52ms, Profile 74ms, Following 235ms, Communities 330ms. The scroll position from that visit was not kept.
+
+After, the kept page is back: Explore 44ms, Notifications 34ms, Messages 39ms, Profile 43ms, Following 64ms, Communities 108ms. Explore, Notifications, Messages, and Communities came back at the scrolled position used in the check (420px). Profile and Following settle at 96px, which they also did before this change. Communities is a long list, about 40,000px tall, and putting that scroll position back is most of the 108ms. Following is a home tab: the click reaches the address change at about 41ms and the page is back at 64ms.
 
 ## Back to Home
 
