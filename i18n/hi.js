@@ -6082,5 +6082,10 @@ SI18n.addPack("hi", {
   "Allow page zoom": "पेज ज़ूम की अनुमति दें",
   "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.": "फ़ोन पर दो उंगलियों से पूरा पेज ज़ूम करने दें। फ़ोटो को व्यूअर में हमेशा ज़ूम किया जा सकता है।",
   "Pinch-zoom lock": "पिंच-ज़ूम लॉक",
-  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "फ़ोन पर पेज दो उंगलियों या डबल टैप से ज़ूम नहीं होता, जैसे इंस्टॉल किया गया ऐप। फ़ोटो व्यूअर में अब भी ज़ूम होती हैं।"
+  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "फ़ोन पर पेज दो उंगलियों या डबल टैप से ज़ूम नहीं होता, जैसे इंस्टॉल किया गया ऐप। फ़ोटो व्यूअर में अब भी ज़ूम होती हैं।",
+  "Update ready, tap to restart": "अपडेट तैयार है, रीस्टार्ट के लिए टैप करें",
+  "Updating ViktorychApp…": "ViktorychApp अपडेट हो रहा है…",
+  "Fixes and improvements": "सुधार और बेहतरी",
+  "Visible updates": "दिखने वाले अपडेट",
+  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "अपडेट डाउनलोड होते समय एक छोटी अपडेट हो रहा है सूचना, व्यस्त होने पर रीस्टार्ट के लिए टैप करें सूचना, और हर अपडेट के बाद पूरी स्क्रीन वाला नया क्या है पेज।"
 });

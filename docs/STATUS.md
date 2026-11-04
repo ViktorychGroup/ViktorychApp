@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `04007d69`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-04 (UTC). Main is `56cfef29`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -71,6 +71,8 @@ The manifest's `display_override` is `window-controls-overlay`, `fullscreen`, `s
 **Quiet updates** (owner switch `auto_update`, on by default). The service worker already downloads a new build in the background, then `skipWaiting` and `clients.claim` run once and the page reloads once per build (the reload guard in `update.js`), so old and new files are not mixed. A ready update was applied when the app was hidden or the route changed; it now also applies once it has been ready, with the update pill showing, for 20 seconds without a touch, key or scroll. Typing, a playing video or an open composer still hold it.
 
 Test: `scripts/app_repair_test.mjs` in the `nav-layout` shard.
+
+**Visible updates** (owner switch `update_notice`, on by default, all in `update.js`). While a new build downloads in the background or applies, a small "Updating ViktorychApp…" toast (`#upd-status`, `pointer-events: none`, `aria-live`) sits at the top. A downloaded build that is waiting (typing, a playing video, an open composer) keeps the pill, which now reads "Update ready, tap to restart"; a tap is the go-ahead (`state.userGo`): drafts are saved by `captureState`, the build applies with the small toast instead of the progress screen, and the page reloads once on the dark boot background (`#000` in `index.html`, dark `theme-color`). After the apply, What's new is a full-screen, edge-to-edge dark page (`.upd-wn`, still `#upd-notes-sheet` / `#upd-gotit`) with our logo, the version, one card per `version.json` changelog line with a simple icon (`noteIcon`: fix, fast, look, new), and one Continue button; the X, Escape, a swipe down or sideways also close it. Once per build (`viktorychapp-notes-seen`). An app the system closed that cold-starts into a build this device has not run before also gets it (`viktorychapp-wn-last`; never on the first run). CSS-only animations, none with reduced motion. Switch off: the old silent download, the pill "Tap to refresh" with the progress screen, and the bottom sheet with Got it. Tests: `scripts/update_notice_test.mjs` (nav-layout shard), `scripts/update_flow_test.js` (`statusKind`, `noteIcon`), and `scripts/sw_update_test.mjs` (its classic-sheet check runs with the switch off).
 
 ## Swipe between tabs
 

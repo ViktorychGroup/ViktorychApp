@@ -123,4 +123,19 @@ assert.strictEqual(update.restoreFresh(null, now), false);
 assert.strictEqual(update.SNOOZE_MS, 30 * 60 * 1000);
 assert.strictEqual(update.CHECK_MS, 3 * 60 * 1000);
 
+// Visible updates: the small toast says Updating while the build downloads
+// or applies, and stays out of the way of the full screen and of errors.
+assert.strictEqual(update.statusKind({ pending: true, phase: "working" }, "idle"), "updating");
+assert.strictEqual(update.statusKind({ pending: true, phase: "done" }, "idle"), "updating");
+assert.strictEqual(update.statusKind({ pending: true, phase: "offer", preBusy: true, ready: false }, "idle"), "updating");
+assert.strictEqual(update.statusKind({ pending: true, phase: "offer", preBusy: false, ready: true }, "pill"), "");
+assert.strictEqual(update.statusKind({ pending: true, phase: "working" }, "blocking"), "");
+assert.strictEqual(update.statusKind({ pending: true, phase: "error" }, "idle"), "");
+assert.strictEqual(update.statusKind({ pending: true, phase: "working", critical: true }, "idle"), "");
+assert.strictEqual(update.statusKind(null, "idle"), "");
+assert.strictEqual(update.noteIcon("Fixed the gap above the header"), "fix");
+assert.strictEqual(update.noteIcon("Faster, smoother For you loading"), "fast");
+assert.strictEqual(update.noteIcon("Tab strips like the X app"), "look");
+assert.strictEqual(update.noteIcon("Swipe between custom feeds"), "new");
+
 console.log("update flow ok");

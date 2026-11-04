@@ -6092,5 +6092,10 @@ SI18n.addPack("en", {
   "Allow page zoom": "Allow page zoom",
   "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.": "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.",
   "Pinch-zoom lock": "Pinch-zoom lock",
-  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer."
+  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.",
+  "Update ready, tap to restart": "Update ready, tap to restart",
+  "Updating ViktorychApp…": "Updating ViktorychApp…",
+  "Fixes and improvements": "Fixes and improvements",
+  "Visible updates": "Visible updates",
+  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update."
 });

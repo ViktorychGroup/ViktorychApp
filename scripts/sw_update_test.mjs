@@ -566,6 +566,12 @@ async function testNotesOnce(browser) {
   const { server, url } = await startServer();
   const { context, page } = await openApp(browser, url);
   try {
+    // The classic bottom sheet is the update_notice switch turned off; the
+    // full-screen page has its own test (scripts/update_notice_test.mjs).
+    await page.evaluate(() => {
+      localStorage.setItem("viktorychapp-server-off", JSON.stringify(["update_notice"]));
+      localStorage.setItem("viktorychapp-server-off-at", String(Date.now()));
+    });
     const show = (sha, notes) => page.evaluate(({ sha, notes }) => {
       sessionStorage.setItem("viktorychapp-update-toast", JSON.stringify({ sha, notes }));
     }, { sha, notes });
@@ -705,7 +711,8 @@ async function testDismissThenHide(browser) {
     assert(sha === NEW, "reopen did not apply the downloaded build (" + sha + ")");
     await page.waitForSelector("#upd-notes-sheet", { timeout: 8000 });
     const notes = await page.locator("#upd-notes-sheet").innerText();
-    assert(notes.includes("What's new") && notes.includes("Got it"), "What's new did not follow the apply: " + notes);
+    // Visible updates (update_notice, on by default): the full-screen page with Continue.
+    assert(notes.includes("What's new") && notes.includes("Continue"), "What's new did not follow the apply: " + notes);
     await page.click("#upd-gotit");
     await page.waitForFunction(() => !document.getElementById("upd-notes-sheet"));
     const again = await page.evaluate((sha) => window.ViktorychUpdate.showReleaseNotes(sha, ["A test note"]), NEW);

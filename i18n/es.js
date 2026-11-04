@@ -6095,5 +6095,10 @@ SI18n.addPack("es", {
   "Allow page zoom": "Permitir zoom de página",
   "Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer.": "Permite ampliar toda la página con dos dedos en teléfonos. Las fotos siempre se pueden ampliar en el visor.",
   "Pinch-zoom lock": "Bloqueo del zoom con dos dedos",
-  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "En teléfonos la página no se amplía con dos dedos ni con doble toque, como una app instalada. Las fotos se siguen ampliando en el visor."
+  "On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.": "En teléfonos la página no se amplía con dos dedos ni con doble toque, como una app instalada. Las fotos se siguen ampliando en el visor.",
+  "Update ready, tap to restart": "Actualización lista, toca para reiniciar",
+  "Updating ViktorychApp…": "Actualizando ViktorychApp…",
+  "Fixes and improvements": "Correcciones y mejoras",
+  "Visible updates": "Actualizaciones visibles",
+  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "Un aviso pequeño de Actualizando mientras se descarga una actualización, un aviso de tocar para reiniciar cuando estás ocupado y una página de Novedades a pantalla completa después de cada actualización."
 });

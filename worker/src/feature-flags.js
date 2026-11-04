@@ -66,7 +66,10 @@ export const FEATURES = {
   // "Show phone status bar" option in Display settings. No server endpoints.
   status_bar: { paths: [] },
   // Pinch-zoom lock on phones (viewport, iOS gesture events). No server endpoints.
-  zoom_lock: { paths: [] }
+  zoom_lock: { paths: [] },
+  // Visible updates: the small Updating toast, "tap to restart" and the
+  // full-screen What's new page. No server endpoints.
+  update_notice: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 
