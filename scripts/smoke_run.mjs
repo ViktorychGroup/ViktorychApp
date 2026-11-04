@@ -205,6 +205,7 @@ const NAV_STEPS = [
   step("zoom-lock", "node scripts/zoom_lock_test.mjs", { needs: ["pw", "browser"], paths: [file("zoom_lock_test.mjs"), ...APP] }),
   step("update-notice", "node scripts/update_notice_test.mjs", { needs: ["pw", "browser"], paths: [file("update_notice_test.mjs"), /^update\.js$/, ...APP] }),
   step("header-stable", "node scripts/header_stable_test.mjs", { needs: ["pw", "browser"], paths: [file("header_stable_test.mjs"), ...APP] }),
+  step("header-frames", "node scripts/header_frames_test.mjs", { needs: ["pw", "browser"], paths: [file("header_frames_test.mjs"), ...APP] }),
   step("tabs-look", "node scripts/tabs_look_test.mjs", { needs: ["pw", "browser"], paths: [file("tabs_look_test.mjs"), ...APP] }),
   step("profile-layout", "node scripts/profile_layout_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_layout_test.mjs"), ...APP] }),
   step("menu-pages", "node scripts/menu_pages_test.mjs", { weight: 40, needs: ["pw", "browser"], paths: [file("menu_pages_test.mjs"), ...APP] }),
@@ -234,7 +235,7 @@ const SHARDS = {
 const NAV_SHARDS = {
   "nav-reach": ["home-reach"],
   "nav-shell": ["nav-custom", "bottom-nav", "dock", "profile-tabs-order", "profile-tabs"],
-  "nav-layout": ["landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "tabs-look", "zoom-lock", "update-notice", "profile-layout", "menu-pages"],
+  "nav-layout": ["landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "zoom-lock", "update-notice", "profile-layout", "menu-pages"],
   "nav-pages": ["about-layout", "points-layout", "stories-layout", "ios"]
 };
 
@@ -453,7 +454,7 @@ function selftest() {
   if (none.length !== PAGE_STEPS.length) throw new Error("no local diff must run the full suite");
   for (const name of Object.keys(SHARDS)) shardSteps(name, PAGE_STEPS);
   const navIds = new Set(NAV_STEPS.map((item) => item.id));
-  for (const id of ["nav-custom", "bottom-nav", "home-reach", "profile-tabs-order", "profile-tabs", "dock", "landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "tabs-look", "zoom-lock", "update-notice", "profile-layout", "menu-pages", "about-layout", "points-layout", "stories-layout", "ios"]) {
+  for (const id of ["nav-custom", "bottom-nav", "home-reach", "profile-tabs-order", "profile-tabs", "dock", "landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "zoom-lock", "update-notice", "profile-layout", "menu-pages", "about-layout", "points-layout", "stories-layout", "ios"]) {
     if (!navIds.has(id)) throw new Error("missing nav step " + id);
   }
   console.log("smoke_run selftest ok");

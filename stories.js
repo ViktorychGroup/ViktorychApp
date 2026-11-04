@@ -1707,8 +1707,17 @@
   if (typeof window !== "undefined" && typeof document !== "undefined") {
     var lastScrollY = 0;
     var touchY = 0;
+    /* Where the app slides its header away on scroll (phones and tablets),
+       the tray leaves with the header, so scrolling must not resize it: a
+       tray that shrinks and grows while the page scrolls changes the header
+       height every frame and moves the posts under the finger. */
+    var headerSlides = function () {
+      if (!deps.headerSlides) return false;
+      try { return !!deps.headerSlides(); } catch (err) { return false; }
+    };
     window.addEventListener("scroll", function () {
       if (!document.querySelector(".story-shell")) return;
+      if (headerSlides()) { lastScrollY = window.scrollY || 0; return; }
       var y = window.scrollY || document.documentElement.scrollTop || 0;
       var delta = y - lastScrollY;
       lastScrollY = y;
@@ -1716,6 +1725,7 @@
     }, { passive: true });
     window.addEventListener("wheel", function (event) {
       if (!document.querySelector(".story-shell")) return;
+      if (headerSlides()) return;
       var y = window.scrollY || document.documentElement.scrollTop || 0;
       if (y <= 0 && event.deltaY < 0) trackScroll(event.deltaY, 0);
     }, { passive: true });
@@ -1724,6 +1734,7 @@
     }, { passive: true });
     window.addEventListener("touchmove", function (event) {
       if (!document.querySelector(".story-shell") || !event.touches || !event.touches[0]) return;
+      if (headerSlides()) return;
       var y = event.touches[0].clientY;
       var delta = touchY - y;
       touchY = y;
