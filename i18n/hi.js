@@ -6087,5 +6087,8 @@ SI18n.addPack("hi", {
   "Updating ViktorychApp…": "ViktorychApp अपडेट हो रहा है…",
   "Fixes and improvements": "सुधार और बेहतरी",
   "Visible updates": "दिखने वाले अपडेट",
-  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "अपडेट डाउनलोड होते समय एक छोटी अपडेट हो रहा है सूचना, व्यस्त होने पर रीस्टार्ट के लिए टैप करें सूचना, और हर अपडेट के बाद पूरी स्क्रीन वाला नया क्या है पेज।"
+  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "अपडेट डाउनलोड होते समय एक छोटी अपडेट हो रहा है सूचना, व्यस्त होने पर रीस्टार्ट के लिए टैप करें सूचना, और हर अपडेट के बाद पूरी स्क्रीन वाला नया क्या है पेज।",
+  "For You switch": "आपके लिए स्विच",
+  "Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.": "हर व्यक्ति सेटिंग्स में आपके लिए बंद कर सकता है: फ़ॉलो कर रहे हैं होम बन जाता है और आपके लिए का कुछ भी लोड नहीं होता।",
+  "The For You tab and its ranking. Off makes Following your Home, loads nothing for it and clears its saved data.": "आपके लिए टैब और उसकी रैंकिंग। बंद करने पर फ़ॉलो कर रहे हैं आपका होम बन जाता है, इसके लिए कुछ भी लोड नहीं होता और इसका सहेजा डेटा मिट जाता है।"
 });

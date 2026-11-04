@@ -6100,5 +6100,8 @@ SI18n.addPack("es", {
   "Updating ViktorychApp…": "Actualizando ViktorychApp…",
   "Fixes and improvements": "Correcciones y mejoras",
   "Visible updates": "Actualizaciones visibles",
-  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "Un aviso pequeño de Actualizando mientras se descarga una actualización, un aviso de tocar para reiniciar cuando estás ocupado y una página de Novedades a pantalla completa después de cada actualización."
+  "A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.": "Un aviso pequeño de Actualizando mientras se descarga una actualización, un aviso de tocar para reiniciar cuando estás ocupado y una página de Novedades a pantalla completa después de cada actualización.",
+  "For You switch": "Interruptor de Para ti",
+  "Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.": "Permite que cada persona desactive Para ti en Configuración: Siguiendo pasa a ser el inicio y no se carga nada de Para ti.",
+  "The For You tab and its ranking. Off makes Following your Home, loads nothing for it and clears its saved data.": "La pestaña Para ti y su orden. Si está desactivada, Siguiendo pasa a ser tu inicio, no se carga nada para ella y se borran sus datos guardados."
 });

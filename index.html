@@ -71,6 +71,13 @@
         if (path === "#/following" || path.indexOf("#/following/") === 0) tab = "following";
         else if (path.indexOf("#/tab/") === 0) tab = "list:" + decodeURIComponent(path.slice(6));
         else if (path.indexOf("#/cat/") === 0) tab = "cat:" + decodeURIComponent(path.slice(6));
+        /* For You turned off in Settings: Home opens on Following. */
+        if (tab === "foryou") {
+          try {
+            var srvOff = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]") || [];
+            if (localStorage.getItem("viktorychapp-off-foryou") === "1" && srvOff.indexOf("foryou_off") < 0) tab = "following";
+          } catch (err) { /* storage blocked */ }
+        }
         window.__homeFreshBoot = { started: perf && perf.now ? perf.now() : 0, tab: tab, feeds: null, config: null };
       } catch (err) { /* the deferred boot still fetches */ }
     })();
@@ -922,6 +929,8 @@
           var server = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]") || [];
           if (server.indexOf("pills") >= 0) off.push("shared/pill-data.js", "scores.js", "weather.js", "scores.css", "weather.css");
           if (server.indexOf("stories") >= 0) off.push("stories.js", "stories.css");
+          /* For You off (allowed unless the owner switched foryou_off off): no ranking code. */
+          if (localStorage.getItem("viktorychapp-off-foryou") === "1" && server.indexOf("foryou_off") < 0) off.push("shared/for-you.js");
         } catch (err) { /* storage blocked */ }
         function wanted(node) {
           var ref = (node.getAttribute("src") || node.getAttribute("href") || "").replace(/^\.\//, "").split("?")[0];

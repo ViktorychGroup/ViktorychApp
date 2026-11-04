@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-04T23:10:00.000Z-foryou-chunks
+// cache-bust: 2026-11-04T23:55:00.000Z-foryou-off
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -1675,7 +1675,8 @@ async function logUpdate(row) {
 const PREFS_CACHE = "viktorych-prefs";
 const FEATURE_FILES = {
   homePills: ["./scores.js", "./scores.css", "./weather.js", "./weather.css", "./shared/pill-data.js"],
-  stories: ["./stories.js", "./stories.css"]
+  stories: ["./stories.js", "./stories.css"],
+  forYou: ["./shared/for-you.js"]
 };
 async function offFeatureFiles() {
   try {
