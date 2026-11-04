@@ -13,8 +13,8 @@ function node(row, community) {
     authorId: less ? "" : row.author_id,
     authorName: less ? "Anonymous" : (row.display_name || row.handle || ""),
     authorHandle: less ? "anonymous" : (row.handle || ""),
-    // Community avatars go through the viewer-aware resolver below.
-    authorAvatar: less || community ? "" : (row.avatar || ""),
+    // Avatars go through the viewer-aware resolvers below (the column is a storage key).
+    authorAvatar: "",
     media: []
   };
   if (community) out.community = { name: community, rootId: "" };
@@ -51,6 +51,18 @@ export async function attachParents(env, posts, opts) {
     } catch (err) { /* no community parents */ }
     ids.forEach((id) => { if (!(id in found)) found[id] = null; });
     ids.forEach((id) => { if (found[id] && found[id].parentId) want.push(found[id].parentId); });
+  }
+  if (opts.faceFor) {
+    for (const id of Object.keys(found)) {
+      const hit = found[id];
+      if (!hit || hit.community || !hit.authorId) continue;
+      try {
+        const face = await opts.faceFor(hit.authorId);
+        hit.authorAvatar = face.avatar || "";
+        hit.authorLocked = !!face.locked;
+        hit.authorOfficial = !!face.official;
+      } catch (err) { hit.authorAvatar = ""; }
+    }
   }
   if (opts.avatarFor) {
     for (const id of Object.keys(found)) {

@@ -7355,6 +7355,11 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
   });
 
   window.ViktorychAccounts = {
+    // Lock and official badge for an in-app author in a post byline (same marks as nameRowHtml).
+    authorMarks: function (o) {
+      var lock = o && o.locked ? '<span class="protected-badge" title="' + esc(tr("Private account")) + '" aria-label="' + esc(tr("Private account")) + '">' + lockIcon(16) + "</span>" : "";
+      return lock + (o && o.official ? badge() : "");
+    },
     aiSettings: aiSettings,
     aiSetting: aiSetting,
     signOut: function () { logout(false); },

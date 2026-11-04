@@ -5,6 +5,7 @@
 
 import { inspectHandle } from "../../shared/handle-skeleton.js";
 import { cleanVisibility, defaultVisibility, pickVisible, viewerCanSee } from "../../shared/profile-privacy.js";
+import { isOwnerViewer } from "./owner-view.js";
 
 export const PROFILE_MEDIA_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS profile_media (
@@ -182,8 +183,12 @@ export async function applyViewer(env, request, row, account, viewer, own) {
   if (!row || !account || !env.DB) return account;
   await ensureLegacy(env, row);
   const items = await listItems(env, row.public_id);
-  const rel = own ? { owner: true, viewerId: row.public_id, follows: true, followedBy: true } : await relationFor(env, row.public_id, viewer);
-  const hiddenFace = !own && (row.hide_avatar === "none" || row.hide_avatar === "default");
+  // The site owner sees every profile picture and banner, whatever its audience.
+  const seeAll = !own && !!(viewer && viewer.public_id) && await isOwnerViewer(env, viewer.public_id, request);
+  const rel = own ? { owner: true, viewerId: row.public_id, follows: true, followedBy: true }
+    : seeAll ? { owner: true, viewerId: String(viewer.public_id), follows: true, followedBy: true }
+    : await relationFor(env, row.public_id, viewer);
+  const hiddenFace = !own && !seeAll && (row.hide_avatar === "none" || row.hide_avatar === "default");
   const handles = own ? await handlesFor(env, items.reduce((all, item) => all.concat(item.allow || [], item.deny || []), [])) : {};
   const photos = items.filter((item) => item.kind === "photo");
   const banners = items.filter((item) => item.kind === "banner");
@@ -404,6 +409,7 @@ async function itemVisible(env, viewer, row) {
   if (!row) return false;
   const rel = await relationFor(env, row.public_id, viewer);
   if (rel.owner) return true;
+  if (viewer && viewer.public_id && await isOwnerViewer(env, viewer.public_id)) return true;
   if (row.kind === "photo") {
     const owner = await env.DB.prepare("SELECT hide_avatar FROM accounts WHERE public_id = ?").bind(row.public_id).first();
     if (owner && (owner.hide_avatar === "none" || owner.hide_avatar === "default")) return false;
@@ -455,6 +461,40 @@ export function mediaHeaders(row, type, size, hasExceptions) {
   };
   if (size) headers["content-length"] = String(size);
   return headers;
+}
+
+/* The author face a post shows this viewer: the photo they may see (a
+   /v1/media/view URL, never the storage key), the protected lock and the
+   official badge, the same as that profile's name row. One lookup per author
+   per request. */
+const faceMemo = new WeakMap();
+export async function postAuthorFace(env, request, viewerId, authorId) {
+  const id = String(authorId || "");
+  const empty = { avatar: "", locked: false, official: false };
+  if (!id || !env.DB) return empty;
+  let memo = request && typeof request === "object" ? faceMemo.get(request) : null;
+  if (!memo && request && typeof request === "object") { memo = new Map(); faceMemo.set(request, memo); }
+  const key = String(viewerId || "") + ">" + id;
+  if (memo && memo.has(key)) return memo.get(key);
+  const work = (async () => {
+    const row = await env.DB.prepare(
+      "SELECT public_id, handle, avatar, banner, hide_avatar, avatar_empty, banner_empty, private_follows, protected_account, owner FROM accounts WHERE public_id = ?"
+    ).bind(id).first();
+    if (!row) return empty;
+    const account = { avatar: "", banner: "", photos: [], banners: [] };
+    const own = !!viewerId && String(viewerId) === row.public_id;
+    try { await applyViewer(env, request, row, account, viewerId ? { public_id: String(viewerId) } : null, own); }
+    catch (err) { account.avatar = ""; }
+    const face = {
+      avatar: own ? (((account.photos.find((item) => item.main) || account.photos[0]) || {}).url || "") : (account.avatar || ""),
+      locked: Number(row.private_follows) === 1 || Number(row.protected_account) === 1,
+      official: Number(row.owner) === 1
+    };
+    if (face.avatar && !/\/v1\/media\/view\//.test(face.avatar)) face.avatar = "";
+    return face;
+  })().catch(() => empty);
+  if (memo) memo.set(key, work);
+  return work;
 }
 
 export async function visibleAvatarUrl(env, request, viewer, handle) {
