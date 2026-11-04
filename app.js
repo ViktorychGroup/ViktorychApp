@@ -10414,17 +10414,19 @@ const here = parseRoute();
     return `<button class="note-x" type="button" data-act="note-dismiss" data-ids="${esc(ids.join(","))}" aria-label="${esc(tr("Dismiss"))}" title="${esc(tr("Dismiss"))}">${icon("close")}</button>`;
   }
 
+  /* The bell badge counts exactly the unread rows the All list shows: the
+     same notes (not hidden, dismissed or held by another feature) after the
+     read cursor. The server's own unread number is not added on top: it can
+     count notes this device has not listed (an incremental pull after the
+     local list was reset, a notification type this build drops), which made
+     the badge say 8 or 10 over an empty list. */
   function bellUnread() {
     const serverNotes = typeof notesServer === "function" ? notesServer() : null;
     const read = Math.max(Number(STATE.settings && STATE.settings.bellRead) || 0, Number(serverNotes && serverNotes.readUntil) || 0);
     const notes = (STATE.settings && STATE.settings.bellNotes) || [];
-    const visibleUnread = visibleNotes(notes).filter((note) => !note.read && (Number(note.at) || 0) > read).length;
-    if (window.ViktorychAccounts && window.ViktorychAccounts.token && window.ViktorychAccounts.token()) {
-      const server = Number(serverNotes && serverNotes.unread) || 0;
-      const hiddenUnread = notes.filter((note) => noteHidden(note) && !note.read && (Number(note.at) || 0) > read).length;
-      return Math.max(visibleUnread, Math.max(0, server - hiddenUnread));
-    }
-    return visibleUnread;
+    let shown = visibleNotes(notes);
+    try { shown = notesForTab(null, shown); } catch (err) { /* holds not set up yet on the first paint */ }
+    return shown.filter((note) => note && !note.read && (Number(note.at) || 0) > read).length;
   }
 
   function bellBadgeHtml() {
@@ -16866,8 +16868,12 @@ const here = parseRoute();
     if (active === "all") {
       const notes = visibleNotes(STATE.settings.bellNotes || []);
       const newest = notes.reduce((max, note) => Math.max(max, Number(note.at) || 0), 0);
-      const until = Math.max(newest, Number(notesServer().readUntil) || 0);
-      if (!until || (Number(STATE.settings.bellRead) || 0) >= until && !(notes.some((note) => !note.read))) return;
+      const serverNow = notesServer();
+      const stale = (Number(serverNow.unread) || 0) > 0;
+      /* Viewing All reads everything up to now, so a server count for notes
+         this device never listed is cleared too (it kept the badge up). */
+      const until = Math.max(newest, Number(serverNow.readUntil) || 0, stale ? Date.now() : 0);
+      if (!until || (Number(STATE.settings.bellRead) || 0) >= until && !(notes.some((note) => !note.read)) && !stale) return;
       const ids = [];
       notes.forEach((note) => {
         if ((Number(note.at) || 0) <= until) {
@@ -23876,14 +23882,14 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (!Object.prototype.hasOwnProperty.call(prefs, kind) || kind === "mentionsFrom") return;
       if (mode !== "off" && mode !== "inapp" && mode !== "push") return;
       prefs[kind] = mode;
-      saveNotePrefs(prefs);
+      saveNotePrefs(prefs, kind);
       render();
       return;
     }
     if (act === "note-mentions-from") {
       const prefs = notePrefs();
       prefs.mentionsFrom = prefs.mentionsFrom === "following" ? "all" : "following";
-      saveNotePrefs(prefs);
+      saveNotePrefs(prefs, "mentionsFrom");
       render();
       return;
     }
@@ -29229,25 +29235,44 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     });
   }
 
+  /* Every type is on (push) until the person changes it. Only keys listed in
+     notePrefsSet are their own choice; an older saved copy of the server
+     defaults (likes and reposts in app only) is not. */
+  function notePrefBase() {
+    return { mentions: "push", replies: "push", quotes: "push", likes: "push", reposts: "push", follows: "push", dms: "push", games: "push", mentionsFrom: "all" };
+  }
+  function notePrefOld(key) { return key === "likes" || key === "reposts" ? "inapp" : ""; }
+  function notePrefsSet() {
+    const set = STATE.settings && STATE.settings.notePrefsSet;
+    return Array.isArray(set) ? set.filter((key) => Object.prototype.hasOwnProperty.call(notePrefBase(), key)) : null;
+  }
   function notePrefs() {
     const saved = STATE.settings && STATE.settings.notePrefs;
-    const base = { mentions: "push", replies: "push", quotes: "push", likes: "inapp", reposts: "inapp", follows: "push", dms: "push", games: "push", mentionsFrom: "all" };
+    const base = notePrefBase();
     if (!saved || typeof saved !== "object") return base;
+    const marked = notePrefsSet();
     const out = Object.assign({}, base);
     Object.keys(base).forEach((key) => {
       if (key === "mentionsFrom") {
-        if (saved.mentionsFrom === "following" || saved.mentionsFrom === "all") out.mentionsFrom = saved.mentionsFrom;
+        if (saved.mentionsFrom === "following" || (marked && marked.indexOf(key) >= 0 && saved.mentionsFrom === "all")) out.mentionsFrom = saved.mentionsFrom;
         return;
       }
-      if (saved[key] === "off" || saved[key] === "inapp" || saved[key] === "push") out[key] = saved[key];
+      if (saved[key] !== "off" && saved[key] !== "inapp" && saved[key] !== "push") return;
+      if (marked ? marked.indexOf(key) < 0 : saved[key] === (notePrefOld(key) || base[key])) return;
+      out[key] = saved[key];
     });
     return out;
   }
 
   // Game invites ask whether they may pop up (Notifications > Game invites).
   window.ViktorychNotePrefs = function () { return notePrefs(); };
-  function saveNotePrefs(next) {
+  function saveNotePrefs(next, key) {
     if (!STATE.settings) return;
+    const base = notePrefBase();
+    const now = notePrefs();
+    const marked = notePrefsSet() || Object.keys(base).filter((name) => now[name] !== base[name]);
+    if (key && marked.indexOf(key) < 0) marked.push(key);
+    STATE.settings.notePrefsSet = marked;
     STATE.settings.notePrefs = next;
     saveSettings();
     const pending = notePending();
@@ -29628,7 +29653,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     server.readUntil = until;
     server.cursor = Math.max(Number(server.cursor) || 0, Number(view.cursor) || 0);
     server.fetchedAt = Date.now();
-    if (view.prefs && typeof view.prefs === "object") STATE.settings.notePrefs = view.prefs;
+    if (view.prefs && typeof view.prefs === "object") {
+      STATE.settings.notePrefs = view.prefs;
+      if (Array.isArray(view.prefs.set)) STATE.settings.notePrefsSet = view.prefs.set.slice(0, 12);
+    }
     writeNotesServer(server);
     saveSettings();
     paintBellBadge();
@@ -29730,12 +29758,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         body.bells = cleanBells(STATE.settings.bells);
         body.bellsAt = Number(STATE.settings.bellsAt) || Date.now();
       }
-      if (sent.prefs && STATE.settings) body.prefs = notePrefs();
+      if (sent.prefs && STATE.settings) body.prefs = Object.assign(notePrefs(), { set: notePrefsSet() || [] });
       if (sent.tab) body.tab = sent.tab;
       const lockedFlag = isShortsLocked() ? "1" : "0";
       const posting = Object.keys(body).length > 0;
       if (posting) body.shortsLocked = lockedFlag === "1" ? 1 : 0;
-      const since = Number(notesServer().cursor) || 0;
+      /* An incremental pull only sends what changed after the cursor. When
+         this device has no listed notes (settings reset, Repair app, a new
+         sign-in) start over from the full list, or the tabs stay empty. */
+      const listed = ((STATE.settings && STATE.settings.bellNotes) || []).length > 0;
+      const since = listed ? (Number(notesServer().cursor) || 0) : 0;
       const path = "/v1/notifications?locked=" + lockedFlag + (since ? "&since=" + encodeURIComponent(String(since)) : "");
       const res = await withTimeout(accountCall(path, posting ? { method: "POST", body: body } : { method: "GET" }), 12000);
       if (!res || res.status !== 200 || !Array.isArray(res.items)) failed = true;

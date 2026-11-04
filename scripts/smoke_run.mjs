@@ -94,9 +94,9 @@ const PAGE_STEPS = [
     weight: 90, needs: ["pw"],
     paths: [/^sw\.js$/, /^update\.js$/, file("sw_update_test.mjs")]
   }),
-  step("notifications", "node scripts/notifications_page_test.mjs", {
-    weight: 30, needs: ["pw", "browser"],
-    paths: [file("notifications_page_test.mjs"), ...APP]
+  step("notifications", "node scripts/notifications_page_test.mjs && node scripts/notif_badge_test.mjs", {
+    weight: 45, needs: ["pw", "browser"],
+    paths: [file("notifications_page_test.mjs"), file("notif_badge_test.mjs"), ...APP]
   }),
   step("profile", "node scripts/profile_chrome_test.mjs", {
     weight: 70, needs: ["pw", "browser"],

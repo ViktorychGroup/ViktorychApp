@@ -22,7 +22,8 @@ import { lockedAccountSet, notLocked } from "./locked-sql.js";
 const encoder = new TextEncoder();
 const KINDS = { post: 1, mention: 1, reply: 1, quote: 1, like: 1, repost: 1, follow: 1, follow_request: 1, follow_accept: 1, friend_request: 1, friend_accept: 1, dm: 1, discord: 1, live: 1, birthday: 1, birthday_self: 1, gift: 1, package: 1, game_invite: 1, game_join: 1, game_achievement: 1, game_board: 1, tv_signin: 1, community_note: 1, feed_request: 1, feed_approved: 1, feed_rejected: 1 };
 const PREF_KINDS = ["mentions", "replies", "quotes", "likes", "reposts", "follows", "dms", "games"];
-const DEFAULT_PREFS = { mentions: "push", replies: "push", quotes: "push", likes: "inapp", reposts: "inapp", follows: "push", dms: "push", games: "push", mentionsFrom: "all" };
+// Every notification type is on (push) for anyone who has not changed it.
+const DEFAULT_PREFS = { mentions: "push", replies: "push", quotes: "push", likes: "push", reposts: "push", follows: "push", dms: "push", games: "push", mentionsFrom: "all" };
 const BACKOFF_MS = [2000, 10000, 60000, 300000, 1800000];
 const DEAD_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 const LIVE_WINDOW_MS = 6 * 60 * 60 * 1000;
@@ -950,30 +951,62 @@ function prefKind(kind) {
   return "";
 }
 
-export async function readPrefs(env, publicId) {
+/* Likes and reposts used to default to in-app only. A saved row from that
+   time copied every default, so a stored "inapp" there is not a choice the
+   person made unless the row lists the key in _set. */
+const OLD_DEFAULTS = { likes: "inapp", reposts: "inapp" };
+const MODES = { off: 1, inapp: 1, push: 1 };
+
+function explicitPrefs(parsed) {
+  const out = {};
+  if (!parsed || typeof parsed !== "object") return out;
+  const marked = Array.isArray(parsed._set) ? parsed._set : null;
+  PREF_KINDS.forEach((key) => {
+    if (!MODES[parsed[key]]) return;
+    if (marked ? marked.indexOf(key) < 0 : parsed[key] === (OLD_DEFAULTS[key] || DEFAULT_PREFS[key])) return;
+    out[key] = parsed[key];
+  });
+  if (parsed.mentionsFrom === "following" || (marked && marked.indexOf("mentionsFrom") >= 0 && parsed.mentionsFrom === "all")) out.mentionsFrom = parsed.mentionsFrom;
+  return out;
+}
+
+async function storedPrefs(env, publicId) {
   const row = await env.DB.prepare("SELECT prefs FROM notification_prefs WHERE public_id = ?").bind(publicId).first();
   let parsed = {};
   try { parsed = JSON.parse((row && row.prefs) || "{}"); }
   catch (err) { parsed = {}; }
-  if (!parsed || typeof parsed !== "object") parsed = {};
-  const out = Object.assign({}, DEFAULT_PREFS);
-  PREF_KINDS.forEach((key) => {
-    if (parsed[key] === "off" || parsed[key] === "inapp" || parsed[key] === "push") out[key] = parsed[key];
-  });
-  if (parsed.mentionsFrom === "following" || parsed.mentionsFrom === "all") out.mentionsFrom = parsed.mentionsFrom;
+  return explicitPrefs(parsed);
+}
+
+// Defaults (every type on) plus only the choices the person made; `set`
+// lists those so other devices can tell a choice from a default.
+export async function readPrefs(env, publicId) {
+  const chosen = await storedPrefs(env, publicId);
+  const out = Object.assign({}, DEFAULT_PREFS, chosen);
+  out.set = Object.keys(chosen);
   return out;
 }
 
 async function savePrefs(env, publicId, raw) {
-  const next = await readPrefs(env, publicId);
-  PREF_KINDS.forEach((key) => {
-    if (raw[key] === "off" || raw[key] === "inapp" || raw[key] === "push") next[key] = raw[key];
+  const chosen = await storedPrefs(env, publicId);
+  const effective = Object.assign({}, DEFAULT_PREFS, chosen);
+  const marked = Array.isArray(raw.set) ? raw.set : null;
+  PREF_KINDS.concat(["mentionsFrom"]).forEach((key) => {
+    const value = raw[key];
+    const ok = key === "mentionsFrom" ? (value === "following" || value === "all") : !!MODES[value];
+    if (!ok) return;
+    // A newer app says which keys were picked; an older one sends every key,
+    // so only a value that differs from what is in effect counts as a choice.
+    // (An older app also sends its old likes/reposts default, which is not one.)
+    if (marked ? marked.indexOf(key) >= 0 : value !== effective[key] && value !== OLD_DEFAULTS[key]) chosen[key] = value;
   });
-  if (raw.mentionsFrom === "following" || raw.mentionsFrom === "all") next.mentionsFrom = raw.mentionsFrom;
+  const stored = Object.assign({}, chosen, { _set: Object.keys(chosen) });
   await env.DB.prepare(
     "INSERT INTO notification_prefs (public_id, prefs, updated_at) VALUES (?, ?, ?) ON CONFLICT(public_id) DO UPDATE SET prefs = excluded.prefs, updated_at = excluded.updated_at"
-  ).bind(publicId, JSON.stringify(next), Date.now()).run();
-  return next;
+  ).bind(publicId, JSON.stringify(stored), Date.now()).run();
+  const out = Object.assign({}, DEFAULT_PREFS, chosen);
+  out.set = Object.keys(chosen);
+  return out;
 }
 
 async function followsActor(env, publicId, actorId) {
@@ -1761,6 +1794,24 @@ export async function notifyMentions(env, actor, text, except, idempotencyPrefix
 }
 
 export async function notificationSelfTest() {
+  // Defaults: every type on; an old row's copied defaults are not choices,
+  // a real choice (old row or marked) is kept.
+  const prefRows = {};
+  const fakeEnv = { DB: { prepare: (sql) => ({ bind: (...args) => ({
+    first: async () => (prefRows[args[0]] ? { prefs: prefRows[args[0]] } : null),
+    run: async () => { prefRows[args[0]] = args[1]; return {}; }
+  }) }) } };
+  const fresh = await readPrefs(fakeEnv, "n");
+  if (PREF_KINDS.some((key) => fresh[key] !== "push")) throw new Error("defaults all on");
+  prefRows.old = JSON.stringify({ mentions: "push", replies: "push", quotes: "push", likes: "inapp", reposts: "inapp", follows: "push", dms: "off", games: "push", mentionsFrom: "all" });
+  const old = await readPrefs(fakeEnv, "old");
+  if (old.likes !== "push" || old.reposts !== "push" || old.dms !== "off" || old.set.join() !== "dms") throw new Error("old row defaults");
+  await savePrefs(fakeEnv, "old", { likes: "inapp", set: ["likes"] });
+  const kept = await readPrefs(fakeEnv, "old");
+  if (kept.likes !== "inapp" || kept.dms !== "off" || kept.reposts !== "push") throw new Error("marked choice");
+  await savePrefs(fakeEnv, "legacy", Object.assign({}, DEFAULT_PREFS, { likes: "inapp", reposts: "inapp", quotes: "off" }));
+  const legacy = await readPrefs(fakeEnv, "legacy");
+  if (legacy.quotes !== "off" || legacy.likes !== "push") throw new Error("older app choice");
   const read = mergeNotificationItems(
     [{ id: "a", at: 20, read: true, text: "local" }, { id: "c", at: 5, read: false }],
     [{ id: "a", at: 10, read: false, text: "server" }, { id: "b", at: 30, read: false }],

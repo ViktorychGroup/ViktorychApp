@@ -84,7 +84,7 @@
       "appearance", "mutedWords", "mutedAccounts", "repostOff", "groups", "groupsOwn", "subsGroup", "followingSort", "forYouReposts",
       "forYouReplies", "tabViews", "translateTo", "translateNever", "bells", "bellNotes", "bellSeen", "bellRead", "notifPrivacy", "historyPause",
       "feedTabs", "lastNoteTab", "networkMode", "navCustom", "bottomNav", "bottomNavCustom", "navLayout", "navLayoutLand", "navLayoutSync",
-      "noteTabs", "noteTabsSame", "noteClearedAt", "noteDismissed", "drawerMenu", "devicePerf", "communitiesHome", "notePrefs", "profileTabs",
+      "noteTabs", "noteTabsSame", "noteClearedAt", "noteDismissed", "drawerMenu", "devicePerf", "communitiesHome", "notePrefs", "notePrefsSet", "profileTabs",
       "prefsAt", "syncUi", "syncUiAt", "historyCut", "accountFollows", "bellsAt", "builtinNoteRead", "redditVotes", "navCustomAt",
       "brandLogo", "avatarShape", "haptics", "communityTabs", "peopleLinks", "blocks"],
     device: ["profile", "webllmAccepted"],
