@@ -180,6 +180,25 @@ def changelog_for(repo: str, sha: str, token: str) -> list[str]:
     return notes
 
 
+SW_SHA_RE = re.compile(r'const VERSION = "viktorych-[a-z0-9]+-([0-9a-f]{7,64})"')
+
+
+def worker_sha(text: str) -> str:
+    """The build stamped into sw.js. That is the sha version.json must use."""
+    match = SW_SHA_RE.search(str(text or ""))
+    if not match:
+        return ""
+    return valid_sha(match.group(1))
+
+
+def resolve_build_sha(worker_text: str, env_sha: str) -> str:
+    """Prefer the sha already written into sw.js over the environment."""
+    stamped = worker_sha(worker_text)
+    if stamped:
+        return stamped
+    return valid_sha(env_sha)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     out = "_site/version.json"
@@ -189,7 +208,11 @@ def main(argv: list[str] | None = None) -> int:
             print("missing --out path", file=sys.stderr)
             return 1
         out = args[at + 1]
-    sha = valid_sha(os.environ.get("GITHUB_SHA") or "")
+    sw_text = ""
+    sw_path = Path("_site") / "sw.js"
+    if sw_path.is_file():
+        sw_text = sw_path.read_text(encoding="utf-8", errors="replace")
+    sha = resolve_build_sha(sw_text, os.environ.get("GITHUB_SHA") or "")
     if not sha:
         sha = "0" * 40
         print("version.json used a placeholder sha")
@@ -243,6 +266,12 @@ def selftest() -> None:
     assert kept["sha"] == "abcdef1234567890" and kept["changelog"] == ["Keep this"]
     assert previous_from_payload({"sha": "nope"})["sha"] == ""
     assert previous_from_payload(None)["sha"] == ""
+    live_sw = "c2b9cb0959b7a68187171bda4af3af0fd596d274"
+    stale = "3a6f2de18453d5416d9ed99ab622047825a105db"
+    stamped = 'const VERSION = "viktorych-a279-' + live_sw + '";'
+    assert worker_sha(stamped) == live_sw
+    assert resolve_build_sha(stamped, stale) == live_sw
+    assert resolve_build_sha("const VERSION = \"viktorych-a279-__SW_VERSION__\";", live_sw) == live_sw
     print("write_version ok")
 
 
