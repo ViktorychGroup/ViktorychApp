@@ -371,6 +371,17 @@
     return cut > 0 ? html.slice(0, cut + 1) : "";
   }
 
+  function accountScope() {
+    try {
+      var store = typeof localStorage !== "undefined" ? localStorage : null;
+      if (!store || !store.getItem) return "0";
+      var doc = JSON.parse(store.getItem("viktorychapp-account-v1") || "null");
+      var id = doc && doc.account && (doc.account.publicId || doc.account.id);
+      if (!id) return "0";
+      return String(id).replace(/[^A-Za-z0-9]/g, "").slice(0, 32) || "0";
+    } catch (err) { return "0"; }
+  }
+
   function capture(info) {
     var html = trimHtml(info && info.html, SCREEN_LIMIT);
     var screen = {
@@ -379,7 +390,8 @@
       html: html,
       scrollKey: info && info.scrollKey || "",
       y: Number(info && info.y) || 0,
-      at: Date.now()
+      at: Date.now(),
+      acct: accountScope()
     };
     state.screen = screen;
     writeJson(local(), SCREEN_KEY, screen);
@@ -568,7 +580,9 @@
     /* A deep link such as #/settings must not be covered by the Home
        screen saved last time. Home still restores, and then may adopt
        the saved address below. */
-    var canPaint = !!(saved && saved.html && (defaultRoute(live) || !savedHash || savedHash === live));
+    var mine = accountScope();
+    var foreign = !!(saved && saved.acct && mine !== "0" && saved.acct !== mine);
+    var canPaint = !!(saved && saved.html && !foreign && (defaultRoute(live) || !savedHash || savedHash === live));
     if (canPaint && app && !app.childElementCount) {
       app.innerHTML = saved.html;
       document.documentElement.classList.add("is-restored");
@@ -771,6 +785,7 @@
       var meta = swrDbMeta[key] || {};
       var hit = { value: row.v, at: Number(row.at) || 0, db: true, b: Number(meta.b) || 0, u: Number(meta.u) || Date.now() };
       swrMemoDb(key, hit);
+      if (String(key).indexOf("route:") >= 0) notifyRoute(key);
       return hit;
     }).catch(function () { return null; });
   }
@@ -787,7 +802,11 @@
         budget -= b;
         picked.push(key);
       });
-      return Promise.all(picked.map(swrDbLoad)).then(function (rows) { return rows.filter(Boolean).length; });
+      return Promise.all(picked.map(swrDbLoad)).then(function (rows) {
+        var n = rows.filter(Boolean).length;
+        if (n) notifyRoute("");
+        return n;
+      });
     });
   }
   function swrDbTouch(key) {
@@ -992,8 +1011,13 @@
      keep their snapshot under a "private-list" key, so the device seal encrypts
      it and the private wipe removes it with the rest of the private lists. */
   var PRIVATE_ROUTE = /^#\/(?:messages|chat|bookmarks|lists?|drafts|notifications)(?:[/?]|$)/;
+  function notifyRoute(key) {
+    if (typeof window === "undefined" || !window.dispatchEvent) return;
+    try { window.dispatchEvent(new CustomEvent("viktorych-route", { detail: { key: key || "" } })); } catch (err) { /* the next open still reads the copy */ }
+  }
+
   function routeKey(hash) {
-    return (PRIVATE_ROUTE.test(String(hash)) ? "private-list:route:" : "route:") + hash;
+    return (PRIVATE_ROUTE.test(String(hash)) ? "private-list:route:" : "route:") + accountScope() + ":" + hash;
   }
   function wipePrivateRoutes(store) {
     var index = swrReadIndex(store);

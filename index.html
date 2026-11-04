@@ -632,10 +632,17 @@
         app.setAttribute("data-local-timeline", "1");
         return true;
       }
+      function accountId() {
+        var acct = read("viktorychapp-account-v1");
+        var id = acct && acct.account && (acct.account.publicId || acct.account.id);
+        return id ? String(id).replace(/[^A-Za-z0-9]/g, "").slice(0, 32) : "";
+      }
       function paintScreen(saved) {
         if (!saved || typeof saved.html !== "string" || !saved.html) return false;
         if (saved.schema != null && Number(saved.schema) !== 1) return false;
         if (saved.html.indexOf("<script") >= 0) return false;
+        var mine = accountId();
+        if (saved.acct && mine && saved.acct !== mine) return false;
         if (app.childElementCount && !app.querySelector("[data-boot-card]")) return false;
         var html = saved.html;
         var conn = navigator.connection || {};
