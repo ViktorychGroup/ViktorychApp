@@ -46,6 +46,7 @@ import { unlockedHandles } from "./tiktok-unlock.js";
 import { liveFetch, primeLiveCookies, releaseLiveCookies } from "./owner-key-net.js";
 import { handlePills } from "./pills.js";
 import { handleUnfurl } from "./unfurl.js";
+import { handleReader } from "./reader.js";
 import { handleXVideo } from "./xvideo.js";
 import { handleXBroadcast } from "./xbroadcast.js";
 import { handleNewsletter, sweepNewsletters } from "./newsletters.js";
@@ -5903,6 +5904,18 @@ async function route(request, env, ctx) {
     return handleYtm(request, env, { fetch: (url, init) => fetch(url, init), cache: caches.default, r2: env.DATA || null, now: () => Date.now(), waitUntil: ctx && ctx.waitUntil ? (p) => ctx.waitUntil(p) : null });
   }
   await ensureSchema(env);
+  if (path === "/v1/reader" && request.method === "GET") {
+    return handleReader(request, {
+      fetch: (url, init) => fetch(url, init),
+      cache: caches.default,
+      now: () => Date.now(),
+      waitUntil: ctx && ctx.waitUntil ? (p) => ctx.waitUntil(p) : null,
+      limit: async () => {
+        const paced = await rateHit(env, "rd:" + clientIp(request), 30, 10 * 60 * 1000);
+        return paced.ok ? { ok: true } : { ok: false, response: limited(paced) };
+      }
+    });
+  }
   if (path === "/v1/geo" && (request.method === "GET" || request.method === "HEAD")) {
     const isTor = !!(request.cf && request.cf.isTor) || request.headers.get("cf-ipcountry") === "T1";
     const country = (request.cf && request.cf.country) || request.headers.get("cf-ipcountry") || "XX";

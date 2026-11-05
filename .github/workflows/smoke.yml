@@ -71,14 +71,6 @@ jobs:
           fi
           google-chrome --version
 
-      - name: ffmpeg
-        if: matrix.shard == 'site'
-        run: |
-          if ! command -v ffmpeg >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y ffmpeg
-          fi
-
       - name: Run shard
         run: bash scripts/smoke-all.sh --shard ${{ matrix.shard }}
 

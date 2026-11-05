@@ -20,7 +20,11 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
-**Current state.** Main includes #604, #608, #609, #611, #610, #607, #623 (`tiktok_auto_record`), #624 (`ai_tools`), #625 (`x_broadcast`), #626 (`ai_device_setup`), #627 (automatic updates), #632 and #633 (the Pixel status-bar fixes). This branch adds optional Auto model choice for Viktrych. It stays off until the person turns it on, and it only picks a model already on the device. Broadcasts, automatic updates, device setup, the Pixel header fixes, and `ai_tools` stay as they are on main. Still parked: #571 custom-tab swipe. Voice-first accessibility stays last. X-style replies and quotes wait for the owner's go.
+**Current state.** Main includes #604, #608, #609, #611, #610, #607, #623 (`tiktok_auto_record`), #624 (`ai_tools`), #625 (`x_broadcast`), #626 (`ai_device_setup`), #627 (automatic updates), #628 (Auto model), #632 and #633 (the Pixel status-bar fixes). This branch adds a reading view for public article links (`article_reader`). Broadcasts, Auto model, automatic updates, device setup, the Pixel header fixes, and `ai_tools` stay as they are on main. Still parked: #571 custom-tab swipe. Voice-first accessibility stays last. X-style replies and quotes wait for the owner's go.
+
+## Article reader
+
+A public article link in a post keeps its normal open-in-a-new-tab behaviour and gains a Read button (owner switch `article_reader`, on by default). Read opens a reading view: title, byline, date and source when the page really has them, pictures and captions, text size, light / sepia / dark, a progress bar and a saved position. Open original always leaves to the publisher. The Worker route `GET /v1/reader` fetches one public https page, refuses private and metadata addresses, unsafe redirects and non-HTML, honours robots.txt, and does not return a body when the page is paywalled, login-only or marked noarchive. The view says it is not the publisher. Images are hotlinked, not proxied. A good response is cached at the edge for 10 minutes and is not stored in R2.
 
 ## X broadcasts in the feed
 

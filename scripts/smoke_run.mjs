@@ -131,7 +131,7 @@ const PAGE_STEPS = [
     paths: [file("yt_embed_smoke.mjs"), /^app\.js$/]
   }),
   step("x-video", "PLAYWRIGHT_CORE=" + core149 + " node scripts/x_video_play.mjs --root _site", {
-    weight: 40, needs: ["built", "pw149", "ffmpeg"],
+    weight: 40, needs: ["built", "pw149"],
     paths: [file("x_video_play.mjs"), /^app\.js$/]
   }),
   step("signup-sizes", "SIGNUP_PART=sizes node scripts/signup_flow_test.mjs", {
@@ -221,6 +221,7 @@ const NAV_STEPS = [
   step("status-icons", "node scripts/status_icons_test.mjs", { needs: ["pw", "browser"], paths: [file("status_icons_test.mjs"), ...APP] }),
   step("side-panel", "node scripts/side_panel_test.mjs", { needs: ["pw", "browser"], paths: [file("side_panel_test.mjs"), /^split\.js$/, ...APP] }),
   step("site-permissions", "node scripts/site_permissions_test.mjs", { needs: ["pw", "browser"], paths: [file("site_permissions_test.mjs"), /^site-permissions\.js$/, ...APP] }),
+  step("article-reader", "node scripts/reader_test.mjs", { weight: 40, needs: ["pw", "browser"], paths: [file("reader_test.mjs"), /^reader\.(js|css)$/, /^shared\/reader-safe\.js$/, ...APP] }),
   step("profile-layout", "node scripts/profile_layout_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_layout_test.mjs"), ...APP] }),
   step("notif-sounds", "node scripts/notif_sounds_test.mjs", { needs: ["pw", "browser"], paths: [file("notif_sounds_test.mjs"), /^notif-sounds\.js$/, ...APP] }),
   step("menu-pages", "node scripts/menu_pages_test.mjs", { weight: 40, needs: ["pw", "browser"], paths: [file("menu_pages_test.mjs"), ...APP] }),
@@ -250,7 +251,7 @@ const SHARDS = {
 const NAV_SHARDS = {
   "nav-reach": ["home-reach"],
   "nav-shell": ["nav-custom", "bottom-nav", "dock", "profile-tabs-order", "profile-tabs", "post-ring", "x-icons", "viktrych", "viktrych-home"],
-  "nav-layout": ["landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "status-icons", "side-panel", "site-permissions", "notif-sounds", "quote-gutter", "zoom-lock", "update-notice", "profile-layout", "menu-pages"],
+  "nav-layout": ["landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "status-icons", "side-panel", "site-permissions", "notif-sounds", "quote-gutter", "zoom-lock", "update-notice", "profile-layout", "menu-pages", "article-reader"],
   "nav-pages": ["about-layout", "points-layout", "stories-layout", "ios"]
 };
 
@@ -332,7 +333,7 @@ async function ensurePlaywright() {
   const pkg = path.join(PW, "node_modules/playwright/package.json");
   if (!fs.existsSync(pkg)) {
     fs.mkdirSync(PW, { recursive: true });
-    const code = await runShell("npm install --prefix " + PW + " --no-fund --no-audit playwright", process.env);
+    const code = await runShell("npm install --prefix " + PW + " --no-fund --no-audit playwright@1.56.1", process.env);
     if (code !== 0) throw new Error("playwright install failed");
   }
   if (!fs.existsSync(realCore)) throw new Error("playwright-core is missing");
@@ -469,7 +470,7 @@ function selftest() {
   if (none.length !== PAGE_STEPS.length) throw new Error("no local diff must run the full suite");
   for (const name of Object.keys(SHARDS)) shardSteps(name, PAGE_STEPS);
   const navIds = new Set(NAV_STEPS.map((item) => item.id));
-  for (const id of ["nav-custom", "bottom-nav", "home-reach", "profile-tabs-order", "profile-tabs", "dock", "landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "status-icons", "side-panel", "site-permissions", "notif-sounds", "quote-gutter", "zoom-lock", "update-notice", "profile-layout", "menu-pages", "about-layout", "points-layout", "stories-layout", "ios"]) {
+  for (const id of ["nav-custom", "bottom-nav", "home-reach", "profile-tabs-order", "profile-tabs", "dock", "landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "status-icons", "side-panel", "site-permissions", "notif-sounds", "quote-gutter", "zoom-lock", "update-notice", "profile-layout", "menu-pages", "about-layout", "points-layout", "stories-layout", "ios", "article-reader"]) {
     if (!navIds.has(id)) throw new Error("missing nav step " + id);
   }
   console.log("smoke_run selftest ok");
@@ -499,15 +500,28 @@ async function main() {
   const needs = new Set(steps.flatMap((item) => item.needs));
   if (needs.has("pw") || needs.has("webkit")) await ensurePlaywright();
   if (needs.has("webkit")) {
-    const code = await runShell("cd " + PW + " && npx playwright install --with-deps webkit", process.env);
-    if (code !== 0) throw new Error("webkit install failed");
+    // Install Playwright's WebKit packages, except gstreamer1.0-libav.
+    // That one package pulls the ffmpeg codec stack and can spend the whole
+    // 15 minute job downloading it. The iOS check does not play video.
+    // Host validation stays on, so a library that is still missing fails
+    // immediately instead of leaving MiniBrowser running until the job dies.
+    delete process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS;
+    const apt = await runShell([
+      "set -euo pipefail",
+      "cd " + PW,
+      "npx playwright install webkit",
+      "line=$(npx playwright install-deps webkit --dry-run)",
+      "pkgs=$(printf '%s\\n' \"$line\" | sed -E 's/.*--no-install-recommends //; s/\"$//' | tr ' ' '\\n' | grep -vx 'gstreamer1.0-libav' | tr '\\n' ' ')",
+      "test -n \"${pkgs// /}\"",
+      "printf '%s\\n' \"$pkgs\" | tr ' ' '\\n' | grep -qx 'gstreamer1.0-libav' && exit 1",
+      "echo \"webkit packages: $pkgs\"",
+      "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq",
+      "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $pkgs"
+    ].join("\n"), process.env);
+    if (apt !== 0) throw new Error("webkit libraries failed to install");
   }
   if (needs.has("pw149")) await ensurePw149();
   if (needs.has("worker")) await ensureWorker();
-  if (needs.has("ffmpeg")) {
-    const found = spawnSync("which", ["ffmpeg"], { encoding: "utf8" });
-    if (found.status !== 0) throw new Error("ffmpeg is not installed");
-  }
   const before = steps.filter((item) => item.phase === "before");
   const parallel = steps.filter((item) => item.phase !== "before");
   if (parallel.some((item) => item.needs.includes("built")) && !before.some((item) => item.id === "assemble-site")) {

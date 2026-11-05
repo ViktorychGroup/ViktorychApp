@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-05T16:59:00.000Z-auto-model
+// cache-bust: 2026-11-05T17:36:00.000Z-article-reader
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -86,6 +86,9 @@ const SHELL_FILES = [
   "./device-seal.js",
   "./device-data.js",
   "./site-permissions.js",
+  "./reader.js",
+  "./reader.css",
+  "./shared/reader-safe.js",
   "./notif-sounds.js",
   "./direct.js",
   "./comments-client.js",

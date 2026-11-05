@@ -6,7 +6,7 @@
    Records element attributes only. Does not read frames. */
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { join, resolve } from "node:path";
@@ -171,21 +171,10 @@ async function loadChromium() {
   throw last || new Error("playwright-core is not installed");
 }
 
+/* A 64x64 black H.264 clip. The site shard used to apt-install ffmpeg only
+   to build this, and that download used the whole 15 minute job. */
 function tinyMp4() {
-  const dir = mkdtempSync(join(tmpdir(), "viktorych-mp4-"));
-  const file = join(dir, "clip.mp4");
-  const made = spawnSync("ffmpeg", [
-    "-y", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=1",
-    "-pix_fmt", "yuv420p", "-movflags", "+faststart", file
-  ], { encoding: "utf8" });
-  if (made.error || made.status !== 0) {
-    const detail = (made.error && made.error.message) || made.stderr || made.stdout || ("exit " + made.status);
-    rmSync(dir, { recursive: true, force: true });
-    throw new Error("ffmpeg could not build a synthetic file: " + String(detail).trim().slice(0, 500));
-  }
-  const bytes = readFileSync(file);
-  rmSync(dir, { recursive: true, force: true });
-  return bytes;
+  return readFileSync(join(import.meta.dirname || ".", "fixtures/black-64.mp4"));
 }
 
 function serve(root, helperName) {

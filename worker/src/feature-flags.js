@@ -113,7 +113,10 @@ export const FEATURES = {
   owner_user_settings: { paths: ["/v1/owner/user-settings"] },
   // Public X broadcasts in the feed. On by default. Off: the card is a
   // link to X and /v1/x-broadcast answers empty. No private X API.
-  x_broadcast: { paths: ["/v1/x-broadcast"] }
+  x_broadcast: { paths: ["/v1/x-broadcast"] },
+  // Reading view for a public article link. On by default. Off: the endpoint
+  // answers empty and clients do not offer Read.
+  article_reader: { paths: ["/v1/reader"] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

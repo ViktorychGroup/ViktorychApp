@@ -8131,3 +8131,25 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
   .topbar .mhead { height: 53px; min-height: 53px; max-height: 53px; flex: none; box-sizing: border-box; }
   .center { padding-top: calc(var(--top) + min(var(--sat, env(safe-area-inset-top, 0px)), 64px)); }
 }
+
+.rd-card { margin-top: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 100%; }
+.rd-card > .link-card, .rd-card > .link-chip { margin-top: 0; align-self: stretch; }
+.rd-launch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--line, #2f3336);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text, #e7e9ea);
+  font: 700 14px/1.2 inherit;
+  cursor: pointer;
+}
+.rd-launch:hover { background: var(--hover-soft, rgba(231, 233, 234, .1)); }
+.rd-inline { display: inline; }
+.rd-inline .rd-launch { min-height: 28px; margin-left: 6px; padding: 0 10px; font-size: 13px; vertical-align: middle; }
+@media (max-width: 699px) {
+  .rd-card .rd-launch { min-height: 44px; }
+}
