@@ -2942,17 +2942,39 @@ var numberNote = form.passkey
       if ((key === "navLayout" || key === "navLayoutLand" || key === "navLayoutSync") && settings.navLayoutSync !== true) return;
       settings[key] = payload[key];
     });
+    // Settings the owner locked (owner-settings.js on the Worker) win over
+    // this device's own copy and its keep-on-this-device choices.
+    var locks = settingLocks();
+    Object.keys(locks).forEach(function (key) { if (key !== "lang") settings[key] = locks[key]; });
     writeStored("settings-v1", JSON.stringify(settings));
     if (reg) reg.remember(taken);
     if (window.ViktorychAccounts && window.ViktorychAccounts.writeHistory) window.ViktorychAccounts.writeHistory(payload);
-    if (payload && own.indexOf("lang") < 0 && (payload.lang === "en" || payload.lang === "ru" || payload.lang === "es" || payload.lang === "hi")) {
-      try { localStorage.setItem("superintelapp-lang", payload.lang); } catch (err) { /* the page language stays */ }
+    var syncedLang = locks.lang || (payload && own.indexOf("lang") < 0 ? payload.lang : "");
+    if (syncedLang === "en" || syncedLang === "ru" || syncedLang === "es" || syncedLang === "hi") {
+      try { localStorage.setItem("superintelapp-lang", syncedLang); } catch (err) { /* the page language stays */ }
       try { localStorage.setItem("viktorychapp-lang-user-picked", "1"); } catch (err) {}
-      if (window.SI18n && typeof window.SI18n.setLang === "function" && window.SI18n.getLang() !== payload.lang) {
-        window.SI18n.setLang(payload.lang);
+      if (window.SI18n && typeof window.SI18n.setLang === "function" && window.SI18n.getLang() !== syncedLang) {
+        window.SI18n.setLang(syncedLang);
       }
     }
     try { window.dispatchEvent(new CustomEvent("viktorych-settings-applied")); } catch (err) { /* the open page keeps its copy */ }
+  }
+  /* Owner-locked settings for this account, from the last /v1/sync answer.
+     Kept in the session, so signing out or switching accounts drops them. */
+  function settingLocks() {
+    var session = readSession();
+    var locks = session && session.settingLocks;
+    return locks && typeof locks === "object" && !Array.isArray(locks) ? locks : {};
+  }
+  function rememberLocks(body) {
+    var session = readSession();
+    if (!session) return;
+    var next = body && body.locks && typeof body.locks === "object" && !Array.isArray(body.locks) ? body.locks : {};
+    var before = JSON.stringify(session.settingLocks || {});
+    if (before === JSON.stringify(next)) return;
+    session.settingLocks = next;
+    writeSession(session);
+    try { window.dispatchEvent(new CustomEvent("viktorych-setting-locks")); } catch (err) { /* the next render reads them */ }
   }
   function rememberSync(updatedAt) {
     var session = readSession();
@@ -2972,6 +2994,7 @@ var numberNote = form.passkey
         return pushPayload(merged, body.updatedAt);
       }
       if (body.status === 200) {
+        rememberLocks(body);
         rememberSync(body.updatedAt);
         /* The server echoes the body we sent. Writing that copy back drops
            a block or other edit made while the request was in flight, so
@@ -2989,6 +3012,7 @@ var numberNote = form.passkey
     return api("/v1/sync", { token: session.token }).then(function (body) {
       var local = localSnapshot();
       if (!body || body.status !== 200) return;
+      rememberLocks(body);
       if (pullOnly) {
         // Another device changed something: take it in without pushing back,
         // so two open devices never bounce writes at each other.
@@ -7362,6 +7386,7 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     },
     aiSettings: aiSettings,
     aiSetting: aiSetting,
+    settingLocks: function () { return Object.assign({}, settingLocks()); },
     signOut: function () { logout(false); },
     signOutAndWipe: function () {
       if (readSession()) logout(false, true);

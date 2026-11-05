@@ -64,6 +64,7 @@ import { PROFILE_MEDIA_SCHEMA, applyViewer, rememberSlot, addMedia, updateMedia,
 import { handleOwnerFeeds, sweepOwnerFeeds } from "./owner-feeds.js";
 import { handleOwnerSourceLists, handleMySourceLists, refreshWanted } from "./source-lists.js";
 import { handleOwnerInspector } from "./owner-inspector.js";
+import { handleOwnerUserSettings, readLocks, enforceLocks, lockValues } from "./owner-settings.js";
 import { handleFeedRequests, handleOwnerFeedRequests, requestInsteadOfAdd, followGate, importFilter, feedRequestsOn, fileRequest, bannedKeys, newsletterBanned } from "./feed-requests.js";
 import { handleOwnerSms, handleMemberSms } from "./sms-pool.js";
 import { handleMail } from "./mail-relay.js";
@@ -1564,8 +1565,9 @@ function cleanDevicePerf(raw) {
 async function handleSyncGet(request, env) {
   const row = await sessionAccount(env, request);
   if (!row) return json(401, { error: "unauthorized" });
+  const locks = await ownerLocksFor(env, row);
   const saved = await env.DB.prepare("SELECT payload, updated_at FROM sync_state WHERE public_id = ?").bind(row.public_id).first();
-  if (!saved) return json(200, { payload: null, updatedAt: 0 });
+  if (!saved) return json(200, locks ? { payload: null, updatedAt: 0, locks: lockValues(locks) } : { payload: null, updatedAt: 0 });
   let payload = null;
   try { payload = JSON.parse(saved.payload); }
   catch (err) { payload = null; }
@@ -1574,8 +1576,19 @@ async function handleSyncGet(request, env) {
     delete payload.bellNotes;
     delete payload.bellSeen;
     delete payload.bellRead;
+    if (locks) enforceLocks(payload, locks);
   }
-  return json(200, { payload, updatedAt: saved.updated_at });
+  return json(200, locks ? { payload, updatedAt: saved.updated_at, locks: lockValues(locks) } : { payload, updatedAt: saved.updated_at });
+}
+
+/* Settings the owner locked for this account (owner-settings.js), or null
+   when the owner_user_settings switch is off or nothing is locked. */
+async function ownerLocksFor(env, row) {
+  if (!row || row.owner === 1) return null;
+  const off = await readFlags(env);
+  if (off && off.owner_user_settings) return null;
+  const locks = await readLocks(env, row.public_id);
+  return Object.keys(locks).length ? locks : {};
 }
 
 const SYNC_UI_KEYS = ["appearance", "drawerMenu", "navCustom", "navCustomAt", "bottomNav", "bottomNavCustom", "profileTabs", "homePills", "stories", "prefsAt", "showPictures", "showBanners"];
@@ -1681,6 +1694,9 @@ async function handleSyncPut(request, env) {
     if (cleanedPerf) payload.devicePerf = cleanedPerf;
     else delete payload.devicePerf;
   }
+  // Settings the owner locked keep the owner's value, whatever a device sent.
+  const locks = await ownerLocksFor(env, row);
+  if (locks) enforceLocks(payload, locks);
   const text = JSON.stringify(payload);
   if (text.length > SYNC_MAX) return json(413, { error: "too_large" });
   const base = Number(body.baseUpdatedAt || 0);
@@ -1695,7 +1711,7 @@ async function handleSyncPut(request, env) {
     try { await publishToAccount(env, row.public_id, "sync", { updatedAt: now, device }, row.public_id); }
     catch (err) { /* devices also check when they come back */ }
   }
-  return json(200, { payload: body.payload, updatedAt: now });
+  return json(200, locks ? { payload: body.payload, updatedAt: now, locks: lockValues(locks) } : { payload: body.payload, updatedAt: now });
 }
 
 const DATA_KEY = /^(?:feeds|stories|people|suggestions|status|feeds\.config)\.json$|^data\/music\.json$|^(?:live|archive|comments|fallback)\/[A-Za-z0-9._-]{1,120}\.json$|^discord\/(?:index|state|vk)\.json$|^discord\/(?:messages|pins)\/\d{1,22}\.json$|^discord\/messages\/\d{1,22}\/p\/\d{1,4}\.json$|^data\/communities\/(?:index|[a-z0-9_]{2,21})\.json$|^data\/communities\/[a-z0-9_]{2,21}\/\d{1,20}\.json$/;
@@ -5917,6 +5933,9 @@ async function route(request, env, ctx) {
   if (path === "/v1/inbox/sms") return handleMemberSms(request, env, { json, rateHit, limited, sessionAccount, readJson });
   if (path === "/v1/inbox/mail") return handleMail(request, env, { json, rateHit, limited, sessionAccount, readJson });
   if (path === "/v1/owner/sms") return handleOwnerSms(request, env, { json, rateHit, limited, requireOwnerHidden });
+  if (path.startsWith("/v1/owner/user-settings/")) {
+    return handleOwnerUserSettings(request, env, path, { json, readJson, rateHit, limited, requireOwner, openPayload, sealPayload, publish: publishToAccount });
+  }
   if (path === "/v1/owner/inspector" || path.startsWith("/v1/owner/inspector/")) {
     return handleOwnerInspector(request, env, path, url, { json, rateHit, limited, requireOwner, openPayload });
   }

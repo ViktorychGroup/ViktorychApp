@@ -6180,5 +6180,19 @@ SI18n.addPack("hi", {
   "Notification sounds": "सूचना की आवाज़ें",
   "Sounds while the app is open, per account and per type.": "ऐप खुला होने पर आवाज़ें, अकाउंट और प्रकार के हिसाब से।",
   "Sound set for {name}": "{name} के लिए आवाज़ तय हुई",
-  "Uses your other notification sounds": "आपकी बाकी सूचना आवाज़ें इस्तेमाल होंगी"
+  "Uses your other notification sounds": "आपकी बाकी सूचना आवाज़ें इस्तेमाल होंगी",
+  "Manage member settings": "सदस्यों की सेटिंग्स प्रबंधित करें",
+  "In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.": "खातों में आप किसी सदस्य की सेटिंग्स बदल सकते हैं और उन्हें लॉक कर सकते हैं ताकि वे उन्हें न बदल सकें। बंद करने पर हर विकल्प सदस्यों को वापस मिल जाता है।",
+  "The site owner locked this setting.": "साइट के मालिक ने यह सेटिंग लॉक कर दी है।",
+  "The site owner manages 1 of your settings.": "साइट के मालिक आपकी 1 सेटिंग प्रबंधित करते हैं।",
+  "The site owner manages {count} of your settings.": "साइट के मालिक आपकी {count} सेटिंग्स प्रबंधित करते हैं।",
+  "Manage settings": "सेटिंग्स प्रबंधित करें",
+  "Change their settings and lock the ones they can't change.": "उनकी सेटिंग्स बदलें और जिन्हें वे न बदल सकें उन्हें लॉक करें।",
+  "Owner accounts manage their own settings.": "मालिक खाते अपनी सेटिंग्स खुद प्रबंधित करते हैं।",
+  "Changes reach @{handle}'s devices on their next sync. A locked setting keeps your value and they can't change it.": "बदलाव @{handle} के डिवाइस पर अगले सिंक में पहुंचते हैं। लॉक की गई सेटिंग आपका मान रखती है और वे उसे नहीं बदल सकते।",
+  "Lock all": "सभी लॉक करें",
+  "Unlock all": "सभी अनलॉक करें",
+  "1 setting locked": "1 सेटिंग लॉक है",
+  "{count} settings locked": "{count} सेटिंग्स लॉक हैं",
+  "Each change is logged in the access log.": "हर बदलाव एक्सेस लॉग में दर्ज होता है।"
 });

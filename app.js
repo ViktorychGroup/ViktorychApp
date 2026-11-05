@@ -1649,7 +1649,76 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return saver ? saver.allow(what) : true;
   }
 
+  /* Settings the owner locked for this account (owner-settings.js on the
+     Worker, switch owner_user_settings). The Worker keeps them on every sync;
+     here the controls look locked, taps on them only explain, and a change
+     made any other way (Local AI, an old screen) is put back before saving. */
+  function settingLocks() {
+    if (!accountToken() || signedOwner() || serverOffList().includes("owner_user_settings")) return {};
+    const accounts = window.ViktorychAccounts;
+    return accounts && accounts.settingLocks ? accounts.settingLocks() || {} : {};
+  }
+  function enforceSettingLocks() {
+    const locks = settingLocks();
+    let reverted = false;
+    if (!STATE.settings) return false;
+    Object.keys(locks).forEach((key) => {
+      if (key === "lang" || JSON.stringify(STATE.settings[key]) === JSON.stringify(locks[key])) return;
+      STATE.settings[key] = locks[key];
+      reverted = true;
+    });
+    return reverted;
+  }
+  const LOCK_FIXED = { theme: "appearance", autoplay: "autoplay", "haptics-pref": "haptics", "ava-shape": "avatarShape", "ui-lang": "lang", "live-preview": "livePreview", "ai-fab": "aiFab" };
+  const LOCK_ACTS = { theme: () => "appearance", autoplay: () => "autoplay", "haptics-pref": () => "haptics", "ava-shape": () => "avatarShape", "ui-lang": () => "lang", "live-preview": () => "livePreview", "ai-fab": () => "aiFab",
+    "face-pref": (el) => (el.dataset.kind === "banners" ? "showBanners" : "showPictures"),
+    "pz-look": (el) => el.dataset.key, "pz-feed": (el) => el.dataset.key, "toggle-privacy-pref": (el) => el.dataset.key, "home-feature": (el) => el.dataset.key, "data-pref": (el) => el.dataset.key };
+  function lockedKeyOf(el) {
+    const act = el && el.dataset ? el.dataset.act : "";
+    const fn = act && Object.prototype.hasOwnProperty.call(LOCK_ACTS, act) ? LOCK_ACTS[act] : null;
+    const key = fn ? fn(el) : "";
+    return key && Object.prototype.hasOwnProperty.call(settingLocks(), key) ? key : "";
+  }
+  function lockStyleRules() {
+    const keys = Object.keys(settingLocks());
+    const sel = [];
+    keys.forEach((key) => {
+      Object.keys(LOCK_ACTS).forEach((act) => {
+        const fixed = LOCK_FIXED[act];
+        if (fixed) { if (fixed === key) sel.push(`[data-act="${act}"]`); return; }
+        if (act === "face-pref") { if (key === "showBanners") sel.push(`[data-act="face-pref"][data-kind="banners"]`); else if (key === "showPictures") sel.push(`[data-act="face-pref"]:not([data-kind="banners"])`); return; }
+        sel.push(`[data-act="${act}"][data-key="${key}"]`);
+      });
+    });
+    return sel.length ? `${sel.join(",")}{opacity:.45;cursor:not-allowed}` : "";
+  }
+  function paintSettingLocks() {
+    let el = document.getElementById("owner-setting-locks");
+    const css = lockStyleRules();
+    if (!css) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement("style"); el.id = "owner-setting-locks"; document.head.appendChild(el); }
+    if (el.textContent !== css) el.textContent = css;
+  }
+  document.addEventListener("click", (event) => {
+    const el = event.target && event.target.closest ? event.target.closest("[data-act]") : null;
+    if (!el || !lockedKeyOf(el)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    toast(tr("The site owner locked this setting."));
+  }, true);
+  window.addEventListener("viktorych-setting-locks", () => {
+    paintSettingLocks();
+    if (enforceSettingLocks()) { writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings)); if (typeof applyTheme === "function") applyTheme(); }
+    render({ y: window.scrollY });
+  });
+  setTimeout(paintSettingLocks, 0);
+  function lockedSettingsNote() {
+    const n = Object.keys(settingLocks()).length;
+    return n ? `<p class="phandle set-block owner-locks-note">${esc(n === 1 ? tr("The site owner manages 1 of your settings.") : tr("The site owner manages {count} of your settings.", { count: String(n) }))}</p>` : "";
+  }
+
   function saveSettings() {
+    if (enforceSettingLocks()) toast(tr("The site owner locked this setting."));
     if (STATE.settings && STATE.settings.devicePerf && window.ViktorychDevice && window.ViktorychDevice.persist) {
       STATE.settings.devicePerf = window.ViktorychDevice.persist(STATE.settings.devicePerf);
     }
@@ -2025,7 +2094,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "site_permissions", "notif_sounds"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "site_permissions", "notif_sounds", "owner_user_settings"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2130,7 +2199,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       gguf_models: [tr("GGUF models for Viktrych"), tr("Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.")],
       instant_limits: [tr("Instant limits"), tr("Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.")],
       site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")],
-      notif_sounds: [tr("In-app notification sounds"), tr("While the app is open, new notifications play a sound picked per account, per type or the default, with a volume control. Made on the device; no sound files.")]
+      notif_sounds: [tr("In-app notification sounds"), tr("While the app is open, new notifications play a sound picked per account, per type or the default, with a volume control. Made on the device; no sound files.")],
+      owner_user_settings: [tr("Manage member settings"), tr("In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -18396,6 +18466,7 @@ const here = parseRoute();
     }
     window.OwnerInspector.attach({
       tr, esc, icon, avatar, settingsHead, signedOwner, accountsApi, accountToken, toast, relTime,
+      manageSettingsOn: () => !serverOffList().includes("owner_user_settings"),
       render: () => render({ y: window.scrollY }),
       lang: () => (window.SI18n ? window.SI18n.getLang() : "en")
     });
@@ -18744,7 +18815,7 @@ const here = parseRoute();
     } catch (err) {
       accountBlock = "";
     }
-    return settingsHead(tr("Settings"), "") + settingsSearchHtml() + localAiEntryHtml() + `<div class="set-block set-main-note"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}><p class="phandle">${esc(tr("Follows, Lists, custom tabs, likes, bookmarks, and history stay in this browser."))}</p></div><div class="set-list set-main-list"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}>
+    return settingsHead(tr("Settings"), "") + settingsSearchHtml() + lockedSettingsNote() + localAiEntryHtml() + `<div class="set-block set-main-note"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}><p class="phandle">${esc(tr("Follows, Lists, custom tabs, likes, bookmarks, and history stay in this browser."))}</p></div><div class="set-list set-main-list"${String(STATE.settingsQ || "").trim() ? " hidden" : ""}>
       ${settingsRow("#/customize", tr("Customize"), tr("Theme, colour, text size, profile pictures and your feed, all in one place."))}
       ${settingsRow("#/settings/accessibility", tr("Accessibility, display and languages"), tr("Manage how {app} looks and which language it uses.", { app: productName("app") }))}
       ${settingsRow("#/settings/notifications", tr("Notifications"))}
@@ -33087,7 +33158,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const next = loadSettings();
     // Synced display choices from another device apply right away.
     let lookChanged = false;
-    ["appearance", "homePills", "reactionsData", "communityNotesData", "stories", "prefsAt", "syncUi", "syncUiAt", "showPictures", "showBanners", "profileTabs", "autoplay", "followingSort", "forYouReposts", "forYouReplies", "livePreview", "friendsRail", "translateTo", "translateAuto", "translateNever", "notify", "bells", "mutedWords", "mutedAccounts", "privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "brandLogo", "peopleLinks", "inboxLayout", "busyPrefs", "avatarShape", "accent", "fontSize", "density", "reduceMotion", "haptics"].forEach((key) => {
+    ["appearance", "homePills", "reactionsData", "communityNotesData", "stories", "prefsAt", "syncUi", "syncUiAt", "showPictures", "showBanners", "profileTabs", "autoplay", "followingSort", "forYouReposts", "forYouReplies", "livePreview", "friendsRail", "translateTo", "translateAuto", "translateNever", "notify", "bells", "mutedWords", "mutedAccounts", "privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "brandLogo", "peopleLinks", "inboxLayout", "busyPrefs", "avatarShape", "accent", "fontSize", "density", "reduceMotion", "haptics", "aiFab"].forEach((key) => {
       if (JSON.stringify(STATE.settings[key]) === JSON.stringify(next[key])) return;
       STATE.settings[key] = next[key];
       lookChanged = true;
