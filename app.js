@@ -12140,7 +12140,8 @@ const here = parseRoute();
        first batch (the rest is below the fold and is topped up when idle). */
     watchFeedGrown();
     const resting = !(STATE.feedGrown && STATE.feedGrown[tab]) && (window.scrollY || 0) < 80;
-    if (resting) count = FEED_FIRST;
+    if (resting && tab === "foryou") count = Math.min(count, FEED_PAGE);
+    else if (resting) count = FEED_FIRST;
     const prev = STATE.feedCutoff[tab];
     if (prev && !resting && tabSort(tab) !== "popular") {
       const at = list.findIndex((post) => String((post && post.id) || "") === prev);
@@ -12181,10 +12182,13 @@ const here = parseRoute();
       if (STATE.loading) { setTimeout(() => idle(step), 250); return; }
       const list = homeShaped(route);
       const count = (STATE.feedShown && STATE.feedShown[tab]) || FEED_FIRST;
+      const cutoff = tab === "foryou" && STATE.feedCutoff && STATE.feedCutoff[tab];
+      const at = cutoff ? list.findIndex((post) => String(post && post.id || "") === cutoff) : -1;
+      const from = tab === "foryou" && at >= 0 ? at + 1 : Math.min(count, list.length);
       const goal = Math.min(list.length, FEED_PAGE);
-      if (count >= goal) { homeTopUps[tab] = false; return; }
-      const end = Math.min(goal, count + FEED_STEP);
-      if (!appendHomeCards(tab, list, count, end)) { homeTopUps[tab] = false; return; }
+      if (from >= goal) { homeTopUps[tab] = false; return; }
+      const end = Math.min(goal, from + FEED_STEP);
+      if (!appendHomeCards(tab, list, from, end)) { homeTopUps[tab] = false; return; }
       STATE.feedShown[tab] = end;
       if (end < goal) idle(step);
       else { homeTopUps[tab] = false; watchHydration(); bindPlayers(); }
@@ -12231,12 +12235,17 @@ const here = parseRoute();
   function appendHomeCards(tab, list, from, to) {
     const sentinel = document.getElementById("archive-more");
     if (!sentinel || !sentinel.isConnected || !sentinel.parentNode) return false;
-    const slice = list.slice(from, to);
+    const present = tab === "foryou" ? new Set(Array.from(sentinel.parentNode.querySelectorAll("article.post[data-post]"), (el) => el.getAttribute("data-post"))) : null;
+    const slice = list.slice(from, to).filter((post) => !present || !present.has(String(post && post.id || "")));
     if (!slice.length) return false;
     const html = groupThreads(slice).map((p) => (p && p.busyGroup) ? busyRow(p) : card(p, null, { eager: false })).join("");
     if (!html) return false;
     const tpl = document.createElement("template");
     tpl.innerHTML = html;
+    if (tab === "foryou") {
+      const cache = STATE.forYouCardHtml || (STATE.forYouCardHtml = {});
+      tpl.content.querySelectorAll("article.post[data-post]").forEach((el) => { cache[el.getAttribute("data-post")] = el.outerHTML; });
+    }
     sentinel.parentNode.insertBefore(tpl.content, sentinel);
     if (to >= list.length) {
       const end = document.createElement("template");
@@ -21638,7 +21647,39 @@ if (STATE.histClear) {
     });
   }
 
-  function commitApp(html) {
+  /* Background module and feed refreshes rebuild the same For You cards.
+     Preserve identical mounted cards and replace only genuinely new HTML.
+     Explicit UI actions (likes, menus, navigation) keep a full rebuild. */
+  function reuseForYouCards(liveRoot, frag, background) {
+    const route = parseRoute();
+    if (!background || route.name !== "home" || (route.tab || "foryou") !== "foryou") return;
+    const slot = viewParks.get(parkKey(route));
+    const live = new Map();
+    const collect = (root) => root && root.querySelectorAll("article.post[data-post]").forEach((el) => {
+      const id = el.getAttribute("data-post");
+      if (id && !live.has(id)) live.set(id, el);
+    });
+    collect(liveRoot);
+    if (slot && slot.root) collect(slot.root);
+    const previous = STATE.forYouCardHtml || {};
+    const next = {};
+    frag.querySelectorAll("article.post[data-post]").forEach((fresh) => {
+      const id = fresh.getAttribute("data-post");
+      if (!id) return;
+      const html = fresh.outerHTML;
+      next[id] = html;
+      const el = live.get(id);
+      if (!el || !fresh.parentNode || el.parentNode.tagName !== fresh.parentNode.tagName || el.parentNode.className !== fresh.parentNode.className) return;
+      if (previous[id] !== html) {
+        const settled = (value) => String(value || "").replace(/ loading="eager" fetchpriority="high"/g, ' loading="lazy"').replace(/ lp-slot/g, "");
+        if (settled(previous[id]) !== settled(html)) return;
+      }
+      fresh.replaceWith(el);
+    });
+    STATE.forYouCardHtml = next;
+  }
+
+  function commitApp(html, background) {
     const app = document.getElementById("app");
     if (!app) return;
     hscrollHolding = true;
@@ -21647,6 +21688,7 @@ if (STATE.histClear) {
     const tpl = document.createElement("template");
     tpl.innerHTML = html;
     hscrollReuse(app, tpl.content);
+    reuseForYouCards(app, tpl.content, background);
     while (app.firstChild) app.removeChild(app.firstChild);
     app.appendChild(tpl.content);
     scheduleImageSweep();
@@ -22424,7 +22466,7 @@ if (STATE.histClear) {
         if (!decision || !decision.commit) return;
         if (slot && slot.force) slot.force = false;
         parkLiveView();
-        commitApp(html);
+        commitApp(html, !inUserInput() && !(opts && opts.forceCards));
         if (key) {
           const prev = viewParks.get(key);
           if (prev && prev.root) prev.root.remove();
