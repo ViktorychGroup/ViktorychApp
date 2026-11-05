@@ -1440,7 +1440,12 @@ def main() -> None:
     check(shortcut_names[:4] == ["Home", "Notifications", "Inbox", "Post"] and set(["Search", "Bookmarks", "Subscriptions", "Notifications", "ViktorychMusic", "Home", "Inbox", "Post"]).issubset(shortcut_names), "the manifest shortcuts lead with Home, Notifications, Messages, and Post and keep Search, Bookmarks, Subscriptions, and ViktorychMusic")
     share_files = manifest["share_target"]["params"].get("files") or []
     check(manifest["share_target"]["method"] == "POST" and manifest["share_target"]["enctype"] == "multipart/form-data" and manifest["share_target"]["params"].get("url") == "url" and any(item.get("name") == "media" for item in share_files), "sharing a link or a file into the app is a POST share target")
-    check(manifest.get("file_handlers") and manifest["launch_handler"]["client_mode"] == "focus-existing" and any(item.get("protocol") == "web+viktorych" for item in manifest.get("protocol_handlers") or []), "the installed app opens files, focuses the existing window, and handles web+viktorych")
+    launch_mode = manifest.get("launch_handler", {}).get("client_mode")
+    launch_ok = launch_mode == "focus-existing" or (isinstance(launch_mode, list) and launch_mode and launch_mode[0] == "focus-existing")
+    check(manifest.get("file_handlers") and launch_ok and any(item.get("protocol") == "web+viktorych" for item in manifest.get("protocol_handlers") or []), "the installed app opens files, focuses the existing window, and handles web+viktorych")
+    check(not (manifest.get("related_applications") or []), "the main app does not advertise a Play related application")
+    shots = manifest.get("screenshots") or []
+    check(sum(1 for row in shots if row.get("form_factor") == "narrow") >= 2 and sum(1 for row in shots if row.get("form_factor") == "wide") >= 1, "richer install lists phone and desktop screenshots")
     worker = (ROOT / "sw.js").read_text(encoding="utf-8")
     check("__SW_VERSION__" in worker and "150 * 1024 * 1024" in worker and "staleWhileRevalidate" in worker, "the service worker versions its cache and caps media")
     check("api.fxtwitter.com" in worker and "networkFirst" in worker and "networkFirstTimeout" in worker and "6000" in worker, "comment APIs are network-first with a short timeout")
@@ -2106,6 +2111,10 @@ def main() -> None:
     check(png_size(ROOT / "icons" / "apple-touch-icon.png") == (180, 180), "the apple touch icon is 180 pixels")
     check(png_size(ROOT / "screenshots" / "narrow.png") == (1080, 1920), "the narrow screenshot is a phone frame")
     check(png_size(ROOT / "screenshots" / "wide.png") == (1920, 1080), "the wide screenshot is a desktop frame")
+    # Splash placeholders were ~12–16 KB; richer UI frames are hundreds of KB.
+    check((ROOT / "screenshots" / "narrow.png").stat().st_size > 80000 and (ROOT / "screenshots" / "wide.png").stat().st_size > 80000, "install screenshots are real UI frames, not splash marks")
+    for extra in ("narrow-search.png", "narrow-notes.png", "wide-profile.png"):
+        check((ROOT / "screenshots" / extra).is_file(), f"richer install ships {extra}")
     check((ROOT / "scripts" / "pwa_assets.py").read_text(encoding="utf-8").find("M18.244") < 0, "the install mark is not the X logo")
     check("M18.244" not in (ROOT / "app.js").read_text(encoding="utf-8") and "M18.244" not in (ROOT / "favicon.svg").read_text(encoding="utf-8") and 'icon("logo")' not in (ROOT / "app.js").read_text(encoding="utf-8"), "the X logo is not in the app chrome or the favicon")
     favicon = (ROOT / "favicon.svg").read_text(encoding="utf-8")

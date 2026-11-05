@@ -229,8 +229,9 @@ def generate() -> None:
         for size, kind in ((16, "si"), (32, "si"), (48, "any"), (256, "any")):
             frames.append((size, raster(icon_svg(size, kind, v_art, v_w, v_h, "ViktorychApp"), size)))
         write(ROOT / "favicon.ico", ico_bytes(frames))
-        for name, w, h in (("narrow", 1080, 1920), ("wide", 1920, 1080)):
-            write(ROOT / "screenshots" / f"{name}.png", png_from_svg(splash_svg(app, w, h), w, h))
+        # Richer-install shots are real UI frames (landing/*.webp), not splash marks.
+        from richer_install_shots import generate as write_richer_shots
+        write_richer_shots()
     splashes = [
         ("iphone-se", 640, 1136),
         ("iphone-8", 750, 1334),

@@ -2,40 +2,196 @@
   "id": "./",
   "name": "ViktorychApp",
   "short_name": "ViktorychApp",
-  "description": "An X-style home for posts from X, Threads, Instagram, YouTube, VK, Discord, Telegram, and RSS.",
+  "description": "An X-style home for posts from X, Threads, Instagram, YouTube, VK, Discord, Telegram, and RSS. Install for full screen, offline reading, Share Target, and desktop window controls.",
   "scope": "./",
   "start_url": "./#/home",
   "display": "standalone",
-  "display_override": ["window-controls-overlay", "fullscreen", "standalone"],
+  "display_override": [
+    "window-controls-overlay",
+    "fullscreen",
+    "standalone"
+  ],
   "orientation": "any",
   "background_color": "#000000",
   "theme_color": "#000000",
   "lang": "en",
-  "categories": ["news", "social"],
-  "prefer_related_applications": false,
-  "related_applications": [
-    { "platform": "play", "id": "app.viktorych.tv", "url": "https://viktorychapp.pages.dev/tv/" }
+  "categories": [
+    "news",
+    "social"
   ],
+  "prefer_related_applications": false,
   "icons": [
-    { "src": "icons/icon-192.png?v=7", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png?v=7", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png?v=7", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "icons/icon-monochrome-512.png?v=7", "sizes": "512x512", "type": "image/png", "purpose": "monochrome" }
+    {
+      "src": "icons/icon-192.png?v=8",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png?v=8",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png?v=8",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-monochrome-512.png?v=8",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "monochrome"
+    }
   ],
   "shortcuts": [
-    { "name": "Home", "short_name": "Home", "url": "./#/home", "icons": [{ "src": "icons/icon-192.png?v=7", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "Notifications", "short_name": "Notifications", "url": "./#/notifications", "icons": [{ "src": "icons/icon-192.png?v=7", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "Inbox", "short_name": "Inbox", "url": "./#/messages", "icons": [{ "src": "icons/icon-192.png?v=7", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "Post", "short_name": "Post", "url": "./?post=1#/home", "icons": [{ "src": "icons/icon-192.png?v=7", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "Contacts", "short_name": "Contacts", "url": "./#/contacts", "icons": [{ "src": "icons/icon-192.png?v=7", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "Search", "short_name": "Search", "url": "./#/explore", "icons": [{ "src": "icons/icon-192.png?v=7", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "Bookmarks", "short_name": "Bookmarks", "url": "./#/bookmarks", "icons": [{ "src": "icons/icon-192.png?v=7", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "Subscriptions", "short_name": "Subscriptions", "url": "./#/subscriptions", "icons": [{ "src": "icons/icon-192.png?v=7", "sizes": "192x192", "type": "image/png" }] },
-    { "name": "ViktorychMusic", "short_name": "ViktorychMusic", "url": "./#/music", "icons": [{ "src": "icons/music-192.png?v=7", "sizes": "192x192", "type": "image/png" }] }
+    {
+      "name": "Home",
+      "short_name": "Home",
+      "url": "./#/home",
+      "icons": [
+        {
+          "src": "icons/icon-192.png?v=8",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "short_name": "Notifications",
+      "url": "./#/notifications",
+      "icons": [
+        {
+          "src": "icons/icon-192.png?v=8",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Inbox",
+      "short_name": "Inbox",
+      "url": "./#/messages",
+      "icons": [
+        {
+          "src": "icons/icon-192.png?v=8",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Post",
+      "short_name": "Post",
+      "url": "./?post=1#/home",
+      "icons": [
+        {
+          "src": "icons/icon-192.png?v=8",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Contacts",
+      "short_name": "Contacts",
+      "url": "./#/contacts",
+      "icons": [
+        {
+          "src": "icons/icon-192.png?v=8",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Search",
+      "short_name": "Search",
+      "url": "./#/explore",
+      "icons": [
+        {
+          "src": "icons/icon-192.png?v=8",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Bookmarks",
+      "short_name": "Bookmarks",
+      "url": "./#/bookmarks",
+      "icons": [
+        {
+          "src": "icons/icon-192.png?v=8",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Subscriptions",
+      "short_name": "Subscriptions",
+      "url": "./#/subscriptions",
+      "icons": [
+        {
+          "src": "icons/icon-192.png?v=8",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "ViktorychMusic",
+      "short_name": "ViktorychMusic",
+      "url": "./#/music",
+      "icons": [
+        {
+          "src": "icons/music-192.png?v=8",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ],
   "screenshots": [
-    { "src": "screenshots/narrow.png", "sizes": "1080x1920", "type": "image/png", "form_factor": "narrow", "label": "Home timeline" },
-    { "src": "screenshots/wide.png", "sizes": "1920x1080", "type": "image/png", "form_factor": "wide", "label": "Home timeline" }
+    {
+      "src": "screenshots/narrow.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Home timeline"
+    },
+    {
+      "src": "screenshots/narrow-search.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Search and explore"
+    },
+    {
+      "src": "screenshots/narrow-notes.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Notifications"
+    },
+    {
+      "src": "screenshots/wide.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Home on desktop"
+    },
+    {
+      "src": "screenshots/wide-profile.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Profile on desktop"
+    }
   ],
   "share_target": {
     "action": "./?share=1",
@@ -46,24 +202,74 @@
       "text": "text",
       "url": "url",
       "files": [
-        { "name": "media", "accept": ["image/*", "video/*", "audio/*", "text/vcard", ".vcf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif", ".mp4", ".webm", ".mov"] }
+        {
+          "name": "media",
+          "accept": [
+            "image/*",
+            "video/*",
+            "audio/*",
+            "text/vcard",
+            ".vcf",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".webp",
+            ".heic",
+            ".heif",
+            ".mp4",
+            ".webm",
+            ".mov"
+          ]
+        }
       ]
     }
   },
   "file_handlers": [
     {
       "action": "./",
-            "accept": {
-        "text/vcard": [".vcf"],
-        "image/*": [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".heic", ".heif"],
-        "video/*": [".mp4", ".webm", ".mov", ".m4v"]
+      "accept": {
+        "text/vcard": [
+          ".vcf"
+        ],
+        "image/*": [
+          ".png",
+          ".jpg",
+          ".jpeg",
+          ".gif",
+          ".webp",
+          ".avif",
+          ".heic",
+          ".heif"
+        ],
+        "video/*": [
+          ".mp4",
+          ".webm",
+          ".mov",
+          ".m4v"
+        ]
       }
     }
   ],
   "protocol_handlers": [
-    { "protocol": "tel", "url": "./?tel=%s" },
-    { "protocol": "web+contact", "url": "./?contact=%s" },
-    { "protocol": "web+viktorych", "url": "./?proto=%s" }
+    {
+      "protocol": "web+viktorych",
+      "url": "./?proto=%s"
+    },
+    {
+      "protocol": "web+contact",
+      "url": "./?contact=%s"
+    },
+    {
+      "protocol": "tel",
+      "url": "./?tel=%s"
+    }
   ],
-  "launch_handler": { "client_mode": "focus-existing" }
+  "launch_handler": {
+    "client_mode": [
+      "focus-existing",
+      "navigate-existing",
+      "auto"
+    ]
+  }
 }

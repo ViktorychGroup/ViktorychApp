@@ -544,9 +544,9 @@ The folder is `ViktorychApp-backup/`. `music/` and `covers/` are ViktorychMusic 
 
 ## Installed app
 
-A long-press on the icon opens Search, Bookmarks, Subscriptions, and Notifications. The manifest also has a description, phone and desktop screenshots, a maskable icon, and a monochrome icon. iOS startup images cover the common iPhone and iPad sizes. The theme color follows the appearance setting: white, dim (`#15202b`), or black.
+A long-press on the icon opens Search, Bookmarks, Subscriptions, and Notifications. The manifest has a description, richer-install phone and desktop screenshots (real UI frames), shortcuts, Share Target, file handlers, protocol handlers, window-controls-overlay, a maskable icon, and a monochrome icon. iOS startup images cover the common iPhone and iPad sizes. The theme color follows the appearance setting: white, dim (`#15202b`), or black.
 
-Sharing a link into the app is a GET share target. An X, Threads, Instagram, YouTube, VK, or RSS link opens the post when this site already has it, the YouTube watch page for a video id, or the live profile with Follow. Anything else opens the add-account screen.
+Sharing a link or a file into the app is a POST multipart share target. An X, Threads, Instagram, YouTube, VK, or RSS link opens the post when this site already has it, the YouTube watch page for a video id, or the live profile with Follow. Anything else opens the add-account screen.
 
 The app badge is the number of new posts from accounts you follow since the app was last open. It clears when the app comes to the foreground. Chromium can also set it from periodic background sync.
 

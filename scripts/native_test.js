@@ -63,12 +63,16 @@ assert.strictEqual(typeof codec.supported(), "boolean");
 const manifest = JSON.parse(read("manifest.webmanifest"));
 assert.strictEqual(manifest.id, "./");
 assert.strictEqual(manifest.scope, "./");
-assert.strictEqual(manifest.launch_handler.client_mode, "focus-existing");
+const launchMode = manifest.launch_handler.client_mode;
+assert.ok(launchMode === "focus-existing" || (Array.isArray(launchMode) && launchMode[0] === "focus-existing"));
 assert.ok(manifest.file_handlers.some((row) => row.accept && row.accept["image/*"] && row.accept["video/*"]));
 assert.ok(manifest.protocol_handlers.some((row) => row.protocol === "web+viktorych"));
 assert.strictEqual(manifest.share_target.method, "POST");
 assert.strictEqual(manifest.share_target.enctype, "multipart/form-data");
 assert.ok(manifest.share_target.params.files.some((row) => row.name === "media"));
+assert.ok(!(manifest.related_applications || []).length, "main app has no Play related_applications");
+assert.ok((manifest.screenshots || []).filter((row) => row.form_factor === "narrow").length >= 2);
+assert.ok((manifest.screenshots || []).filter((row) => row.form_factor === "wide").length >= 1);
 assert.deepStrictEqual(manifest.shortcuts.slice(0, 4).map((row) => row.name), ["Home", "Notifications", "Inbox", "Post"]);
 
 const worker = read("sw.js");
