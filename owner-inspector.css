@@ -104,3 +104,18 @@ span.oi-chip { cursor: default; font-weight: 500; }
 .oi-sec-lines { padding: 4px 16px 8px; }
 .oi-people { display: flex; flex-direction: column; }
 .oi-person { padding-left: 24px; padding-right: 24px; text-decoration: none; color: inherit; }
+/* Manage a member's settings (owner_user_settings) */
+.oi-manage-intro { padding: 12px 16px 0; margin: 0; }
+.oi-ms-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-right: 16px; }
+.oi-ms-head h2 { margin: 0; }
+.oi-ms-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.oi-ms-row:last-child { border-bottom: 0; }
+.oi-ms-row .set-copy { min-width: 0; flex: 1 1 auto; }
+.oi-ms-ctl { display: flex; align-items: center; gap: 8px; flex: none; }
+.oi-ms-switch.tab-switch { width: auto; min-height: 44px; padding: 0; border: 0; background: transparent; }
+.oi-ms-select { max-width: 46vw; min-height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.oi-ms-lock { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 9999px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.oi-ms-lock svg { width: 14px; height: 14px; fill: currentColor; }
+.oi-ms-lock.on { border-color: var(--blue); color: var(--blue); }
+.oi-ms-lock[disabled], .oi-ms-select[disabled] { opacity: .5; cursor: default; }
+@media (max-width: 420px) { .oi-ms-lock span { display: none; } }
