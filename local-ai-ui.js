@@ -55,6 +55,7 @@
   /* ---------- state ---------- */
   var S = {
     root: null, chats: read(CHATS_KEY, []), chatId: "", busy: false, sideOpen: false, menu: false, sheet: null,
+    query: "", searchFocus: false, selecting: false, picked: {}, undo: null, confirmDel: null, confirmChat: "", memoryOpen: false, agents: false, hit: null, toolAbort: null,
     info: null, choices: null, model: read(MODEL_KEY, ""), have: read(HAVE_KEY, {}), engine: { state: "idle", id: "", progress: 0, text: "" },
     worker: null, jobs: {}, mic: "", micBusy: false, streamTimer: 0, stopReq: false, nano: null
   };
@@ -68,7 +69,7 @@
     S.chats.sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
     S.chats = S.chats.slice(0, MAX_CHATS);
     write(CHATS_KEY, S.chats.map(function (c) {
-      return { id: c.id, title: c.title, at: c.at, msgs: c.msgs.map(function (m) { var o = {}; Object.keys(m).forEach(function (k) { if (k !== "streaming") o[k] = m[k]; }); return o; }) };
+      return { id: c.id, title: c.title, at: c.at, msgs: c.msgs.map(function (m) { var o = {}; Object.keys(m).forEach(function (k) { if (k !== "streaming" && k !== "session" && k !== "cleanupPlan") o[k] = m[k]; }); return o; }) };
     }));
   }
 
@@ -234,6 +235,13 @@
       return Promise.resolve({ reply: "", calls: parsed.calls, unknown: parsed.unknown, engine: "instant" });
     }
     var p = A.prompt(text, values, { lang: lang, limit: m.engine === "tjs" || m.engine === "gguf" ? 12 : 22 });
+    try {
+      var mem = window.ViktorychLocalMemory;
+      if (mem && !(opts && opts.source === "post")) {
+        var block = mem.promptBlock(text, { history: prefs().history });
+        if (block) p = { system: p.system + "\n\n" + block, rows: p.rows };
+      }
+    } catch (err) { /* notes are optional */ }
     var history = [];
     var c = chat();
     if (c) {
@@ -314,6 +322,7 @@
   function send(text, opts) {
     text = String(text || "").trim();
     if (!text || S.busy || S.setup) return;
+    var source = opts && opts.source === "post" ? "post" : "user-chat";
     var c = chat();
     if (!c) {
       c = { id: uid(), title: text.slice(0, 60), at: Date.now(), msgs: [] };
@@ -369,6 +378,11 @@
       msg.upsell = cut ? "more" : "";
       if (cut) reply = tr("Instant does up to {n} things at a time, so here are the first {n}.", { n: INSTANT_MAX }) + " " + reply;
       else if (limited && ((res.unknown && res.unknown.length) || (!plan.changes.length && !plan.reads.length && !plan.opens.length))) msg.upsell = "words";
+      var toolSteps = source === "user-chat" ? collectToolSteps(text) : [];
+      if (toolSteps.length && !plan.changes.length && !plan.opens.length && !plan.reads.length) {
+        reply = toolSteps.length === 1 ? tr("Here is the step. It runs only after you confirm.") : tr("Here are {n} steps. Each one runs only after you confirm.", { n: toolSteps.length });
+      }
+      msg.toolSteps = toolSteps;
       msg.plan = plan.changes.map(function (ch) { return { id: ch.id, from: ch.from, to: ch.to, risky: !!ch.risky, signedIn: !!ch.signedIn }; });
       msg.opens = plan.opens.map(function (r) { return r.id; });
       msg.state = msg.plan.length ? "ask" : "";
@@ -376,8 +390,13 @@
     }).then(function () {
       msg.streaming = false;
       S.busy = false;
+      try {
+        var mem = window.ViktorychLocalMemory;
+        if (mem && source === "user-chat") mem.observe(text, { history: prefs().history, source: source, chatId: c.id });
+      } catch (err) { /* a note that cannot be saved is skipped */ }
       saveChats();
       paint();
+      if (msg.toolSteps && msg.toolSteps.length) startToolSession(msg, text);
     }, function () {
       msg.streaming = false;
       msg.text = tr("Something went wrong. Try again.");
@@ -461,13 +480,15 @@
       var g = groupOf(c.at);
       var head = g !== cur ? '<p class="lai-hist-head">' + esc(g) + "</p>" : "";
       cur = g;
-      return head + '<div class="lai-hist-row' + (c.id === S.chatId ? " on" : "") + '"><button type="button" class="lai-hist-item" data-lai="open-chat" data-id="' + esc(c.id) + '">' + esc(c.title || tr("New chat")) + '</button><button type="button" class="lai-hist-del" data-lai="del-chat" data-id="' + esc(c.id) + '" aria-label="' + esc(tr("Delete chat")) + '">' + I.x + "</button></div>";
+      var confirm = S.confirmChat === c.id ? '<div class="lai-chat-confirm"><p>' + esc(tr("Delete this chat?")) + '</p><button type="button" data-lai="del-chat-yes">' + esc(tr("Delete chat")) + '</button><button type="button" data-lai="del-chat-no">' + esc(tr("Cancel")) + "</button></div>" : "";
+      return head + '<div class="lai-hist-row' + (c.id === S.chatId ? " on" : "") + '"><button type="button" class="lai-hist-item" data-lai="open-chat" data-id="' + esc(c.id) + '">' + esc(c.title || tr("New chat")) + '</button><button type="button" class="lai-hist-del" data-lai="del-chat" data-id="' + esc(c.id) + '" aria-label="' + esc(tr("Delete chat")) + '">' + I.x + "</button></div>" + confirm;
     }).join("");
     void groups;
     return '<div class="lai-side-top"><a class="lai-brand" href="#/ai" data-lai="new"><span class="lai-brand-mark">' + mark() + '</span><span>' + esc(tr("Local AI")) + '</span></a><button type="button" class="lai-icon lai-side-x" data-lai="side" aria-label="' + esc(tr("Close")) + '">' + I.side + "</button></div>" +
       '<button type="button" class="lai-new" data-lai="new">' + I.edit + "<span>" + esc(tr("New chat")) + "</span></button>" +
-      '<nav class="lai-hist" aria-label="' + esc(tr("History")) + '">' + (prefs().history === "off" ? '<p class="lai-hist-empty">' + esc(tr("Chat history is off. Chats are gone when you leave the page.")) + "</p>" : "") + (rows || (prefs().history === "off" ? "" : '<p class="lai-hist-empty">' + esc(tr("Your chats stay on this device.")) + "</p>")) + "</nav>" +
-      '<div class="lai-side-foot">' + (setupOn() ? '<button type="button" class="lai-side-link" data-lai="setup-again">' + esc(tr("Set up Local AI again")) + "</button>" : "") + '<a href="#/settings" class="lai-side-link">' + esc(tr("All settings")) + "</a></div>";
+      searchBox() +
+      (S.memoryOpen ? memoryPanel() : '<nav class="lai-hist" aria-label="' + esc(tr("History")) + '">' + (prefs().history === "off" ? '<p class="lai-hist-empty">' + esc(tr("Chat history is off. Chats are gone when you leave the page.")) + "</p>" : "") + (rows || (prefs().history === "off" ? "" : '<p class="lai-hist-empty">' + esc(tr("Your chats stay on this device.")) + "</p>")) + "</nav>") +
+      '<div class="lai-side-foot"><button type="button" class="lai-side-link" data-lai="memory">' + esc(tr("Memory")) + "</button>" + (setupOn() ? '<button type="button" class="lai-side-link" data-lai="setup-again">' + esc(tr("Set up Local AI again")) + "</button>" : "") + '<a href="#/settings" class="lai-side-link">' + esc(tr("All settings")) + "</a></div>";
   }
   function chips() {
     return [tr("Make text bigger"), tr("Stop autoplay on mobile data"), tr("Hide friends stuff"), tr("Make my account private"), tr("Dark mode"), tr("Where are muted words?")];
@@ -500,7 +521,8 @@
     return '<div class="lai-menu" role="menu">' + '<p class="lai-menu-head">' + esc(tr("Model")) + "</p>" + rows + tier + again + "</div>";
   }
   function heroHtml() {
-    return '<div class="lai-hero"><span class="lai-hero-mark">' + mark() + "</span><h1>" + esc(tr("What should we change?")) + "</h1></div>";
+    var note = toolsOn() ? '<p class="lai-tools-note">' + esc(tr("This page cannot install programs or open your other files. Tools run inside the page, in a private workspace.")) + "</p>" : "";
+    return '<div class="lai-hero"><span class="lai-hero-mark">' + mark() + "</span><h1>" + esc(tr("What should we change?")) + "</h1>" + note + "</div>";
   }
   /* Quick settings: a tab per group and the settings in it, each with its
      value. A tap makes the same confirm card as typing, so risky changes
@@ -553,7 +575,8 @@
     // behind this chip instead of filling the page (desktop shows them inline).
     var qs = prefs().canChange && groups().some(function (g) { return quickRows(g[0]).length; })
       ? '<button type="button" class="lai-chip lai-chip-qs" data-lai="qs" aria-expanded="' + (S.qsOpen ? "true" : "false") + '">' + esc(tr("Quick settings")) + "</button>" : "";
-    return '<div class="lai-chips">' + qs + chips().map(function (c) { return '<button type="button" class="lai-chip" data-lai="chip">' + esc(c) + "</button>"; }).join("") + "</div>";
+    var agents = toolsOn() ? '<button type="button" class="lai-chip" data-lai="agents" aria-pressed="' + (S.agents ? "true" : "false") + '">' + esc(tr("Separate tasks")) + "</button>" : "";
+    return '<div class="lai-chips">' + qs + agents + chips().map(function (c) { return '<button type="button" class="lai-chip" data-lai="chip">' + esc(c) + "</button>"; }).join("") + "</div>";
   }
   function progressHtml() {
     var e = S.engine;
@@ -610,10 +633,13 @@
     return '<div class="lai-upsell"><span>' + esc(line) + '</span><button type="button" class="lai-link" data-lai="upsell">' + esc(tr("Pick a smarter model")) + "</button></div>";
   }
   function msgHtml(msg, mi) {
-    if (msg.role === "user") return '<div class="lai-msg user" data-i="' + mi + '"><div class="lai-bubble">' + esc(msg.text) + "</div></div>";
+    var hit = S.hit && S.hit.chatId === S.chatId && S.hit.index === mi ? " lai-hit" : "";
+    var pick = S.selecting ? '<label class="lai-pick"><input type="checkbox" data-lai="sel" data-m="' + mi + '"' + (S.picked[mi] ? " checked" : "") + ' aria-label="' + esc(tr("Select message")) + '"></label>' : "";
+    var del = '<button type="button" class="lai-icon sm" data-lai="del-msg" data-m="' + mi + '" aria-label="' + esc(tr("Delete message")) + '">' + I.x + "</button>";
+    if (msg.role === "user") return '<div class="lai-msg user' + hit + '" data-i="' + mi + '">' + pick + '<div class="lai-bubble">' + esc(msg.text) + "</div>" + del + "</div>";
     var body = msg.text ? esc(msg.text).replace(/\n/g, "<br>") : (msg.streaming ? '<span class="lai-dots"><i></i><i></i><i></i></span>' : "");
-    var actions = msg.streaming ? "" : '<div class="lai-acts"><button type="button" class="lai-icon sm" data-lai="copy" data-m="' + mi + '" aria-label="' + esc(tr("Copy")) + '" title="' + esc(tr("Copy")) + '">' + I.copy + '</button><button type="button" class="lai-icon sm" data-lai="regen" data-m="' + mi + '" aria-label="' + esc(tr("Regenerate")) + '" title="' + esc(tr("Regenerate")) + '">' + I.redo + "</button>" + (msg.engine && msg.engine !== "instant" && msg.engine !== "tap" ? '<span class="lai-engine">' + esc(engineLabel(msg.engine)) + "</span>" : "") + "</div>";
-    return '<div class="lai-msg ai' + (msg.streaming ? " streaming" : "") + '" data-i="' + mi + '"><div class="lai-text">' + body + "</div>" + (msg.streaming ? "" : cardHtml(msg, mi) + opensHtml(msg) + upsellHtml(msg)) + actions + "</div>";
+    var actions = msg.streaming ? "" : '<div class="lai-acts">' + pick + '<button type="button" class="lai-icon sm" data-lai="copy" data-m="' + mi + '" aria-label="' + esc(tr("Copy")) + '" title="' + esc(tr("Copy")) + '">' + I.copy + '</button><button type="button" class="lai-icon sm" data-lai="regen" data-m="' + mi + '" aria-label="' + esc(tr("Regenerate")) + '" title="' + esc(tr("Regenerate")) + '">' + I.redo + "</button>" + del + (msg.engine && msg.engine !== "instant" && msg.engine !== "tap" ? '<span class="lai-engine">' + esc(engineLabel(msg.engine)) + "</span>" : "") + "</div>";
+    return '<div class="lai-msg ai' + hit + (msg.streaming ? " streaming" : "") + '" data-i="' + mi + '"><div class="lai-text">' + body + "</div>" + (msg.streaming ? "" : cardHtml(msg, mi) + opensHtml(msg) + upsellHtml(msg) + toolCardHtml(msg)) + actions + "</div>";
   }
   function engineLabel(e) {
     var m = core().model(String(e).replace(/^instant\+/, ""));
@@ -622,7 +648,10 @@
   }
   function threadHtml() {
     var c = chat();
-    return c ? c.msgs.map(msgHtml).join("") : "";
+    var undo = S.undo ? '<div class="lai-undo" role="status"><span>' + esc(S.undo.many ? tr("Messages deleted") : tr("Message deleted")) + '</span><button type="button" data-lai="undo-del">' + esc(tr("Undo delete")) + "</button></div>" : "";
+    var bulk = S.confirmDel ? '<div class="lai-tools" role="dialog"><p>' + esc(tr("Delete {n} messages?", { n: S.confirmDel.length })) + '</p><div class="lai-card-foot"><button type="button" class="lai-btn ghost" data-lai="del-no">' + esc(tr("Cancel")) + '</button><button type="button" class="lai-btn" data-lai="del-yes">' + esc(tr("Delete selected")) + "</button></div></div>" : "";
+    var select = S.selecting ? '<div class="lai-undo"><button type="button" class="lai-btn ghost" data-lai="select-mode">' + esc(tr("Cancel selection")) + '</button><button type="button" class="lai-btn" data-lai="del-selected">' + esc(tr("Delete selected")) + "</button></div>" : "";
+    return undo + bulk + select + (c ? c.msgs.map(msgHtml).join("") : "");
   }
   function sheetHtml() {
     if (!S.sheet) return "";
@@ -645,10 +674,24 @@
     var el = document.createElement("div");
     el.className = "lai";
     el.innerHTML = '<aside class="lai-side" aria-label="' + esc(tr("Chats")) + '"></aside><div class="lai-scrim" data-lai="side"></div>' +
-      '<section class="lai-main"><header class="lai-head"><a class="lai-icon lai-back" href="#/settings" aria-label="' + esc(tr("Back")) + '">' + I.back + '</a><button type="button" class="lai-icon lai-menu-btn" data-lai="side" aria-label="' + esc(tr("Chats")) + '">' + I.menu + '</button><span class="lai-title"></span><button type="button" class="lai-icon" data-lai="new" aria-label="' + esc(tr("New chat")) + '">' + I.edit + "</button></header>" +
+      '<section class="lai-main"><header class="lai-head"><a class="lai-icon lai-back" href="#/settings" aria-label="' + esc(tr("Back")) + '">' + I.back + '</a><button type="button" class="lai-icon lai-menu-btn" data-lai="side" aria-label="' + esc(tr("Chats")) + '">' + I.menu + '</button><span class="lai-title"></span><button type="button" class="lai-icon" data-lai="select-mode" aria-label="' + esc(tr("Select messages")) + '">' + I.menu + '</button><button type="button" class="lai-icon" data-lai="new" aria-label="' + esc(tr("New chat")) + '">' + I.edit + "</button></header>" +
       '<div class="lai-scroll"><div class="lai-thread" aria-live="polite"></div></div><div class="lai-dock"><div class="lai-hero-slot"></div><div class="lai-prog-slot"></div><div class="lai-bar-slot"></div><div class="lai-chips-slot"></div><div class="lai-browse-slot"></div><p class="lai-note">' + esc(tr("Runs on this device. Nothing you type is sent anywhere.")) + "</p></div></section><div class=\"lai-sheet-slot\"></div><div class=\"lai-su-slot\"></div>";
     el.addEventListener("click", onClick);
-    el.addEventListener("submit", function (e) { e.preventDefault(); onSend(); });
+    el.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var form = e.target;
+      if (form && form.getAttribute && form.getAttribute("data-lai") === "search-form") return;
+      if (form && form.getAttribute && form.getAttribute("data-lai") === "mem-form") {
+        var mem = window.ViktorychLocalMemory;
+        var input = form.querySelector("input");
+        var saved = mem ? mem.add({ text: input && input.value, source: "user" }) : { ok: false };
+        S.memError = saved && saved.reason === "secret";
+        if (saved && saved.ok && input) input.value = "";
+        paint();
+        return;
+      }
+      onSend();
+    });
     el.addEventListener("keydown", onKey);
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && S.root && S.root.isConnected && !S.root.contains(e.target)) onKey(e); });
     // A click that repainted the bar leaves its target detached; that is not "outside".
@@ -656,7 +699,21 @@
     // Remember if the box had focus, so a re-render of the page under us puts it back.
     el.addEventListener("focusin", function (e) { if (e.target && e.target.classList.contains("lai-input")) S.inFocus = true; });
     el.addEventListener("focusout", function (e) { if (e.target && e.target.classList.contains("lai-input") && el.isConnected) S.inFocus = false; });
-    el.addEventListener("input", function (e) { if (e.target && e.target.classList.contains("lai-input")) { grow(e.target); paintSendState(); } });
+    el.addEventListener("input", function (e) {
+      if (e.target && e.target.classList.contains("lai-search") && e.target.form && e.target.form.getAttribute("data-lai") === "search-form") {
+        S.query = e.target.value;
+        S.searchFocus = true;
+        var side = S.root.querySelector(".lai-hist, .lai-memory, .lai-search-results");
+        var box = e.target;
+        var start = box.selectionStart;
+        paint();
+        var next = S.root.querySelector(".lai-search-form[data-lai='search-form'] .lai-search");
+        if (next) { next.focus(); try { next.setSelectionRange(start, start); } catch (err) { /* some browsers */ } }
+        void side;
+        return;
+      }
+      if (e.target && e.target.classList.contains("lai-input")) { grow(e.target); paintSendState(); }
+    });
     return el;
   }
   function paint() {
@@ -679,7 +736,11 @@
     paintBar();
     paintProgress();
     var sc = S.root.querySelector(".lai-scroll");
-    if (sc && !empty) sc.scrollTop = sc.scrollHeight;
+    if (sc && !empty && !(S.hit && S.hit.chatId === S.chatId)) sc.scrollTop = sc.scrollHeight;
+    if (S.hit && S.hit.chatId === S.chatId) {
+      var marked = S.root.querySelector('.lai-msg[data-i="' + S.hit.index + '"]');
+      if (marked && marked.scrollIntoView) marked.scrollIntoView({ block: "center" });
+    }
   }
   function paintBar() {
     if (!S.root) return;
@@ -733,7 +794,19 @@
   function onKey(e) {
     if (e.key === "Enter" && !e.shiftKey && e.target && e.target.classList.contains("lai-input") && !e.isComposing) { e.preventDefault(); onSend(); }
     if (e.key === "Escape" && S.setup) return;
-    if (e.key === "Escape") { if (S.menu) { S.menu = false; paintBar(); } else if (S.sheet) { S.sheet = null; paint(); } else if (S.sideOpen) { S.sideOpen = false; paint(); } }
+    if (e.key === "Escape") {
+      if (S.query && e.target && e.target.classList && e.target.classList.contains("lai-search")) { S.query = ""; paint(); return; }
+      if (S.menu) { S.menu = false; paintBar(); } else if (S.sheet) { S.sheet = null; paint(); } else if (S.selecting) { S.selecting = false; S.picked = {}; paint(); } else if (S.sideOpen) { S.sideOpen = false; paint(); }
+    }
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && e.target && e.target.classList && (e.target.classList.contains("lai-search") || e.target.classList.contains("lai-search-hit"))) {
+      var hits = S.root ? S.root.querySelectorAll(".lai-search-hit") : [];
+      if (!hits.length) return;
+      e.preventDefault();
+      var at = -1;
+      for (var hi = 0; hi < hits.length; hi += 1) if (hits[hi] === e.target) at = hi;
+      var next = e.key === "ArrowDown" ? Math.min(hits.length - 1, at + 1) : Math.max(0, at < 0 ? 0 : at - 1);
+      hits[next].focus();
+    }
   }
   function msgAt(el) { var c = chat(); return c ? c.msgs[Number(el.getAttribute("data-m"))] : null; }
   function onClick(e) {
@@ -742,7 +815,10 @@
     if (!el) return;
     var act = el.getAttribute("data-lai");
     if (act === "sheet-x" && e.target !== el && el.classList.contains("lai-sheet-wrap")) return;
-    if (act === "form" || act === "send") return;
+    if (act === "form" || act === "send" || act === "sel") {
+      if (act === "sel") S.picked[Number(el.getAttribute("data-m"))] = !!el.checked;
+      return;
+    }
     e.preventDefault();
     var h = host();
     if (act.indexOf("su-") === 0) { onSetupClick(act, el); return; }
@@ -751,7 +827,19 @@
     if (act === "new") { S.chatId = ""; S.sideOpen = false; paint(); focusBox(); return; }
     if (act === "side") { S.sideOpen = !S.sideOpen; S.root.classList.toggle("side-open", S.sideOpen); if (window.innerWidth >= 1000) { S.root.classList.toggle("side-hidden"); } return; }
     if (act === "open-chat") { S.chatId = el.getAttribute("data-id"); S.sideOpen = false; paint(); return; }
-    if (act === "del-chat") { var id = el.getAttribute("data-id"); S.chats = S.chats.filter(function (c) { return c.id !== id; }); if (S.chatId === id) S.chatId = ""; saveChats(); paint(); return; }
+    if (act === "del-chat") { S.confirmChat = el.getAttribute("data-id"); paint(); return; }
+    if (act === "del-chat-yes") {
+      var gone = S.confirmChat;
+      S.confirmChat = "";
+      S.chats = S.chats.filter(function (c) { return c.id !== gone; });
+      if (S.chatId === gone) S.chatId = "";
+      var memGone = window.ViktorychLocalMemory;
+      if (memGone && memGone.dropChat) memGone.dropChat(gone);
+      saveChats();
+      paint();
+      return;
+    }
+    if (act === "del-chat-no") { S.confirmChat = ""; paint(); return; }
     if (act === "chip") { send(el.textContent); return; }
     if (act === "qs") { S.qsOpen = !S.qsOpen; S.root.classList.toggle("qs-open", S.qsOpen); el.setAttribute("aria-expanded", S.qsOpen ? "true" : "false"); return; }
     if (act === "tab") { S.browse = el.getAttribute("data-cat"); var b = S.root.querySelector(".lai-browse-slot"); if (b) b.innerHTML = browseHtml(); var t = S.root.querySelector('.lai-tab.on'); if (t) t.focus(); return; }
@@ -786,6 +874,54 @@
     if (act === "undo-one") { var um = msgAt(el); if (um) undo(um, el.getAttribute("data-id")); return; }
     if (act === "undo-all") { var uam = msgAt(el); if (uam) undo(uam, ""); return; }
     if (act === "mic") { listen(); return; }
+    if (act === "agents") { S.agents = !S.agents; paint(); return; }
+    if (act === "tool-run" || act === "tool-skip" || act === "tool-stop") {
+      var holder = el.closest && el.closest(".lai-msg");
+      var toolMsg = holder && chat() ? chat().msgs[Number(holder.getAttribute("data-i"))] : null;
+      if (toolMsg && toolMsg.session) {
+        if (act === "tool-run") toolMsg.session.approve(true);
+        else if (act === "tool-skip") toolMsg.session.approve(false);
+        else toolMsg.session.cancel();
+      }
+      return;
+    }
+    if (act === "del-msg") { removeMessages([Number(el.getAttribute("data-m"))]); return; }
+    if (act === "sel") { var si = Number(el.getAttribute("data-m")); S.picked[si] = el.checked; return; }
+    if (act === "select-mode") { S.selecting = !S.selecting; S.picked = {}; S.confirmDel = null; paint(); return; }
+    if (act === "del-selected") {
+      var picked = pickedIndexes();
+      var Csel = chatLib();
+      if (!picked.length) return;
+      if (Csel && Csel.needsConfirm(picked.length)) { S.confirmDel = picked; paint(); return; }
+      removeMessages(picked);
+      return;
+    }
+    if (act === "del-yes") { var yes = S.confirmDel || []; S.confirmDel = null; removeMessages(yes); return; }
+    if (act === "del-no") { S.confirmDel = null; paint(); return; }
+    if (act === "undo-del") { undoDelete(); return; }
+    if (act === "search-open") { openSearchHit(el); return; }
+    if (act === "memory") { S.memoryOpen = !S.memoryOpen; S.confirmForget = false; paint(); return; }
+    if (act === "memory-on") {
+      var memory = window.ViktorychLocalMemory;
+      if (memory) memory.setEnabled(!memory.enabled());
+      paint();
+      return;
+    }
+    if (act === "mem-del") {
+      var dropMem = window.ViktorychLocalMemory;
+      if (dropMem) dropMem.remove(el.getAttribute("data-id"));
+      paint();
+      return;
+    }
+    if (act === "mem-forget") { S.confirmForget = true; paint(); return; }
+    if (act === "mem-forget-no") { S.confirmForget = false; paint(); return; }
+    if (act === "mem-forget-yes") {
+      var wipe = window.ViktorychLocalMemory;
+      if (wipe) wipe.forget();
+      S.confirmForget = false;
+      paint();
+      return;
+    }
   }
   function useModel(m) {
     S.model = m.id;
@@ -1193,6 +1329,211 @@
     return false;
   }
 
+  function toolsOn() {
+    var h = host();
+    return !h || !h.toolsOn || h.toolsOn();
+  }
+  function chatLib() { return window.ViktorychLocalChat || null; }
+  function searchBox() {
+    var C = chatLib();
+    var hits = C && S.query ? C.search(S.chats, S.query, 12) : [];
+    var count = S.query ? '<p class="lai-search-count" role="status">' + esc(hits.length ? tr("{n} results", { n: hits.length }) : tr("No matches")) + "</p>" : "";
+    var rows = hits.map(function (hit, index) {
+      var parts = C.parts(hit.snippet).map(function (part) {
+        return part.hit ? "<mark>" + esc(part.text) + "</mark>" : esc(part.text);
+      }).join("");
+      return '<li><button type="button" class="lai-search-hit" role="option" id="lai-hit-' + index + '" data-lai="search-open" data-id="' + esc(hit.chatId) + '" data-i="' + hit.index + '" data-needle="' + esc(hit.needle) + '" data-role="' + esc(hit.role) + '"><span class="lai-search-title">' + esc(hit.title || tr("New chat")) + '</span><span class="lai-search-snip">' + parts + "</span></button></li>";
+    }).join("");
+    return '<form class="lai-search-form" data-lai="search-form" role="search"><input class="lai-search" type="search" enterkeyhint="search" value="' + esc(S.query || "") + '" placeholder="' + esc(tr("Search chats")) + '" aria-label="' + esc(tr("Search chats")) + '" aria-controls="lai-search-results" autocomplete="off"></form>' + count +
+      '<ul class="lai-search-results" id="lai-search-results" role="listbox"' + (S.query ? "" : " hidden") + ">" + rows + "</ul>";
+  }
+  function memoryPanel() {
+    var mem = window.ViktorychLocalMemory;
+    if (!mem) return "";
+    var on = mem.enabled();
+    var rows = mem.list().map(function (fact) {
+      return '<li class="lai-mem-row"><p>' + esc(fact.text) + '</p><span class="lai-tool-meta">' + esc(fact.source === "chat" ? tr("From a chat") : tr("You added this")) + '</span><button type="button" data-lai="mem-del" data-id="' + esc(fact.id) + '">' + esc(tr("Delete note")) + "</button></li>";
+    }).join("");
+    var history = prefs().history === "off" ? '<p class="lai-tool-meta">' + esc(tr("Chat history is off, so chats are not saved as notes. Notes you add here stay until you delete them.")) + "</p>" : '<p class="lai-tool-meta">' + esc(tr("Viktrych can reuse short notes you saved here. It is not a full copy of your chats.")) + "</p>";
+    var forget = S.confirmForget ? '<p>' + esc(tr("Forget all notes on this device?")) + '</p><div class="lai-card-foot"><button type="button" class="lai-btn ghost" data-lai="mem-forget-no">' + esc(tr("Cancel")) + '</button><button type="button" class="lai-btn" data-lai="mem-forget-yes">' + esc(tr("Forget all notes")) + "</button></div>" : '<button type="button" class="lai-side-link" data-lai="mem-forget">' + esc(tr("Forget all notes")) + "</button>";
+    return '<section class="lai-memory" aria-label="' + esc(tr("Memory")) + '"><button type="button" class="tab-switch' + (on ? " on" : "") + '" role="switch" aria-checked="' + (on ? "true" : "false") + '" data-lai="memory-on"><span>' + esc(tr("Remember notes on this device")) + '</span><i></i></button>' + history +
+      (on ? '<form class="lai-search-form" data-lai="mem-form"><input class="lai-search" name="note" maxlength="140" placeholder="' + esc(tr("Add a note")) + '" aria-label="' + esc(tr("Add a note")) + '"><button type="submit" class="lai-btn">' + esc(tr("Save note")) + "</button></form>" : '<p>' + esc(tr("Memory is off.")) + "</p>") +
+      (S.memError ? '<p class="lai-tool-meta">' + esc(tr("That note looks like a password or a token, so it was not saved.")) + "</p>" : "") +
+      '<ul class="lai-mem-list">' + (rows || '<li class="lai-tool-meta">' + esc(tr("Nothing remembered yet.")) + "</li>") + "</ul>" + forget + "</section>";
+  }
+  function pageName(id) {
+    if (id === "home") return tr("Home");
+    if (id === "following") return tr("Following");
+    if (id === "foryou") return tr("For you");
+    if (id === "explore") return tr("Explore");
+    if (id === "notifications") return tr("Notifications");
+    if (id === "messages") return tr("Messages");
+    if (id === "lists") return tr("Lists");
+    if (id === "bookmarks") return tr("Bookmarks");
+    if (id === "history") return tr("History");
+    if (id === "settings") return tr("Settings");
+    if (id === "display") return tr("Display");
+    if (id === "ai") return tr("Local AI");
+    return "";
+  }
+  function toolTitle(step) {
+    if (!step) return "";
+    if (step.name === "media.fetch") return tr("Fetch {name}", { name: step.file || "" });
+    if (step.name === "media.save") return tr("Save {name} to this device", { name: step.file || "" });
+    if (step.name === "ffmpeg.convert") return tr("Convert {name} with FFmpeg", { name: step.file || "" });
+    if (step.name === "ffmpeg.load") return tr("Load FFmpeg in this page");
+    if (step.name === "code.run") return tr("Run {lang} you wrote", { lang: step.lang || "" });
+    if (step.name === "workspace.list") return tr("List files in the private workspace");
+    if (step.name === "media.unsupported") return tr("That link is not a direct media file this page can fetch.");
+    if (step.name === "nav.open") return tr("Open {page}", { page: pageName(step.pageId) });
+    if (step.name === "compose.draft") return tr("Draft a post. Nothing is posted until you tap Post.");
+    if (step.name === "list.draft") return tr("Draft a List named {name}. You still confirm it on the List page.", { name: step.listName || "" });
+    if (step.name === "tab.create") return tr("Create a Home tab named {name}", { name: step.tabName || "" });
+    if (step.name === "tab.switch") return tr("Switch to the {name} tab", { name: step.tab === "following" || step.tab === "foryou" ? pageName(step.tab) : (step.tabName || "") });
+    if (step.name === "tab.close") return tr("Close the {name} tab", { name: step.tabName || "" });
+    if (step.name === "tab.customize") return tr("Change the {name} tab", { name: step.tabName || "" });
+    return step.name || "";
+  }
+  function riskLabel(step) {
+    if (!step) return "";
+    if (step.risk === "network") return tr("Uses the network");
+    if (step.risk === "code") return tr("Runs code you approve");
+    if (step.channel === "app") return tr("Changes something in the app");
+    return "";
+  }
+  function toolSummary(code, step) {
+    if (code === "no-file") return tr("Nothing was saved. There is no output file.");
+    if (code === "unsupported") return tr("That link is not a direct media file this page can fetch.");
+    if (code === "cancelled") return tr("Tool run cancelled.");
+    if (code === "ok" && step && step.bytes) return tr("Saved {name} ({n} bytes).", { name: step.path || "", n: step.bytes });
+    if (code === "partial") return tr("The browser blocked that download.");
+    return "";
+  }
+  function toolCardHtml(msg) {
+    var snap = msg.toolSnap;
+    if (!snap) return "";
+    var pending = snap.pending ? '<p>' + esc(toolTitle(snap.pending)) + '</p><p class="lai-tool-meta">' + esc(riskLabel(snap.pending)) + "</p>" : "";
+    var audit = (snap.audit || []).map(function (row) {
+      return "<li>" + esc((row.role ? row.role + " · " : "") + (row.name || "") + " · " + (row.status || "")) + (row.bytes ? " · " + esc(tr("Saved {name} ({n} bytes).", { name: "", n: row.bytes })) : "") + "</li>";
+    }).join("");
+    var foot = "";
+    if (snap.status === "need-approval") foot = '<div class="lai-card-foot"><button type="button" class="lai-btn ghost" data-lai="tool-skip">' + esc(tr("Skip step")) + '</button><button type="button" class="lai-btn" data-lai="tool-run">' + esc(tr("Run step")) + '</button><button type="button" class="lai-btn ghost" data-lai="tool-stop">' + esc(tr("Stop tools")) + "</button></div>";
+    else if (snap.status === "running") foot = '<div class="lai-card-foot"><span class="lai-saving">' + esc(tr("Working…")) + '</span><button type="button" class="lai-btn ghost" data-lai="tool-stop">' + esc(tr("Stop tools")) + "</button></div>";
+    else foot = '<p class="lai-tool-meta">' + esc(toolSummary(snap.summary, (snap.audit || []).slice(-1)[0])) + (snap.verified ? " " + esc(tr("Checked")) : " " + esc(tr("Not checked"))) + "</p>";
+    return '<div class="lai-tools"><p class="lai-card-head">' + esc(tr("Tool activity")) + "</p>" + pending + '<ul class="lai-audit">' + audit + "</ul>" + foot + "</div>";
+  }
+  function collectToolSteps(text) {
+    if (!toolsOn()) return [];
+    var Tools = window.ViktorychLocalTools;
+    var Actions = window.ViktorychAppActions;
+    if (!Tools) return [];
+    var h = host();
+    var ctx = h && h.actionContext ? h.actionContext() : { tabs: [], lists: [] };
+    var reviewed = Tools.review(Tools.propose(text), { source: "user-chat", typed: text });
+    var acts = Actions ? Actions.review(Actions.propose(text, ctx), { source: "user-chat", typed: text, ctx: ctx }).accepted : [];
+    acts = acts.filter(function (step) { return String(step.name || "").indexOf("person.") !== 0; });
+    return reviewed.accepted.concat(acts);
+  }
+  function startToolSession(msg, text) {
+    var Tools = window.ViktorychLocalTools;
+    if (!Tools || !msg.toolSteps || !msg.toolSteps.length) return;
+    var h = host();
+    var runner = window.ViktorychLocalRunner;
+    S.toolAbort = null;
+    msg.session = Tools.createSession({
+      typed: text,
+      source: "user-chat",
+      agents: !!S.agents,
+      parallel: !!(runner && runner.capabilities && runner.capabilities().agentsParallel),
+      steps: msg.toolSteps,
+      guard: function (step) {
+        var Actions = window.ViktorychAppActions;
+        return !Actions || step.channel !== "app" || Actions.accepts(step, text, h && h.actionContext ? h.actionContext() : {});
+      },
+      execute: function (step, ctl) {
+        if (step.channel === "app") return h && h.performApp ? h.performApp(step, text) : { ok: false, error: "action" };
+        if (!runner) return { ok: false, error: "worker" };
+        ctl.onStop = function (fn) { S.toolAbort = fn; };
+        return runner.exec(step, ctl);
+      },
+      follow: function (results) {
+        var more = Tools.nextSteps(text, results);
+        var model = currentModel();
+        if (!model || model.engine === "instant" || S.engine.state !== "ready") return more;
+        var prompt = Tools.toolPrompt(text, results);
+        return ask({ type: "chat", messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }], maxTokens: 120 }).then(function (res) {
+          var extra = Tools.review(Tools.extractTools(res && res.text), { source: "user-chat", typed: text, results: results }).accepted;
+          return more.concat(extra);
+        }, function () { return more; });
+      },
+      abort: function () { if (S.toolAbort) S.toolAbort(); },
+      onProgress: function (snap) { msg.toolSnap = snap; paint(); }
+    });
+    msg.session.start().then(function (snap) {
+      msg.toolSnap = snap;
+      msg.session = null;
+      saveChats();
+      paint();
+    });
+  }
+  function removeMessages(indexes) {
+    var C = chatLib();
+    var c = chat();
+    if (!C || !c || !indexes.length) return;
+    var texts = indexes.map(function (index) { return c.msgs[index]; }).filter(Boolean).map(function (msg) { return msg.text || ""; });
+    var stash = { id: c.id, title: c.title, at: c.at, msgs: c.msgs.slice(), pos: S.chats.indexOf(c), many: indexes.length > 1 };
+    var result = C.deleteMessages(c, indexes);
+    if (!result.msgs.length) {
+      S.chats = S.chats.filter(function (item) { return item.id !== c.id; });
+      if (S.chatId === c.id) S.chatId = "";
+    } else {
+      c.msgs = result.msgs;
+      c.title = result.title;
+    }
+    S.undo = stash;
+    S.picked = {};
+    S.selecting = false;
+    S.confirmDel = null;
+    S.hit = null;
+    var mem = window.ViktorychLocalMemory;
+    if (mem) mem.dropMessages(c.id, texts);
+    saveChats();
+    paint();
+  }
+  function undoDelete() {
+    var stash = S.undo;
+    var C = chatLib();
+    if (!stash || !C) return;
+    var restored = C.restore(stash);
+    var existing = null;
+    S.chats.forEach(function (item) { if (item.id === stash.id) existing = item; });
+    if (!existing) {
+      S.chats.splice(Math.max(0, Math.min(stash.pos, S.chats.length)), 0, restored);
+      S.chatId = restored.id;
+    } else {
+      existing.msgs = restored.msgs;
+      existing.title = restored.title;
+      S.chatId = existing.id;
+    }
+    S.undo = null;
+    saveChats();
+    paint();
+  }
+  function pickedIndexes() {
+    return Object.keys(S.picked).filter(function (key) { return S.picked[key]; }).map(Number).sort(function (a, b) { return a - b; });
+  }
+  function openSearchHit(el) {
+    var C = chatLib();
+    var id = el.getAttribute("data-id");
+    S.chatId = id;
+    S.sideOpen = false;
+    var current = chat();
+    var hit = { chatId: id, index: Number(el.getAttribute("data-i")), role: el.getAttribute("data-role"), needle: el.getAttribute("data-needle") };
+    var at = C && current ? C.resolve(current, hit) : hit.index;
+    S.hit = at >= 0 ? { chatId: id, index: at } : null;
+    paint();
+  }
+
   /* ---------- page hooks ---------- */
   function page() {
     return '<div class="lai-host"></div>';
@@ -1240,7 +1581,7 @@
       if (!S.setup && !S.busy) {
         var mNow = currentModel();
         if (mNow.engine === "instant" || S.engine.state === "ready") {
-          send(qVal);
+          send(qVal, { source: route.query.get("postId") ? "post" : "user-chat" });
         }
       }
     }

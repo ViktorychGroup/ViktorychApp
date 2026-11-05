@@ -428,3 +428,21 @@ html[data-theme="default"] .lai-su-card { box-shadow: 0 0 15px rgba(101, 119, 13
 .lai-menu-group { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--lai-bar-line); }
 .lai-su-group { margin: 16px 4px 6px; font-size: 13px; font-weight: 600; color: var(--lai-sub); }
 .lai-warn { font-style: normal; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; background: color-mix(in srgb, #f4212e 16%, transparent); color: #f4212e; margin-left: 6px; }
+.lai-tools, .lai-memory, .lai-chat-confirm { margin-top: 12px; border: 1px solid var(--lai-bar-line); border-radius: 16px; background: var(--lai-bar); }
+.lai-tools p, .lai-memory p, .lai-chat-confirm p { margin: 0; padding: 12px 16px 0; line-height: 1.45; }
+.lai-tool-meta, .lai-search-count { margin: 0; padding: 4px 16px 0; color: var(--lai-sub); font-size: 13px; }
+.lai-audit, .lai-mem-list, .lai-search-results { list-style: none; margin: 8px 0 0; padding: 0 8px 8px; }
+.lai-audit li, .lai-mem-row { padding: 8px; border-top: 1px solid var(--lai-bar-line); font-size: 13px; color: var(--lai-sub); }
+.lai-search { width: 100%; box-sizing: border-box; height: 40px; margin: 8px 0; padding: 0 12px; border: 1px solid var(--lai-bar-line); border-radius: 9999px; background: transparent; color: var(--text); font: inherit; font-size: 16px; }
+.lai-search-form { padding: 0 12px; }
+.lai-search-hit { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 10px; border: 0; border-radius: 12px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.lai-search-hit:hover, .lai-search-hit:focus { background: var(--lai-hover); outline: none; }
+.lai-search-title { font-weight: 700; font-size: 14px; }
+.lai-search-snip { color: var(--lai-sub); font-size: 13px; }
+.lai-search-hit mark, .lai-hit { background: color-mix(in srgb, var(--lai-accent, #1d9bf0) 28%, transparent); }
+.lai-hit { border-radius: 12px; }
+.lai-msg.user { display: flex; align-items: flex-end; gap: 4px; }
+.lai-pick { display: inline-flex; align-items: center; }
+.lai-undo { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0; padding: 8px 12px; border: 1px solid var(--lai-bar-line); border-radius: 14px; }
+.lai-tools-note { margin: 0; max-width: 420px; color: var(--lai-sub); font-size: 13px; line-height: 1.4; }
+.lai-memory .tab-switch { width: calc(100% - 24px); margin: 8px 12px; }
