@@ -501,10 +501,11 @@ async function main() {
   if (needs.has("pw") || needs.has("webkit")) await ensurePlaywright();
   if (needs.has("webkit")) {
     // MiniBrowser ships WPE and JPEG-XL beside itself. Install only the
-    // Ubuntu libraries it still cannot find. Do not install
-    // gstreamer1.0-libav: that pulls the ffmpeg codec stack and can spend
-    // the whole 15 minute job downloading it. The iOS check does not play video.
-    // Package names are Playwright's Ubuntu 24.04 map for WebKit build 2215.
+    // Ubuntu libraries it still cannot find, including the small Flite
+    // speech library. Do not install gstreamer1.0-libav: that pulls the
+    // ffmpeg codec stack and can spend the whole 15 minute job downloading
+    // it. The iOS check does not play video. Package names are Playwright's
+    // Ubuntu 24.04 map for WebKit build 2215.
     process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
     const code = await runShell("cd " + PW + " && npx playwright install webkit", process.env);
     if (code !== 0) throw new Error("webkit install failed");
@@ -516,19 +517,53 @@ async function main() {
       "export LD_LIBRARY_PATH=\"$root/lib:$root/sys/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"",
       "missing=$(ldd \"$browser\" | awk '/not found/ {print $1}' | sort -u)",
       "if [ -z \"$missing\" ]; then exit 0; fi",
+      "echo \"webkit missing: $missing\"",
       "pkgs=",
       "for lib in $missing; do",
       "  case \"$lib\" in",
+      "    libatk-1.0.so.0) pkg=libatk1.0-0t64 ;;",
+      "    libatk-bridge-2.0.so.0) pkg=libatk-bridge2.0-0t64 ;;",
+      "    libatomic.so.1) pkg=libatomic1 ;;",
       "    libavif.so.16) pkg=libavif16 ;;",
+      "    libdrm.so.2) pkg=libdrm2 ;;",
+      "    libepoxy.so.0) pkg=libepoxy0 ;;",
       "    libevent-2.1.so.7) pkg=libevent-2.1-7t64 ;;",
+      "    libexpat.so.1) pkg=libexpat1 ;;",
+      "    libflite.so.1|libflite_*.so.1) pkg=libflite1 ;;",
+      "    libfontconfig.so.1) pkg=libfontconfig1 ;;",
+      "    libfreetype.so.6) pkg=libfreetype6 ;;",
+      "    libgbm.so.1) pkg=libgbm1 ;;",
+      "    libgcrypt.so.20) pkg=libgcrypt20 ;;",
+      "    libgio-2.0.so.0|libglib-2.0.so.0|libgmodule-2.0.so.0|libgobject-2.0.so.0) pkg=libglib2.0-0t64 ;;",
+      "    libgpg-error.so.0) pkg=libgpg-error0 ;;",
       "    libgstallocators-1.0.so.0|libgstapp-1.0.so.0|libgstaudio-1.0.so.0|libgstfft-1.0.so.0|libgstpbutils-1.0.so.0|libgsttag-1.0.so.0|libgstvideo-1.0.so.0) pkg=libgstreamer-plugins-base1.0-0 ;;",
+      "    libgstbase-1.0.so.0|libgstreamer-1.0.so.0) pkg=libgstreamer1.0-0 ;;",
       "    libgstcodecparsers-1.0.so.0) pkg=libgstreamer-plugins-bad1.0-0 ;;",
       "    libgstgl-1.0.so.0) pkg=libgstreamer-gl1.0-0 ;;",
       "    libharfbuzz-icu.so.0) pkg=libharfbuzz-icu0 ;;",
+      "    libharfbuzz.so.0) pkg=libharfbuzz0b ;;",
+      "    libicudata.so.74|libicui18n.so.74|libicuuc.so.74) pkg=libicu74 ;;",
+      "    libjpeg.so.8) pkg=libjpeg-turbo8 ;;",
+      "    liblcms2.so.2) pkg=liblcms2-2 ;;",
+      "    libnghttp2.so.14) pkg=libnghttp2-14 ;;",
+      "    libopus.so.0) pkg=libopus0 ;;",
+      "    libpng16.so.16) pkg=libpng16-16t64 ;;",
+      "    libpsl.so.5) pkg=libpsl5t64 ;;",
+      "    libsqlite3.so.0) pkg=libsqlite3-0 ;;",
+      "    libsystemd.so.0) pkg=libsystemd0 ;;",
+      "    libtasn1.so.6) pkg=libtasn1-6 ;;",
+      "    libvpx.so.9) pkg=libvpx9 ;;",
+      "    libwayland-client.so.0) pkg=libwayland-client0 ;;",
+      "    libwayland-egl.so.1) pkg=libwayland-egl1 ;;",
       "    libwayland-server.so.0) pkg=libwayland-server0 ;;",
+      "    libwebp.so.7) pkg=libwebp7 ;;",
+      "    libwebpdemux.so.2) pkg=libwebpdemux2 ;;",
+      "    libwebpmux.so.3) pkg=libwebpmux3 ;;",
       "    libwoff2dec.so.1.0.2) pkg=libwoff1 ;;",
+      "    libxkbcommon.so.0) pkg=libxkbcommon0 ;;",
+      "    libxml2.so.2) pkg=libxml2 ;;",
       "    libxslt.so.1) pkg=libxslt1.1 ;;",
-      "    libavcodec*|libcodec2*|libflite*|libsvtav1*|libx264*) echo \"refusing codec library $lib\"; exit 1 ;;",
+      "    libavcodec*|libcodec2*|libsvtav1*|libx264*|libx265*) echo \"refusing codec library $lib\"; exit 1 ;;",
       "    *) echo \"no package for $lib\"; exit 1 ;;",
       "  esac",
       "  pkgs=\"$pkgs $pkg\"",
