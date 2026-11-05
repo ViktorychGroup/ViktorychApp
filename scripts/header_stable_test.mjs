@@ -106,6 +106,8 @@ async function open(browser, origin, opts) {
   }, opts);
   const page = await context.newPage();
   const cdp = await context.newCDPSession(page);
+  const slow = Number(process.env.CPU || 0);
+  if (slow > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: slow });
   const inset = async (top) => { await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top, topMax: top } }); await sleep(250); };
   await inset(opts.inset == null ? 24 : opts.inset);
   const errors = [];
@@ -120,16 +122,47 @@ async function open(browser, origin, opts) {
 
 async function settle(page) { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); await sleep(450); }
 
-async function scrollDown(page) {
-  for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, 300); await sleep(110); }
-  await page.waitForFunction(() => { const b = document.querySelector("#app .topbar.tall"); return !!b && b.classList.contains("is-hidden"); }, null, { timeout: 5000 }).catch(() => {});
-  await settle(page);
+async function sampleHeader(page) {
+  return page.evaluate(`(() => {
+    const h = ${PROBE};
+    const bar = document.querySelector("#app .topbar.tall");
+    let busy = false;
+    if (bar && bar.getAnimations) busy = bar.getAnimations({ subtree: true }).some((a) => a.playState === "running");
+    return { h: h, busy: busy };
+  })()`);
 }
 
-async function scrollUp(page) {
-  await page.mouse.wheel(0, -300); await sleep(150);
-  await page.waitForFunction(() => { const b = document.querySelector("#app .topbar.tall"); return !!b && !b.classList.contains("is-hidden"); }, null, { timeout: 5000 }).catch(() => {});
-  await settle(page);
+/* Two matching samples with no running header animation. A single read can
+   land in the 0.2s tuck, while the hide class is already on. */
+async function waitHeader(page, match, timeout) {
+  const deadline = Date.now() + timeout;
+  let last = null;
+  let hits = 0;
+  while (Date.now() < deadline) {
+    const sample = await sampleHeader(page);
+    last = sample && sample.h;
+    if (sample && !sample.busy && match(sample.h)) {
+      hits += 1;
+      if (hits >= 2) return sample.h;
+    } else hits = 0;
+    await sleep(40);
+  }
+  return last;
+}
+
+async function scrollDown(page, rows, sat) {
+  for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, 300); await sleep(110); }
+  return waitHeader(page, (h) => {
+    return !!(h && h.hidden && !h.headShown && near(h.tabsTop, sat) && near(h.barBottom, sat + rows) && h.topIsBar);
+  }, 4000);
+}
+
+async function scrollUp(page, ref, sat) {
+  await page.mouse.wheel(0, -300);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  return waitHeader(page, (h) => {
+    return !!(h && !h.hidden && h.headShown && near(h.barTop, 0) && near(h.pad, sat) && near(h.headTop, sat) && near(h.barH, ref + sat) && h.topIsBar);
+  }, 4000);
 }
 
 // At rest: one inset of padding, the avatar row right under it, nothing else
@@ -155,12 +188,8 @@ function scrolled(h, rows, sat, label) {
 
 async function cycle(run, ref, rows, sat, label) {
   atRest(await run.page.evaluate(PROBE), ref, sat, label + " rest");
-  await scrollDown(run.page);
-  scrolled(await run.page.evaluate(PROBE), rows, sat, label + " scrolled");
-  await scrollUp(run.page);
-  await run.page.evaluate(() => window.scrollTo(0, 0));
-  await settle(run.page);
-  atRest(await run.page.evaluate(PROBE), ref, sat, label + " back");
+  scrolled(await scrollDown(run.page, rows, sat), rows, sat, label + " scrolled");
+  atRest(await scrollUp(run.page, ref, sat), ref, sat, label + " back");
 }
 
 async function main() {
