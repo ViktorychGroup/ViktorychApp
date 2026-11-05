@@ -94,6 +94,10 @@ async function open(browser, origin, opts) {
   await page.goto(origin + "/#/" + (opts.route || ""), { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#app .tabs-bar .tab.on", { timeout: 20000 }).catch(() => {});
   await sleep(900);
+  if (opts.route === "") {
+    await page.waitForSelector('.mhead a.m-ai[href="#/ai"]', { state: "visible", timeout: 15000 });
+    await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+  }
   return { context, page };
 }
 
@@ -150,7 +154,77 @@ async function main() {
       if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + "/phone.png", clip: { x: 0, y: 0, width: 390, height: 160 } });
       await context.close();
     }
-    // 3. No Battery API (iOS): no battery icon or switch.
+    // 3. Press and hold opens the existing controls; tap, movement and cancel do not.
+    {
+      const { context, page } = await open(browser, origin, { view: "phone", battery: true, settings: { statusIcons: ALL } });
+      const selector = '.mhead a.m-ai[href="#/ai"]';
+      if (await page.getAttribute(selector, "aria-keyshortcuts") !== "Shift+F10") fail("AI long-press keyboard shortcut is not exposed");
+      await page.click(selector);
+      await page.waitForURL(/#\/ai$/, { timeout: 10000 });
+      await page.goto(origin + "/#/");
+      await page.waitForSelector(selector, { state: "visible" });
+      await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+      const point = await page.$eval(selector, (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x, y: point.y, id: 1 }] });
+      await sleep(200);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      await sleep(500);
+      if (await page.locator(selector).count() !== 1) fail("cancelled AI hold opened another page");
+      await page.tap(selector);
+      await page.waitForURL(/#\/ai$/, { timeout: 10000 });
+      await page.goto(origin + "/#/");
+      await page.waitForSelector(selector, { state: "visible" });
+      await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x, y: point.y, id: 1 }] });
+      await sleep(150);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: point.x, y: point.y + 30, id: 1 }] });
+      await sleep(500);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await sleep(150);
+      if (await page.locator(selector).count() !== 1) fail("moved AI hold opened another page");
+      await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+
+      await page.evaluate(() => { window.dispatchEvent(new Event("resize")); });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x, y: point.y, id: 1 }] });
+      await sleep(700);
+      await page.waitForURL(/#\/settings\/display$/, { timeout: 10000 });
+      await page.waitForSelector('[data-act="status-icon"][data-key="clock"]', { state: "visible", timeout: 15000 });
+      await page.waitForFunction(() => document.activeElement?.dataset.key === "clock" && document.getElementById("status-icons-settings"));
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }).catch(() => {});
+      await sleep(200);
+      if (!/#\/settings\/display$/.test(page.url())) fail("AI hold's release tap opened Local AI");
+      await context.close();
+    }
+    // 4. Keyboard and the equivalent computer hold reach the same controls.
+    {
+      const { context, page } = await open(browser, origin, { view: "computer", battery: true, settings: { statusIcons: ALL } });
+      const selector = '.mhead a.m-ai[href="#/ai"]';
+      await page.locator(selector).evaluate((el) => { el.style.display = "block"; el.closest(".mhead").style.display = "flex"; });
+      await page.focus(selector);
+      await page.keyboard.press("Shift+F10");
+      await page.waitForURL(/#\/settings\/display$/, { timeout: 10000 });
+      await page.waitForSelector('[data-act="status-icon"][data-key="clock"]', { state: "visible", timeout: 15000 });
+      await page.goto(origin + "/#/");
+      await page.waitForSelector(selector, { state: "attached" });
+      await page.locator(selector).evaluate((el) => { el.style.display = "block"; el.closest(".mhead").style.display = "flex"; });
+      await sleep(1600);
+      const box = await page.locator(selector).boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await sleep(700);
+      await page.mouse.up();
+      await page.waitForURL(/#\/settings\/display$/, { timeout: 10000 });
+      await page.waitForSelector('[data-act="status-icon"][data-key="clock"]', { state: "visible", timeout: 15000 });
+      await sleep(150);
+      if (!/#\/settings\/display$/.test(page.url())) fail("computer AI hold's click opened Local AI");
+      await context.close();
+    }
+    // 5. No Battery API (iOS): no battery icon or switch.
     {
       const { context, page } = await open(browser, origin, { view: "phone", battery: false, settings: { statusIcons: ALL } });
       const got = await page.evaluate(READ);
@@ -168,7 +242,7 @@ async function main() {
       if (!net || !net.off) fail("offline is not shown " + JSON.stringify(off));
       await context.close();
     }
-    // 4. Tablet: before the tab settings button, centred with it.
+    // 6. Tablet: before the tab settings button, centred with it.
     {
       const { context, page } = await open(browser, origin, { view: "tablet", battery: true, settings: { statusIcons: ALL, bellNotes: NOTES } });
       const got = await page.evaluate(READ);
@@ -177,13 +251,13 @@ async function main() {
       if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + "/tablet.png", clip: { x: 0, y: 0, width: 820, height: 200 } });
       await context.close();
     }
-    // 5. Computer: never.
+    // 7. Computer: never.
     {
       const { context, page } = await open(browser, origin, { view: "computer", battery: true, settings: { statusIcons: ALL, bellNotes: NOTES } });
       if (await page.evaluate(READ)) fail("status icons show on a computer");
       await context.close();
     }
-    // 6. Owner switch off hides them all.
+    // 8. Owner switch off hides them all.
     {
       const { context, page } = await open(browser, origin, { view: "phone", battery: true, ownerOff: true, settings: { statusIcons: ALL, bellNotes: NOTES } });
       if (await page.evaluate(READ)) fail("status icons show with the owner switch off");
@@ -196,4 +270,4 @@ async function main() {
   }
 }
 
-main().catch((err) => { if (!process.exitCode) process.exitCode = 1; console.error(err && err.message || err); });
+main().catch((err) => { if (!process.exitCode) process.exitCode = 1; console.error(err && err.stack || err); });
