@@ -1,8 +1,8 @@
 /* Compact Home header on a phone: no app name, the drawer button stays, the
    right icon opens Local AI, and when the header slides away on scroll the
    tab row stays pinned at the top. Classic header brings the name back, and
-   "Show phone status bar" paints the installed app's status bar in the theme
-   colour (light, dim, dark) instead of transparent. The owner switch turns the
+   installed app always paints its native status bar in the opaque theme colour
+   (light, dim, dark), avoiding Android's grey transparent fallback. The owner switch turns the
    compact header off. Nothing here prints account names. */
 import http from "node:http";
 import fs from "node:fs";
@@ -160,14 +160,15 @@ async function main() {
     if (run.errors.length) fail("page errors: " + run.errors.join(" | "));
     await run.context.close();
 
-    // Installed app: transparent status bar by default, theme colour with the setting on.
+    // Installed app: the native strip is always opaque. Android turns a
+    // transparent theme-color into a flat grey band above the Home header.
     const want = { default: "#FFFFFF", dim: "#15202B", lightsout: "#000000" };
-    run = await open(browser, origin, { standalone: true, settings: { appearance: "dim" } });
+    run = await open(browser, origin, { standalone: true, settings: { appearance: "lightsout" } });
     h = await run.page.evaluate(HEAD);
-    if (h.color !== "transparent") fail("installed app status bar should draw under the app by default, got " + h.color);
+    if (String(h.color).toUpperCase() !== "#000000") fail("installed app must not fall back to Android's grey default, got " + h.color);
     await run.context.close();
     for (const mode of Object.keys(want)) {
-      run = await open(browser, origin, { standalone: true, settings: { appearance: mode, statusBar: true } });
+      run = await open(browser, origin, { standalone: true, settings: { appearance: mode, statusBar: mode === "dim" } });
       h = await run.page.evaluate(HEAD);
       if (String(h.color).toUpperCase() !== want[mode]) fail("status bar colour for " + mode + " is " + h.color);
       await run.context.close();

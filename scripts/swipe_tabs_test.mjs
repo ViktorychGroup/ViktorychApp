@@ -101,7 +101,12 @@ async function openHome(browser, origin, extra, off) {
   const errors = [];
   // Only errors thrown by the app's own files count; a browser add-on on the
   // test machine can throw into the page too.
-  page.on("pageerror", (err) => { if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(String(err && err.message || err).slice(0, 200)); });
+  page.on("pageerror", (err) => {
+    const message = String(err && err.message || err);
+    // Chrome's extension activity logger throws this into the page. It is not app code.
+    if (message === "this.api.logApiCall is not a function") return;
+    if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(message.slice(0, 200));
+  });
   await page.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#app .topbar .tabs [role='tab'][data-tab='following']", { timeout: 20000 });
   await page.waitForFunction(() => document.querySelectorAll("#app article").length > 2, null, { timeout: 20000 });

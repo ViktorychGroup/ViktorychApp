@@ -86,14 +86,18 @@ const near = (a, b) => Math.abs(a - b) <= 1;
 async function open(browser, origin, opts) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2, serviceWorkers: "block" });
   await context.addInitScript((o) => {
-    try { localStorage.setItem("viktorychapp-welcome-v1", JSON.stringify({ step: 2, done: true })); } catch (err) {}
-    if (o.standalone) {
+    try {
+      localStorage.setItem("viktorychapp-welcome-v1", JSON.stringify({ step: 2, done: true }));
+      if (o.statusIcons) localStorage.setItem("viktorychapp-settings-v1", JSON.stringify({ appearance: "lightsout", statusIcons: o.statusIcons }));
+    } catch (err) {}
+    if (o.displayMode || o.standalone) {
       const real = window.matchMedia.bind(window);
       window.matchMedia = (q) => {
-        if (/display-mode:\s*standalone/.test(String(q))) return { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent() { return false; } };
+        if (new RegExp("display-mode:\\s*" + (o.displayMode || "standalone")).test(String(q))) return { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent() { return false; } };
         return real(q);
       };
     }
+    if (o.statusIcons) Object.defineProperty(Navigator.prototype, "connection", { configurable: true, get: () => ({ type: "wifi", effectiveType: "4g", addEventListener() {} }) });
     if (o.screen) {
       window.__scr = o.screen;
       Object.defineProperty(Screen.prototype, "height", { configurable: true, get() { return window.__scr.height; } });
@@ -110,6 +114,7 @@ async function open(browser, origin, opts) {
   await page.waitForSelector("#app .topbar.tall.compact-head .mhead .m-ava", { timeout: 20000 });
   await page.waitForFunction(() => document.querySelectorAll("#app article").length > 2, null, { timeout: 20000 });
   await sleep(400);
+  if (process.env.SHOT && opts.capture) await page.screenshot({ path: process.env.SHOT, clip: { x: 0, y: 0, width: 390, height: 190 } });
   return { context, page, errors, inset };
 }
 
@@ -189,10 +194,12 @@ async function main() {
     await run.context.close();
 
     // Installed app drawn under the status bar: the page is taller than the
-    // free screen area, so the inset stays and the bar is see-through.
+    // free screen area, so the inset stays. The native colour is opaque black;
+    // transparent falls back to Android's grey default rather than drawing
+    // through to the page.
     run = await open(browser, origin, { standalone: true, screen: { height: 844, avail: 772 } });
     h = await run.page.evaluate(PROBE);
-    if (h.color !== "transparent") fail("installed app under the status bar lost its see-through bar " + JSON.stringify(h));
+    if (String(h.color).toUpperCase() !== "#000000") fail("installed app under the status bar would show Android's grey fallback " + JSON.stringify(h));
     await cycle(run, ref, rows, 24, "installed under bar");
     await run.context.close();
 
@@ -207,8 +214,18 @@ async function main() {
     await run.page.evaluate(() => { window.__scr.height = 844; window.__scr.avail = 772; window.dispatchEvent(new Event("resize")); });
     await settle(run.page);
     h = await run.page.evaluate(PROBE);
-    if (h.color !== "transparent") fail("bar did not turn see-through after the page moved under it " + JSON.stringify(h));
+    if (String(h.color).toUpperCase() !== "#000000") fail("bar regained Android's grey fallback after the page moved under it " + JSON.stringify(h));
     await cycle(run, ref, rows, 24, "installed after mode change");
+    await run.context.close();
+
+    // Fullscreen install whose transient Android system bar is visible. The
+    // page starts below it, so --sat is zero and there is no extra band. The
+    // native theme is opaque black even with the optional in-app status icons.
+    run = await open(browser, origin, { displayMode: "fullscreen", capture: true, inset: 44, statusIcons: { clock: true, network: true }, screen: { height: 844 + 44 + 28, avail: 844 } });
+    h = await run.page.evaluate(PROBE);
+    if (String(h.color).toUpperCase() !== "#000000") fail("fullscreen install with its system bar visible would show the grey fallback " + JSON.stringify(h));
+    if (!await run.page.$(".mhead .sticons .st-clock")) fail("the in-app status icons were not included in the visual regression");
+    await cycle(run, ref, rows, 0, "fullscreen below bar with status icons");
     await run.context.close();
 
     // A reported inset taller than every system bar together is capped (fat header).
