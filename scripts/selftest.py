@@ -2150,6 +2150,8 @@ def main() -> None:
     check(embed_flow.returncode == 0, "official embed urls, fallbacks, and combined-file selection pass")
     providers_flow = subprocess.run(["node", str(ROOT / "scripts" / "video_providers_test.js")], cwd=ROOT)
     check(providers_flow.returncode == 0, "link card video providers match golden urls and only frame official players")
+    broadcast_flow = subprocess.run(["node", str(ROOT / "scripts" / "x_broadcast_test.mjs")], cwd=ROOT)
+    check(broadcast_flow.returncode == 0, "X broadcast urls, public playback and the Watch on X card pass")
     check("latest_version" not in (ROOT / "scripts" / "yt_remote.py").read_text(encoding="utf-8"), "sync does not bake an invidious itag url")
     from adapters.common import dates_moved_later, lock_publish_time, publish_date_from_html, relative_label
     from adapters.youtube_rss import backfill_youtube_dates
