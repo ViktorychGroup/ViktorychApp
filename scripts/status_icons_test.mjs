@@ -197,7 +197,7 @@ async function main() {
       await page.waitForFunction(() => document.activeElement?.dataset.key === "clock" && document.getElementById("status-icons-settings"));
       await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }).catch(() => {});
       await sleep(200);
-      if (!/#\/settings\/display$/.test(page.url())) fail("AI hold's release tap opened Local AI");
+      if (!/#\/settings\/display$/.test(page.url())) fail("AI hold release activated another control");
       await context.close();
     }
     // 4. Keyboard and the equivalent computer hold reach the same controls.

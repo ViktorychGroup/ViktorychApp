@@ -25296,8 +25296,13 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
   }, { capture: true, passive: true });
   const endStatusIconHold = (event) => {
     if (statusIconHold && event.pointerId === statusIconHold.pointer) clearStatusIconHold();
+    if (swallowStatusIconRelease && event.pointerType === "touch") {
+      // Prevent the compatibility mouse sequence before touchend. Some
+      // browsers still emit it when only the later touch event is cancelled.
+      event.preventDefault();
+    }
   };
-  document.addEventListener("pointerup", endStatusIconHold, { capture: true, passive: true });
+  document.addEventListener("pointerup", endStatusIconHold, { capture: true, passive: false });
   document.addEventListener("pointercancel", endStatusIconHold, { capture: true, passive: true });
   document.addEventListener("touchstart", (event) => {
     if (event.touches && event.touches.length > 1) clearStatusIconHold();
