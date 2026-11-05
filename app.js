@@ -251,14 +251,16 @@
     profile: `<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c.6-3.9 3.6-6.3 7.5-6.3s6.9 2.4 7.5 6.3z"/>`,
     friends: `<circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 20c.5-3.4 3.1-5.5 6.5-5.5s6 2.1 6.5 5.5z"/><path d="M15.5 5.2a3.5 3.5 0 0 1 0 6.6"/><path d="M17.8 14.6c2 .7 3.4 2.6 3.7 5.4"/>`,
     feeds: `<path d="M12 3 2.8 8 12 13l9.2-5z"/><path d="m2.8 12 9.2 5 9.2-5"/><path d="m2.8 16 9.2 5 9.2-5"/>`,
-    compose: `<path d="M3.5 7h6M6.5 4v6"/><path d="M17 5.2a2.1 2.1 0 0 1 3 3L10.4 17.8 6.5 19l1.2-3.9z"/><path d="m15.3 6.9 3 3"/>`
+    compose: `<path d="M3.5 7h6M6.5 4v6"/><path d="M17 5.2a2.1 2.1 0 0 1 3 3L10.4 17.8 6.5 19l1.2-3.9z"/><path d="m15.3 6.9 3 3"/>`,
+    /* Viktrych (the on-device AI) logo: a V with a small spark. Also logo/viktrych.svg. */
+    viktrych: `<path d="M4.5 6 11 19.5l4.6-9.6"/><path d="M18.6 2.6l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z" fill="currentColor" stroke="none"/>`
   };
   /* The Viktorychs coin: black inside, white lines, a thin rim so it still shows on dark themes. */
   const COIN_SVG = `<svg class="vk-coin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.6" fill="#000" stroke="rgba(255,255,255,.45)" stroke-width="1"/><circle cx="12" cy="12" r="7.8" fill="none" stroke="#fff" stroke-width="1" opacity=".6"/><path d="M8.7 8.3 12 15.9l3.3-7.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const icon = (name) => name === "clock"
     ? `<svg class="clock" viewBox="0 0 24 24" aria-hidden="true">${LINE.clock}</svg>`
     : name === "coin" ? COIN_SVG
-    : XLINE[name] ? `<svg class="xline" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${XLINE[name]}</g></svg>`
+    : XLINE[name] ? `<svg class="xline${name === "viktrych" ? " vk-logo" : ""}" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${XLINE[name]}</g></svg>`
     : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PATH[name] || ""}"/></svg>`;
   if (window.SIntelMusic && window.SIntelMusic.install) window.SIntelMusic.install(PATH);
   // Shared with feature modules so their icons come from the same set as the app.
