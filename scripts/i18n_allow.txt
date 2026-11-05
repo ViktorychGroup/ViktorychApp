@@ -379,6 +379,20 @@ local-ai.js|Only use ids from the list. Values must be one of the allowed values
 local-ai.js|Never log out, delete, or sign out: use "open" for those. If unsure, ask a short question and return no calls.
 local-ai.js|Pages you can only open:
 local-ai.js|Groups:
+local-ai.js|Qwen2.5 0.5B
+local-ai.js|Qwen2.5-0.5B-Instruct-Q4_K_M.gguf
+local-ai.js|Gemma 3 1B abliterated
+local-ai.js|Llama 3.2 1B
+local-ai.js|Llama-3.2-1B-Instruct-Q4_K_M.gguf
+local-ai.js|Llama 3.2 1B abliterated
+local-ai.js|Llama-3.2-1B-Instruct-abliterated.Q4_K_M.gguf
+local-ai.js|Qwen2.5 1.5B
+local-ai.js|Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+local-ai.js|Qwen2.5 1.5B abliterated
+local-ai.js|Qwen2.5-1.5B-Instruct-abliterated.Q4_K_M.gguf
+local-ai.js|Dolphin 3.0 Qwen2.5 1.5B
+local-ai.js|Dolphin3.0-Qwen2.5-1.5B-Q4_K_M.gguf
+local-ai.js|Qwen3 1.7B abliterated
 settings-registry.js|Accent colour used for buttons, links and highlights.
 settings-registry.js|Text size in pixels for posts and menus. 15 is normal.
 settings-registry.js|Turns off most animations and moving effects.

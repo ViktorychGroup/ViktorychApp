@@ -82,7 +82,10 @@ export const FEATURES = {
   side_panel: { paths: [] },
   // Viktrych (Local AI) blocks, mutes, unblocks or unmutes an @account the
   // person typed, with a confirm card and Undo. Per device. No endpoints.
-  ai_people: { paths: [] }
+  ai_people: { paths: [] },
+  // Viktrych GGUF models (wllama, llama.cpp in WebAssembly) from Hugging
+  // Face in the model lists. Loaded from public CDNs only when picked.
+  gguf_models: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

@@ -6119,5 +6119,14 @@ SI18n.addPack("hi", {
   "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "कंप्यूटर पर साइड पैनल (खोज, दोस्त, किसे फ़ॉलो करें) को दाईं ओर के बजाय आइकन बार के पास बाईं ओर रखता है।",
   "Which side panel sections are folded.": "साइड पैनल के कौन से हिस्से मुड़े हुए हैं।",
   "Viktrych blocks and mutes": "Viktrych से ब्लॉक और म्यूट",
-  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych आपके अपने शब्दों में बताए गए @अकाउंट को आपकी पुष्टि के बाद ब्लॉक, म्यूट, अनब्लॉक या अनम्यूट कर सकता है, पूर्ववत करने के विकल्प के साथ।"
+  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych आपके अपने शब्दों में बताए गए @अकाउंट को आपकी पुष्टि के बाद ब्लॉक, म्यूट, अनब्लॉक या अनम्यूट कर सकता है, पूर्ववत करने के विकल्प के साथ।",
+  "Uncensored": "बिना सेंसर",
+  "Uncensored: refuses less and can say offensive or unsafe things.": "बिना सेंसर: कम मना करता है और आपत्तिजनक या असुरक्षित बातें कह सकता है।",
+  "{n}B GGUF from {repo}, runs on the processor.": "{repo} से {n}B GGUF, प्रोसेसर पर चलता है।",
+  "More models from Hugging Face (GGUF)": "Hugging Face से और मॉडल (GGUF)",
+  "GGUF models for Viktrych": "Viktrych के लिए GGUF मॉडल",
+  "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Hugging Face से छोटे GGUF मॉडल (कुछ पर बिना सेंसर लिखा है) जिन्हें Viktrych llama.cpp से प्रोसेसर पर चलाता है; चुनने पर ही लोड होते हैं।",
+  "{n} tokens/s measured": "{n} टोकन/से. मापा गया",
+  "about {n} tokens/s": "लगभग {n} टोकन/से.",
+  "Best for this device comes from a short speed test here and the speed of your chats.": "इस डिवाइस के लिए सबसे अच्छा, यहाँ एक छोटे स्पीड टेस्ट और आपकी चैट की गति से चुना जाता है।"
 });
