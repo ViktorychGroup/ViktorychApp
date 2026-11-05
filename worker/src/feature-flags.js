@@ -79,7 +79,10 @@ export const FEATURES = {
   // Desktop side panel: optional left placement, drag-to-resize width and
   // folding sections. No server endpoints. On by default (the panel itself
   // stays on the right until the person moves it).
-  side_panel: { paths: [] }
+  side_panel: { paths: [] },
+  // Viktrych (Local AI) blocks, mutes, unblocks or unmutes an @account the
+  // person typed, with a confirm card and Undo. Per device. No endpoints.
+  ai_people: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

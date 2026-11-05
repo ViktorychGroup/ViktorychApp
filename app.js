@@ -2025,7 +2025,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2125,7 +2125,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
       update_notice: [tr("Visible updates"), tr("A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.")],
       status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")],
-      side_panel: [tr("Movable side panel"), tr("On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.")]
+      side_panel: [tr("Movable side panel"), tr("On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.")],
+      ai_people: [tr("Viktrych blocks and mutes"), tr("Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -32435,10 +32436,61 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     return undefined;
   }
   /* Apply checked changes [{ id, to }]. Resolves [{ id, ok }]. */
+  /* Viktrych people changes: "person:block:@name" or "person:mute:@name".
+     Block uses the same per-device rules as the post menu (synced privately
+     to the account): the account's own key when this device knows it (an app
+     account or a followed source), else the X form; mute uses Muted accounts. */
+  function aiPersonParts(id) {
+    const m = /^person:(block|mute):@([a-z0-9_][a-z0-9_.-]{0,39})$/.exec(String(id || ""));
+    return m ? { act: m[1], handle: m[2] } : null;
+  }
+  function aiPersonKeys(handle) {
+    const keys = [];
+    (publicPosts || []).forEach((item) => {
+      if (item && item.authorId && String(item.handle || "").replace(/^@/, "").toLowerCase() === handle) keys.push("app:" + String(item.authorId));
+    });
+    feeds().forEach((f) => {
+      if (f && String(f.handle || "").replace(/^@/, "").toLowerCase() === handle) keys.push((f.platform || "x") + ":" + handle);
+    });
+    if (!keys.length) keys.push("x:" + handle);
+    return keys.filter((k, i, all) => all.indexOf(k) === i);
+  }
+  function aiPersonState(id) {
+    const p = aiPersonParts(id);
+    if (!p || !STATE.settings) return false;
+    if (p.act === "mute") return (STATE.settings.mutedAccounts || []).some((item) => muteKey(item) === p.handle);
+    const b = cleanBlocks(STATE.settings.blocks);
+    return b.accounts.some((key) => key === "x:" + p.handle || key.slice(key.indexOf(":") + 1) === p.handle || aiPersonKeys(p.handle).indexOf(key) >= 0);
+  }
+  function aiPersonApply(id, on) {
+    const p = aiPersonParts(id);
+    if (!p || !STATE.settings) return false;
+    if (p.act === "mute") {
+      const list = (STATE.settings.mutedAccounts || []).filter((item) => muteKey(item) !== p.handle);
+      if (on) list.push("@" + p.handle);
+      STATE.settings.mutedAccounts = list;
+    } else if (on) {
+      aiPersonKeys(p.handle).forEach((key) => addBlock("accounts", key));
+    } else {
+      const keys = aiPersonKeys(p.handle);
+      cleanBlocks(STATE.settings.blocks).accounts.forEach((key) => {
+        if (keys.indexOf(key) >= 0 || key.slice(key.indexOf(":") + 1) === p.handle) removeBlock("accounts", key);
+      });
+    }
+    return aiPersonState(id) === !!on;
+  }
+
   function aiApply(changes) {
     const R = aiRegistry();
     if (!R || !STATE.settings) return Promise.resolve([]);
     const jobs = [];
+    changes = (changes || []).filter((change) => {
+      if (!aiPersonParts(change && change.id)) return true;
+      const ok = aiPersonApply(change.id, change.to === true);
+      jobs.push(Promise.resolve({ id: change.id, ok: ok }));
+      if (ok) saveSettings();
+      return false;
+    });
     let save = false, look = false, theme = false, privacy = false, nav = false, reloadFor = "";
     const stamp = (key) => { STATE.settings.prefsAt = Object.assign({}, STATE.settings.prefsAt || {}, { [key]: Date.now() }); };
     (changes || []).forEach((change) => {
@@ -32527,6 +32579,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       return out;
     },
     apply: aiApply,
+    personState: aiPersonState,
+    peopleOn: () => !serverOffList().includes("ai_people"),
     signedIn: () => !!accountToken(),
     lang: () => (window.SI18n ? window.SI18n.getLang() : "en"),
     lowEnd: () => {

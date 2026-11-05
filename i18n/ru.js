@@ -6129,5 +6129,7 @@ SI18n.addPack("ru", {
   "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "На компьютере настройка в разделе «Экран» переносит боковую панель влево; её ширину можно менять перетаскиванием, а разделы сворачивать.",
   "Side panel": "Боковая панель",
   "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "На компьютерах размещает боковую панель (поиск, Друзья, Кого читать) слева рядом с панелью значков, а не справа.",
-  "Which side panel sections are folded.": "Какие разделы боковой панели свёрнуты."
+  "Which side panel sections are folded.": "Какие разделы боковой панели свёрнуты.",
+  "Viktrych blocks and mutes": "Блокировки и скрытие через Viktrych",
+  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych может заблокировать, скрыть, разблокировать или вернуть @аккаунт, который вы назовёте своими словами, после подтверждения и с возможностью отмены."
 });

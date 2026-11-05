@@ -198,6 +198,79 @@
     return fallback || "en";
   }
 
+  /* ---------- People: block, mute, unblock, unmute ----------
+     Deterministic, so even Instant does it. Only an @handle the person typed
+     counts, after a verb they typed; the same words from a post, a model
+     answer or any other text never reach here (see plan opts.typed). */
+  var PEOPLE_W = {
+    block: ["block", "blocking", "bloquea", "bloquear", "bloquealo", "bloquéalo", "заблокируй", "заблокировать", "заблокируйте", "блокируй", "ब्लॉक"],
+    unblock: ["unblock", "unblocking", "desbloquea", "desbloquear", "разблокируй", "разблокировать", "разблокируйте", "अनब्लॉक"],
+    mute: ["mute", "muting", "silence", "silencia", "silenciar", "silencie", "замьють", "замьютить", "заглуши", "заглушить", "म्यूट"],
+    unmute: ["unmute", "unmuting", "unsilence", "desilencia", "desilenciar", "размьють", "размьютить", "अनम्यूट"]
+  };
+  var PEOPLE_STOP = ["stop", "quit", "deja", "dejar", "перестань", "хватит"];
+  var HANDLE_RE = /^@([a-z0-9_][a-z0-9_.-]{0,39})$/i;
+  function peopleVerb(tok) {
+    var keys = Object.keys(PEOPLE_W);
+    for (var i = 0; i < keys.length; i += 1) if (PEOPLE_W[keys[i]].indexOf(tok) >= 0) return keys[i];
+    return "";
+  }
+  function peopleToks(text) {
+    return String(text || "").toLowerCase().split(/[\s,;:!?()"«»]+/).map(function (w) { return w.replace(/[.]+$/, ""); }).filter(Boolean);
+  }
+  /* "block @a and @b, mute @c" -> [{fn:"person", act:"block", on:true, handle:"@a"}, ...] */
+  function parsePeople(text) {
+    var toks = peopleToks(text);
+    var out = [], seen = {}, act = "", on = true, lastAt = -9, pending = [], pendAt = -9;
+    function put(handle) {
+      var key = act + ":" + handle;
+      if (seen[key] != null) out[seen[key]].on = on;
+      else { seen[key] = out.length; out.push({ fn: "person", act: act, on: on, handle: handle }); }
+    }
+    toks.forEach(function (tok, i) {
+      var h = HANDLE_RE.exec(tok);
+      if (h) {
+        var handle = "@" + h[1].replace(/[.-]+$/, "");
+        // Verb last, as in Hindi "@name को म्यूट करो": keep it for a verb that follows.
+        if (!act) { pending.push(handle); pendAt = i; return; }
+        put(handle);
+        lastAt = i;
+        return;
+      }
+      var verb = peopleVerb(tok.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ""));
+      if (!verb) {
+        // A long run of other words ends the verb ("block @a and turn off autoplay").
+        if (act && i - lastAt > 3) act = "";
+        return;
+      }
+      var stop = toks.slice(Math.max(0, i - 2), i).some(function (w) { return PEOPLE_STOP.indexOf(w) >= 0; });
+      act = verb.indexOf("un") === 0 ? verb.slice(2) : verb;
+      on = verb.indexOf("un") !== 0;
+      if (stop) on = !on;
+      lastAt = i;
+      if (pending.length && i - pendAt <= 3) pending.forEach(put);
+      pending = [];
+    });
+    return out;
+  }
+  /* Text left for the settings parser once people commands are taken out. */
+  function withoutPeople(text) {
+    if (!parsePeople(text).length) return String(text || "");
+    var all = PEOPLE_STOP.slice();
+    Object.keys(PEOPLE_W).forEach(function (k) { all = all.concat(PEOPLE_W[k]); });
+    return String(text || "").split(/(\s+)/).filter(function (w) {
+      var t = w.toLowerCase().replace(/^[^\p{L}@]+|[^\p{L}\p{N}_]+$/gu, "");
+      return !(HANDLE_RE.test(t) || all.indexOf(t) >= 0);
+    }).join("");
+  }
+  function personId(act, handle) { return "person:" + act + ":" + String(handle || "").toLowerCase(); }
+  /* A card row for a person change, shaped like a registry row. */
+  function personRow(id) {
+    var m = /^person:(block|mute):(@[a-z0-9_][a-z0-9_.-]{0,39})$/.exec(String(id || ""));
+    if (!m) return null;
+    return { id: id, label: m[1] === "block" ? "Blocked" : "Muted", subject: m[2], act: m[1], handle: m[2], type: "bool", def: false, page: "#/settings/muted", cat: "privacy", risk: "safe", person: true };
+  }
+
   /* ---------- Instant parser ---------- */
   var JOIN = { and: 1, then: 1, also: 1, plus: 1, y: 1, "también": 1, "luego": 1, "и": 1, "также": 1, "потом": 1, "затем": 1, "और": 1, "तथा": 1, "फिर": 1 };
   /* Split on commas, full stops and joining words ("and", "y", "и", "और"). */
@@ -274,7 +347,8 @@
   function parse(text, current) {
     var R = registry();
     current = current || {};
-    var calls = [], unknown = [];
+    var calls = parsePeople(text), unknown = [];
+    if (calls.length) text = withoutPeople(text);
     var whole = norm(text);
     var first = whole.split(" ")[0] || "";
     var asking = ASK_W.indexOf(first) >= 0 || ["is", "are", "does", "do", "am"].indexOf(first) >= 0 || (/[?¿]/.test(String(text)) && !hasAny(whole.split(" "), BIGGER.concat(SMALLER)));
@@ -290,7 +364,7 @@
         // A danger action never runs here; send the person to its page.
         var any = rank(clause, { all: true })[0];
         if (any && any.score >= 1) calls.push({ fn: "open", id: any.row.id });
-        else unknown.push(clause);
+        else if (tokens(clause).length) unknown.push(clause);
         return;
       }
       if (asking) {
@@ -311,7 +385,7 @@
   function dedupe(calls) {
     var seen = {}, out = [];
     for (var i = calls.length - 1; i >= 0; i -= 1) {
-      var key = calls[i].fn + ":" + calls[i].id;
+      var key = calls[i].fn === "person" ? personId(calls[i].act, calls[i].handle) : calls[i].fn + ":" + calls[i].id;
       if (!seen[key]) { seen[key] = 1; out.unshift(calls[i]); }
     }
     return out;
@@ -321,13 +395,30 @@
      Every call from any engine goes through here. Unknown ids, read-only
      rows, danger rows and bad values are dropped. Returns
      { changes: [{id, row, from, to, risk}], opens: [row], reads: [{row, value}], rejected: [{call, why}] }. */
-  function plan(calls, current) {
+  function plan(calls, current, opts) {
     var R = registry();
     current = current || {};
     var out = { changes: [], opens: [], reads: [], rejected: [] };
+    // People changes only for what the person typed themselves.
+    var typed = {};
+    parsePeople(opts && opts.typed).forEach(function (c) { typed[personId(c.act, c.handle) + ":" + c.on] = 1; });
     (Array.isArray(calls) ? calls : []).slice(0, 24).forEach(function (call) {
       if (!call || typeof call !== "object") return;
       var fn = String(call.fn || call.name || "set");
+      if (fn === "person") {
+        var act = String(call.act || ""), on = call.on !== false && call.on !== "false";
+        var raw = String(call.handle || "");
+        var h = HANDLE_RE.exec(raw.charAt(0) === "@" ? raw : "@" + raw);
+        if ((act !== "block" && act !== "mute") || !h) { out.rejected.push({ call: call, why: "value" }); return; }
+        var pid = personId(act, "@" + h[1]);
+        if (!typed[pid + ":" + on]) { out.rejected.push({ call: call, why: "untyped" }); return; }
+        var prow = personRow(pid);
+        var was = current[pid] === true;
+        if (was === on) { out.reads.push({ row: prow, value: was, same: true }); return; }
+        if (out.changes.some(function (c) { return c.id === pid; })) return;
+        out.changes.push({ id: pid, row: prow, from: was, to: on, risky: false, signedIn: false, person: true });
+        return;
+      }
       var row = R.get(String(call.id || ""));
       if (!row) { out.rejected.push({ call: call, why: "unknown" }); return; }
       if (fn === "open") { if (out.opens.indexOf(row) < 0) out.opens.push(row); return; }
@@ -422,6 +513,7 @@
     WEBLLM_VERSION: WEBLLM_VERSION, TJS_VERSION: TJS_VERSION, MODELS: MODELS, SCHEMA: SCHEMA,
     model: model, detect: detect, tierOf: tierOf, choices: choices, downloadMB: downloadMB,
     tokens: tokens, rank: rank, langOf: langOf, splitClauses: splitClauses, parse: parse, plan: plan,
+    parsePeople: parsePeople, withoutPeople: withoutPeople, personId: personId, personRow: personRow,
     prompt: prompt, partialReply: partialReply, readAnswer: readAnswer
   };
 });
