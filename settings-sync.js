@@ -13,7 +13,7 @@
     { id: "look", label: "Look and menus", keys: [
       ["appearance", "Theme"], ["showPictures", "Profile pictures"], ["avatarShape", "Profile picture shape"], ["haptics", "Haptics"], ["showBanners", "Banners"],
       ["drawerMenu", "Menu order"], ["navCustom", "Sidebar"], ["brandLogo", "Sidebar logo"], ["bottomNav", "Bottom bar"], ["inboxLayout", "Inbox sections"], ["profileTabs", "Profile tabs"], ["keyboard", "Keyboard shortcuts"],
-      ["accent", "Color"], ["fontSize", "Font size"], ["density", "Density"], ["reduceMotion", "Reduce motion"], ["aiFab", "Local AI button"], ["aiSetup", "Local AI setup"]
+      ["accent", "Color"], ["fontSize", "Font size"], ["density", "Density"], ["reduceMotion", "Reduce motion"], ["postAlign", "Alignment"], ["postWrapAvatar", "Wrap around profile picture"], ["aiFab", "Local AI button"], ["aiSetup", "Local AI setup"]
     ] },
     { id: "feed", label: "Feed", keys: [
       ["homePills", "Home pills"], ["stories", "Stories"], ["storyNotes", "Story notes"], ["autoplay", "Autoplay videos"],
@@ -38,7 +38,7 @@
   // keep their union merge in accounts.js.
   var LWW = ["appearance", "showPictures", "showBanners", "autoplay", "followingSort", "forYouReposts", "forYouReplies",
     "storyNotes", "livePreview", "friendsRail", "translateTo", "translateAuto", "translateNever", "notify", "bells", "notifPrivacy",
-    "accent", "fontSize", "density", "reduceMotion",
+    "accent", "fontSize", "density", "reduceMotion", "postAlign", "postWrapAvatar",
     "privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "peopleLinks", "avatarShape", "haptics", "keyboard", "busyPrefs", "inboxLayout", "aiFab", "aiSetup", "musicPrefs", "brandLogo"];
   var CAT_OF = {};
   CATS.forEach(function (cat) { cat.keys.forEach(function (row) { CAT_OF[row[0]] = cat.id; }); });
