@@ -57,7 +57,8 @@
     root: null, chats: read(CHATS_KEY, []), chatId: "", busy: false, sideOpen: false, menu: false, sheet: null,
     query: "", searchFocus: false, selecting: false, picked: {}, undo: null, confirmDel: null, confirmChat: "", memoryOpen: false, agents: false, hit: null, toolAbort: null,
     info: null, choices: null, model: read(MODEL_KEY, ""), have: read(HAVE_KEY, {}), engine: { state: "idle", id: "", progress: 0, text: "" },
-    worker: null, jobs: {}, mic: "", micBusy: false, streamTimer: 0, stopReq: false, nano: null
+    worker: null, jobs: {}, mic: "", micBusy: false, streamTimer: 0, stopReq: false, nano: null,
+    voiceBinding: null, whisper: false, voiceLevel: 70, voiceOpen: false, voiceLearn: false, voiceNote: "", heard: null
   };
   if (!Array.isArray(S.chats)) S.chats = [];
   function chat() {
@@ -498,8 +499,8 @@
     return '<div class="lai-side-top"><a class="lai-brand" href="#/ai" data-lai="new"><span class="lai-brand-mark">' + mark() + '</span><span>' + esc(tr("Local AI")) + '</span></a><button type="button" class="lai-icon lai-side-x" data-lai="side" aria-label="' + esc(tr("Close")) + '">' + I.side + "</button></div>" +
       '<button type="button" class="lai-new" data-lai="new">' + I.edit + "<span>" + esc(tr("New chat")) + "</span></button>" +
       searchBox() +
-      (S.memoryOpen ? memoryPanel() : '<nav class="lai-hist" aria-label="' + esc(tr("History")) + '">' + (prefs().history === "off" ? '<p class="lai-hist-empty">' + esc(tr("Chat history is off. Chats are gone when you leave the page.")) + "</p>" : "") + (rows || (prefs().history === "off" ? "" : '<p class="lai-hist-empty">' + esc(tr("Your chats stay on this device.")) + "</p>")) + "</nav>") +
-      '<div class="lai-side-foot"><button type="button" class="lai-side-link" data-lai="memory">' + esc(tr("Memory")) + "</button>" + (setupOn() ? '<button type="button" class="lai-side-link" data-lai="setup-again">' + esc(tr("Set up Local AI again")) + "</button>" : "") + '<a href="#/settings" class="lai-side-link">' + esc(tr("All settings")) + "</a></div>";
+      (S.voiceOpen ? voicePanel() : S.memoryOpen ? memoryPanel() : '<nav class="lai-hist" aria-label="' + esc(tr("History")) + '">' + (prefs().history === "off" ? '<p class="lai-hist-empty">' + esc(tr("Chat history is off. Chats are gone when you leave the page.")) + "</p>" : "") + (rows || (prefs().history === "off" ? "" : '<p class="lai-hist-empty">' + esc(tr("Your chats stay on this device.")) + "</p>")) + "</nav>") +
+      '<div class="lai-side-foot"><button type="button" class="lai-side-link" data-lai="voice-setup">' + esc(tr("Hardware talk")) + '</button><button type="button" class="lai-side-link" data-lai="memory">' + esc(tr("Memory")) + "</button>" + (setupOn() ? '<button type="button" class="lai-side-link" data-lai="setup-again">' + esc(tr("Set up Local AI again")) + "</button>" : "") + '<a href="#/settings" class="lai-side-link">' + esc(tr("All settings")) + "</a></div>";
   }
   function chips() {
     return [tr("Make text bigger"), tr("Stop autoplay on mobile data"), tr("Hide friends stuff"), tr("Make my account private"), tr("Dark mode"), tr("Where are muted words?")];
@@ -509,10 +510,15 @@
     var m = currentModel();
     var loading = S.engine.state === "loading";
     return '<form class="lai-bar" data-lai="form"><div class="lai-edit"><textarea class="lai-input" rows="1" placeholder="' + esc(tr("Ask to change any setting…")) + '" aria-label="' + esc(tr("Message Local AI")) + '" enterkeyhint="send"></textarea></div>' +
-      '<div class="lai-row"><div class="lai-row-l">' + (micReady() ? '<button type="button" class="lai-icon lai-mic' + (S.micBusy ? " on" : "") + '" data-lai="mic" aria-label="' + esc(tr("Speak")) + '">' + I.mic + "</button>" : "") + "</div>" +
+      '<div class="lai-row"><div class="lai-row-l">' + (voiceOn() ? '<button type="button" class="lai-talk" data-lai="voice-setup">' + esc(tr("Hardware talk")) + "</button>" : "") + (micReady() ? '<button type="button" class="lai-icon lai-mic lai-fallback' + (S.micBusy ? " on" : "") + '" data-lai="mic" aria-label="' + esc(tr("On-screen talk")) + '" title="' + esc(tr("Fallback when no hardware button reaches this page")) + '">' + I.mic + "</button>" : "") + "</div>" +
       '<div class="lai-row-r"><button type="button" class="lai-pill" data-lai="models" aria-haspopup="menu" aria-expanded="' + (S.menu ? "true" : "false") + '">' + (m.engine === "instant" ? I.bolt : I.chip) + "<span>" + esc(modelName(m)) + "</span>" + (loading ? '<i class="lai-pill-pct">' + Math.round(S.engine.progress * 100) + "%</i>" : "") + I.down + "</button>" +
       '<button type="submit" class="lai-send" data-lai="send" aria-label="' + esc(S.busy ? tr("Stop") : tr("Send")) + '"' + (S.busy ? ' data-stop="1"' : "") + ">" + (S.busy ? I.stop : I.send) + "</button></div></div>" +
-      (S.menu ? menuHtml() : "") + "</form>";
+      (S.menu ? menuHtml() : "") + "</form>" + heardHtml();
+  }
+  function heardHtml() {
+    if (!S.heard) return "";
+    var score = S.heard.confidence == null ? tr("This browser did not give a confidence score.") : tr("Confidence") + " " + Math.round(S.heard.confidence * 100) + "%";
+    return '<div class="lai-heard" role="status"><p>' + esc(tr("I heard this. Send it only if it is right.")) + "</p><strong>" + esc(S.heard.text) + "</strong><p class=\"lai-tool-meta\">" + esc(score) + '</p><div class="lai-tool-actions"><button type="button" data-lai="voice-send">' + esc(tr("Send what I heard")) + '</button><button type="button" data-lai="voice-edit">' + esc(tr("Edit")) + "</button></div></div>";
   }
   function menuHtml() {
     var A = core();
@@ -705,12 +711,18 @@
     });
     el.addEventListener("keydown", onKey);
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && S.root && S.root.isConnected && !S.root.contains(e.target)) onKey(e); });
+    document.addEventListener("keydown", onVoiceKey);
     // A click that repainted the bar leaves its target detached; that is not "outside".
     document.addEventListener("click", function (e) { if (S.menu && S.root && e.target && e.target.isConnected && !S.root.contains(e.target)) { S.menu = false; paintBar(); } });
     // Remember if the box had focus, so a re-render of the page under us puts it back.
     el.addEventListener("focusin", function (e) { if (e.target && e.target.classList.contains("lai-input")) S.inFocus = true; });
     el.addEventListener("focusout", function (e) { if (e.target && e.target.classList.contains("lai-input") && el.isConnected) S.inFocus = false; });
     el.addEventListener("input", function (e) {
+      if (e.target && e.target.getAttribute("data-lai") === "voice-level") {
+        S.voiceLevel = Number(e.target.value) || 0;
+        saveVoice();
+        return;
+      }
       if (e.target && e.target.classList.contains("lai-search") && e.target.form && e.target.form.getAttribute("data-lai") === "search-form") {
         S.query = e.target.value;
         S.searchFocus = true;
@@ -885,6 +897,13 @@
     if (act === "undo-one") { var um = msgAt(el); if (um) undo(um, el.getAttribute("data-id")); return; }
     if (act === "undo-all") { var uam = msgAt(el); if (uam) undo(uam, ""); return; }
     if (act === "mic") { listen(); return; }
+    if (act === "voice-setup") { S.voiceOpen = !S.voiceOpen; S.sideOpen = true; paint(); return; }
+    if (act === "voice-learn") { startVoiceLearn(); return; }
+    if (act === "voice-clear") { S.voiceBinding = null; saveVoice(); paint(); return; }
+    if (act === "voice-whisper") { S.whisper = !S.whisper; saveVoice(); paint(); return; }
+    if (act === "voice-cal") { calibrateVoice(); return; }
+    if (act === "voice-send") { S.heard = null; onSend(); return; }
+    if (act === "voice-edit") { S.heard = null; paint(); focusBox(); return; }
     if (act === "agents") { S.agents = !S.agents; paint(); return; }
     if (act === "tool-run" || act === "tool-skip" || act === "tool-stop") {
       var holder = el.closest && el.closest(".lai-msg");
@@ -1032,13 +1051,29 @@
       rec.lang = lang;
       rec.processLocally = true;
       rec.interimResults = true;
+      var low = null;
       rec.onresult = function (ev) {
         var text = "";
-        for (var i = 0; i < ev.results.length; i += 1) text += ev.results[i][0].transcript;
+        for (var i = 0; i < ev.results.length; i += 1) {
+          var alt = ev.results[i][0];
+          text += alt.transcript;
+          if (alt && typeof alt.confidence === "number") low = low == null ? alt.confidence : Math.min(low, alt.confidence);
+        }
+        S.heardDraft = { text: text, confidence: low };
         var box = S.root.querySelector(".lai-input");
         if (box) { box.value = text; grow(box); paintSendState(); }
       };
-      rec.onend = function () { S.micBusy = false; paintBar(); var box = S.root.querySelector(".lai-input"); if (box && box.value.trim()) onSend(); };
+      rec.onend = function () {
+        S.micBusy = false;
+        var draft = S.heardDraft;
+        S.heardDraft = null;
+        paintBar();
+        if (!draft || !String(draft.text || "").trim()) return;
+        var V = window.ViktorychVoice;
+        var gate = V ? V.gate({ text: draft.text, confidence: draft.confidence, whisper: !!S.whisper }) : { send: false, readback: true };
+        if (gate.send) onSend();
+        else { S.heard = draft; paint(); }
+      };
       rec.onerror = function () { S.micBusy = false; paintBar(); };
       rec.start();
     }).catch(function () { S.micBusy = false; paintBar(); });
@@ -1657,6 +1692,143 @@
     var at = C && current ? C.resolve(current, hit) : hit.index;
     S.hit = at >= 0 ? { chatId: id, index: at } : null;
     paint();
+  }
+
+  /* ---------- hardware talk and low-volume speech ---------- */
+  var VOICE_KEY = "viktorych-ai-voice-v1";
+  (function loadVoice() {
+    var saved = read(VOICE_KEY, {});
+    if (!saved || typeof saved !== "object") return;
+    S.voiceBinding = saved.binding || null;
+    S.whisper = !!saved.whisper;
+    if (typeof saved.sensitivity === "number") S.voiceLevel = saved.sensitivity;
+  })();
+  function voiceOn() {
+    var h = host();
+    return !h || !h.voiceOn || h.voiceOn();
+  }
+  function saveVoice() {
+    write(VOICE_KEY, { binding: S.voiceBinding, whisper: !!S.whisper, sensitivity: S.voiceLevel });
+  }
+  function voiceNoteText() {
+    var notes = {
+      press: tr("Press the button once. Only a key this page receives can be saved."),
+      missed: tr("No hardware button reached this page. Type, or use On-screen talk as a fallback."),
+      saved: tr("Saved. That button now starts listening."),
+      quiet: tr("The meter heard a quiet sound. Sensitivity is raised. This is not a promise that a whisper will be recognized."),
+      heard: tr("The meter heard the microphone. Speech recognition is separate from this meter."),
+      silent: tr("The meter heard almost nothing. Try again closer to the microphone, or type."),
+      denied: tr("This browser did not allow the microphone. You can still type."),
+      "no-mic": tr("This browser has no microphone meter. You can still type.")
+    };
+    return notes[S.voiceNote] || "";
+  }
+  function voicePanel() {
+    var V = window.ViktorychVoice;
+    var binding = S.voiceBinding;
+    var label = binding ? (binding.kind === "media" ? tr("Media button") + ": " + binding.action : tr("Key") + ": " + (binding.key || binding.code)) : tr("No button saved yet.");
+    var cap = V ? V.speechCapability({ speechRecognition: !!SR(), processLocally: true }) : { honest: "browser-no-whisper" };
+    void cap;
+    return '<section class="lai-voice" aria-label="' + esc(tr("Hardware talk")) + '"><p>' + esc(tr("A web page cannot use the power button, the volume buttons, or the assistant button. Those stay with the phone.")) + "</p><p>" + esc(tr("Press a keyboard key, or a media button this browser actually delivers. On-screen talk is only a fallback.")) + "</p><p><strong>" + esc(label) + "</strong></p>" +
+      '<div class="lai-tool-actions"><button type="button" data-lai="voice-learn">' + esc(S.voiceLearn ? tr("Listening for a button…") : tr("Press your button now")) + "</button>" +
+      (binding ? '<button type="button" data-lai="voice-clear">' + esc(tr("Clear button")) + "</button>" : "") + "</div>" +
+      (S.voiceNote ? '<p class="lai-tool-meta">' + esc(voiceNoteText()) + "</p>" : "") +
+      '<button type="button" class="lai-side-link" data-lai="voice-whisper" role="switch" aria-checked="' + (S.whisper ? "true" : "false") + '">' + esc(tr("Low volume and whisper")) + "</button>" +
+      '<p class="lai-tool-meta">' + esc(tr("This browser's speech recognition is not a whisper model. Low-volume mode raises sensitivity and, where the browser allows, the microphone constraints. It does not guarantee a whisper will be understood on every microphone.")) + "</p>" +
+      '<label class="lai-voice-level">' + esc(tr("Input sensitivity")) + '<input type="range" min="0" max="100" data-lai="voice-level" value="' + esc(String(S.voiceLevel)) + '" aria-label="' + esc(tr("Input sensitivity")) + '"></label>' +
+      '<button type="button" class="lai-side-link" data-lai="voice-cal">' + esc(tr("Check microphone level")) + "</button>" +
+      '<p class="lai-tool-meta">' + esc(tr("The level check stays on this device for a few seconds and is not uploaded. Unclear speech is read back before anything is sent, blocked, or changed.")) + "</p></section>";
+  }
+  function startVoiceLearn() {
+    S.voiceLearn = true;
+    S.voiceNote = "press";
+    paint();
+    armVoiceMedia(true);
+    clearTimeout(S.voiceTimer);
+    S.voiceTimer = setTimeout(function () {
+      if (!S.voiceLearn) return;
+      S.voiceLearn = false;
+      armVoiceMedia(false);
+      S.voiceNote = "missed";
+      paint();
+    }, 8000);
+  }
+  function armVoiceMedia(on) {
+    var ms = navigator.mediaSession;
+    var V = window.ViktorychVoice;
+    if (!ms || !ms.setActionHandler || !V) return;
+    V.mediaActions().forEach(function (action) {
+      try {
+        ms.setActionHandler(action, on ? function () {
+          var learned = V.fromMedia(action);
+          if (!learned.ok || !S.voiceLearn) return;
+          S.voiceBinding = learned.binding;
+          S.voiceLearn = false;
+          S.voiceNote = "saved";
+          saveVoice();
+          armVoiceMedia(false);
+          paint();
+        } : null);
+      } catch (err) { /* this browser rejects the action */ }
+    });
+  }
+  function onVoiceKey(e) {
+    if (!voiceOn() || !S.root || !S.root.isConnected) return;
+    var V = window.ViktorychVoice;
+    if (!V) return;
+    var typing = !!(e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName));
+    var sample = { code: e.code, key: e.key, repeat: e.repeat, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey, typing: typing };
+    if (S.voiceLearn) {
+      var learned = V.fromKey(sample);
+      if (!learned.ok) return;
+      e.preventDefault();
+      S.voiceBinding = learned.binding;
+      S.voiceLearn = false;
+      S.voiceNote = "saved";
+      clearTimeout(S.voiceTimer);
+      armVoiceMedia(false);
+      saveVoice();
+      paint();
+      return;
+    }
+    if (V.matches(S.voiceBinding, sample)) {
+      e.preventDefault();
+      listen();
+    }
+  }
+  function calibrateVoice() {
+    var V = window.ViktorychVoice;
+    if (!V || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { S.voiceNote = "no-mic"; paint(); return; }
+    var supported = {};
+    try { supported = navigator.mediaDevices.getSupportedConstraints ? navigator.mediaDevices.getSupportedConstraints() : {}; } catch (err) { supported = {}; }
+    navigator.mediaDevices.getUserMedia(V.micConstraints(supported, S.voiceLevel)).then(function (stream) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) { stream.getTracks().forEach(function (track) { track.stop(); }); S.voiceNote = "no-mic"; paint(); return; }
+      var ctx = new Ctx();
+      var source = ctx.createMediaStreamSource(stream);
+      var analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      var data = new Uint8Array(analyser.fftSize);
+      var samples = [];
+      var ticks = 0;
+      var timer = setInterval(function () {
+        analyser.getByteTimeDomainData(data);
+        var sum = 0;
+        for (var i = 0; i < data.length; i += 1) { var n = (data[i] - 128) / 128; sum += n * n; }
+        samples.push(Math.sqrt(sum / data.length));
+        ticks += 1;
+        if (ticks < 12) return;
+        clearInterval(timer);
+        stream.getTracks().forEach(function (track) { track.stop(); });
+        if (ctx.close) ctx.close();
+        var result = V.calibrate(samples);
+        S.voiceLevel = result.sensitivity;
+        S.voiceNote = result.heard ? (result.quiet ? "quiet" : "heard") : "silent";
+        saveVoice();
+        paint();
+      }, 200);
+    }, function () { S.voiceNote = "denied"; paint(); });
   }
 
   /* ---------- page hooks ---------- */
