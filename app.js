@@ -18052,9 +18052,10 @@ const here = parseRoute();
         const level = Math.max(0, Math.min(1, Number(b.level) || 0));
         const pct = Math.round(level * 100);
         const fill = (12.5 * level).toFixed(2);
-        const bolt = b.charging ? `<path d="M11.6 8.6l-2 3.6h2.8l-2 3.2" stroke-width="1.5"/>` : `<rect x="4.75" y="9.75" width="${fill}" height="4.5" rx="0.75" fill="currentColor" stroke="none"/>`;
+        const fillY = (18.25 - 12.5 * level).toFixed(2);
+        const bolt = b.charging ? `<path d="M12.8 8.5l-2.4 3.8h3.2l-2.4 3.8" stroke-width="1.5"/>` : `<rect x="9.75" y="${fillY}" width="4.5" height="${fill}" rx="0.75" fill="currentColor" stroke="none"/>`;
         const label = b.charging ? tr("Battery {n}%, charging", { n: pct }) : tr("Battery {n}%", { n: pct });
-        out += `<span class="sticon st-battery${pct <= 15 && !b.charging ? " is-low" : ""}" data-st="battery" role="img" aria-label="${esc(label)}">${ST_SVG(`<rect x="3" y="8" width="16" height="8" rx="2"/><path d="M21 10.75v2.5"/>${bolt}`)}<b>${pct}</b></span>`;
+        out += `<span class="sticon st-battery${pct <= 15 && !b.charging ? " is-low" : ""}" data-st="battery" role="img" aria-label="${esc(label)}">${ST_SVG(`<rect x="8" y="4" width="8" height="16" rx="2"/><path d="M10.75 2h2.5"/>${bolt}`)}<b>${pct}</b></span>`;
       }
       if (key === "network") {
         const online = navigator.onLine !== false;
@@ -27422,7 +27423,17 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (!applySafeTop.bound) {
       applySafeTop.bound = true;
       let queued = 0;
-      const again = () => {
+      // Phones fire resize while scrolling (the browser bars slide in and out);
+      // only the width, the screen or the display mode can change the status bar,
+      // so a height-only resize keeps the inset and the header stays one size.
+      const sizeKey = () => { const sc = window.screen || {}; return [window.innerWidth || 0, sc.height || 0, sc.availHeight || 0].join("x"); };
+      let lastKey = sizeKey();
+      const again = (event) => {
+        if (event && event.type === "resize") {
+          const key = sizeKey();
+          if (key === lastKey) return;
+          lastKey = key;
+        }
         if (queued) return;
         queued = requestAnimationFrame(() => { queued = 0; const was = applySafeTop.below; if (applySafeTop(installedApp()) !== was) applyTheme(); });
       };
