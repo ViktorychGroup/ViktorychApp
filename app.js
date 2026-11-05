@@ -2025,7 +2025,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "site_permissions"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2128,7 +2128,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       side_panel: [tr("Movable side panel"), tr("On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.")],
       ai_people: [tr("Viktrych blocks and mutes"), tr("Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.")],
       gguf_models: [tr("GGUF models for Viktrych"), tr("Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.")],
-      instant_limits: [tr("Instant limits"), tr("Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.")]
+      instant_limits: [tr("Instant limits"), tr("Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.")],
+      site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -17852,6 +17853,8 @@ const here = parseRoute();
     return `<a class="set-row set-vk" href="#/points"><span class="set-copy"><b>${coin}${esc(tr("Viktorychs"))}</b><span class="set-sub">${esc(sub)}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></a>`;
   }
 
+  /* Settings → Site permissions (site-permissions.js, owner switch site_permissions). */
+  function sitePermsOn() { return !!window.ViktorychSitePerms && !serverOffList().includes("site_permissions"); }
   function settingsRow(href, title, sub) {
     return `<a class="set-row" href="${href}"><span class="set-copy"><b>${esc(title)}</b>${sub ? `<span class="set-sub">${esc(sub)}</span>` : ""}</span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></a>`;
   }
@@ -18575,6 +18578,7 @@ const here = parseRoute();
       const title = route.sub ? tr("Friendship") : tr("Who can see each friendship");
       return settingsHead(title, route.sub ? "#/settings/friendship" : "#/settings/friends") + `<div class="set-block">${window.ViktorychFriendPrivacy ? window.ViktorychFriendPrivacy.pageHtml(route.sub || "") : ""}</div>`;
     }
+    if (section === "permissions" && sitePermsOn()) return settingsHead(tr("Site permissions"), "#/settings") + window.ViktorychSitePerms.pageHtml();
     if (section === "muted") return settingsHead(tr("Muted & blocked"), "#/settings/privacy") + `<div class="set-block">${mutedSettingsHtml()}</div>`;
     if (section === "privacy") {
       const acct = window.ViktorychAccounts && window.ViktorychAccounts.account && window.ViktorychAccounts.account();
@@ -18718,6 +18722,7 @@ const here = parseRoute();
       ${accountToken() ? viktorychsRow() : ""}
       ${accountToken() ? settingsRow("#/link-tv", tr("Link a TV"), tr("Sign a TV in with the code it shows. Nothing to type on the TV.")) : ""}
       ${settingsRow("#/settings/storage", tr("Data and storage"), tr("Storage usage"))}
+      ${sitePermsOn() ? settingsRow("#/settings/permissions", tr("Site permissions"), tr("Notifications, location, camera, microphone and saved data.")) : ""}
       ${settingsRow("#/settings/content", tr("Custom tabs"), tr("Group accounts into tabs on Home and in Notifications."))}
       ${settingsRow("#/settings/suggestions", tr("Suggestions in your feed"), tr("People you may know, account types, and swipeable cards."))}
       ${settingsRow("#/settings/network", tr("Digital Resistance & Proxy"), tr("Manage bypass proxy, Telegram relay, and unblocked media mode."))}

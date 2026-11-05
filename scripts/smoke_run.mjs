@@ -218,6 +218,7 @@ const NAV_STEPS = [
   step("tabs-look", "node scripts/tabs_look_test.mjs", { needs: ["pw", "browser"], paths: [file("tabs_look_test.mjs"), ...APP] }),
   step("status-icons", "node scripts/status_icons_test.mjs", { needs: ["pw", "browser"], paths: [file("status_icons_test.mjs"), ...APP] }),
   step("side-panel", "node scripts/side_panel_test.mjs", { needs: ["pw", "browser"], paths: [file("side_panel_test.mjs"), /^split\.js$/, ...APP] }),
+  step("site-permissions", "node scripts/site_permissions_test.mjs", { needs: ["pw", "browser"], paths: [file("site_permissions_test.mjs"), /^site-permissions\.js$/, ...APP] }),
   step("profile-layout", "node scripts/profile_layout_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_layout_test.mjs"), ...APP] }),
   step("menu-pages", "node scripts/menu_pages_test.mjs", { weight: 40, needs: ["pw", "browser"], paths: [file("menu_pages_test.mjs"), ...APP] }),
   step("about-layout", "node scripts/about_layout_test.mjs", { needs: ["pw"], paths: [file("about_layout_test.mjs")] }),
@@ -246,7 +247,7 @@ const SHARDS = {
 const NAV_SHARDS = {
   "nav-reach": ["home-reach"],
   "nav-shell": ["nav-custom", "bottom-nav", "dock", "profile-tabs-order", "profile-tabs", "post-ring", "x-icons", "viktrych", "viktrych-home"],
-  "nav-layout": ["landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "status-icons", "side-panel", "zoom-lock", "update-notice", "profile-layout", "menu-pages"],
+  "nav-layout": ["landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "status-icons", "side-panel", "site-permissions", "zoom-lock", "update-notice", "profile-layout", "menu-pages"],
   "nav-pages": ["about-layout", "points-layout", "stories-layout", "ios"]
 };
 
@@ -465,7 +466,7 @@ function selftest() {
   if (none.length !== PAGE_STEPS.length) throw new Error("no local diff must run the full suite");
   for (const name of Object.keys(SHARDS)) shardSteps(name, PAGE_STEPS);
   const navIds = new Set(NAV_STEPS.map((item) => item.id));
-  for (const id of ["nav-custom", "bottom-nav", "home-reach", "profile-tabs-order", "profile-tabs", "dock", "landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "status-icons", "side-panel", "zoom-lock", "update-notice", "profile-layout", "menu-pages", "about-layout", "points-layout", "stories-layout", "ios"]) {
+  for (const id of ["nav-custom", "bottom-nav", "home-reach", "profile-tabs-order", "profile-tabs", "dock", "landscape", "phone-resize", "app-repair", "swipe-tabs", "compact-header", "header-stable", "header-frames", "tabs-look", "status-icons", "side-panel", "site-permissions", "zoom-lock", "update-notice", "profile-layout", "menu-pages", "about-layout", "points-layout", "stories-layout", "ios"]) {
     if (!navIds.has(id)) throw new Error("missing nav step " + id);
   }
   console.log("smoke_run selftest ok");

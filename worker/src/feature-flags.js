@@ -88,7 +88,10 @@ export const FEATURES = {
   gguf_models: { paths: [] },
   // Viktrych Instant (rules, no download) does up to 3 things per message
   // and points to a downloaded model for more. No server endpoints.
-  instant_limits: { paths: [] }
+  instant_limits: { paths: [] },
+  // Settings > Site permissions: live browser permission states with
+  // one-tap Allow and steps for blocked ones. No server endpoints.
+  site_permissions: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 
