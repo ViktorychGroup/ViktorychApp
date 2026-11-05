@@ -107,7 +107,10 @@ export const FEATURES = {
   notif_sounds: { paths: [] },
   // Owner-managed member settings: the owner changes another account's
   // synced settings and can lock them; /v1/sync keeps locked values.
-  owner_user_settings: { paths: ["/v1/owner/user-settings"] }
+  owner_user_settings: { paths: ["/v1/owner/user-settings"] },
+  // Reading view for a public article link. On by default. Off: the endpoint
+  // answers empty and clients do not offer Read.
+  article_reader: { paths: ["/v1/reader"] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

@@ -13,7 +13,7 @@ export const KEEP_SECONDS = 24 * 60 * 60;
 const MAX_BYTES = 256 * 1024;
 const PUT_EVERY_MS = 60 * 1000;
 const CACHE_HOST = "https://d1-saver.invalid";
-const SKIP = /^\/v1\/(owner|me|auth|session|sessions|signup|login|logout|watchdog|health|geo|usage|seal|admin|tg|archive|media|data|yt|ytm|comments|unfurl|ext-graph|sync|vault|keys|devices|passkeys|webauthn|recovery)(\/|$)/;
+const SKIP = /^\/v1\/(owner|me|auth|session|sessions|signup|login|logout|watchdog|health|geo|usage|seal|admin|tg|archive|media|data|yt|ytm|comments|unfurl|reader|ext-graph|sync|vault|keys|devices|passkeys|webauthn|recovery)(\/|$)/;
 
 const putAt = new Map();
 

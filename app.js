@@ -2081,13 +2081,17 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "article_reader"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
       return Array.isArray(list) ? list.filter((name) => SERVER_FEATURES.includes(name)) : [];
     } catch (err) { return []; }
   }
+  window.addEventListener("viktorych-reader-ready", () => {
+    if (serverOffList().includes("article_reader")) return;
+    setTimeout(() => { try { render(); } catch (err) { /* the shell is still starting */ } }, 0);
+  });
   /* True only once the server list has been fetched and the feature is not
      in it, so default-off features stay hidden until the owner turns them on. */
   window.ViktorychServerFeature = function (name) {
@@ -2190,7 +2194,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")],
       notif_sounds: [tr("In-app notification sounds"), tr("While the app is open, new notifications play a sound picked per account, per type or the default, with a volume control. Made on the device; no sound files.")],
       owner_user_settings: [tr("Manage member settings"), tr("In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.")],
-      tiktok_auto_record: [tr("Automatic TikTok recorder"), tr("Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.")]
+      tiktok_auto_record: [tr("Automatic TikTok recorder"), tr("Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.")],
+      article_reader: [tr("Article reader"), tr("A reading view for public article links in posts. Off leaves those links opening on their own sites.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -2918,6 +2923,14 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
 
   function linkify(text, links, platform, handle) {
     const src = String(text || "");
+    let readerSlots = 3;
+    const withRead = (anchorHtml, href) => {
+      if (readerSlots <= 0) return anchorHtml;
+      const btn = readerBtn(href, null);
+      if (!btn) return anchorHtml;
+      readerSlots -= 1;
+      return `<span class="rd-inline">${anchorHtml}${btn}</span>`;
+    };
     const known = (links || []).filter((l) => l && l.expanded);
     let i = 0;
     let html = "";
@@ -2930,13 +2943,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         continue;
       }
       if (hit) {
-        html += `<a class="entity" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(safeHref(hit.expanded))}">${esc(hit.display || hit.expanded)}</a>`;
+        html += withRead(`<a class="entity" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(safeHref(hit.expanded))}">${esc(hit.display || hit.expanded)}</a>`, hit.expanded);
         i += hit.expanded.length;
         continue;
       }
       const anchored = anchorHits.find((l) => l.anchorText && src.startsWith(l.anchorText, i));
       if (anchored) {
-        html += `<a class="entity" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(safeHref(anchored.expanded) || "#")}">${esc(anchored.anchorText)}</a>`;
+        html += withRead(`<a class="entity" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(safeHref(anchored.expanded) || "#")}">${esc(anchored.anchorText)}</a>`, anchored.expanded);
         i += anchored.anchorText.length;
         continue;
       }
@@ -2947,7 +2960,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
           const trail = m[0].slice(href.length);
           const shown = href.replace(/^https?:\/\//, "");
           const label = shown.length > 30 ? shown.slice(0, 27) + "…" : shown;
-          html += `<a class="entity" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(href)}">${esc(label)}</a>` + esc(trail);
+          html += withRead(`<a class="entity" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(href)}">${esc(label)}</a>`, href) + esc(trail);
           i += m[0].length;
           continue;
         }
@@ -3733,6 +3746,21 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return !(w && h) || w / h >= 1.3;
   }
 
+  function readerBtn(url, link) {
+    if (serverOffList().includes("article_reader")) return "";
+    if (!window.ViktorychReader || !window.ViktorychReader.suitable || !window.ViktorychReader.suitable(url)) return "";
+    const title = link && link.title ? ` data-title="${esc(String(link.title).slice(0, 180))}"` : "";
+    const desc = link && link.description ? ` data-desc="${esc(String(link.description).slice(0, 220))}"` : "";
+    const image = link && link.image ? ` data-image="${esc(link.image)}"` : "";
+    const site = link && (link.site || link.domain) ? ` data-site="${esc(link.site || link.domain)}"` : "";
+    const label = link && link.title ? tr("Read article") + ": " + link.title : tr("Read article");
+    return `<button type="button" class="rd-launch" data-act="read-link" data-url="${esc(url)}"${title}${desc}${image}${site} aria-label="${esc(label)}">${esc(tr("Read"))}</button>`;
+  }
+  function readerWrap(html, url, link) {
+    const btn = readerBtn(url, link);
+    if (!btn) return html;
+    return `<div class="rd-card">${html}${btn}</div>`;
+  }
   function linkCard(link, post) {
     if (!link || !link.url) return "";
     const id = post && post.id ? ` data-id="${esc(post.id)}"` : "";
@@ -3753,7 +3781,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const title = `<span class="link-title">${esc(link.title || link.site || domain || link.url)}</span>`;
     const description = link.description && link.description !== link.title ? `<span class="link-desc">${esc(link.description)}</span>` : "";
     const cls = large ? "link-card lc-large" : (hasImage ? "link-card lc-small" : "link-card lc-text");
-    return `<a class="${cls}" data-act="open-link"${id} target="_blank" rel="noopener noreferrer" href="${esc(link.url)}">${image}<span class="link-card-copy">${site}${title}${description}</span></a>`;
+    return readerWrap(`<a class="${cls}" data-act="open-link"${id} target="_blank" rel="noopener noreferrer" href="${esc(link.url)}">${image}<span class="link-card-copy">${site}${title}${description}</span></a>`, link.url, link);
   }
 
   /* Video pages with an official embed player (video-providers.js) get a
@@ -4156,7 +4184,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
 
   function linkChip(url, id, loading) {
     const domain = linkDomain(url) || url;
-    return `<a class="link-chip${loading ? " lp-slot" : ""}"${loading ? ` data-lp="${esc(url)}"` : ""} data-act="open-link"${id ? ` data-id="${esc(id)}"` : ""} target="_blank" rel="noopener noreferrer" href="${esc(url)}">${icon("link")}<span>${esc(domain)}</span></a>`;
+    return readerWrap(`<a class="link-chip${loading ? " lp-slot" : ""}"${loading ? ` data-lp="${esc(url)}"` : ""} data-act="open-link"${id ? ` data-id="${esc(id)}"` : ""} target="_blank" rel="noopener noreferrer" href="${esc(url)}">${icon("link")}<span>${esc(domain)}</span></a>`, url, null);
   }
 
   function linkPreviewHtml(url, post, id) {
@@ -24024,6 +24052,17 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "open-link") {
       const post = findAnyPost(el.dataset.id);
       if (post) noteArticle(post, {});
+      return;
+    }
+    if (act === "read-link") {
+      if (window.ViktorychReader && window.ViktorychReader.open) {
+        window.ViktorychReader.open(el.dataset.url || "", {
+          title: el.dataset.title || "",
+          description: el.dataset.desc || "",
+          image: el.dataset.image || "",
+          site: el.dataset.site || ""
+        });
+      }
       return;
     }
     if (act === "hist-pause") {
