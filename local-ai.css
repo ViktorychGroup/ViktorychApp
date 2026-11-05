@@ -407,3 +407,18 @@ html[data-theme="default"] .lai-su-card { box-shadow: 0 0 15px rgba(101, 119, 13
 }
 @keyframes lai-su-up { from { transform: translateY(24px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .lai-su-card, .lai-su-spin { animation: none; } }
+
+/* Phones: the empty chat looks like a mobile chat app home. A large plain logo in
+   the middle, a short line under it, suggestion chips above a rounded box
+   pinned to the bottom. Quick settings open from their chip. */
+.lai-chip-qs { display: none; }
+@media (max-width: 699px) {
+  .lai-chip-qs { display: inline-block; font-weight: 700; }
+  .lai.is-empty:not(.qs-open) .lai-browse-slot { display: none; }
+  .lai.is-empty.qs-open .lai-hero-slot { display: none; }
+  .lai.is-empty .lai-hero { gap: 12px; }
+  .lai.is-empty .lai-hero-mark { width: 72px; height: 72px; border-radius: 0; background: none; color: var(--text); }
+  .lai.is-empty .lai-hero-mark svg { width: 64px; height: 64px; }
+  .lai.is-empty .lai-hero h1 { font-size: 17px; font-weight: 500; color: var(--muted); }
+  .lai-bar { border-radius: 28px; }
+}

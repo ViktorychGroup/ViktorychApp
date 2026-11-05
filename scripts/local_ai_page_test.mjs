@@ -117,6 +117,11 @@ async function main() {
       check(danger.cards === 0 && /^#\/settings/.test(danger.href), "delete account is only a link");
       // Quick settings: a tap on a toggle makes the same confirm card.
       await page.click('.lai-head [data-lai="new"]');
+      // Phones keep the empty chat clean: quick settings open from their chip.
+      if (size.mobile) {
+        await page.waitForSelector(".lai.is-empty .lai-chip-qs", { timeout: 10000 });
+        await page.click(".lai-chip-qs");
+      }
       await page.waitForSelector('.lai.is-empty [data-lai="tab"]', { timeout: 10000 });
       await page.click('[data-lai="tab"][data-cat="media"]');
       await page.waitForSelector('[data-lai="quick"][data-id="autoplay"]', { timeout: 5000 });
