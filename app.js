@@ -1699,19 +1699,6 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!el) { el = document.createElement("style"); el.id = "owner-setting-locks"; document.head.appendChild(el); }
     if (el.textContent !== css) el.textContent = css;
   }
-  document.addEventListener("click", (event) => {
-    const el = event.target && event.target.closest ? event.target.closest("[data-act]") : null;
-    if (!el || !lockedKeyOf(el)) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    toast(tr("The site owner locked this setting."));
-  }, true);
-  window.addEventListener("viktorych-setting-locks", () => {
-    paintSettingLocks();
-    if (enforceSettingLocks()) { writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings)); if (typeof applyTheme === "function") applyTheme(); }
-    render({ y: window.scrollY });
-  });
-  setTimeout(paintSettingLocks, 0);
   function lockedSettingsNote() {
     const n = Object.keys(settingLocks()).length;
     return n ? `<p class="phandle set-block owner-locks-note">${esc(n === 1 ? tr("The site owner manages 1 of your settings.") : tr("The site owner manages {count} of your settings.", { count: String(n) }))}</p>` : "";
@@ -10963,6 +10950,24 @@ const here = parseRoute();
     if (pref.mode === "hidden") return "";
     return `<a class="logo${pref.mode === "text" ? " logo-custom" : ""}" href="#/" aria-label="${productName("app")}" data-tooltip="${productName("app")}">${brandLogoInner(pref)}</a>`;
   }
+
+  /* Wired outside the nav block so its tests can load that block without a page. */
+  function wireSettingLocks() {
+    document.addEventListener("click", (event) => {
+      const el = event.target && event.target.closest ? event.target.closest("[data-act]") : null;
+      if (!el || !lockedKeyOf(el)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      toast(tr("The site owner locked this setting."));
+    }, true);
+    window.addEventListener("viktorych-setting-locks", () => {
+      paintSettingLocks();
+      if (enforceSettingLocks()) { writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings)); if (typeof applyTheme === "function") applyTheme(); }
+      render({ y: window.scrollY });
+    });
+    setTimeout(paintSettingLocks, 0);
+  }
+  wireSettingLocks();
 
   function navChrome(route, extraClass, linksHtml) {
     const music = route.name === "music" && window.SIntelMusic;
