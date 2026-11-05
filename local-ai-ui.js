@@ -74,7 +74,36 @@
   }
 
   /* ---------- model choice ---------- */
+  var AUTO_KEY = "viktorych-ai-auto";
+  try { S.auto = localStorage.getItem(AUTO_KEY) === "1"; } catch (err) { S.auto = false; }
+  function autoEnabled() {
+    var h = host();
+    if (h && h.autoModelOn && !h.autoModelOn()) return false;
+    return !!S.auto;
+  }
+  function setAuto(on) {
+    S.auto = !!on;
+    S.autoHold = null;
+    try { localStorage.setItem(AUTO_KEY, S.auto ? "1" : "0"); } catch (err) { /* private mode */ }
+  }
+  function prepareAuto(msg, text, source) {
+    S.autoHold = null;
+    if (!autoEnabled() || source === "post") return Promise.resolve();
+    var manual = core().model(S.model);
+    var pick = core().pickAuto(text, { have: S.have, info: S.info || {}, allowUncensored: !!(manual && manual.uncensored) });
+    msg.auto = { id: pick.model.id, reason: pick.reason, kind: pick.kind };
+    function hold(m, reason) {
+      S.autoHold = m;
+      msg.auto.id = m.id;
+      if (reason) msg.auto.reason = reason;
+    }
+    if (pick.model.engine === "instant" || pick.model.engine === "nano") { hold(pick.model); return Promise.resolve(); }
+    if (!S.have[pick.model.id]) { hold(core().model("instant"), "fallback"); return Promise.resolve(); }
+    if (S.engine.state === "ready" && S.engine.id === pick.model.id) { hold(pick.model); return Promise.resolve(); }
+    return loadModel(pick.model).then(function () { hold(pick.model); }, function () { hold(core().model("instant"), "fallback"); });
+  }
   function currentModel() {
+    if (S.autoHold) return S.autoHold;
     var A = core();
     var saved = setupOn() ? setupSaved() : null;
     var id = S.model || (saved && saved.model) || "";
@@ -341,7 +370,9 @@
     var box = S.root && S.root.querySelector(".lai-input");
     if (box) { box.value = ""; grow(box); }
     var shownText = "";
-    answer(text, { calls: opts && opts.calls, onDelta: function (t) { shownText = t; msg.text = t; paintMsg(msg); } }).then(function (res) {
+    prepareAuto(msg, text, source).then(function () {
+      return answer(text, { calls: opts && opts.calls, source: source, onDelta: function (t) { shownText = t; msg.text = t; paintMsg(msg); } });
+    }).then(function (res) {
       var h = host();
       var values = h ? h.values() : {};
       // Block and mute come only from the words typed here, read by the
@@ -407,8 +438,10 @@
       } catch (err) { /* a note that cannot be saved is skipped */ }
       saveChats();
       paint();
+      S.autoHold = null;
       if (msg.toolSteps && msg.toolSteps.length) startToolSession(msg, text);
     }, function () {
+      S.autoHold = null;
       msg.streaming = false;
       msg.text = tr("Something went wrong. Try again.");
       S.busy = false;
@@ -510,7 +543,7 @@
     var loading = S.engine.state === "loading";
     return '<form class="lai-bar" data-lai="form"><div class="lai-edit"><textarea class="lai-input" rows="1" placeholder="' + esc(tr("Ask to change any setting…")) + '" aria-label="' + esc(tr("Message Local AI")) + '" enterkeyhint="send"></textarea></div>' +
       '<div class="lai-row"><div class="lai-row-l">' + (micReady() ? '<button type="button" class="lai-icon lai-mic' + (S.micBusy ? " on" : "") + '" data-lai="mic" aria-label="' + esc(tr("Speak")) + '">' + I.mic + "</button>" : "") + "</div>" +
-      '<div class="lai-row-r"><button type="button" class="lai-pill" data-lai="models" aria-haspopup="menu" aria-expanded="' + (S.menu ? "true" : "false") + '">' + (m.engine === "instant" ? I.bolt : I.chip) + "<span>" + esc(modelName(m)) + "</span>" + (loading ? '<i class="lai-pill-pct">' + Math.round(S.engine.progress * 100) + "%</i>" : "") + I.down + "</button>" +
+      '<div class="lai-row-r"><button type="button" class="lai-pill" data-lai="models" aria-haspopup="menu" aria-expanded="' + (S.menu ? "true" : "false") + '">' + (m.engine === "instant" ? I.bolt : I.chip) + "<span>" + esc(autoEnabled() ? tr("Auto") : modelName(m)) + "</span>" + (loading ? '<i class="lai-pill-pct">' + Math.round(S.engine.progress * 100) + "%</i>" : "") + I.down + "</button>" +
       '<button type="submit" class="lai-send" data-lai="send" aria-label="' + esc(S.busy ? tr("Stop") : tr("Send")) + '"' + (S.busy ? ' data-stop="1"' : "") + ">" + (S.busy ? I.stop : I.send) + "</button></div></div>" +
       (S.menu ? menuHtml() : "") + "</form>";
   }
@@ -529,7 +562,12 @@
     }).join("");
     var tier = S.info ? '<p class="lai-menu-foot">' + esc(S.info.webgpu ? tr("This device can run models on its graphics chip.") : tr("No WebGPU here, so models run on the processor.")) + (S.info.bench ? " " + esc(tr("Best for this device comes from a short speed test here and the speed of your chats.")) : "") + "</p>" : "";
     var again = setupOn() ? '<button type="button" role="menuitem" class="lai-menu-item lai-menu-again" data-lai="setup-again"><span class="lai-menu-name">' + esc(tr("Set up Local AI again")) + "</span></button>" : "";
-    return '<div class="lai-menu" role="menu">' + '<p class="lai-menu-head">' + esc(tr("Model")) + "</p>" + rows + tier + again + "</div>";
+    var autoRow = "";
+    var h = host();
+    if (!h || !h.autoModelOn || h.autoModelOn()) {
+      autoRow = '<button type="button" role="switch" aria-checked="' + (autoEnabled() ? "true" : "false") + '" class="lai-menu-item' + (autoEnabled() ? " on" : "") + '" data-lai="auto-model"><span class="lai-menu-name">' + esc(tr("Auto")) + '</span><span class="lai-menu-sub">' + esc(tr("Picks a downloaded model for each message. It does not download or use a paid service.")) + "</span></button>";
+    }
+    return '<div class="lai-menu" role="menu">' + '<p class="lai-menu-head">' + esc(tr("Model")) + "</p>" + autoRow + rows + tier + again + "</div>";
   }
   function heroHtml() {
     var note = toolsOn() ? '<p class="lai-tools-note">' + esc(tr("This page cannot install programs or open your other files. Tools run inside the page, in a private workspace.")) + "</p>" : "";
@@ -643,6 +681,21 @@
     var line = msg.upsell === "more" ? tr("A downloaded model can do the whole list in one go.") : tr("A downloaded model understands longer and freer wording.");
     return '<div class="lai-upsell"><span>' + esc(line) + '</span><button type="button" class="lai-link" data-lai="upsell">' + esc(tr("Pick a smarter model")) + "</button></div>";
   }
+  function autoReason(code) {
+    if (code === "short") return tr("The message is short, so Instant is enough.");
+    if (code === "settings") return tr("This looks like a setting change, so Instant is enough.");
+    if (code === "write") return tr("This looks like a longer piece of writing, and this model is already on the device.");
+    if (code === "code") return tr("This looks like code or a tool request, and this model is already on the device.");
+    if (code === "translate") return tr("This looks like translation, and this model is already on the device.");
+    if (code === "summarize") return tr("This looks like a summary, and this model is already on the device.");
+    return tr("No larger downloaded model fits, so Instant is the fallback.");
+  }
+  function autoNoteHtml(msg) {
+    if (!msg.auto) return "";
+    var picked = core().model(msg.auto.id);
+    var name = picked ? modelName(picked) : msg.auto.id;
+    return '<p class="lai-tool-meta">' + esc(tr("Auto used {name}.", { name: name })) + " " + esc(autoReason(msg.auto.reason)) + ' <button type="button" class="lai-link" data-lai="auto-off">' + esc(tr("Use my model")) + "</button></p>";
+  }
   function msgHtml(msg, mi) {
     var hit = S.hit && S.hit.chatId === S.chatId && S.hit.index === mi ? " lai-hit" : "";
     var pick = S.selecting ? '<label class="lai-pick"><input type="checkbox" data-lai="sel" data-m="' + mi + '"' + (S.picked[mi] ? " checked" : "") + ' aria-label="' + esc(tr("Select message")) + '"></label>' : "";
@@ -650,7 +703,7 @@
     if (msg.role === "user") return '<div class="lai-msg user' + hit + '" data-i="' + mi + '">' + pick + '<div class="lai-bubble">' + esc(msg.text) + "</div>" + del + "</div>";
     var body = msg.text ? esc(msg.text).replace(/\n/g, "<br>") : (msg.streaming ? '<span class="lai-dots"><i></i><i></i><i></i></span>' : "");
     var actions = msg.streaming ? "" : '<div class="lai-acts">' + pick + '<button type="button" class="lai-icon sm" data-lai="copy" data-m="' + mi + '" aria-label="' + esc(tr("Copy")) + '" title="' + esc(tr("Copy")) + '">' + I.copy + '</button><button type="button" class="lai-icon sm" data-lai="regen" data-m="' + mi + '" aria-label="' + esc(tr("Regenerate")) + '" title="' + esc(tr("Regenerate")) + '">' + I.redo + "</button>" + del + (msg.engine && msg.engine !== "instant" && msg.engine !== "tap" ? '<span class="lai-engine">' + esc(engineLabel(msg.engine)) + "</span>" : "") + "</div>";
-    return '<div class="lai-msg ai' + hit + (msg.streaming ? " streaming" : "") + '" data-i="' + mi + '"><div class="lai-text">' + body + "</div>" + (msg.streaming ? "" : cardHtml(msg, mi) + deviceCardHtml(msg) + opensHtml(msg) + upsellHtml(msg) + toolCardHtml(msg)) + actions + "</div>";
+    return '<div class="lai-msg ai' + hit + (msg.streaming ? " streaming" : "") + '" data-i="' + mi + '"><div class="lai-text">' + body + "</div>" + (msg.streaming ? "" : autoNoteHtml(msg) + cardHtml(msg, mi) + deviceCardHtml(msg) + opensHtml(msg) + upsellHtml(msg) + toolCardHtml(msg)) + actions + "</div>";
   }
   function engineLabel(e) {
     var m = core().model(String(e).replace(/^instant\+/, ""));
@@ -857,7 +910,10 @@
     if (act === "quick") { if (prefs().canChange) quick(el.getAttribute("data-id")); return; }
     if (act === "models") { S.menu = !S.menu; detectOnce(); paintBar(); return; }
     if (act === "upsell") { S.menu = true; detectOnce(); paintBar(); return; }
+    if (act === "auto-model") { setAuto(!S.auto); S.menu = true; paint(); return; }
+    if (act === "auto-off") { setAuto(false); paint(); return; }
     if (act === "pick") {
+      setAuto(false);
       var m = core().model(el.getAttribute("data-id"));
       S.menu = false;
       if (!m) return;

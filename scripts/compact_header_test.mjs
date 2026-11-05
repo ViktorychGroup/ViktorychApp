@@ -110,7 +110,13 @@ async function open(browser, origin, opts) {
   });
   const page = await context.newPage();
   const errors = [];
-  page.on("pageerror", (err) => { if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(String(err && err.message || err).slice(0, 200)); });
+  page.on("pageerror", (err) => {
+    const message = String(err && err.message || err);
+    // YouTube's embed player throws this inside its own script. It is not
+    // the header, and it must not fail this check.
+    if (/isExternalMethodAvailable/.test(message)) return;
+    if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(message.slice(0, 200));
+  });
   await page.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#app .topbar.tall .mhead .m-ava", { timeout: 20000 });
   await page.waitForFunction(() => document.querySelectorAll("#app article").length > 2, null, { timeout: 20000 });

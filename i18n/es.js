@@ -6318,5 +6318,17 @@ SI18n.addPack("es", {
   "Your drafts, sign-in and settings stay here.": "Tus borradores, tu sesión y tus ajustes se quedan aquí.",
   "Updated {date}": "Actualizado el {date}",
   "In this update": "En esta actualización",
-  "Fix": "Corrección"
+  "Fix": "Corrección",
+  "Picks a downloaded model for each message. It does not download or use a paid service.": "Elige un modelo ya descargado para cada mensaje. No descarga ni usa un servicio de pago.",
+  "The message is short, so Instant is enough.": "El mensaje es corto, así que Instant basta.",
+  "This looks like a setting change, so Instant is enough.": "Parece un cambio de ajuste, así que Instant basta.",
+  "This looks like a longer piece of writing, and this model is already on the device.": "Parece un texto más largo, y este modelo ya está en el dispositivo.",
+  "This looks like code or a tool request, and this model is already on the device.": "Parece código o una petición de herramienta, y este modelo ya está en el dispositivo.",
+  "This looks like translation, and this model is already on the device.": "Parece una traducción, y este modelo ya está en el dispositivo.",
+  "This looks like a summary, and this model is already on the device.": "Parece un resumen, y este modelo ya está en el dispositivo.",
+  "No larger downloaded model fits, so Instant is the fallback.": "Ningún modelo descargado más grande cabe, así que Instant es el recurso.",
+  "Auto used {name}.": "Auto usó {name}.",
+  "Use my model": "Usar mi modelo",
+  "Auto model": "Modelo automático",
+  "Viktrych can pick a model already on this device for each message. Off keeps the model you chose. It does not download or call a paid service.": "Viktrych puede elegir un modelo que ya está en este dispositivo para cada mensaje. Desactivado mantiene el modelo que elegiste. No descarga ni llama a un servicio de pago."
 });
