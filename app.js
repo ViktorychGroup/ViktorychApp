@@ -2025,7 +2025,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2123,7 +2123,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
-      update_notice: [tr("Visible updates"), tr("A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.")]
+      update_notice: [tr("Visible updates"), tr("A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.")],
+      status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -11429,7 +11430,7 @@ const here = parseRoute();
       <div class="mhead">
         <button class="m-ava" data-act="drawer" aria-label="${tr("Menu")}">${viewerFace()}</button>
         ${compact ? "" : mobileLogo()}
-        ${rightIcon}
+        ${statusIconsOn() ? `<div class="m-right">${statusIconsHtml()}${rightIcon}</div>` : rightIcon}
       </div>
       ${featureOn("stories") && window.Stories && window.Stories.homeTray ? window.Stories.homeTray() : ""}
       <div class="tabs-bar">
@@ -11442,6 +11443,7 @@ const here = parseRoute();
           ${pinnedCm.map((item) => tabBtn("ctab:" + item.id, item.name, tab === "ctab:" + item.id)).join("")}
         </div>
         <button class="tab-arrow right" type="button" data-act="tab-scroll" data-dir="1" aria-label="${tr("Scroll tabs right")}" hidden>${icon("chevR")}</button>
+        ${statusIconsOn() ? statusIconsHtml().replace('class="sticons"', 'class="sticons sticons-tab"') : ""}
         <button class="tab-manage" type="button" data-act="manage-tabs" aria-label="${tr("Manage tabs")}">${icon("sliders")}</button>
       </div>
       ${homeLivePillsRow()}
@@ -17849,6 +17851,129 @@ const here = parseRoute();
     const on = !!STATE.settings.pageZoom;
     return `<button class="tab-switch${on ? " on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}" data-act="page-zoom"><span>${esc(tr("Allow page zoom"))}</span><i></i></button><p class="phandle">${esc(tr("Let two fingers zoom the whole page on phones. Photos can always be zoomed in the viewer."))}</p>`;
   }
+  /* Header status icons (owner switch status_icons; each icon off until the
+     person picks it in Display settings). Phones and tablets only: on a phone
+     they sit in one row with the Local AI button at the top right of Home, on
+     a tablet just before the tab settings button. Meant for full screen, where
+     the phone's own status bar is hidden. A web app cannot read the system
+     volume or other apps' notifications, so only these are offered: the clock,
+     battery (Battery Status API, Chrome on Android; hidden where missing, such
+     as iOS), network (online or offline, and the connection type where
+     navigator.connection exists) and this app's unread notifications. */
+  const STATUS_ICON_KEYS = ["clock", "battery", "network", "unread"];
+  const STATUS_ICONS = { battery: null, bound: false, timer: 0 };
+  // The anti-fingerprint privacy switch swaps navigator.getBattery for a fake
+  // full battery so outside scripts learn nothing; our own icon reads the real one.
+  function realGetBattery() { return typeof navigator === "undefined" ? null : (navigator._origGetBattery || navigator.getBattery || null); }
+  function batterySupported() { return typeof realGetBattery() === "function"; }
+  function statusIconPicks() {
+    if (serverOffList().includes("status_icons")) return [];
+    const picks = (STATE.settings && STATE.settings.statusIcons) || {};
+    return STATUS_ICON_KEYS.filter((key) => picks[key] && (key !== "battery" || batterySupported()));
+  }
+  function statusIconsOn() { return statusIconPicks().length > 0; }
+  const ST_SVG = (body) => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+  function statusClockText() {
+    try { return new Intl.DateTimeFormat(document.documentElement.lang || undefined, { hour: "numeric", minute: "2-digit" }).format(new Date()); } catch (err) { const d = new Date(); return d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); }
+  }
+  function statusIconsHtml() {
+    const picks = statusIconPicks();
+    if (!picks.length) return "";
+    startStatusIcons();
+    let out = "";
+    for (const key of picks) {
+      if (key === "clock") out += `<span class="sticon st-clock" data-st="clock">${esc(statusClockText())}</span>`;
+      if (key === "battery") {
+        const b = STATUS_ICONS.battery;
+        if (!b) continue;
+        const level = Math.max(0, Math.min(1, Number(b.level) || 0));
+        const pct = Math.round(level * 100);
+        const fill = (12.5 * level).toFixed(2);
+        const bolt = b.charging ? `<path d="M11.6 8.6l-2 3.6h2.8l-2 3.2" stroke-width="1.5"/>` : `<rect x="4.75" y="9.75" width="${fill}" height="4.5" rx="0.75" fill="currentColor" stroke="none"/>`;
+        const label = b.charging ? tr("Battery {n}%, charging", { n: pct }) : tr("Battery {n}%", { n: pct });
+        out += `<span class="sticon st-battery${pct <= 15 && !b.charging ? " is-low" : ""}" data-st="battery" role="img" aria-label="${esc(label)}">${ST_SVG(`<rect x="3" y="8" width="16" height="8" rx="2"/><path d="M21 10.75v2.5"/>${bolt}`)}<b>${pct}</b></span>`;
+      }
+      if (key === "network") {
+        const online = navigator.onLine !== false;
+        const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        const type = conn && conn.type ? String(conn.type) : "";
+        const eff = conn && conn.effectiveType ? String(conn.effectiveType).toUpperCase() : "";
+        let svg;
+        let label;
+        let tag = "";
+        if (!online) {
+          svg = ST_SVG(`<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.2a9.5 9.5 0 0 1 13 0M8.6 15.4a5 5 0 0 1 6.8 0"/><path d="M3 3l18 18"/>`);
+          label = tr("Offline");
+        } else if (type === "cellular") {
+          svg = ST_SVG(`<path d="M5 19v-3M9.67 19v-6M14.33 19v-9M19 19V6"/>`);
+          label = eff ? tr("Mobile data, {type}", { type: eff }) : tr("Mobile data");
+          tag = eff ? `<b>${esc(eff.replace("SLOW-", ""))}</b>` : "";
+        } else if (type === "ethernet") {
+          svg = ST_SVG(`<rect x="7" y="4" width="10" height="8" rx="1.5"/><path d="M12 12v8M8 20h8"/>`);
+          label = tr("Wired network");
+        } else {
+          svg = ST_SVG(`<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.2a9.5 9.5 0 0 1 13 0M8.6 15.4a5 5 0 0 1 6.8 0"/><circle cx="12" cy="18.6" r="0.9" fill="currentColor" stroke="none"/>`);
+          label = type === "wifi" ? tr("Wi-Fi") : tr("Online");
+        }
+        out += `<span class="sticon st-net${online ? "" : " is-off"}" data-st="network" role="img" aria-label="${esc(label)}">${svg}${tag}</span>`;
+      }
+      if (key === "unread") {
+        const count = bellUnread();
+        if (count > 0) out += `<a class="sticon st-unread" data-st="unread" href="#/notifications" aria-label="${esc(tr("{n} unread notifications", { n: count }))}">${ST_SVG(`<path d="M6 10a6 6 0 0 1 12 0c0 4.5 1.8 6 1.8 6H4.2S6 14.5 6 10z"/><path d="M10 19a2.2 2.2 0 0 0 4 0"/>`)}<b>${count > 99 ? "99+" : count}</b></a>`;
+      }
+    }
+    return `<span class="sticons" data-status-icons="1">${out}</span>`;
+  }
+  function paintStatusIcons() {
+    const html = statusIconsHtml();
+    document.querySelectorAll(".sticons[data-status-icons]").forEach((el) => {
+      if (!html) { el.remove(); return; }
+      const tmp = document.createElement("span");
+      tmp.innerHTML = html;
+      const next = tmp.firstElementChild;
+      if (next && el.innerHTML !== next.innerHTML) el.innerHTML = next.innerHTML;
+    });
+  }
+  function startStatusIcons() {
+    if (STATUS_ICONS.bound) return;
+    STATUS_ICONS.bound = true;
+    const tick = () => {
+      paintStatusIcons();
+      const now = new Date();
+      STATUS_ICONS.timer = setTimeout(tick, (60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 50);
+    };
+    STATUS_ICONS.timer = setTimeout(tick, (60 - new Date().getSeconds()) * 1000);
+    window.addEventListener("online", paintStatusIcons);
+    window.addEventListener("offline", paintStatusIcons);
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (conn && conn.addEventListener) conn.addEventListener("change", paintStatusIcons);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) paintStatusIcons(); });
+    if (batterySupported()) {
+      try {
+        realGetBattery().call(navigator).then((battery) => {
+          STATUS_ICONS.battery = battery;
+          ["levelchange", "chargingchange"].forEach((type) => battery.addEventListener(type, paintStatusIcons));
+          paintStatusIcons();
+        }).catch(() => {});
+      } catch (err) { /* no battery on this device */ }
+    }
+  }
+  function statusIconSwitches() {
+    if (serverOffList().includes("status_icons")) return "";
+    const picks = (STATE.settings && STATE.settings.statusIcons) || {};
+    const rows = [
+      ["clock", tr("Clock"), tr("The time, in your language's format.")],
+      ["battery", tr("Battery"), tr("Battery level, and a bolt while charging.")],
+      ["network", tr("Network"), tr("Online or offline, and Wi-Fi or mobile data where the browser tells.")],
+      ["unread", tr("Unread notifications"), tr("This app's unread notifications, shown only when there are some.")]
+    ].filter((row) => row[0] !== "battery" || batterySupported());
+    let out = `<h3 class="set-sub">${esc(tr("Status icons"))}</h3><p class="phandle">${esc(tr("Small icons at the top right of Home on phones and tablets, handy in full screen where the phone's status bar is hidden. Web apps cannot show the system volume or other apps' notifications."))}</p>`;
+    for (const [key, label, desc] of rows) {
+      const on = !!picks[key];
+      out += `<button class="tab-switch${on ? " on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}" data-act="status-icon" data-key="${key}"><span>${esc(label)}</span><i></i></button><p class="phandle">${esc(desc)}</p>`;
+    }
+    return out;
+  }
   function headerSwitches() {
     let out = "";
     if (!serverOffList().includes("compact_header")) {
@@ -18280,6 +18405,7 @@ const here = parseRoute();
         <p class="phandle set-block">${esc(tr("A light tap when you press and hold a tab or pick from a shortcut menu."))}</p>
         ${fullScreenSwitch()}
         ${headerSwitches()}
+        ${statusIconSwitches()}
         ${pageZoomSwitch()}
         ${repairRow()}
         <h2>${esc(tr("Home"))}</h2>
@@ -23772,6 +23898,18 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       saveSettings();
       applyZoomLock();
       render();
+      return;
+    }
+    if (act === "status-icon") {
+      const key = el.dataset.key;
+      if (STATUS_ICON_KEYS.includes(key)) {
+        const now = Object.assign({}, STATE.settings.statusIcons || {});
+        if (now[key]) delete now[key];
+        else now[key] = true;
+        STATE.settings.statusIcons = now;
+        saveSettings();
+        render();
+      }
       return;
     }
     if (act === "classic-header") {
@@ -29402,6 +29540,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
 
   function paintBellBadge() {
     const count = bellUnread();
+    if (STATUS_ICONS.bound) paintStatusIcons();
     updateBadge(count);
     document.title = withUnreadTitle(document.title);
     document.querySelectorAll(".nav-badge").forEach((el) => el.remove());

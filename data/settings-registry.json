@@ -246,6 +246,19 @@
    "sync": "device"
   },
   {
+   "id": "statusIcons",
+   "label": "Status icons",
+   "desc": "Which small icons (clock, battery, network, unread notifications) show at the top right of Home on phones and tablets.",
+   "type": "object",
+   "store": "state",
+   "key": "statusIcons",
+   "page": "#/settings/display",
+   "cat": "look",
+   "risk": "safe",
+   "sync": "device",
+   "ai": false
+  },
+  {
    "id": "brandLogo",
    "label": "Sidebar logo",
    "desc": "Logo in the desktop sidebar: default mark, your own text, or hidden.",

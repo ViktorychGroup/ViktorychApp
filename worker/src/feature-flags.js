@@ -72,7 +72,10 @@ export const FEATURES = {
   update_notice: { paths: [] },
   // For You off switch in Settings > Home: Following becomes Home and the
   // ranking code is not loaded. No server endpoints. On by default.
-  foryou_off: { paths: [] }
+  foryou_off: { paths: [] },
+  // Header status icons (clock, battery, network, unread) on phones and
+  // tablets, each picked in Display settings. No server endpoints.
+  status_icons: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 
