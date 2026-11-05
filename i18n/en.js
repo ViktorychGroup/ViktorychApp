@@ -6127,5 +6127,7 @@ SI18n.addPack("en", {
   "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.",
   "Side panel": "Side panel",
   "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.",
-  "Which side panel sections are folded.": "Which side panel sections are folded."
+  "Which side panel sections are folded.": "Which side panel sections are folded.",
+  "Viktrych blocks and mutes": "Viktrych blocks and mutes",
+  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo."
 });

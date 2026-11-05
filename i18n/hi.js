@@ -6117,5 +6117,7 @@ SI18n.addPack("hi", {
   "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "कंप्यूटर पर डिस्प्ले की एक सेटिंग साइड पैनल को बाईं ओर ले जाती है; उसकी चौड़ाई खींचकर बदली जा सकती है और सेक्शन समेटे जा सकते हैं।",
   "Side panel": "साइड पैनल",
   "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "कंप्यूटर पर साइड पैनल (खोज, दोस्त, किसे फ़ॉलो करें) को दाईं ओर के बजाय आइकन बार के पास बाईं ओर रखता है।",
-  "Which side panel sections are folded.": "साइड पैनल के कौन से हिस्से मुड़े हुए हैं।"
+  "Which side panel sections are folded.": "साइड पैनल के कौन से हिस्से मुड़े हुए हैं।",
+  "Viktrych blocks and mutes": "Viktrych से ब्लॉक और म्यूट",
+  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych आपके अपने शब्दों में बताए गए @अकाउंट को आपकी पुष्टि के बाद ब्लॉक, म्यूट, अनब्लॉक या अनम्यूट कर सकता है, पूर्ववत करने के विकल्प के साथ।"
 });

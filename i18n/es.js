@@ -6130,5 +6130,7 @@ SI18n.addPack("es", {
   "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "En ordenadores, un ajuste de Pantalla mueve el panel lateral a la izquierda; su ancho se puede arrastrar y sus secciones plegar.",
   "Side panel": "Panel lateral",
   "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "En ordenadores, coloca el panel lateral (búsqueda, Amigos, A quién seguir) a la izquierda junto a la barra de iconos en lugar de a la derecha.",
-  "Which side panel sections are folded.": "Qué secciones del panel lateral están plegadas."
+  "Which side panel sections are folded.": "Qué secciones del panel lateral están plegadas.",
+  "Viktrych blocks and mutes": "Bloqueos y silencios de Viktrych",
+  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych puede bloquear, silenciar, desbloquear o dejar de silenciar una @cuenta que nombres con tus palabras, tras tu confirmación y con Deshacer."
 });

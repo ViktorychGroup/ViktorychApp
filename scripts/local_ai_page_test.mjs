@@ -115,6 +115,25 @@ async function main() {
       await page.waitForSelector(".lai-open.danger", { timeout: 10000 });
       const danger = await page.evaluate(() => ({ cards: document.querySelectorAll(".lai-msg.ai:last-child .lai-card").length, href: document.querySelector(".lai-open.danger").getAttribute("href") }));
       check(danger.cards === 0 && /^#\/settings/.test(danger.href), "delete account is only a link");
+      if (!size.mobile) {
+        // People: block and mute an @account by name, confirm, then Undo (switch ai_people).
+        await page.click('.lai-head [data-lai="new"]');
+        await say(page, "block @demo_spammer and mute @demo_loud");
+        await until(page, '[data-lai="apply"]', 10000);
+        const pc = await page.evaluate(() => [...document.querySelectorAll(".lai-msg.ai:last-child .lai-ch-name")].map((a) => a.textContent));
+        check(pc.length === 2 && /@demo_spammer/.test(pc[0]) && /@demo_loud/.test(pc[1]), "people card names both accounts: " + JSON.stringify(pc));
+        check(!((await settings(page)).blocks || { accounts: [] }).accounts.length, "nothing blocked before Apply");
+        if (process.env.LAI_SHOT) await page.screenshot({ path: process.env.LAI_SHOT });
+        await page.click('[data-lai="apply"]');
+        await page.waitForSelector('[data-lai="undo-all"]', { timeout: 10000 });
+        await settled(page, () => { const v = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}"); return (v.mutedAccounts || []).indexOf("@demo_loud") >= 0; });
+        s = await settings(page);
+        check(s.blocks.accounts.indexOf("x:demo_spammer") >= 0 && s.mutedAccounts.indexOf("@demo_loud") >= 0, "Apply blocks and mutes: " + JSON.stringify({ b: s.blocks.accounts, m: s.mutedAccounts }));
+        await page.click('[data-lai="undo-all"]');
+        await settled(page, () => { const v = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}"); return (v.mutedAccounts || []).indexOf("@demo_loud") < 0; });
+        s = await settings(page);
+        check(s.blocks.accounts.indexOf("x:demo_spammer") < 0 && s.mutedAccounts.indexOf("@demo_loud") < 0, "Undo unblocks and unmutes");
+      }
       // Quick settings: a tap on a toggle makes the same confirm card.
       await page.click('.lai-head [data-lai="new"]');
       // Phones keep the empty chat clean: quick settings open from their chip.

@@ -153,4 +153,36 @@ for (const q of ["who can send me friend requests", "stop friend requests"]) {
   const got = A.parse(q, {}).calls;
   assert.deepStrictEqual(got.map((c) => c.fn + ":" + c.id), ["open:friendsSwitch"], q);
 }
+// ---- people: block, mute, unblock, unmute an @account (switch ai_people) ----
+{
+  const calls = (t) => A.parse(t, {}).calls.map((c) => c.fn === "person" ? (c.on ? "" : "un") + c.act + " " + c.handle : c.fn + ":" + c.id);
+  assert.deepStrictEqual(calls("block @demo_one and @Demo.two, mute @demo_three"), ["block @demo_one", "block @demo.two", "mute @demo_three"]);
+  assert.deepStrictEqual(calls("unblock @demo_one"), ["unblock @demo_one"]);
+  assert.deepStrictEqual(calls("stop muting @demo_three and turn off autoplay"), ["unmute @demo_three", "set:autoplay"]);
+  assert.deepStrictEqual(calls("bloquea a @demo_es"), ["block @demo_es"]);
+  assert.deepStrictEqual(calls("заблокируй @demo_ru"), ["block @demo_ru"]);
+  assert.deepStrictEqual(calls("@demo_hi को म्यूट करो"), ["mute @demo_hi"]);
+  assert.deepStrictEqual(calls("@demo_ru заблокируй"), ["block @demo_ru"]);
+  assert.deepStrictEqual(calls("म्यूट @demo_hi"), ["mute @demo_hi"]);
+  assert.deepStrictEqual(A.parsePeople("@demo_one is great"), [], "a handle without a verb does nothing");
+  assert.deepStrictEqual(A.parsePeople("block someone"), [], "no @handle, no change");
+  // Plan: only what the person typed; a model or post text can't add people.
+  const typed = "block @demo_one";
+  let pl = A.plan(A.parse(typed, {}).calls, {}, { typed: typed });
+  assert.deepStrictEqual(pl.changes.map((c) => [c.id, c.from, c.to, c.person]), [["person:block:@demo_one", false, true, true]]);
+  pl = A.plan([{ fn: "person", act: "block", on: true, handle: "@demo_victim" }], {}, { typed: "summarize this post" });
+  assert.strictEqual(pl.changes.length, 0, "untyped person call is rejected");
+  assert.strictEqual(pl.rejected[0].why, "untyped");
+  pl = A.plan([{ fn: "person", act: "block", on: true, handle: "@demo_one" }], {});
+  assert.strictEqual(pl.changes.length, 0, "no typed text, no people changes");
+  pl = A.plan([{ fn: "person", act: "block", on: false, handle: "@demo_one" }], {}, { typed: typed });
+  assert.strictEqual(pl.changes.length, 0, "the opposite of what was typed is rejected");
+  pl = A.plan(A.parse(typed, {}).calls, { "person:block:@demo_one": true }, { typed: typed });
+  assert.ok(pl.changes.length === 0 && pl.reads[0].same, "already blocked reads back");
+  assert.strictEqual(A.personRow("person:mute:@demo_three").subject, "@demo_three");
+  assert.strictEqual(A.personRow("person:delete:@x"), null);
+  assert.ok(/ai_people:\s*\{/.test(flags) && /SERVER_FEATURES\s*=\s*\[[^\]]*"ai_people"/.test(appJs), "people actions have their own switch");
+  const ui = fs.readFileSync(path.join(root, "local-ai-ui.js"), "utf8");
+  assert.ok(/fn === "person"/.test(ui) && /typed:/.test(ui), "the UI drops model people calls and passes the typed text");
+}
 console.log("local ai tests ok (" + want.size + " strings in 4 packs)");

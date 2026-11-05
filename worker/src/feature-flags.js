@@ -76,10 +76,16 @@ export const FEATURES = {
   // Header status icons (clock, battery, network, unread) on phones and
   // tablets, each picked in Display settings. No server endpoints.
   status_icons: { paths: [] },
+<<<<<<< HEAD
   // Desktop side panel: optional left placement, drag-to-resize width and
   // folding sections. No server endpoints. On by default (the panel itself
   // stays on the right until the person moves it).
   side_panel: { paths: [] }
+=======
+  // Viktrych (Local AI) blocks, mutes, unblocks or unmutes an @account the
+  // person typed, with a confirm card and Undo. Per device. No endpoints.
+  ai_people: { paths: [] }
+>>>>>>> 53518203 (Viktrych: block, mute, unblock or unmute an @account by name, typed text only (switch ai_people))
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

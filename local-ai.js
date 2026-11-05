@@ -221,15 +221,19 @@
   /* "block @a and @b, mute @c" -> [{fn:"person", act:"block", on:true, handle:"@a"}, ...] */
   function parsePeople(text) {
     var toks = peopleToks(text);
-    var out = [], seen = {}, act = "", on = true, lastAt = -9;
+    var out = [], seen = {}, act = "", on = true, lastAt = -9, pending = [], pendAt = -9;
+    function put(handle) {
+      var key = act + ":" + handle;
+      if (seen[key] != null) out[seen[key]].on = on;
+      else { seen[key] = out.length; out.push({ fn: "person", act: act, on: on, handle: handle }); }
+    }
     toks.forEach(function (tok, i) {
       var h = HANDLE_RE.exec(tok);
       if (h) {
-        if (!act) return;
         var handle = "@" + h[1].replace(/[.-]+$/, "");
-        var key = act + ":" + handle;
-        if (seen[key] != null) out[seen[key]].on = on;
-        else { seen[key] = out.length; out.push({ fn: "person", act: act, on: on, handle: handle }); }
+        // Verb last, as in Hindi "@name को म्यूट करो": keep it for a verb that follows.
+        if (!act) { pending.push(handle); pendAt = i; return; }
+        put(handle);
         lastAt = i;
         return;
       }
@@ -244,6 +248,8 @@
       on = verb.indexOf("un") !== 0;
       if (stop) on = !on;
       lastAt = i;
+      if (pending.length && i - pendAt <= 3) pending.forEach(put);
+      pending = [];
     });
     return out;
   }
