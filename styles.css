@@ -8030,3 +8030,13 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
 .nsnd-play { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 13px; line-height: 1; cursor: pointer; }
 .nsnd-remove { height: 36px; padding: 0 12px; font-size: 13px; }
 .nsnd-volume { width: 100%; accent-color: var(--blue, #1d9bf0); margin: 6px 0 4px; }
+
+/* Phones: the header row is one fixed size. The inset above it is the status
+   bar only (capped so a wrong env() can't leave a fat empty band), and it
+   never grows while scrolling. */
+@media (max-width: 499px) {
+  .topbar { padding-top: min(var(--sat, env(safe-area-inset-top, 0px)), 48px); }
+  .topbar::before { height: min(var(--sat, env(safe-area-inset-top, 0px)), 48px); }
+  .topbar .mhead { height: 53px; min-height: 53px; max-height: 53px; flex: none; box-sizing: border-box; }
+  .center { padding-top: calc(var(--top) + min(var(--sat, env(safe-area-inset-top, 0px)), 48px)); }
+}
