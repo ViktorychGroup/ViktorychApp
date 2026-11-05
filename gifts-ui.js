@@ -193,7 +193,10 @@
   }
 
   function coin() {
-    return '<svg class="vk-coin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.5" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.2"/><path fill="#fff" d="M7.6 7h2.3l2.1 6.6L14.1 7h2.3l-3.3 10h-2.2z"/></svg>';
+    /* Same coin as the app icon set: black inside, white lines, thin rim for dark themes. */
+    var I = window.ViktorychIcons;
+    if (I && I.has && I.has("coin")) return I.svg("coin");
+    return '<svg class="vk-coin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.6" fill="#000" stroke="rgba(255,255,255,.45)" stroke-width="1"/><circle cx="12" cy="12" r="7.8" fill="none" stroke="#fff" stroke-width="1" opacity=".6"/><path d="M8.7 8.3 12 15.9l3.3-7.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   }
 
   function vks(n) {
