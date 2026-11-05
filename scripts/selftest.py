@@ -102,11 +102,13 @@ def telegram_checks() -> None:
 def accounts_wall_checks() -> None:
     import accounts_publish
 
-    workflow = (ROOT / ".github" / "workflows" / "sync.yml").read_text(encoding="utf-8")
+    sync_workflow = (ROOT / ".github" / "workflows" / "sync.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "publish-app.yml").read_text(encoding="utf-8")
+    combined_workflow = sync_workflow + workflow
     discord = (ROOT / "scripts" / "discord_publish.py").read_text(encoding="utf-8")
     check("\n  wait-accounts:\n" in workflow, "Pages waits for the Accounts worker before it builds")
     check(
-        "needs: [gate, wait-accounts]" in workflow and "needs: [gate, build, wait-accounts]" in workflow,
+        "needs: wait-accounts" in workflow and "needs: [build, wait-accounts]" in workflow,
         "the build and the Pages deploy both wait for Accounts",
     )
     check(
@@ -114,31 +116,38 @@ def accounts_wall_checks() -> None:
         "a failed Accounts deploy stops Pages",
     )
     check(
+        "workflow_call:" in workflow and "workflow_dispatch:" in workflow
+        and "uses: ./.github/workflows/publish-app.yml" in sync_workflow
+        and "secrets: inherit" in sync_workflow and "PROBLEM_TITLE: App publish problem" in workflow,
+        "app pushes publish directly and scheduled syncs reuse the same publisher",
+    )
+    check(
         workflow.index("\n  wait-accounts:\n") < workflow.index("python3 scripts/accounts_publish.py"),
         "the Accounts wait is ordered before the login wall publish",
     )
     check(
         "--preserve-remote" in workflow
-        and "\n  refresh:\n" in workflow
-        and "timeout-minutes: 15" in workflow
-        and "timeout-minutes: 55" not in workflow
-        and "FEED_DEADLINE_SECONDS" in workflow
-        and "TIKTOK_BUDGET" in workflow
-        and "cancel-in-progress: true" in workflow,
+        and "uses: ./.github/workflows/publish-app.yml" in sync_workflow
+        and "\n  refresh:\n" in sync_workflow
+        and "timeout-minutes: 15" in sync_workflow
+        and "timeout-minutes: 55" not in sync_workflow
+        and "FEED_DEADLINE_SECONDS" in sync_workflow
+        and "TIKTOK_BUDGET" in sync_workflow
+        and "cancel-in-progress: true" in sync_workflow,
         "Pages deploy does not wait on the feed refresh",
     )
     check(
-        "PYTHONUNBUFFERED" in workflow
-        and "timeout --kill-after=20s 400 python3 scripts/update_feeds.py" in workflow
-        and "timeout --kill-after=20s 190 python3 scripts/tiktok_sync.py" in workflow
-        and "timeout --kill-after=20s 90 python3 scripts/r2_catalog.py push" in workflow,
+        "PYTHONUNBUFFERED" in sync_workflow
+        and "timeout --kill-after=20s 400 python3 scripts/update_feeds.py" in sync_workflow
+        and "timeout --kill-after=20s 190 python3 scripts/tiktok_sync.py" in sync_workflow
+        and "timeout --kill-after=20s 90 python3 scripts/r2_catalog.py push" in sync_workflow,
         "the refresh step leaves time to push the catalog",
     )
     replies_src = (ROOT / "scripts" / "replies.py").read_text(encoding="utf-8")
     check("over_deadline()" in replies_src and "refresh budget spent" in replies_src, "reply refresh stops when the feed budget is spent")
-    check("paths-ignore:" in workflow and "data/communities/**" in workflow, "data-only commits do not start a deploy")
+    check("paths-ignore:" in workflow and "data/communities/**" in workflow and "push:" not in sync_workflow, "app pushes publish directly and data-only commits do not start a deploy")
     check("python3 scripts/assemble_site.py --site _site" in workflow and "shared/lazy-modules.js" in deployed_paths(), "the deploy publishes the lazy route loader")
-    check(workflow.count("python3 scripts/catalog_migrate.py --catalog-only") >= 2 and workflow.index("python3 scripts/catalog_migrate.py --catalog-only") < workflow.index("python3 scripts/accounts_publish.py") and workflow.index("python3 scripts/catalog_migrate.py --catalog-only") < workflow.rindex("python3 scripts/r2_catalog.py pull"), "the live catalog is copied into R2 before the shell switch and before refresh")
+    check(combined_workflow.count("python3 scripts/catalog_migrate.py --catalog-only") >= 2 and workflow.index("python3 scripts/catalog_migrate.py --catalog-only") < workflow.index("python3 scripts/accounts_publish.py") and combined_workflow.index("python3 scripts/catalog_migrate.py --catalog-only") < combined_workflow.rindex("python3 scripts/r2_catalog.py pull"), "the live catalog is copied into R2 before the shell switch and before refresh")
     migrate_wf = (ROOT / ".github" / "workflows" / "catalog-migrate.yml").read_text(encoding="utf-8")
     check(
         "pull_request:" in migrate_wf
@@ -1761,6 +1770,8 @@ def main() -> None:
     same_body = sync_health.body_for(stale, "https://example.test/1")
     check(sync_health.plan([], [])["action"] == "none", "a healthy sync with no issue does nothing")
     check(sync_health.plan([], [{"number": 7, "title": "Sync problem", "body": same_body}])["action"] == "close", "a healthy sync closes the open problem")
+    check(sync_health.plan([], [{"number": 8, "title": "App publish problem"}], title="Sync problem")["action"] == "none", "a healthy feed sync does not close an app publishing problem")
+    check(sync_health.plan(["The Pages deploy failed."], [], title="App publish problem")["action"] == "open", "an app publishing failure opens its own problem")
     check(sync_health.plan(stale, [])["action"] == "open", "the first problem opens one issue")
     check(sync_health.plan(stale, [{"number": 7, "title": "Sync problem", "body": same_body}])["action"] == "none", "the same problem does not edit the issue")
     check(sync_health.plan(stale, [{"number": 7, "title": "Sync problem", "body": "The sync is not healthy.\n\n- something else\n"}])["action"] == "edit", "a changed problem edits the same issue")
@@ -1781,10 +1792,11 @@ def main() -> None:
     check(discord_alert.attention({"feeds": [{"id": "discord", "ok": "2026-10-21T00:00:00Z", "detail": "Discord rejected the bot token. Discord sync stopped for this run and will not retry."}]})[0] == "unknown", "a rejected bot token is not the user account issue")
     check("issues: write" in (ROOT / ".github" / "workflows" / "discord-live.yml").read_text(encoding="utf-8"), "the live workflow can update the account issue")
     workflow_text = (ROOT / ".github" / "workflows" / "sync.yml").read_text(encoding="utf-8")
-    check("name: sync-report" in workflow_text and "TITLE = \"Sync problem\"" in (ROOT / "scripts" / "sync_health.py").read_text(encoding="utf-8") and "needs: [gate, build, deploy, wait-accounts, refresh]" in workflow_text, "the sync uploads a report and keeps one problem issue")
+    publish_text = (ROOT / ".github" / "workflows" / "publish-app.yml").read_text(encoding="utf-8")
+    check("name: sync-report" in workflow_text and "TITLE = \"Sync problem\"" in (ROOT / "scripts" / "sync_health.py").read_text(encoding="utf-8") and "needs: [gate, refresh]" in workflow_text, "the sync uploads a report and keeps one problem issue")
     check("function autoplayAllowed(" in app and "prefers-reduced-motion" in app and "prefers-reduced-data" in app and "saveData" in app and "is not Never" in app and 'threshold: [0, 0.5, 1]' in app and 'rootMargin: "0px"' in app and "playsinline" in app and "autoplay=1&mute=1&playsinline=1&controls=0" in app and 'preload = "none"' in app and "STATE.sound" in app and "strict-origin-when-cross-origin" in app and "function scheduleIdleReload(" in app and 'box.id = "autoplay-debug"' in app and "function xRefresh(" in app and "onReady" in app and "reload-armed" in app, "one in-view video previews muted, a miss is explained, and an update reloads when idle")
     check("function fetchShellFile(" in worker and 'cache: "no-store"' in worker and "skipWaiting" in worker and "clients.claim" in worker and "function isShell(" in worker and "apply-update" in worker and "skip-waiting" in worker and "update-progress" in worker and "version.json" in worker and "includeUncontrolled" in worker and "precacheShell" in worker and "precacheDelay" in worker and "serve-network-once" in worker and "__SW_BUILT__" in worker and "translate.js" in worker and "translate.css" in worker and "ACCOUNTS_WALL = false" in worker, "a new service worker waits, retries a failed shell file, then claims clients")
-    check("ViktorychUpdate" in app and "holdsReload" in app and 'src="update.js"' in (ROOT / "index.html").read_text(encoding="utf-8") and "python3 scripts/write_version.py --out version-next/version.json" in workflow_text and "python3 scripts/write_version.py --previous --out _site/version.json" in workflow_text and "artifact_name: app-shell-version" in workflow_text and "needs: [gate, verify-live, pages-mirror]" in workflow_text and "update.js" in deployed_paths(), "the page offers a full-screen update and the deploy publishes the version manifest after the assets")
+    check("ViktorychUpdate" in app and "holdsReload" in app and 'src="update.js"' in (ROOT / "index.html").read_text(encoding="utf-8") and "python3 scripts/write_version.py --out version-next/version.json" in publish_text and "python3 scripts/write_version.py --previous --out _site/version.json" in publish_text and "artifact_name: app-shell-version" in publish_text and "needs: [verify-live, pages-mirror]" in publish_text and "update.js" in deployed_paths(), "the page offers a full-screen update and the deploy publishes the version manifest after the assets")
     update_js = (ROOT / "update.js").read_text(encoding="utf-8")
     check("expectingController" in update_js and "shouldOfferReset" in update_js and "safeFailure" in update_js and "serve-network-once" in update_js, "retry starts a new update and can reload the current version from the network")
     import write_version
@@ -5099,7 +5111,7 @@ def feed_order_checks() -> None:
     custom = subprocess.run(["node", str(ROOT / "scripts" / "custom_tab_test.mjs")], check=False)
     check(custom.returncode == 0, "custom tab freshness fixtures")
     app = (ROOT / "app.js").read_text(encoding="utf-8")
-    check("shared/feed-order.js" in (ROOT / "index.html").read_text(encoding="utf-8") and "./shared/feed-order.js" in (ROOT / "sw.js").read_text(encoding="utf-8") and "shared/feed-order.js" in deployed_paths() and "python3 scripts/assemble_site.py --site _site" in (ROOT / ".github" / "workflows" / "sync.yml").read_text(encoding="utf-8"), "the feed order helper is published with the shell")
+    check("shared/feed-order.js" in (ROOT / "index.html").read_text(encoding="utf-8") and "./shared/feed-order.js" in (ROOT / "sw.js").read_text(encoding="utf-8") and "shared/feed-order.js" in deployed_paths() and "python3 scripts/assemble_site.py --site _site" in (ROOT / ".github" / "workflows" / "publish-app.yml").read_text(encoding="utf-8"), "the feed order helper is published with the shell")
     check("shared/for-you.js" in (ROOT / "index.html").read_text(encoding="utf-8") and "./shared/for-you.js" in (ROOT / "sw.js").read_text(encoding="utf-8") and "./shared/for-you-weights.js" in (ROOT / "sw.js").read_text(encoding="utf-8"), "the For You ranker is published with the shell")
     order_js = (ROOT / "shared" / "feed-order.js").read_text(encoding="utf-8")
     check('trn("showPosts"' in app and "function mergeCatalog(" in app and "function revealMoreTimeline(" in app and "followsPost" in order_js, "new posts merge in place and the Following tab uses the signed-in accounts")
@@ -5198,6 +5210,7 @@ def gdrive_checks() -> None:
     check(cf_web_analytics.selftest() == 0, "the analytics beacon is added only with a public token")
     import pages_guard
     pages_sync = (ROOT / ".github" / "workflows" / "sync.yml").read_text(encoding="utf-8")
+    pages_sync += (ROOT / ".github" / "workflows" / "publish-app.yml").read_text(encoding="utf-8")
     pages_publish = (ROOT / "scripts" / "discord_publish.py").read_text(encoding="utf-8")
     check(
         pages_guard.selftest() == 0
@@ -5211,6 +5224,7 @@ def gdrive_checks() -> None:
         "Pages deploys share one lock, build from main's head, never roll version.json back, and rerun without artifact clashes",
     )
     sync = (ROOT / ".github" / "workflows" / "sync.yml").read_text(encoding="utf-8")
+    sync += (ROOT / ".github" / "workflows" / "publish-app.yml").read_text(encoding="utf-8")
     smoke = (ROOT / ".github" / "workflows" / "smoke.yml").read_text(encoding="utf-8")
     check("wrangler pages deploy" in sync and "viktorychapp" in sync and "cf_pages_deploy.py" in sync and "cf_pages_prepare.py" in sync and "shared/mirror.js" in deployed_paths() and "smoke_page.mjs --site _mirror" in sync and "smoke_page.mjs --site _site" in smoke and "smoke_page.mjs --site _mirror" in smoke, "the Pages upload is the generated bundle and the smoke check loads that output")
     check("ViktorychMirror" in (ROOT / "sw.js").read_text(encoding="utf-8") and 'scope: "./"' in (ROOT / "app.js").read_text(encoding="utf-8"), "the service worker can fail over to the other origin")

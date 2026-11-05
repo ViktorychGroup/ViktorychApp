@@ -16,11 +16,15 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Merge.** Squash-merge only when every check is success or skipped and the pull request is clean. Pin the merge to the head commit (`gh pr merge <n> --squash --match-head-commit <sha>`). After a merge to main, rebase or merge main into any open pull request whose state becomes dirty.
 
-**Verify live.** After a merge, the published `version.json` shows main's commit, and the accounts watchdog returns HTTP 200. If a deploy fails on a transient Cloudflare API error (for example error 10013), the owner re-runs the failed jobs, Accounts first and then Sync feeds. Agent tokens cannot re-run Actions.
+**Verify live.** After a merge, the published `version.json` shows main's commit, and the accounts watchdog returns HTTP 200. App-code pushes run **Publish app** directly; scheduled/manual **Sync feeds** refreshes feeds and calls the same reusable publisher in parallel. If a deploy fails on a transient Cloudflare API error (for example error 10013), the owner re-runs the failed jobs, Accounts first and then Publish app. Agent tokens cannot re-run Actions.
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
 **Current state.** Main is `f70a4ef5` (a setting the person just changed keeps its stamp). This pull request stops a sync echo from writing an older block list over a block made while that request was in flight, so the other open tab still drops those posts. Page smoke `shard-home` failed on `53ce5e57` because a link-preview navigation was aborted (already retried before this) and on `031b4912` because blocking in one tab did not reach the other. The cross-tab check is unchanged. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
+
+## Separate app publishing
+
+`publish-app.yml` owns the app build, Accounts health gate, GitHub Pages lock, Cloudflare mirror, live smoke check and delayed `version.json` publish. A non-data push to main starts it directly, without starting feed fetching. Scheduled or manually dispatched `sync.yml` runs its feed refresh and calls the same reusable publisher in parallel, preserving the existing scheduled/manual app-and-data publication. Discord live checks both publishing workflows. The watchdog retries `publish-app.yml` when the live version is behind; it does not fetch feeds merely to publish the app. No user-facing strings or service-worker-cached files changed.
 
 ## Speed log
 

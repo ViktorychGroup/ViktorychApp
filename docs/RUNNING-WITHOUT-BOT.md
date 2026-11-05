@@ -2,14 +2,14 @@
 
 This is the plain-language guide for keeping ViktorychApp alive for months with nobody (and no AI assistant) working on it. Written 2026-10-29.
 
-The short version: **the site runs itself.** GitHub Actions refreshes the feeds and redeploys the site every 30 minutes. The Cloudflare Worker serves accounts and data, and once an hour its watchdog checks everything and repairs what it can. When something needs you, you get a GitHub email, a red pill at the top of the app (owner only), and optionally a Telegram message.
+The short version: **the site runs itself.** GitHub Actions refreshes the feeds and republishes the site every 30 minutes; app-code pushes also publish directly through **Publish app**. The Cloudflare Worker serves accounts and data, and once an hour its watchdog checks everything and repairs what it can. When something needs you, you get a GitHub email, a red pill at the top of the app (owner only), and optionally a Telegram message.
 
 ## 1. What runs on its own
 
 | Piece | Where | What keeps it alive |
 | --- | --- | --- |
 | The app (static files) | GitHub Pages, plus a copy on Cloudflare Pages | A live deploy never expires. It stays up even if every workflow stops. |
-| Feed refresh and redeploy | GitHub Actions, `sync.yml`, every 30 minutes | The Worker watchdog turns workflows back on if GitHub switches them off. |
+| Feed refresh and scheduled redeploy | GitHub Actions, `sync.yml` + `publish-app.yml`, every 30 minutes | The Worker watchdog turns workflows back on if GitHub switches them off. |
 | Accounts, posts, media, data | Cloudflare Worker `viktorych-accounts`, D1, R2 | Cloudflare never switches off a free Worker or its cron. |
 | Backup accounts API | Render free web service | The Worker cron pings `/backup/health` every 10 minutes except 21:00–00:59 UTC (`worker/src/render-warm.js`). |
 | Watchdog | Worker cron, minute 7 of every hour | `worker/src/watchdog.js` |
@@ -17,7 +17,7 @@ The short version: **the site runs itself.** GitHub Actions refreshes the feeds 
 ### What the watchdog does every hour
 
 1. **Keeps scheduled workflows on.** GitHub turns off scheduled workflows in a public repo after 60 days without commits. The watchdog finds any workflow in the `disabled_inactivity` state and turns it back on through the GitHub API. A workflow you turned off by hand is left alone (it is only listed).
-2. **Unsticks the deploy.** If the live `version.json` still shows an older commit than `main` two hours after the commit, it re-runs `sync.yml`. It tries again every three hours. From the third try it asks for a "force" run (see section 5).
+2. **Unsticks the deploy.** If the live `version.json` still shows an older commit than `main` two hours after the commit, it re-runs `publish-app.yml`. It tries again every three hours. From the third try it asks for a "force" run (see section 5).
 3. **Watches every workflow that runs on its own.** Three failed runs in a row are reported. That is almost always an expired secret.
 4. **Checks the front doors:** GitHub Pages, the Cloudflare Pages mirror, the Render backup (only while it is awake, so no free hours are wasted) and D1.
 5. **Checks keys and tokens:** the GitHub token the Worker uses (warns 21 days before it expires), the Cloudflare analytics token, and every key in Settings > Connected keys.
@@ -41,7 +41,7 @@ The source sync also heals itself: each request is retried with backoff, every f
    4. Under Repository permissions make sure these are set: **Actions: Read and write**, **Contents: Read-only**, **Issues: Read and write**, **Metadata: Read-only**. Click **Update**.
    5. If you regenerated it: open the repository → Settings → Secrets and variables → Actions → `WORKER_DISPATCH_TOKEN` → Update secret → paste → Update. Within 30 minutes `worker-dispatch-secret.yml` copies it into the Worker as `GITHUB_DISPATCH_TOKEN`. To copy it at once instead: Actions tab → "Worker dispatch secret" → Run workflow.
    6. Put a calendar reminder two weeks before the expiry date. The watchdog also warns 21 days before.
-2. **Optional: let a forced run publish past a flaky live check.** The bot token cannot edit workflow files, so this one-line change is yours. In the repository on github.com, open `.github/workflows/sync.yml` → pencil icon → find the step `- name: Fail if the live page is black or a script is missing` (in the `verify-live` job) and add this line directly under it, indented like `env:`:
+2. **Optional: let a forced run publish past a flaky live check.** The bot token cannot edit workflow files, so this one-line change is yours. In the repository on github.com, open `.github/workflows/publish-app.yml` → pencil icon → find the step `- name: Fail if the live page is black or a script is missing` (in the `verify-live` job) and add this line directly under it, indented like `env:`:
    ```yaml
            continue-on-error: ${{ github.event.inputs.source == 'watchdog-force' }}
    ```
@@ -86,9 +86,9 @@ The site itself stays up the whole time. Only new posts stop arriving.
 
 `version.json` tells installed apps to update. It is published only after the live check (`verify-live`) passes. That check can flake. The watchdog re-runs the deploy every three hours. If it keeps failing:
 
-1. Actions → Sync feeds → the latest run → `verify-live` → read the problem lines.
+1. Actions → Publish app → the latest run → `verify-live` → read the problem lines.
 2. If the problem is a flake (it says "exception" once and passes elsewhere), apply the change in section 2, step 2. The next forced run publishes.
-3. If the live page is really broken, roll back: open the merged pull request that caused it → click **Revert** (bottom of the PR page) → merge the new revert PR. The next sync deploys the old code.
+3. If the live page is really broken, roll back: open the merged pull request that caused it → click **Revert** (bottom of the PR page) → merge the new revert PR. The next app publish deploys the old code.
 
 GitHub Pages keeps serving the last deployment indefinitely, so the site never goes dark because a deploy failed.
 
