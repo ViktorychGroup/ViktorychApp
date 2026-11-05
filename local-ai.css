@@ -213,6 +213,7 @@ html:not([data-theme="default"]) .lai-ch-risk { color: #ffad1f; }
 .lai-btn.ghost:hover { background: var(--lai-hover); }
 .lai-btn.warn { background: #ffad1f; color: #0f1419; }
 .lai-saving { font-size: 13px; color: var(--lai-sub); }
+.lai-upsell { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 10px; font-size: 13px; color: var(--lai-sub); }
 .lai-opens { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .lai-open { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border: 1px solid var(--lai-bar-line); border-radius: 9999px; color: var(--text); text-decoration: none; font-size: 14px; font-weight: 600; }
 .lai-open svg { width: 16px; height: 16px; color: var(--lai-sub); }

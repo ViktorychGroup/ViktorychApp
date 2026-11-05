@@ -13,6 +13,7 @@
   var MODEL_KEY = "viktorych-local-ai-model";
   var HAVE_KEY = "viktorych-local-ai-have";
   var MAX_CHATS = 40;
+  var INSTANT_MAX = 3;
 
   function tr(s, vars) {
     var L = window.SI18n;
@@ -339,6 +340,19 @@
       var typedPeople = res.engine === "tap" || !(h && h.peopleOn && h.peopleOn()) ? [] : core().parsePeople(text);
       var calls = (res.calls || []).filter(function (c) { return !(c && c.fn === "person"); }).concat(typedPeople);
       typedPeople.forEach(function (c) { var pid = core().personId(c.act, c.handle); values[pid] = !!(h && h.personState && h.personState(pid)); });
+      // Instant (the rules, no download) does a few things per message; a
+      // downloaded model handles longer asks. Taps and model answers are not
+      // limited. One ask can be several settings ("hide friends stuff").
+      var limited = res.engine === "instant" && !!(h && h.instantLimits && h.instantLimits());
+      var cut = false;
+      if (limited) {
+        var asks = [];
+        calls = calls.filter(function (c) {
+          var key = (c && (c.macro || (c.fn === "person" ? c.act + c.handle : c.id))) || "";
+          if (asks.indexOf(key) < 0) { if (asks.length >= INSTANT_MAX) { cut = true; return false; } asks.push(key); }
+          return true;
+        });
+      }
       var plan = core().plan(calls, values, { typed: res.engine === "tap" ? "" : text });
       var reply = res.reply && res.reply.trim() ? res.reply.trim() : instantReply(plan, res.unknown);
       // Setup said "only show where settings are": changes become links.
@@ -349,6 +363,12 @@
       }
       if (res.reply && plan.opens.length && !/http|#\//.test(reply)) reply += "";
       msg.engine = res.engine;
+      // Instant (the rules, no download) does a few changes at a time and
+      // plain words; a downloaded model handles longer asks. Taps and model
+      // answers are not limited.
+      msg.upsell = cut ? "more" : "";
+      if (cut) reply = tr("Instant does up to {n} things at a time, so here are the first {n}.", { n: INSTANT_MAX }) + " " + reply;
+      else if (limited && ((res.unknown && res.unknown.length) || (!plan.changes.length && !plan.reads.length && !plan.opens.length))) msg.upsell = "words";
       msg.plan = plan.changes.map(function (ch) { return { id: ch.id, from: ch.from, to: ch.to, risky: !!ch.risky, signedIn: !!ch.signedIn }; });
       msg.opens = plan.opens.map(function (r) { return r.id; });
       msg.state = msg.plan.length ? "ask" : "";
@@ -583,11 +603,17 @@
       return '<a class="lai-open' + (row.risk === "danger" ? " danger" : "") + '" href="' + esc(row.page) + '"><span>' + esc(tr(row.label)) + "</span>" + I.link + "</a>";
     }).join("") + "</div>";
   }
+  /* The Instant limit line with a way to a smarter model. */
+  function upsellHtml(msg) {
+    if (!msg.upsell) return "";
+    var line = msg.upsell === "more" ? tr("A downloaded model can do the whole list in one go.") : tr("A downloaded model understands longer and freer wording.");
+    return '<div class="lai-upsell"><span>' + esc(line) + '</span><button type="button" class="lai-link" data-lai="upsell">' + esc(tr("Pick a smarter model")) + "</button></div>";
+  }
   function msgHtml(msg, mi) {
     if (msg.role === "user") return '<div class="lai-msg user" data-i="' + mi + '"><div class="lai-bubble">' + esc(msg.text) + "</div></div>";
     var body = msg.text ? esc(msg.text).replace(/\n/g, "<br>") : (msg.streaming ? '<span class="lai-dots"><i></i><i></i><i></i></span>' : "");
     var actions = msg.streaming ? "" : '<div class="lai-acts"><button type="button" class="lai-icon sm" data-lai="copy" data-m="' + mi + '" aria-label="' + esc(tr("Copy")) + '" title="' + esc(tr("Copy")) + '">' + I.copy + '</button><button type="button" class="lai-icon sm" data-lai="regen" data-m="' + mi + '" aria-label="' + esc(tr("Regenerate")) + '" title="' + esc(tr("Regenerate")) + '">' + I.redo + "</button>" + (msg.engine && msg.engine !== "instant" && msg.engine !== "tap" ? '<span class="lai-engine">' + esc(engineLabel(msg.engine)) + "</span>" : "") + "</div>";
-    return '<div class="lai-msg ai' + (msg.streaming ? " streaming" : "") + '" data-i="' + mi + '"><div class="lai-text">' + body + "</div>" + (msg.streaming ? "" : cardHtml(msg, mi) + opensHtml(msg)) + actions + "</div>";
+    return '<div class="lai-msg ai' + (msg.streaming ? " streaming" : "") + '" data-i="' + mi + '"><div class="lai-text">' + body + "</div>" + (msg.streaming ? "" : cardHtml(msg, mi) + opensHtml(msg) + upsellHtml(msg)) + actions + "</div>";
   }
   function engineLabel(e) {
     var m = core().model(String(e).replace(/^instant\+/, ""));
@@ -731,6 +757,7 @@
     if (act === "tab") { S.browse = el.getAttribute("data-cat"); var b = S.root.querySelector(".lai-browse-slot"); if (b) b.innerHTML = browseHtml(); var t = S.root.querySelector('.lai-tab.on'); if (t) t.focus(); return; }
     if (act === "quick") { if (prefs().canChange) quick(el.getAttribute("data-id")); return; }
     if (act === "models") { S.menu = !S.menu; detectOnce(); paintBar(); return; }
+    if (act === "upsell") { S.menu = true; detectOnce(); paintBar(); return; }
     if (act === "pick") {
       var m = core().model(el.getAttribute("data-id"));
       S.menu = false;
