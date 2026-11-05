@@ -253,11 +253,15 @@
      while the new build downloads or applies, "" otherwise. The ready state
      is the pill, which then reads "Update ready, tap to restart". The full
      screen look (a critical or failed update) has its own screen. */
-  function statusKind(s, look) {
+  /* The background download is quiet (the pill says when it is ready), and
+     the toast never stays longer than TOAST_MAX_MS: past that the update goes
+     on unseen and the page reloads itself when the new build is in charge. */
+  var TOAST_MAX_MS = 4000;
+  function statusKind(s, look, now) {
     if (!s || look === "blocking" || s.phase === "error" || s.critical) return "";
-    if (s.phase === "working" || s.phase === "done") return "updating";
-    if (s.preBusy && !s.ready) return "updating";
-    return "";
+    if (s.phase !== "working" && s.phase !== "done") return "";
+    if (s.workingSince && (now || Date.now()) - s.workingSince > TOAST_MAX_MS) return "";
+    return "updating";
   }
 
   /* One simple icon per changelog line, picked from its words. */
@@ -674,7 +678,14 @@
     box.pill.textContent = (state.ready && state.phase === "offer")
       ? (visible ? tr("Update ready, tap to restart") : tr("Update ready · Tap to refresh"))
       : tr("App update");
-    var kind = visible ? statusKind(state, look) : "";
+    var now = Date.now();
+    if (state.phase === "working" || state.phase === "done") {
+      if (!state.workingSince) {
+        state.workingSince = now;
+        setTimeout(paint, TOAST_MAX_MS + 50);
+      }
+    } else state.workingSince = 0;
+    var kind = visible ? statusKind(state, look, now) : "";
     box.status.hidden = !kind;
     box.statusText.textContent = kind ? tr("Updating ViktorychApp…") : "";
     box.status.classList.toggle("upd-reduce", reduce);
