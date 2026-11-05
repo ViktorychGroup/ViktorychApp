@@ -984,6 +984,7 @@
     page: function (route) { return watch(route.id, route.query); },
     onAct: onAct,
     caps: caps,
-    open: openSetup
+    open: openSetup,
+    recording: function () { return !!(state.recorder && state.recorder.state && state.recorder.state !== "inactive"); }
   };
 })(typeof window !== "undefined" ? window : globalThis);

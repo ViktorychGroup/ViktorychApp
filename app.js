@@ -2173,13 +2173,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       merged_profiles: [tr("Merged linked profiles"), tr("Linked profiles set to merge show on their owner's profile, and their own pages, links and follows lead there.")],
       live_frame_grab: [tr("Live frame grab"), tr("A camera button on a live saves a full-size still, or a short burst, on this device.")],
       app_repair: [tr("Repair app"), tr("A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.")],
-      auto_update: [tr("Quiet updates"), tr("A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.")],
+      auto_update: [tr("Quiet updates"), tr("A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.")],
       swipe_tabs: [tr("Swipe between tabs"), tr("On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.")],
       compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
       status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
-      update_notice: [tr("Visible updates"), tr("A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.")],
+      update_notice: [tr("Visible updates"), tr("A short Updating notice while an update applies, then a full-screen What's new page.")],
       status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")],
       side_panel: [tr("Movable side panel"), tr("On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.")],
       ai_people: [tr("Viktrych blocks and mutes"), tr("Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.")],
@@ -13556,9 +13556,9 @@ const here = parseRoute();
      user setting. */
   function compactHeaderOn() { return !serverOffList().includes("compact_header") && !(STATE.settings && STATE.settings.classicHeader); }
   /* Phone status bar mode (owner switch status_bar): kept for the display
-     setting. Native system bars always use the opaque theme colour: Android
-     replaces a transparent theme-color with its own grey, while the page's
-     viewport-fit=cover header still supplies the safe-area clearance. */
+     setting. The native bar uses an opaque theme colour. Android paints its
+     own grey (#131313) when that colour is missing, transparent, or pure
+     black; the page background stays the real theme colour. */
   function statusBarOn() { return !serverOffList().includes("status_bar") && !!(STATE.settings && STATE.settings.statusBar); }
   function mobileLogo() {
     return `<a class="m-logo" href="#/" aria-label="${productName("app")}">${markSvg("app", "logo-full")}${markSvg("appShort", "logo-short")}</a>`;
@@ -27744,6 +27744,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   // while env() can still report the bar's height, which gives a second gap
   // (a solid band over the header). The page's own height against the screen
   // tells the two apart: under the bar the page is taller than the free area.
+  // A third case is immersive full screen (installed fullscreen, or a tab that
+  // called requestFullscreen): the OS status bar is gone and the page fills
+  // the screen, but env() can still report the bar's 50px (Pixel 6a). Keeping
+  // that padding leaves an empty dead band above the avatar and in-app status
+  // icons. Zero --sat there. iOS always keeps a real status bar / notch, so
+  // it never takes this path.
   function safeTopProbe() {
     let el = document.getElementById("sat-probe");
     if (!el) {
@@ -27756,6 +27762,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     return el.getBoundingClientRect().height || 0;
   }
 
+  function appleSafeTopDevice() {
+    if (window.navigator && window.navigator.standalone === true) return true;
+    const ua = (window.navigator && window.navigator.userAgent) || "";
+    return /iphone|ipad|ipod/i.test(ua) && !/android/i.test(ua);
+  }
+
   function applySafeTop(installed) {
     const root = document.documentElement;
     if (!document.body) return false;
@@ -27765,11 +27777,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const free = Number(scr.availHeight) || 0;
     const page = window.innerHeight || 0;
     const landscape = (window.innerWidth || 0) > page;
+    // OS bars are not taking height out of the screen and the page fills it.
+    const barsHidden = !!(full && free && free >= full - 1 && page >= full - 2);
     let sat = null;
     let below = false;
     if (installed && env > 0 && !document.fullscreenElement && !landscape && full && free && free < full - 1 && page <= free + 1) {
       sat = 0;
       below = true;
+    } else if (env > 0 && barsHidden && !landscape && !appleSafeTopDevice() && (installed || !!document.fullscreenElement)) {
+      sat = 0;
     } else if (installed && env > 0 && full && free && free < full - 1 && !landscape) {
       const room = full - free;
       if (env > room + 1) sat = room;
@@ -27778,13 +27794,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     else root.style.setProperty("--sat", sat + "px");
     if (below) root.setAttribute("data-sat-below", "1");
     else root.removeAttribute("data-sat-below");
+    if (sat === 0 && barsHidden && !below) root.setAttribute("data-sat-immersive", "1");
+    else root.removeAttribute("data-sat-immersive");
     if (!applySafeTop.bound) {
       applySafeTop.bound = true;
       let queued = 0;
       // Phones fire resize while scrolling (the browser bars slide in and out);
       // only the width, the screen or the display mode can change the status bar,
       // so a height-only resize keeps the inset and the header stays one size.
-      const sizeKey = () => { const sc = window.screen || {}; return [window.innerWidth || 0, sc.height || 0, sc.availHeight || 0].join("x"); };
+      const sizeKey = () => { const sc = window.screen || {}; return [window.innerWidth || 0, sc.height || 0, sc.availHeight || 0, document.fullscreenElement ? 1 : 0].join("x"); };
       let lastKey = sizeKey();
       const again = (event) => {
         if (event && event.type === "resize") {
@@ -27806,6 +27824,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     return below;
   }
 
+  function nativeBarColor(theme) {
+    if (THEMES.native) return THEMES.native(theme);
+    const color = THEME_COLORS[theme] || "#000000";
+    const hex = String(color).trim().toLowerCase();
+    if (!hex || hex === "transparent" || hex === "#000" || hex === "#000000") return "#010101";
+    return color;
+  }
+
   function installedApp() {
     return !!(window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) || window.navigator.standalone);
   }
@@ -27820,11 +27846,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     applyZoomLock();
     const installed = installedApp();
     applySafeTop(!!installed);
-    // Android does not honour a transparent native theme-color: it falls back
-    // to #131313, leaving a grey strip above the black Home header. Keep the
-    // native strip on the selected theme instead. iOS still draws through its
-    // black-translucent status bar and the topbar owns the safe-area padding.
-    const color = THEME_COLORS[theme] || "#000000";
+    // Android's dark UI treats a missing, transparent, or pure-black
+    // theme-color as unset and paints #131313 in the status-bar inset. The
+    // page background stays the real theme colour; only the native bar shifts
+    // one step off black. iOS still draws through black-translucent.
+    const color = nativeBarColor(theme);
     if (statusBarOn()) document.documentElement.setAttribute("data-status-bar", "1");
     else document.documentElement.removeAttribute("data-status-bar");
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", color));

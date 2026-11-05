@@ -6298,5 +6298,12 @@ SI18n.addPack("hi", {
   "These app settings already match this device.": "ये ऐप सेटिंग्स पहले से इस डिवाइस से मेल खाती हैं।",
   "Apply these settings": "ये सेटिंग्स लागू करें",
   "Device setup": "डिवाइस सेटअप",
-  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych इस ब्राउज़र को देखकर डिवाइस और सेल्युलर डेटा प्लान के लिए ऐप सेटिंग्स तैयार कर सकता है। कुछ बदलने से पहले पूछता है और फ़ोन या कैरियर नहीं बदल सकता।"
+  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych इस ब्राउज़र को देखकर डिवाइस और सेल्युलर डेटा प्लान के लिए ऐप सेटिंग्स तैयार कर सकता है। कुछ बदलने से पहले पूछता है और फ़ोन या कैरियर नहीं बदल सकता।",
+  "A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.": "डाउनलोड हुआ अपडेट अपने आप लागू होता है जब आप रिकॉर्ड नहीं कर रहे, देख नहीं रहे और कॉल में नहीं हैं, फिर ऐप एक बार रीलोड होता है।",
+  "A short Updating notice while an update applies, then a full-screen What's new page.": "अपडेट लागू होते समय एक छोटा अपडेट हो रहा है संदेश, फिर पूरी स्क्रीन का नया क्या है पेज।",
+  "This update is already on this device.": "यह अपडेट इस डिवाइस पर पहले से है।",
+  "Your drafts, sign-in and settings stay here.": "आपके ड्राफ़्ट, साइन-इन और सेटिंग्स यहीं रहती हैं।",
+  "Updated {date}": "अपडेट {date}",
+  "In this update": "इस अपडेट में",
+  "Fix": "सुधार"
 });

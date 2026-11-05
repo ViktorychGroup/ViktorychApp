@@ -605,7 +605,7 @@ html.is-split-drag * {
   right: 0;
   top: 0;
   height: var(--sat, env(safe-area-inset-top, 0px));
-  background: transparent;
+  background: var(--bg, #000);
   pointer-events: none;
 }
 .mhead { display: none; }
@@ -3571,7 +3571,7 @@ html.vk-fs .vk-fs-exit.on { transform: translate(-50%, 0); opacity: 1; pointer-e
   .topbar { padding-top: var(--sat, env(safe-area-inset-top, 0px)); }
   .bottom-nav { padding-bottom: env(safe-area-inset-bottom); height: calc(53px + env(safe-area-inset-bottom)); }
 }
-@media (max-width: 499px), (display-mode: standalone), (display-mode: window-controls-overlay) {
+@media (max-width: 499px), (display-mode: standalone), (display-mode: window-controls-overlay), (display-mode: fullscreen) {
   body::before {
     content: "";
     position: fixed;
@@ -3579,15 +3579,18 @@ html.vk-fs .vk-fs-exit.on { transform: translate(-50%, 0); opacity: 1; pointer-e
     top: 0;
     left: 0;
     right: 0;
-    height: calc(var(--sat, env(safe-area-inset-top, 0px)) + 1px);
-    background: transparent;
+    /* Cover the real status-bar inset (Pixel 6a is 50px). A transparent strip
+       shows Android's #131313 surface. Cap a bogus env() so it cannot hide the page. */
+    height: min(calc(var(--sat, env(safe-area-inset-top, 0px)) + 1px), 65px);
+    background: var(--bg, #000);
     pointer-events: none;
   }
-  body:has(.profile-top)::before { background: transparent; }
+  body:has(.profile-top.has-banner)::before,
+  body:has(.profile-top.has-banner) .topbar::before { background: transparent; }
   .topbar {
     background: var(--topbar);
   }
-  .topbar::before { height: calc(var(--sat, env(safe-area-inset-top, 0px)) + 1px); background: transparent; }
+  .topbar::before { height: min(calc(var(--sat, env(safe-area-inset-top, 0px)) + 1px), 65px); background: var(--bg, #000); }
 }
 
 .home-fresh {
@@ -7879,63 +7882,110 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
   position: absolute;
   top: calc(8px + env(safe-area-inset-top, 0px));
   right: calc(8px + env(safe-area-inset-right, 0px));
-  width: 40px;
-  height: 40px;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 50%;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.06);
   color: #e7e9ea;
   display: grid;
   place-items: center;
   cursor: pointer;
 }
 .upd-wn-x svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.upd-wn-body {
+.upd-wn-layout {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: auto;
   -webkit-overflow-scrolling: touch;
   width: 100%;
-  max-width: 560px;
+  max-width: 640px;
   margin: 0 auto;
   box-sizing: border-box;
-  padding: 56px 20px 16px;
-  text-align: center;
 }
-.upd-wn-logo { display: block; width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 16px; }
-.upd-wn-title { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.01em; }
-.upd-wn-ver { margin: 6px 0 0; color: #71767b; font-size: 14px; }
-.upd-wn-cards { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 10px; text-align: left; }
+.upd-wn-hero { padding: 64px 24px 8px; text-align: left; }
+.upd-wn-logo {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin: 0 0 20px;
+  border-radius: 20px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 16px 40px rgba(29, 155, 240, 0.16);
+}
+.upd-wn-kicker {
+  margin: 0;
+  color: #1d9bf0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.upd-wn-title {
+  margin: 6px 0 0;
+  font-size: 40px;
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.upd-wn-ver, .upd-wn-when { margin: 10px 0 0; color: #71767b; font-size: 15px; }
+.upd-wn-when { margin-top: 2px; }
+.upd-wn-lead, .upd-wn-keep {
+  margin: 16px 0 0;
+  max-width: 36em;
+  color: #e7e9ea;
+  font-size: 17px;
+  line-height: 1.45;
+}
+.upd-wn-keep { margin-top: 6px; color: #b8bdc2; font-size: 15px; }
+.upd-wn-main { padding: 8px 24px 12px; }
+.upd-wn-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 28px;
+}
+.upd-wn-section { margin: 0; font-size: 15px; font-weight: 800; }
+.upd-wn-count { margin: 0; color: #71767b; font-size: 13px; font-weight: 700; }
+.upd-wn-cards { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; text-align: left; }
 .upd-wn-card {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 16px;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
   background: #16181c;
   border: 1px solid #2f3336;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.4;
   animation: upd-wn-card 260ms ease-out both;
   animation-delay: calc(var(--i, 0) * 40ms + 60ms);
 }
 .upd-wn-ic {
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
   display: grid;
   place-items: center;
   background: rgba(29, 155, 240, 0.14);
   color: #1d9bf0;
 }
-.upd-wn-ic svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.upd-wn-text { padding-top: 6px; }
+.upd-wn-card[data-icon="fix"] .upd-wn-ic { background: rgba(0, 186, 124, 0.14); color: #00ba7c; }
+.upd-wn-card[data-icon="fast"] .upd-wn-ic { background: rgba(255, 212, 0, 0.14); color: #ffd400; }
+.upd-wn-card[data-icon="look"] .upd-wn-ic { background: rgba(249, 24, 128, 0.14); color: #f91880; }
+.upd-wn-ic svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.upd-wn-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-top: 1px; }
+.upd-wn-kind { color: #71767b; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.upd-wn-text { color: #e7e9ea; }
 .upd-wn-foot {
   width: 100%;
-  max-width: 560px;
+  max-width: 640px;
   margin: 0 auto;
   box-sizing: border-box;
-  padding: 12px 20px calc(16px + env(safe-area-inset-bottom, 0px));
+  padding: 12px 24px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, #000 70%, rgba(0, 0, 0, 0));
 }
 .upd-wn-go {
   display: block;
@@ -7951,9 +8001,29 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
   cursor: pointer;
 }
 .upd-wn-go:focus:not(:focus-visible), .upd-wn-x:focus:not(:focus-visible) { outline: none; }
+.upd-wn-go:focus-visible, .upd-wn-x:focus-visible { outline: 2px solid #1d9bf0; outline-offset: 2px; }
 @keyframes upd-wn-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes upd-wn-card { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .upd-wn.upd-reduce, .upd-wn.upd-reduce .upd-wn-card, .upd-status.upd-reduce, .upd-status.upd-reduce .upd-spin { animation: none; }
+@media (min-width: 900px) {
+  .upd-wn-layout {
+    max-width: 1080px;
+    display: grid;
+    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .upd-wn-hero {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 48px 36px 48px 48px;
+  }
+  .upd-wn-title { font-size: 52px; }
+  .upd-wn-main { overflow: auto; padding: 72px 48px 24px 12px; }
+  .upd-wn-head { margin-top: 0; }
+  .upd-wn-foot { max-width: 1080px; padding-right: 48px; padding-left: 48px; }
+  .upd-wn-go { width: auto; min-width: 240px; margin-left: auto; }
+}
 @media (prefers-reduced-motion: reduce) {
   .upd-wn, .upd-wn-card, .upd-status, .upd-spin { animation: none; }
 }
@@ -8008,7 +8078,7 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
 @media (min-width: 1000px) {
   .side-split {
     display: block; position: absolute; top: 0; bottom: 0; left: 0; z-index: 6;
-    width: 8px; cursor: col-resize; touch-action: none; background: transparent;
+    width: 8px; min-height: 100dvh; cursor: col-resize; touch-action: none; background: transparent;
   }
   .side-split:focus { outline: none; }
   .side-split::before { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; }
@@ -8053,11 +8123,11 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
 .nsnd-volume { width: 100%; accent-color: var(--blue, #1d9bf0); margin: 6px 0 4px; }
 
 /* Phones: the header row is one fixed size. The inset above it is the status
-   bar only (capped so a wrong env() can't leave a fat empty band), and it
-   never grows while scrolling. */
+   bar only. 64px fits a Pixel 6a (50px) and a notch, and still caps a wrong
+   env() so it cannot leave a fat empty band. It never grows while scrolling. */
 @media (max-width: 499px) {
-  .topbar { padding-top: min(var(--sat, env(safe-area-inset-top, 0px)), 48px); }
-  .topbar::before { height: min(var(--sat, env(safe-area-inset-top, 0px)), 48px); }
+  .topbar { padding-top: min(var(--sat, env(safe-area-inset-top, 0px)), 64px); }
+  .topbar::before { height: min(var(--sat, env(safe-area-inset-top, 0px)), 64px); background: var(--bg, #000); }
   .topbar .mhead { height: 53px; min-height: 53px; max-height: 53px; flex: none; box-sizing: border-box; }
-  .center { padding-top: calc(var(--top) + min(var(--sat, env(safe-area-inset-top, 0px)), 48px)); }
+  .center { padding-top: calc(var(--top) + min(var(--sat, env(safe-area-inset-top, 0px)), 64px)); }
 }
