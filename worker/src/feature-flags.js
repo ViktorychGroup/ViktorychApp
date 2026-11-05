@@ -53,6 +53,10 @@ export const FEATURES = {
   local_ai_setup: { paths: [] },
   // Lossless stills from a live, on the owner's device. No server endpoints.
   live_frame_grab: { paths: [] },
+  // Automatic TikTok live recorder. On by default so segments already
+  // buffered keep uploading. A new recording still waits for the owner's
+  // server switch. Off stops new recordings and upload jobs.
+  tiktok_auto_record: { paths: ["/v1/owner/live-record"] },
   // Repair app button, the Home-stuck repair offer and the reinstall guide.
   app_repair: { paths: [] },
   // Apply a downloaded update on its own, once, when nothing is recording,
@@ -90,6 +94,12 @@ export const FEATURES = {
   // Viktrych Instant (rules, no download) does up to 3 things per message
   // and points to a downloaded model for more. No server endpoints.
   instant_limits: { paths: [] },
+  // Viktrych local tools: in-page FFmpeg, direct media, drafts and app
+  // actions. Each step asks first. No server endpoints.
+  ai_tools: { paths: [] },
+  // Viktrych device and data-plan setup. App settings only, after a preview.
+  // No server endpoints.
+  ai_device_setup: { paths: [] },
   // Settings > Site permissions: live browser permission states with
   // one-tap Allow and steps for blocked ones. No server endpoints.
   site_permissions: { paths: [] },
