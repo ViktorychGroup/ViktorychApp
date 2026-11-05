@@ -1,12 +1,12 @@
 /* Update for the installed app. A new worker downloads its files in the
    background. The running service worker build is the truth: a mismatch
    with version.json is not an update, and each build is applied and
-   reloaded at most once on a device. Later means not right now. A
-   downloaded update stays as a small pill until it is applied, on the next
-   hide, reopen, or navigation when nothing is being composed. What's new
-   is one sheet after that apply. A full-screen step is only for a critical
-   update or a failed one. Drafts, the route, and the scroll position are
-   written down before the reload. */
+   reloaded at most once per tab. A downloaded update applies on its own.
+   There is no tap-to-update prompt. Recording, a playing video, a call or
+   an open dialog holds that reload until it is safe. Drafts, the route and
+   the scroll position are written down before the reload and put back after.
+   What's new is one welcoming page after that apply. A full-screen step
+   with a button is only for a critical update or a failed one. */
 (function (root, factory) {
   var api = factory();
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -30,6 +30,8 @@
   var TOAST_KEY = "viktorychapp-update-toast";
   var NOTES_SEEN_KEY = "viktorychapp-notes-seen";
   var LAST_BUILD_KEY = "viktorychapp-wn-last";
+  var APPLY_LOCK_KEY = "viktorychapp-update-apply-lock";
+  var APPLY_LOCK_MS = 45000;
   var RING = 2 * Math.PI * 44;
 
   function tr(key, vars) {
@@ -66,11 +68,11 @@
     if (s.phase === "working" || s.phase === "done" || s.phase === "error") return "overlay";
     // The new version is still downloading in the background.
     if (s.ready === false) return "idle";
-    // Downloaded and waiting. Later does not skip it, so the pill stays.
-    if (s.ready === true && s.phase === "offer" && !s.critical && !s.forced) return "pill";
+    // Downloaded and waiting. It applies on its own: no tap prompt.
+    if (s.ready === true && s.phase === "offer" && !s.critical && !s.forced) return "idle";
     if (s.snoozeUntil && now < s.snoozeUntil) return "idle";
     if (s.forced) return "overlay";
-    if (s.busy) return "pill";
+    if (s.busy) return "idle";
     return "overlay";
   }
 
@@ -198,6 +200,59 @@
     return remoteTime <= localTime;
   }
 
+  /* What to do with a waiting worker. "apply" starts the switch on this tab.
+     "hold" waits for a safe moment. "wait" means the files are still coming.
+     "follow" means another tab is already switching this build over.
+     "idle" means this is not an update, or this tab already reloaded it. */
+  function waitingPlan(spec) {
+    spec = spec || {};
+    var waiting = normSha(spec.waiting);
+    var fresh = offerMismatch(spec.controller, spec.remote, waiting, spec.applied, spec.remoteBuilt, spec.currentBuilt);
+    if (!fresh || !waiting) return "idle";
+    if (normSha(spec.sessionReload) === waiting) return "idle";
+    if (!spec.ready) return "wait";
+    if (spec.hold) return "hold";
+    if (normSha(spec.localReload) === waiting) return "follow";
+    return "apply";
+  }
+
+  /* What this tab does when the controlling worker changes. A tab that
+     already reloaded this build, or a stale version.json, stays put.
+     "defer" means reload once the recording, video, call or draft hold ends. */
+  function controllerPlan(spec) {
+    spec = spec || {};
+    if (spec.reloaded) return "ignore";
+    if (spec.stale) return "ignore";
+    var build = normSha(spec.build);
+    if (build && normSha(spec.sessionReload) === build) return "ignore";
+    var armed = !!(spec.expecting || spec.pending || spec.phase === "working" || spec.phase === "done" || spec.had);
+    if (!armed) return "ignore";
+    if (spec.hold) return "defer";
+    return "reload";
+  }
+
+  /* One tab drives skipWaiting. The lock expires so a closed tab cannot
+     leave the others waiting. */
+  function claimApplyLock(sha, now, existing) {
+    sha = normSha(sha);
+    if (!sha) return false;
+    var cur = existing && typeof existing === "object" ? existing : null;
+    var heldSha = cur ? normSha(cur.sha) : "";
+    var at = cur ? Number(cur.at) || 0 : 0;
+    if (heldSha === sha && at && now >= at && now - at < APPLY_LOCK_MS) return false;
+    return true;
+  }
+
+  /* The draft written before a reload. Passwords are dropped. */
+  function keepDraft(fields, hash, y, now) {
+    return {
+      hash: String(hash || ""),
+      y: Number(y) || 0,
+      fields: fieldSnapshot(fields || []),
+      at: Number(now) || 0
+    };
+  }
+
   /* True when a reload would repeat this service-worker build, or would
      reload it only because version.json is older. */
   function blocksReload(remoteSha, controllerSha, buildId, sessionBuild, localBuild, remoteBuilt, currentBuilt) {
@@ -241,7 +296,7 @@
   }
 
   /* Full screen only for a critical offer, a forced one, or a failure.
-     A downloaded update stays a pill until that build is applied. */
+     A downloaded update applies on its own and does not show a tap prompt. */
   function presentation(s, now) {
     var mode = decide(s, now);
     if (mode !== "overlay") return mode;
@@ -249,13 +304,12 @@
     return "blocking";
   }
 
-  /* Visible updates (switch update_notice). The small status toast: "updating"
-     while the new build downloads or applies, "" otherwise. The ready state
-     is the pill, which then reads "Update ready, tap to restart". The full
-     screen look (a critical or failed update) has its own screen. */
-  /* The background download is quiet (the pill says when it is ready), and
-     the toast never stays longer than TOAST_MAX_MS: past that the update goes
-     on unseen and the page reloads itself when the new build is in charge. */
+  /* Visible updates (switch update_notice). The small status toast says
+     "updating" only while the new build applies, and never asks for a tap.
+     The full screen look (a critical or failed update) has its own screen. */
+  /* The background download is quiet, and the toast never stays longer than
+     TOAST_MAX_MS: past that the update goes on unseen and the page reloads
+     itself when the new build is in charge. */
   var TOAST_MAX_MS = 4000;
   function statusKind(s, look, now) {
     if (!s || look === "blocking" || s.phase === "error" || s.critical) return "";
@@ -271,6 +325,19 @@
     if (/\b(fast|faster|speed|smooth|smoother|quick|lighter|load|loads|loading|seamless)\b/.test(t)) return "fast";
     if (/\b(look|looks|icon|icons|tab|tabs|header|theme|design|style|layout|screen)\b/.test(t)) return "look";
     return "new";
+  }
+
+  function noteKind(icon) {
+    if (icon === "fix") return tr("Fix");
+    if (icon === "fast") return tr("Faster");
+    if (icon === "look") return tr("Appearance");
+    return tr("New");
+  }
+
+  function updatedLabel(built) {
+    var iso = isoBuilt(built);
+    if (!iso) return "";
+    return tr("Updated {date}", { date: iso.slice(0, 10) });
   }
 
   function appliedSha() {
@@ -314,7 +381,9 @@
 
   function markReload(sha) {
     sha = normSha(sha);
-    if (!reloadAllowed(sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage))) return false;
+    // Session only: each open tab reloads once. localStorage still records
+    // the build so a later offer does not start it again.
+    if (!reloadAllowed(sha, storedReloadSha(sessionStorage), "")) return false;
     writeStore(sessionStorage, RELOAD_SHA_KEY, sha);
     writeStore(localStorage, RELOAD_SHA_KEY, sha);
     return true;
@@ -355,8 +424,30 @@
     if (state.remoteSha && state.remoteSha !== sha) state.critical = false;
     predownload(state.waiting);
     paint();
-    // A build already seen still waits for hide, reopen, or navigation.
-    if (state.quiet && state.ready && document.visibilityState === "hidden") maybeSilentApply();
+    settleWaiting();
+  }
+
+  function planNow() {
+    return waitingPlan({
+      controller: state.currentSha,
+      remote: state.remoteSha,
+      waiting: state.pendingSha || state.heardSha,
+      applied: appliedSha(),
+      remoteBuilt: state.remoteBuilt,
+      currentBuilt: state.currentBuilt,
+      sessionReload: storedReloadSha(sessionStorage),
+      localReload: storedReloadSha(localStorage),
+      ready: state.ready === true,
+      hold: updateBlocked()
+    });
+  }
+
+  function settleWaiting() {
+    if (applying || state.reloaded || state.phase === "working" || state.phase === "done" || state.phase === "error") return;
+    var plan = planNow();
+    if (plan === "hold") { state.deferApply = true; return; }
+    if (plan === "follow") { state.expectingController = true; return; }
+    if (plan === "apply") promptApply(Date.now());
   }
 
   function considerWaiting(worker) {
@@ -472,7 +563,7 @@
     return decide(state, Date.now());
   }
 
-  function mediaBusy() {
+  function videoBusy() {
     var viewer = document.getElementById("viewer");
     var videos = document.querySelectorAll("video");
     var hash = String(location.hash || "");
@@ -486,7 +577,30 @@
       if (!video.muted && video.volume > 0) return true;
       if (document.fullscreenElement && document.fullscreenElement.contains && document.fullscreenElement.contains(video)) return true;
     }
-    try { if (window.Spaces && window.Spaces.playing && window.Spaces.playing()) return true; } catch (err) { /* the player is optional */ }
+    return false;
+  }
+
+  function recordingBusy() {
+    try {
+      if (document.querySelector("[data-recording='1'], [data-recording='true']")) return true;
+    } catch (err) { /* no recorder in the page */ }
+    try {
+      var live = window.ViktorychLive;
+      if (live && typeof live.recording === "function" && live.recording()) return true;
+    } catch (err) { /* live is optional */ }
+    return false;
+  }
+
+  function callBusy() {
+    try {
+      if (document.querySelector("[data-call-active], .space-live.joined, .call-active")) return true;
+    } catch (err) { /* no call markup */ }
+    try { if (window.Spaces && window.Spaces.playing && window.Spaces.playing()) return true; } catch (err) { /* the room is optional */ }
+    return false;
+  }
+
+  function mediaBusy() {
+    if (videoBusy() || callBusy()) return true;
     try { if (window.SIntelMusic && window.SIntelMusic.playing && window.SIntelMusic.playing()) return true; } catch (err) { /* music is optional */ }
     return false;
   }
@@ -495,7 +609,7 @@
      update from applying or putting its sheet on screen. The apply waits
      until that closes. */
   function shouldDeferApply(flags) {
-    return !!(flags && (flags.modal || flags.typed));
+    return !!(flags && (flags.modal || flags.typed || flags.recording || flags.video || flags.call));
   }
 
   function composerOpen() {
@@ -528,10 +642,16 @@
   }
 
   function updateBlocked() {
-    // A tap on "tap to restart" is the person's go-ahead; drafts are saved
-    // by captureState and put back after the reload.
+    // A tap on a critical or failed update is the person's go-ahead.
+    // Typed text is not a hold: captureState writes it down and the next
+    // page puts it back. Recording, video, a call or an open dialog waits.
     if (state.userGo) return false;
-    return shouldDeferApply({ modal: composerOpen(), typed: typedText() });
+    return shouldDeferApply({
+      modal: composerOpen(),
+      recording: recordingBusy(),
+      video: videoBusy(),
+      call: callBusy()
+    });
   }
 
   function typingBusy() {
@@ -659,25 +779,32 @@
     if (!document.body) return;
     var box = ensure();
     var look = presentation(state, Date.now());
+    if (look === "pill") look = "idle";
     if (state.quiet && look === "toast") look = "idle";
     if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) look = "idle";
-    if (updateBlocked() && look !== "idle" && look !== "pill") {
+    if (updateBlocked() && look !== "idle") {
       if (state.ready && state.pending) state.deferApply = true;
       look = "idle";
+    }
+    if (document.documentElement) {
+      var mark = "";
+      if (state.phase === "error") mark = "error";
+      else if (state.ready && state.pending && state.phase === "offer") mark = "ready";
+      else if (state.phase === "working" || state.phase === "done") mark = state.phase;
+      if (mark) document.documentElement.setAttribute("data-update", mark);
+      else document.documentElement.removeAttribute("data-update");
     }
     var reduce = reducedMotion();
     box.root.hidden = look === "idle";
     box.root.classList.toggle("upd-reduce", reduce);
     box.root.setAttribute("data-phase", state.phase);
     document.body.classList.toggle("upd-open", look === "blocking");
-    box.pill.hidden = look !== "pill";
+    box.pill.hidden = true;
     box.overlay.hidden = look !== "toast" && look !== "blocking";
     box.overlay.classList.toggle("upd-toast", look === "toast");
     box.overlay.setAttribute("aria-modal", look === "blocking" ? "true" : "false");
     var visible = visibleOn();
-    box.pill.textContent = (state.ready && state.phase === "offer")
-      ? (visible ? tr("Update ready, tap to restart") : tr("Update ready · Tap to refresh"))
-      : tr("App update");
+    box.pill.textContent = "";
     var now = Date.now();
     if (state.phase === "working" || state.phase === "done") {
       if (!state.workingSince) {
@@ -822,7 +949,7 @@
       state.ready = true;
       state.preTries = 0;
       paint();
-      if (state.quiet && document.visibilityState === "hidden") maybeSilentApply();
+      settleWaiting();
       return;
     }
     // shell-pending: the files are not all in yet. Nothing is shown.
@@ -982,22 +1109,36 @@
     });
   }
 
+  function readApplyLock() {
+    try { return JSON.parse(readStore(localStorage, APPLY_LOCK_KEY) || "null"); } catch (err) { return null; }
+  }
+
+  function takeApplyLock(sha) {
+    var now = Date.now();
+    if (!claimApplyLock(sha, now, readApplyLock())) return false;
+    writeStore(localStorage, APPLY_LOCK_KEY, JSON.stringify({ sha: normSha(sha), at: now }));
+    var again = readApplyLock();
+    return !!(again && normSha(again.sha) === normSha(sha) && Number(again.at) === now);
+  }
+
   function maybeSilentApply() {
     if (applying || state.reloaded || state.critical) return;
     if (!state.ready || !state.pending || state.phase === "error" || state.phase === "working") return;
     if (updateBlocked()) { state.deferApply = true; return; }
     if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) return;
     var sha = normSha(state.pendingSha);
-    if (!sha || sha === normSha(state.currentSha) || reloadSpent(sha)) return;
+    if (!sha || sha === normSha(state.currentSha)) return;
+    if (normSha(storedReloadSha(sessionStorage)) === sha) return;
+    if (!takeApplyLock(sha)) { state.expectingController = true; return; }
     state.deferApply = false;
     state.silent = true;
     applyNow(true);
   }
 
-  /* Quiet updates (switch auto_update): a downloaded update also applies
-     once it has been ready for 20 seconds without a touch, key or scroll, with the same one-reload
-     guard and the same blocks (typing, a playing video, an open composer). */
-  var IDLE_APPLY_MS = 20000;
+  /* Quiet updates (switch auto_update): a downloaded update applies on its
+     own about a second after it is ready, sooner when the app is hidden.
+     Recording, video, a call, a composer or typed text holds it. */
+  var PROMPT_MS = 1200;
   var lastInput = Date.now();
   function autoUpdateOn() {
     try {
@@ -1012,17 +1153,20 @@
     } catch (err) { return true; }
   }
   var readySince = 0;
-  function idleApply(now) {
-    // The 20 seconds start when the update is ready, so the pill is seen first.
+  function promptApply(now) {
+    if (applying || state.reloaded) return;
     if (!state.ready || !state.pending) { readySince = 0; return; }
+    if (state.phase === "error" || state.phase === "working" || state.phase === "done") return;
+    if (!autoUpdateOn()) return;
+    if (updateBlocked()) { state.deferApply = true; readySince = 0; return; }
+    if (document.visibilityState === "hidden") { maybeSilentApply(); return; }
     if (!readySince) readySince = now;
-    if (!autoUpdateOn() || document.visibilityState === "hidden") return;
-    if (now - Math.max(lastInput, readySince) < IDLE_APPLY_MS) return;
+    if (now - Math.max(lastInput, readySince) < PROMPT_MS) return;
     maybeSilentApply();
   }
 
-  /* "Update ready, tap to restart": one quick apply and reload with the small
-     Updating toast instead of the full progress screen. */
+  /* A critical or failed update's button: one quick apply and reload with
+     the small Updating toast instead of leaving the progress screen up. */
   function tapRestart() {
     state.userGo = true;
     state.applyRetries = 0;
@@ -1092,7 +1236,8 @@
 
   function queueUpdatedToast(sha) {
     var notes = state.notes || [];
-    writeStore(sessionStorage, TOAST_KEY, JSON.stringify({ sha: normSha(sha), notes: notes.slice(0, 8) }));
+    var built = isoBuilt(state.remoteBuilt) || isoBuilt(state.currentBuilt);
+    writeStore(sessionStorage, TOAST_KEY, JSON.stringify({ sha: normSha(sha), notes: notes.slice(0, 8), built: built }));
   }
 
   function releaseLines(notes) {
@@ -1108,12 +1253,12 @@
   /* After the new build is applied. One sheet per sha: a bottom sheet on a
      phone and a centered card on a desktop. Got it dismisses it. The page
      underneath stays usable. */
-  function showReleaseNotes(sha, notes) {
+  function showReleaseNotes(sha, notes, built) {
     sha = normSha(sha);
     if (!shouldShowNotes(sha, seenNotes())) return false;
     if (typeof document === "undefined" || !document.body) return false;
     if (updateBlocked()) {
-      state.deferNotes = { sha: sha, notes: notes || [] };
+      state.deferNotes = { sha: sha, notes: notes || [], built: isoBuilt(built) };
       return false;
     }
     state.deferNotes = null;
@@ -1121,7 +1266,8 @@
     var previous = document.getElementById("upd-notes-sheet");
     if (previous && previous.parentNode) previous.parentNode.removeChild(previous);
     var lines = releaseLines(notes);
-    if (visibleOn()) return showWhatsNewPage(sha, lines);
+    var when = isoBuilt(built) || isoBuilt(state.remoteBuilt) || isoBuilt(state.currentBuilt);
+    if (visibleOn()) return showWhatsNewPage(sha, lines, when);
     var root = document.createElement("div");
     root.id = "upd-notes-sheet";
     root.className = "upd-notes-sheet";
@@ -1176,10 +1322,11 @@
     new: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.5 2.5M15.2 15.2l2.5 2.5M6.3 17.7l2.5-2.5M15.2 8.8l2.5-2.5"/>'
   };
 
-  /* What's new as a full screen, edge to edge, dark page: our logo, one card
-     per changelog line, one Continue button. Swipe or close dismisses it.
-     The animations are CSS only and off with reduced motion. */
-  function showWhatsNewPage(sha, lines) {
+  /* What's new as a full screen, edge to edge, dark page. It welcomes you
+     back after the update is already on the device: the real changelog,
+     the version, and one Continue button. It is not an update prompt.
+     Swipe or close dismisses it. Animations are CSS only. */
+  function showWhatsNewPage(sha, lines, built) {
     if (!lines.length) lines = [tr("Fixes and improvements")];
     var root = document.createElement("div");
     root.id = "upd-notes-sheet";
@@ -1194,26 +1341,61 @@
     close.setAttribute("aria-label", tr("Close"));
     close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
     root.appendChild(close);
-    var body = document.createElement("div");
-    body.className = "upd-wn-body";
+    var layout = document.createElement("div");
+    layout.className = "upd-wn-layout";
+    var hero = document.createElement("header");
+    hero.className = "upd-wn-hero";
     var logo = document.createElement("img");
     logo.className = "upd-wn-logo";
     logo.src = "icons/icon-192.png";
     logo.alt = tr("ViktorychApp");
-    logo.width = 64;
-    logo.height = 64;
-    body.appendChild(logo);
+    logo.width = 72;
+    logo.height = 72;
+    hero.appendChild(logo);
+    var kicker = document.createElement("p");
+    kicker.className = "upd-wn-kicker";
+    kicker.textContent = tr("You're up to date");
+    hero.appendChild(kicker);
     var title = document.createElement("h2");
     title.id = "upd-notes-sheet-title";
     title.className = "upd-wn-title";
     title.textContent = tr("What's new");
-    body.appendChild(title);
+    hero.appendChild(title);
     if (sha) {
       var ver = document.createElement("p");
       ver.className = "upd-wn-ver";
       ver.textContent = tr("Version {version}", { version: sha.slice(0, 7) });
-      body.appendChild(ver);
+      hero.appendChild(ver);
     }
+    var when = updatedLabel(built);
+    if (when) {
+      var dated = document.createElement("p");
+      dated.className = "upd-wn-when";
+      dated.textContent = when;
+      hero.appendChild(dated);
+    }
+    var lead = document.createElement("p");
+    lead.className = "upd-wn-lead";
+    lead.textContent = tr("This update is already on this device.");
+    hero.appendChild(lead);
+    var keep = document.createElement("p");
+    keep.className = "upd-wn-keep";
+    keep.textContent = tr("Your drafts, sign-in and settings stay here.");
+    hero.appendChild(keep);
+    layout.appendChild(hero);
+    var main = document.createElement("div");
+    main.className = "upd-wn-main";
+    var head = document.createElement("div");
+    head.className = "upd-wn-head";
+    var section = document.createElement("h3");
+    section.className = "upd-wn-section";
+    section.textContent = tr("In this update");
+    head.appendChild(section);
+    var count = document.createElement("p");
+    count.className = "upd-wn-count";
+    count.textContent = lines.length === 1 ? tr("1 change") : tr("{n} changes", { n: String(lines.length) });
+    head.appendChild(count);
+    main.appendChild(head);
     var list = document.createElement("ul");
     list.className = "upd-wn-cards";
     var n;
@@ -1225,16 +1407,25 @@
       item.setAttribute("data-icon", kind);
       var ic = document.createElement("span");
       ic.className = "upd-wn-ic";
-      ic.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + NOTE_ICONS[kind] + '</svg>';
+      ic.setAttribute("aria-hidden", "true");
+      ic.innerHTML = '<svg viewBox="0 0 24 24">' + NOTE_ICONS[kind] + '</svg>';
+      var copy = document.createElement("span");
+      copy.className = "upd-wn-copy";
+      var label = document.createElement("span");
+      label.className = "upd-wn-kind";
+      label.textContent = noteKind(kind);
       var text = document.createElement("span");
       text.className = "upd-wn-text";
       text.textContent = lines[n];
+      copy.appendChild(label);
+      copy.appendChild(text);
       item.appendChild(ic);
-      item.appendChild(text);
+      item.appendChild(copy);
       list.appendChild(item);
     }
-    body.appendChild(list);
-    root.appendChild(body);
+    main.appendChild(list);
+    layout.appendChild(main);
+    root.appendChild(layout);
     var foot = document.createElement("div");
     foot.className = "upd-wn-foot";
     var go = document.createElement("button");
@@ -1271,7 +1462,7 @@
       if (!t) return;
       var dx = t.clientX - sx;
       var dy = t.clientY - sy;
-      var atTop = body.scrollTop <= 0;
+      var atTop = layout.scrollTop <= 0 && main.scrollTop <= 0;
       if ((dy > 90 && atTop && Math.abs(dy) > Math.abs(dx)) || (Math.abs(dx) > 110 && Math.abs(dx) > Math.abs(dy) * 1.5)) closePage();
     }, { passive: true });
     go.addEventListener("click", closePage);
@@ -1305,7 +1496,7 @@
     }).catch(function () { return null; }).then(function (doc) {
       var notes = doc && normSha(doc.sha) === sha ? notesOf(doc) : [];
       if (document.getElementById("upd-notes-sheet")) return;
-      showReleaseNotes(sha, notes);
+      showReleaseNotes(sha, notes, doc && doc.built);
     });
   }
 
@@ -1317,7 +1508,7 @@
     try { payload = JSON.parse(raw) || {}; } catch (err) { payload = {}; }
     var sha = normSha(payload.sha);
     var notes = payload.notes || [];
-    var run = function () { showReleaseNotes(sha, notes); };
+    var run = function () { showReleaseNotes(sha, notes, payload.built); };
     if (document.body) run();
     else document.addEventListener("DOMContentLoaded", run);
   }
@@ -1327,7 +1518,13 @@
     if (state.deferNotes && state.deferNotes.sha) {
       var waiting = state.deferNotes;
       state.deferNotes = null;
-      showReleaseNotes(waiting.sha, waiting.notes);
+      showReleaseNotes(waiting.sha, waiting.notes, waiting.built);
+    }
+    if (state.deferReload) {
+      state.deferReload = false;
+      state.deferApply = false;
+      finishUpdate();
+      return;
     }
     if (!state.deferApply) return;
     state.deferApply = false;
@@ -1335,19 +1532,25 @@
     else maybeSilentApply();
   }
 
+  function tabBlocksReload(sha) {
+    return blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), "", state.remoteBuilt, state.currentBuilt);
+  }
+
   function scheduleReload() {
     if (reloadTimer || state.reloaded === "reloading") return;
     if (updateBlocked()) {
       state.deferApply = true;
+      state.deferReload = true;
       state.reloaded = false;
       return;
     }
     var sha = normSha(state.pendingSha) || normSha(state.currentSha);
-    if (blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) return;
+    if (tabBlocksReload(sha)) return;
     reloadTimer = setTimeout(function () {
       reloadTimer = 0;
-      if (updateBlocked() || blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) {
+      if (updateBlocked() || tabBlocksReload(sha)) {
         state.deferApply = true;
+        state.deferReload = true;
         state.reloaded = false;
         return;
       }
@@ -1593,12 +1796,7 @@
       var row = controlOf(nodes[i]);
       if (row) plain.push(row);
     }
-    var payload = {
-      hash: location.hash || "",
-      y: window.scrollY || document.documentElement.scrollTop || 0,
-      fields: fieldSnapshot(plain),
-      at: Date.now()
-    };
+    var payload = keepDraft(plain, location.hash || "", window.scrollY || document.documentElement.scrollTop || 0, Date.now());
     var raw = JSON.stringify(payload);
     writeStore(sessionStorage, RESTORE_KEY, raw);
     writeStore(localStorage, RESTORE_KEY, raw);
@@ -1676,9 +1874,9 @@
   }
 
   function hardReload() {
-    if (updateBlocked()) { state.deferApply = true; return; }
+    if (updateBlocked()) { state.deferApply = true; state.deferReload = true; return; }
     var sha = normSha(state.pendingSha) || normSha(state.currentSha);
-    if (blocksReload(state.remoteSha, state.currentSha, sha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) return;
+    if (tabBlocksReload(sha)) return;
     if (!markReload(sha)) return;
     captureState();
     state.expectingController = false;
@@ -1699,12 +1897,29 @@
     return state.phase === "working" || state.phase === "done" || !!reloadTimer;
   }
 
+  var sawController = false;
   function onControllerChange() {
+    var had = sawController;
+    sawController = true;
     askVersion();
-    if (state.reloaded) return;
-    if (staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt)) return;
-    if (!(state.expectingController || state.phase === "working" || state.phase === "done")) return;
-    if (blocksReload(state.remoteSha, state.currentSha, state.pendingSha || state.currentSha, storedReloadSha(sessionStorage), storedReloadSha(localStorage), state.remoteBuilt, state.currentBuilt)) return;
+    var plan = controllerPlan({
+      had: had,
+      reloaded: !!state.reloaded,
+      stale: staleManifest(state.remoteSha, state.currentSha, state.remoteBuilt, state.currentBuilt),
+      expecting: !!state.expectingController,
+      pending: !!state.pending,
+      phase: state.phase,
+      sessionReload: storedReloadSha(sessionStorage),
+      build: normSha(state.pendingSha) || normSha(state.heardSha) || normSha(state.currentSha),
+      hold: updateBlocked()
+    });
+    if (plan === "defer") {
+      state.deferApply = true;
+      state.deferReload = true;
+      state.expectingController = true;
+      return;
+    }
+    if (plan !== "reload") return;
     finishUpdate();
   }
 
@@ -1757,11 +1972,26 @@
     ["pointerdown", "keydown", "wheel", "touchstart", "scroll"].forEach(function (name) {
       window.addEventListener(name, function () { lastInput = Date.now(); }, { passive: true, capture: true });
     });
-    setInterval(function () { refreshBusy(); flushDeferredApply(); idleApply(Date.now()); }, 1500);
+    setInterval(function () { refreshBusy(); flushDeferredApply(); promptApply(Date.now()); }, 1500);
     setInterval(function () {
       if (document.visibilityState !== "hidden" && claimCheck(Date.now())) checkRemote();
     }, CHECK_MS);
     if (!("serviceWorker" in navigator)) return;
+    if (navigator.serviceWorker.controller) sawController = true;
+    window.addEventListener("storage", function (event) {
+      if (event.key !== APPLY_LOCK_KEY || !event.newValue) return;
+      var lock = null;
+      try { lock = JSON.parse(event.newValue); } catch (err) { lock = null; }
+      var sha = lock ? normSha(lock.sha) : "";
+      if (!sha || sha === normSha(state.currentSha)) return;
+      if (normSha(storedReloadSha(sessionStorage)) === sha) return;
+      state.expectingController = true;
+      if (!state.pendingSha) state.pendingSha = sha;
+      readControllerSha().then(function (current) {
+        if (state.reloaded || applying) return;
+        if (normSha(current) === sha) finishUpdate(sha);
+      });
+    });
     navigator.serviceWorker.addEventListener("message", function (event) { onWorkerMessage(event.data || {}); });
     navigator.serviceWorker.addEventListener("controllerchange", function () { onControllerChange(); });
     var attach = function (reg) { if (reg) watch(reg); };
@@ -1805,6 +2035,12 @@
     showReleaseNotes: showReleaseNotes,
     statusKind: statusKind,
     noteIcon: noteIcon,
+    noteKind: noteKind,
+    waitingPlan: waitingPlan,
+    controllerPlan: controllerPlan,
+    claimApplyLock: claimApplyLock,
+    keepDraft: keepDraft,
+    APPLY_LOCK_MS: APPLY_LOCK_MS,
     onControllerChange: onControllerChange,
     shouldOfferReset: shouldOfferReset,
     shouldFallback: shouldFallback,

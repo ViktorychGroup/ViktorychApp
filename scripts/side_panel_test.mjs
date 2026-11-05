@@ -92,10 +92,30 @@ const READ = `(() => {
     sec: sec ? { key: sec.dataset.sideSec, folded: sec.classList.contains("is-folded"), rows: [...sec.querySelectorAll(".card > :not(.side-fold-head)")].filter((el) => el.getBoundingClientRect().height > 0).length } : null };
 })()`;
 
+async function handleBox(page) {
+  // A home repaint can replace the handle between the layout read and the
+  // drag. Wait until the new node has a real box. A zero-height node has no
+  // Chrome box model, so boundingBox() is null even when the element exists.
+  for (let i = 0; i < 40; i++) {
+    const box = await page.locator(".side-split").boundingBox().catch(() => null);
+    if (box && box.width > 0 && box.height > 0) return box;
+    await sleep(100);
+  }
+  return null;
+}
+
 async function drag(page, from, to) {
-  const box = await page.locator(".side-split").boundingBox();
-  if (!box) fail("no side panel handle");
-  const y = box.y + 200;
+  const box = await handleBox(page);
+  if (!box) {
+    const info = await page.evaluate(() => {
+      const el = document.querySelector(".side-split");
+      if (!el) return "missing";
+      const b = el.getBoundingClientRect();
+      return getComputedStyle(el).display + " " + Math.round(b.width) + "x" + Math.round(b.height);
+    }).catch(() => "gone");
+    fail("no side panel handle (" + info + ")");
+  }
+  const y = box.y + Math.min(200, Math.max(8, box.height / 2));
   await page.mouse.move(box.x + box.width / 2, y);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + (to - from) / 2, y, { steps: 4 });

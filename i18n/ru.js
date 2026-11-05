@@ -6304,5 +6304,12 @@ SI18n.addPack("ru", {
   "These app settings already match this device.": "Эти настройки приложения уже подходят этому устройству.",
   "Apply these settings": "Применить эти настройки",
   "Device setup": "Настройка устройства",
-  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych может посмотреть этот браузер и подготовить настройки приложения для устройства и мобильного интернета. Он спрашивает перед изменениями и не может менять телефон или оператора."
+  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych может посмотреть этот браузер и подготовить настройки приложения для устройства и мобильного интернета. Он спрашивает перед изменениями и не может менять телефон или оператора.",
+  "A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.": "Загруженное обновление применяется само, когда вы не записываете, не смотрите видео и не в звонке, затем приложение один раз перезагружается.",
+  "A short Updating notice while an update applies, then a full-screen What's new page.": "Короткое уведомление «Обновление», пока обновление применяется, затем полноэкранная страница «Что нового».",
+  "This update is already on this device.": "Это обновление уже на этом устройстве.",
+  "Your drafts, sign-in and settings stay here.": "Черновики, вход и настройки остаются здесь.",
+  "Updated {date}": "Обновлено {date}",
+  "In this update": "В этом обновлении",
+  "Fix": "Исправление"
 });

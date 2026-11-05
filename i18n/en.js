@@ -6302,5 +6302,12 @@ SI18n.addPack("en", {
   "These app settings already match this device.": "These app settings already match this device.",
   "Apply these settings": "Apply these settings",
   "Device setup": "Device setup",
-  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier."
+  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.",
+  "A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.": "A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.",
+  "A short Updating notice while an update applies, then a full-screen What's new page.": "A short Updating notice while an update applies, then a full-screen What's new page.",
+  "This update is already on this device.": "This update is already on this device.",
+  "Your drafts, sign-in and settings stay here.": "Your drafts, sign-in and settings stay here.",
+  "Updated {date}": "Updated {date}",
+  "In this update": "In this update",
+  "Fix": "Fix"
 });

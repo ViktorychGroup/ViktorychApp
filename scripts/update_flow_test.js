@@ -12,7 +12,7 @@ assert.strictEqual(update.notesOf({ changelog: new Array(20).fill("note") }).len
 const now = 1_000_000;
 assert.strictEqual(update.decide({ pending: false, phase: "offer" }, now), "idle");
 assert.strictEqual(update.decide({ pending: true, phase: "offer", snoozeUntil: now + 10, busy: false }, now), "idle");
-assert.strictEqual(update.decide({ pending: true, phase: "offer", snoozeUntil: 0, busy: true }, now), "pill");
+assert.strictEqual(update.decide({ pending: true, phase: "offer", snoozeUntil: 0, busy: true }, now), "idle");
 assert.strictEqual(update.decide({ pending: true, phase: "offer", snoozeUntil: 0, busy: true, forced: true }, now), "overlay");
 assert.strictEqual(update.decide({ pending: true, phase: "offer", snoozeUntil: 0, busy: false }, now), "overlay");
 assert.strictEqual(update.decide({ pending: true, phase: "working", snoozeUntil: now + 10, busy: true }, now), "overlay");
@@ -20,8 +20,8 @@ assert.strictEqual(update.decide({ pending: true, phase: "error", busy: true }, 
 // What's new waits until the new version's files are all downloaded.
 assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: false }, now), "idle");
 assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: false, forced: true }, now), "idle");
-assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: true }, now), "pill");
-assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: true, snoozeUntil: now + 10 }, now), "pill");
+assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: true }, now), "idle");
+assert.strictEqual(update.decide({ pending: true, phase: "offer", ready: true, snoozeUntil: now + 10 }, now), "idle");
 assert.strictEqual(update.decide({ pending: true, phase: "working", ready: false }, now), "overlay");
 // Background download retries back off and level out at five minutes.
 assert.strictEqual(update.predownloadDelay(0), 15000);
@@ -100,8 +100,8 @@ assert.strictEqual(update.reloadAllowed(NEWER, "", ""), true);
 assert.strictEqual(update.reloadAllowed(NEWER, NEWER, ""), false);
 assert.strictEqual(update.reloadAllowed(NEWER, "", NEWER), false);
 assert.strictEqual(update.reloadAllowed(OLDER, NEWER, NEWER), true);
-assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true }, now), "pill");
-assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true, snoozeUntil: now + 10 }, now), "pill");
+assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true }, now), "idle");
+assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true, snoozeUntil: now + 10 }, now), "idle");
 assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true, critical: true }, now), "blocking");
 assert.strictEqual(update.presentation({ pending: true, phase: "offer", ready: true, forced: true }, now), "blocking");
 assert.strictEqual(update.presentation({ pending: true, phase: "error" }, now), "blocking");
@@ -115,6 +115,9 @@ assert.strictEqual(update.shouldShowNotes("", []), false);
 assert.strictEqual(update.shouldDeferApply({ modal: true, typed: false }), true);
 assert.strictEqual(update.shouldDeferApply({ modal: false, typed: true }), true);
 assert.strictEqual(update.shouldDeferApply({ modal: false, typed: false }), false);
+assert.strictEqual(update.shouldDeferApply({ recording: true }), true);
+assert.strictEqual(update.shouldDeferApply({ video: true }), true);
+assert.strictEqual(update.shouldDeferApply({ call: true }), true);
 assert.strictEqual(update.shouldShowNotes(OLDER, ["nope", ""]), true);
 
 assert.strictEqual(update.restoreFresh({ at: now, hash: "#/home", y: 10 }, now + 1000), true);
@@ -140,5 +143,46 @@ assert.strictEqual(update.noteIcon("Fixed the gap above the header"), "fix");
 assert.strictEqual(update.noteIcon("Faster, smoother For you loading"), "fast");
 assert.strictEqual(update.noteIcon("Tab strips like the X app"), "look");
 assert.strictEqual(update.noteIcon("Swipe between custom feeds"), "new");
+assert.strictEqual(update.noteKind("fix"), "Fix");
+assert.strictEqual(update.noteKind("fast"), "Faster");
+assert.strictEqual(update.noteKind("look"), "Appearance");
+assert.strictEqual(update.noteKind("new"), "New");
+
+const readySpec = {
+  controller: OLDER,
+  remote: NEWER,
+  waiting: NEWER,
+  applied: "",
+  remoteBuilt: "2026-10-27T00:00:00Z",
+  currentBuilt: "2020-01-01T00:00:00Z",
+  sessionReload: "",
+  localReload: "",
+  ready: true,
+  hold: false
+};
+assert.strictEqual(update.waitingPlan(readySpec), "apply", "a ready waiting worker applies itself");
+assert.strictEqual(update.waitingPlan(Object.assign({}, readySpec, { ready: false })), "wait");
+assert.strictEqual(update.waitingPlan(Object.assign({}, readySpec, { hold: true })), "hold");
+assert.strictEqual(update.waitingPlan(Object.assign({}, readySpec, { sessionReload: NEWER })), "idle", "this tab already reloaded");
+assert.strictEqual(update.waitingPlan(Object.assign({}, readySpec, { localReload: NEWER })), "follow", "another tab is switching");
+assert.strictEqual(update.waitingPlan(Object.assign({}, readySpec, { waiting: OLDER })), "idle");
+assert.strictEqual(update.controllerPlan({ had: true, reloaded: false, stale: false, expecting: false, pending: false, phase: "offer", sessionReload: "", build: NEWER, hold: false }), "reload");
+assert.strictEqual(update.controllerPlan({ had: true, reloaded: false, stale: true, expecting: true, pending: true, phase: "working", sessionReload: "", build: NEWER, hold: false }), "ignore", "stale version.json does not reload");
+assert.strictEqual(update.controllerPlan({ had: true, reloaded: true, stale: false, expecting: true, pending: true, phase: "done", sessionReload: "", build: NEWER, hold: false }), "ignore");
+assert.strictEqual(update.controllerPlan({ had: true, reloaded: false, stale: false, expecting: true, pending: true, phase: "working", sessionReload: NEWER, build: NEWER, hold: false }), "ignore", "one reload per tab");
+assert.strictEqual(update.controllerPlan({ had: false, reloaded: false, stale: false, expecting: false, pending: false, phase: "offer", sessionReload: "", build: NEWER, hold: false }), "ignore", "first install does not reload");
+assert.strictEqual(update.controllerPlan({ had: true, reloaded: false, stale: false, expecting: true, pending: true, phase: "working", sessionReload: "", build: NEWER, hold: true }), "defer");
+assert.strictEqual(update.claimApplyLock(NEWER, 5_000, null), true);
+assert.strictEqual(update.claimApplyLock(NEWER, 6_000, { sha: NEWER, at: 5_000 }), false);
+assert.strictEqual(update.claimApplyLock(NEWER, 5_000 + update.APPLY_LOCK_MS, { sha: NEWER, at: 5_000 }), true);
+const draft = update.keepDraft([
+  { id: "compose-text", value: "unsaved line", type: "text" },
+  { id: "secret", value: "nope", type: "password" }
+], "#/compose", 40, now);
+assert.strictEqual(draft.hash, "#/compose");
+assert.strictEqual(draft.y, 40);
+assert.strictEqual(draft.fields[0].value, "unsaved line");
+assert.ok(!JSON.stringify(draft).includes("nope"));
+assert.strictEqual(update.restoreFresh(draft, now + 1000), true);
 
 console.log("update flow ok");

@@ -1,9 +1,10 @@
 /* Visible updates (switch update_notice): What's new is a full-screen,
-   edge-to-edge dark page with our logo, one card per changelog line and one
-   Continue button; Escape, a swipe or Continue closes it; it shows once per
-   version and on a cold start into a new build; no animation with reduced
-   motion; the switch off keeps the classic sheet. The Updating toast is
-   small and never takes taps. Made-up changelog lines only. */
+   edge-to-edge dark welcome page with our logo, the version, the real
+   changelog and one Continue button. It is not a tap-to-update prompt.
+   Escape, a swipe or Continue closes it; it shows once per version and on
+   a cold start into a new build; no animation with reduced motion; the
+   switch off keeps the classic sheet. Phone and desktop layouts differ.
+   The Updating toast is small and never takes taps. Made-up changelog lines only. */
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -105,7 +106,7 @@ try {
   // 1. What's new is a full-screen, edge-to-edge dark page with cards and one Continue.
   {
     const { ctx, page } = await open(browser, origin);
-    const opened = await page.evaluate(([sha, notes]) => window.ViktorychUpdate.showReleaseNotes(sha, notes), [SHA, NOTES]);
+    const opened = await page.evaluate(([sha, notes]) => window.ViktorychUpdate.showReleaseNotes(sha, notes, "2026-11-05T12:40:00Z"), [SHA, NOTES]);
     if (opened !== true) fail("update notice: What's new did not open");
     await sleep(700);
     const facts = await page.evaluate(() => {
@@ -120,7 +121,14 @@ try {
         logo: !!el.querySelector("img.upd-wn-logo"),
         buttons: go.map((b) => b.textContent.trim()),
         focus: document.activeElement && document.activeElement.id,
-        title: el.querySelector("h2").textContent
+        title: el.querySelector("h2").textContent,
+        kicker: (el.querySelector(".upd-wn-kicker") || {}).textContent || "",
+        lead: (el.querySelector(".upd-wn-lead") || {}).textContent || "",
+        keep: (el.querySelector(".upd-wn-keep") || {}).textContent || "",
+        when: (el.querySelector(".upd-wn-when") || {}).textContent || "",
+        section: (el.querySelector(".upd-wn-section") || {}).textContent || "",
+        count: (el.querySelector(".upd-wn-count") || {}).textContent || "",
+        tap: /tap to/i.test(el.innerText || "")
       };
     });
     if (!/upd-wn/.test(facts.cls)) fail("update notice: not the full-screen page " + facts.cls);
@@ -133,6 +141,13 @@ try {
     if (facts.buttons.join("|") !== "Continue") fail("update notice: buttons " + facts.buttons.join("|"));
     if (facts.focus !== "upd-gotit") fail("update notice: Continue not focused");
     if (facts.title !== "What's new") fail("update notice: title " + facts.title);
+    if (facts.kicker !== "You're up to date") fail("update notice: kicker " + facts.kicker);
+    if (facts.lead !== "This update is already on this device.") fail("update notice: lead " + facts.lead);
+    if (!/drafts/.test(facts.keep)) fail("update notice: keep " + facts.keep);
+    if (facts.when !== "Updated 2026-11-05") fail("update notice: when " + facts.when);
+    if (facts.section !== "In this update") fail("update notice: section " + facts.section);
+    if (facts.count !== "4 changes") fail("update notice: count " + facts.count);
+    if (facts.tap) fail("update notice: the welcome page asked for a tap");
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "whats-new.png") });
     await page.click("#upd-gotit");
     if (await page.$("#upd-notes-sheet")) fail("update notice: Continue did not close");
@@ -186,6 +201,47 @@ try {
     await page.evaluate(([sha, notes]) => window.ViktorychUpdate.showReleaseNotes(sha, notes), [SHA, NOTES]);
     const anim = await page.evaluate(() => [getComputedStyle(document.getElementById("upd-notes-sheet")).animationName, getComputedStyle(document.querySelector(".upd-wn-card")).animationName]);
     if (anim.some((name) => name !== "none")) fail("update notice: animates with reduced motion " + anim.join(","));
+    await ctx.close();
+  }
+  // 4. Desktop: two columns, the same welcome, Continue still the way back.
+  {
+    const ctx = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false });
+    await ctx.addInitScript(() => {
+      localStorage.setItem("viktorychapp-welcome-v1", JSON.stringify({ step: 2, done: true }));
+    });
+    const page = await ctx.newPage();
+    page.errors = [];
+    page.on("pageerror", (e) => page.errors.push(String(e)));
+    await page.route("**/feeds.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(feeds) }));
+    await page.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.hasAttribute("data-shell") && window.ViktorychUpdate, null, { timeout: 20000 });
+    await page.evaluate(([sha, notes]) => window.ViktorychUpdate.showReleaseNotes(sha, notes, "2026-11-05T12:40:00Z"), ["f".repeat(40), NOTES]);
+    await sleep(400);
+    const desk = await page.evaluate(() => {
+      const el = document.getElementById("upd-notes-sheet");
+      const layout = el.querySelector(".upd-wn-layout");
+      const go = document.getElementById("upd-gotit");
+      const box = el.getBoundingClientRect();
+      const button = go.getBoundingClientRect();
+      return {
+        display: getComputedStyle(layout).display,
+        cols: getComputedStyle(layout).gridTemplateColumns,
+        edge: box.x === 0 && box.y === 0 && box.width === innerWidth && box.height === innerHeight,
+        go: go.textContent.trim(),
+        buttonRight: button.x + button.width,
+        tap: /tap to/i.test(el.innerText || "")
+      };
+    });
+    if (desk.display !== "grid") fail("update notice: desktop layout is not a grid " + desk.display);
+    if (!desk.cols.includes(" ")) fail("update notice: desktop has one column " + desk.cols);
+    if (!desk.edge) fail("update notice: desktop page is not edge to edge");
+    if (desk.go !== "Continue") fail("update notice: desktop button " + desk.go);
+    if (desk.buttonRight < 1000) fail("update notice: Continue is not on the desktop page " + desk.buttonRight);
+    if (desk.tap) fail("update notice: desktop page asked for a tap");
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "whats-new-desktop.png") });
+    await page.click("#upd-gotit");
+    if (await page.$("#upd-notes-sheet")) fail("update notice: desktop Continue did not close");
+    if (page.errors.length) fail("update notice: desktop page errors " + page.errors.join(" | "));
     await ctx.close();
   }
   // 3. The owner switch off keeps the classic bottom sheet.
