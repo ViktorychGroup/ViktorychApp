@@ -27414,14 +27414,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       applySafeTop.bound = true;
       let queued = 0;
       // Phones fire resize while scrolling (the browser bars slide in and out);
-      // only the width, orientation or display mode can change the status bar,
+      // only the width, the screen or the display mode can change the status bar,
       // so a height-only resize keeps the inset and the header stays one size.
-      let lastW = window.innerWidth || 0;
+      const sizeKey = () => { const sc = window.screen || {}; return [window.innerWidth || 0, sc.height || 0, sc.availHeight || 0].join("x"); };
+      let lastKey = sizeKey();
       const again = (event) => {
         if (event && event.type === "resize") {
-          const w = window.innerWidth || 0;
-          if (w === lastW) return;
-          lastW = w;
+          const key = sizeKey();
+          if (key === lastKey) return;
+          lastKey = key;
         }
         if (queued) return;
         queued = requestAnimationFrame(() => { queued = 0; const was = applySafeTop.below; if (applySafeTop(installedApp()) !== was) applyTheme(); });
