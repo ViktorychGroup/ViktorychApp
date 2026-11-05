@@ -85,7 +85,10 @@ export const FEATURES = {
   ai_people: { paths: [] },
   // Viktrych GGUF models (wllama, llama.cpp in WebAssembly) from Hugging
   // Face in the model lists. Loaded from public CDNs only when picked.
-  gguf_models: { paths: [] }
+  gguf_models: { paths: [] },
+  // Viktrych Instant (rules, no download) does up to 3 things per message
+  // and points to a downloaded model for more. No server endpoints.
+  instant_limits: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

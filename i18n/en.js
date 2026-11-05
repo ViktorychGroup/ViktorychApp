@@ -6138,5 +6138,11 @@ SI18n.addPack("en", {
   "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.",
   "{n} tokens/s measured": "{n} tokens/s measured",
   "about {n} tokens/s": "about {n} tokens/s",
-  "Best for this device comes from a short speed test here and the speed of your chats.": "Best for this device comes from a short speed test here and the speed of your chats."
+  "Best for this device comes from a short speed test here and the speed of your chats.": "Best for this device comes from a short speed test here and the speed of your chats.",
+  "Instant does up to {n} things at a time, so here are the first {n}.": "Instant does up to {n} things at a time, so here are the first {n}.",
+  "A downloaded model can do the whole list in one go.": "A downloaded model can do the whole list in one go.",
+  "A downloaded model understands longer and freer wording.": "A downloaded model understands longer and freer wording.",
+  "Pick a smarter model": "Pick a smarter model",
+  "Instant limits": "Instant limits",
+  "Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.": "Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks."
 });

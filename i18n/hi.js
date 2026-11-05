@@ -6128,5 +6128,11 @@ SI18n.addPack("hi", {
   "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Hugging Face से छोटे GGUF मॉडल (कुछ पर बिना सेंसर लिखा है) जिन्हें Viktrych llama.cpp से प्रोसेसर पर चलाता है; चुनने पर ही लोड होते हैं।",
   "{n} tokens/s measured": "{n} टोकन/से. मापा गया",
   "about {n} tokens/s": "लगभग {n} टोकन/से.",
-  "Best for this device comes from a short speed test here and the speed of your chats.": "इस डिवाइस के लिए सबसे अच्छा, यहाँ एक छोटे स्पीड टेस्ट और आपकी चैट की गति से चुना जाता है।"
+  "Best for this device comes from a short speed test here and the speed of your chats.": "इस डिवाइस के लिए सबसे अच्छा, यहाँ एक छोटे स्पीड टेस्ट और आपकी चैट की गति से चुना जाता है।",
+  "Instant does up to {n} things at a time, so here are the first {n}.": "Instant एक बार में {n} काम तक करता है, इसलिए ये पहले {n} हैं।",
+  "A downloaded model can do the whole list in one go.": "डाउनलोड किया गया मॉडल पूरी सूची एक बार में कर सकता है।",
+  "A downloaded model understands longer and freer wording.": "डाउनलोड किया गया मॉडल लंबे और खुले शब्दों को समझता है।",
+  "Pick a smarter model": "ज़्यादा समझदार मॉडल चुनें",
+  "Instant limits": "Instant की सीमाएँ",
+  "Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.": "Viktrych के Instant नियम हर संदेश में 3 काम तक करते हैं और लंबे अनुरोधों के लिए डाउनलोड किया गया मॉडल सुझाते हैं।"
 });

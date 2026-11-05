@@ -133,6 +133,17 @@ async function main() {
         await settled(page, () => { const v = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}"); return (v.mutedAccounts || []).indexOf("@demo_loud") < 0; });
         s = await settings(page);
         check(s.blocks.accounts.indexOf("x:demo_spammer") < 0 && s.mutedAccounts.indexOf("@demo_loud") < 0, "Undo unblocks and unmutes");
+        // Instant limits (switch instant_limits): 4 asks keep the first 3 and offer a smarter model.
+        await page.click('.lai-head [data-lai="new"]');
+        await say(page, "make text bigger, dark mode, stop autoplay on mobile data and hide friends stuff");
+        await until(page, '[data-lai="apply"]', 10000);
+        const lim = await page.evaluate(() => ({ rows: [...document.querySelectorAll(".lai-msg.ai:last-child .lai-ch-name")].map((a) => a.getAttribute("href") || a.textContent), up: !!document.querySelector(".lai-msg.ai:last-child .lai-upsell [data-lai='upsell']"), text: document.querySelector(".lai-msg.ai:last-child .lai-text").textContent }));
+        check(lim.up && /up to 3/.test(lim.text) && lim.rows.length >= 1 && lim.rows.length <= 3, "Instant keeps the first 3 asks and offers a model: " + JSON.stringify(lim));
+        if (process.env.LAI_LIMIT_SHOT) await page.screenshot({ path: process.env.LAI_LIMIT_SHOT });
+        await page.click("[data-lai='upsell']");
+        await page.waitForSelector(".lai-menu", { timeout: 5000 });
+        await page.click('[data-lai="models"]');
+        await page.waitForSelector(".lai-menu", { state: "detached", timeout: 5000 });
       }
       // Quick settings: a tap on a toggle makes the same confirm card.
       await page.click('.lai-head [data-lai="new"]');
