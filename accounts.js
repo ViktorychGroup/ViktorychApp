@@ -1977,10 +1977,11 @@ var numberNote = form.passkey
     if (themes ? !themes.known(mode) : (mode !== "default" && mode !== "dim")) mode = "lightsout";
     if (themes) themes.apply(mode);
     else document.documentElement.setAttribute("data-theme", mode);
-    var colors = { default: "#FFFFFF", dim: "#15202B", lightsout: "#000000" };
+    var colors = { default: "#FFFFFF", dim: "#15202B", lightsout: "#010101" };
     var metas = document.querySelectorAll('meta[name="theme-color"]');
-    // Android's fallback for a transparent native bar is grey, not see-through.
-    var barColor = themes ? themes.color(mode) : colors[mode];
+    // Pure black is Android's unset bar colour, so the native strip would be grey.
+    var barColor = themes && themes.native ? themes.native(mode) : (themes ? themes.color(mode) : colors[mode]);
+    if (barColor === "#000000" || barColor === "#000") barColor = "#010101";
     for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", barColor);
     try {
       var key = "viktorychapp-settings-v1";

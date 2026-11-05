@@ -605,7 +605,7 @@ html.is-split-drag * {
   right: 0;
   top: 0;
   height: var(--sat, env(safe-area-inset-top, 0px));
-  background: transparent;
+  background: var(--bg, #000);
   pointer-events: none;
 }
 .mhead { display: none; }
@@ -3571,7 +3571,7 @@ html.vk-fs .vk-fs-exit.on { transform: translate(-50%, 0); opacity: 1; pointer-e
   .topbar { padding-top: var(--sat, env(safe-area-inset-top, 0px)); }
   .bottom-nav { padding-bottom: env(safe-area-inset-bottom); height: calc(53px + env(safe-area-inset-bottom)); }
 }
-@media (max-width: 499px), (display-mode: standalone), (display-mode: window-controls-overlay) {
+@media (max-width: 499px), (display-mode: standalone), (display-mode: window-controls-overlay), (display-mode: fullscreen) {
   body::before {
     content: "";
     position: fixed;
@@ -3579,15 +3579,18 @@ html.vk-fs .vk-fs-exit.on { transform: translate(-50%, 0); opacity: 1; pointer-e
     top: 0;
     left: 0;
     right: 0;
-    height: calc(var(--sat, env(safe-area-inset-top, 0px)) + 1px);
-    background: transparent;
+    /* Cover the real status-bar inset (Pixel 6a is 50px). A transparent strip
+       shows Android's #131313 surface. Cap a bogus env() so it cannot hide the page. */
+    height: min(calc(var(--sat, env(safe-area-inset-top, 0px)) + 1px), 65px);
+    background: var(--bg, #000);
     pointer-events: none;
   }
-  body:has(.profile-top)::before { background: transparent; }
+  body:has(.profile-top.has-banner)::before,
+  body:has(.profile-top.has-banner) .topbar::before { background: transparent; }
   .topbar {
     background: var(--topbar);
   }
-  .topbar::before { height: calc(var(--sat, env(safe-area-inset-top, 0px)) + 1px); background: transparent; }
+  .topbar::before { height: min(calc(var(--sat, env(safe-area-inset-top, 0px)) + 1px), 65px); background: var(--bg, #000); }
 }
 
 .home-fresh {
@@ -8032,11 +8035,11 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
 .nsnd-volume { width: 100%; accent-color: var(--blue, #1d9bf0); margin: 6px 0 4px; }
 
 /* Phones: the header row is one fixed size. The inset above it is the status
-   bar only (capped so a wrong env() can't leave a fat empty band), and it
-   never grows while scrolling. */
+   bar only. 64px fits a Pixel 6a (50px) and a notch, and still caps a wrong
+   env() so it cannot leave a fat empty band. It never grows while scrolling. */
 @media (max-width: 499px) {
-  .topbar { padding-top: min(var(--sat, env(safe-area-inset-top, 0px)), 48px); }
-  .topbar::before { height: min(var(--sat, env(safe-area-inset-top, 0px)), 48px); }
+  .topbar { padding-top: min(var(--sat, env(safe-area-inset-top, 0px)), 64px); }
+  .topbar::before { height: min(var(--sat, env(safe-area-inset-top, 0px)), 64px); background: var(--bg, #000); }
   .topbar .mhead { height: 53px; min-height: 53px; max-height: 53px; flex: none; box-sizing: border-box; }
-  .center { padding-top: calc(var(--top) + min(var(--sat, env(safe-area-inset-top, 0px)), 48px)); }
+  .center { padding-top: calc(var(--top) + min(var(--sat, env(safe-area-inset-top, 0px)), 64px)); }
 }
