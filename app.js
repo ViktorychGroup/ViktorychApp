@@ -2088,10 +2088,14 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       return Array.isArray(list) ? list.filter((name) => SERVER_FEATURES.includes(name)) : [];
     } catch (err) { return []; }
   }
-  window.addEventListener("viktorych-reader-ready", () => {
-    if (serverOffList().includes("article_reader")) return;
-    setTimeout(() => { try { render(); } catch (err) { /* the shell is still starting */ } }, 0);
-  });
+  /* The nav sandbox evals this file with a plain window object. Attach the
+     reader repaint only where the browser actually has addEventListener. */
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("viktorych-reader-ready", () => {
+      if (serverOffList().includes("article_reader")) return;
+      setTimeout(() => { try { render(); } catch (err) { /* the shell is still starting */ } }, 0);
+    });
+  }
   /* True only once the server list has been fetched and the feature is not
      in it, so default-off features stay hidden until the owner turns them on. */
   window.ViktorychServerFeature = function (name) {
