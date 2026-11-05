@@ -13181,8 +13181,10 @@ const here = parseRoute();
      the tab row stays pinned under the status bar. Classic header is a
      user setting. */
   function compactHeaderOn() { return !serverOffList().includes("compact_header") && !(STATE.settings && STATE.settings.classicHeader); }
-  /* Phone status bar mode (owner switch status_bar): the installed app keeps a
-     solid status bar in the theme colour instead of drawing under it. */
+  /* Phone status bar mode (owner switch status_bar): kept for the display
+     setting. Native system bars always use the opaque theme colour: Android
+     replaces a transparent theme-color with its own grey, while the page's
+     viewport-fit=cover header still supplies the safe-area clearance. */
   function statusBarOn() { return !serverOffList().includes("status_bar") && !!(STATE.settings && STATE.settings.statusBar); }
   function mobileLogo() {
     return `<a class="m-logo" href="#/" aria-label="${productName("app")}">${markSvg("app", "logo-full")}${markSvg("appShort", "logo-short")}</a>`;
@@ -27227,8 +27229,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     applyNavLayout();
     applyZoomLock();
     const installed = installedApp();
-    const below = applySafeTop(!!installed);
-    const color = installed && !statusBarOn() && !below ? "transparent" : (THEME_COLORS[theme] || "#000000");
+    applySafeTop(!!installed);
+    // Android does not honour a transparent native theme-color: it falls back
+    // to #131313, leaving a grey strip above the black Home header. Keep the
+    // native strip on the selected theme instead. iOS still draws through its
+    // black-translucent status bar and the topbar owns the safe-area padding.
+    const color = THEME_COLORS[theme] || "#000000";
     if (statusBarOn()) document.documentElement.setAttribute("data-status-bar", "1");
     else document.documentElement.removeAttribute("data-status-bar");
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", color));
