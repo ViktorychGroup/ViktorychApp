@@ -2081,7 +2081,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "x_broadcast"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "x_broadcast"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2185,6 +2185,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       ai_people: [tr("Viktrych blocks and mutes"), tr("Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.")],
       gguf_models: [tr("GGUF models for Viktrych"), tr("Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.")],
       instant_limits: [tr("Instant limits"), tr("Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.")],
+      ai_tools: [tr("Viktrych local tools"), tr("On this device Viktrych can fetch a direct media file, run FFmpeg in the page, and prepare drafts you confirm. Each step asks first. Off hides tools.")],
       site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")],
       notif_sounds: [tr("In-app notification sounds"), tr("While the app is open, new notifications play a sound picked per account, per type or the default, with a volume control. Made on the device; no sound files.")],
       owner_user_settings: [tr("Manage member settings"), tr("In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.")],
@@ -33206,6 +33207,86 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       return out;
     });
   }
+  function actionContext() {
+    return {
+      tabs: feedTabs().filter((tab) => tab && !tab.deletedAt).map((tab) => ({ id: tab.id, name: tab.name })),
+      lists: ((STATE.settings && STATE.settings.lists) || []).map((list) => ({ id: list.id, name: list.name }))
+    };
+  }
+  function performAppAction(step, typed) {
+    const Actions = window.ViktorychAppActions;
+    if (!step || step.channel !== "app" || serverOffList().includes("ai_tools")) return Promise.resolve({ ok: false, error: "off" });
+    if (!Actions || !Actions.accepts(step, typed, actionContext())) return Promise.resolve({ ok: false, error: "action" });
+    if (step.posted) return Promise.resolve({ ok: false, error: "posted" });
+    const name = step.name;
+    if (name === "nav.open") {
+      goHash(step.hash);
+      return Promise.resolve({ ok: true, effect: "nav" });
+    }
+    if (name === "compose.draft") {
+      STATE.composeSeed = String(step.text || "").slice(0, 500);
+      STATE.composeVia = "app";
+      STATE.composeParent = "";
+      STATE.composeQuote = "";
+      STATE.modal = "compose";
+      render();
+      return Promise.resolve({ ok: true, posted: false, drafted: true });
+    }
+    if (name === "list.draft") {
+      STATE.draft = { name: step.listName, description: "", bannerColor: COLORS[0] };
+      STATE.modal = "list";
+      goHash("#/lists");
+      render();
+      return Promise.resolve({ ok: true, saved: false, drafted: true });
+    }
+    if (name === "tab.create") {
+      const id = newFeedTabId();
+      const tabs = feedTabs();
+      tabs.push({ id: id, name: clipTabName(step.tabName), emoji: "", color: "", showHome: true, showNotes: false, members: [], sort: "recent", readAt: 0 });
+      STATE.settings.feedTabs = cleanFeedTabs(tabs);
+      saveSettings();
+      goHash(homeHash("cat:" + id));
+      return Promise.resolve({ ok: true, id: id });
+    }
+    if (name === "tab.switch") {
+      if (step.tab === "following" || step.tab === "foryou") {
+        goHash(homeHash(step.tab));
+        return Promise.resolve({ ok: true });
+      }
+      const found = feedTabById(step.tabId);
+      if (!found || found.name !== step.tabName) return Promise.resolve({ ok: false, error: "tab" });
+      goHash(homeHash("cat:" + found.id));
+      return Promise.resolve({ ok: true });
+    }
+    if (name === "tab.close") {
+      const found = feedTabById(step.tabId);
+      if (!found || found.name !== step.tabName) return Promise.resolve({ ok: false, error: "tab" });
+      STATE.settings.feedTabs = feedTabs().filter((tab) => tab.id !== found.id);
+      saveSettings();
+      goHash("#/");
+      return Promise.resolve({ ok: true, closed: true });
+    }
+    if (name === "tab.customize") {
+      const found = feedTabById(step.tabId);
+      if (!found || found.name !== step.tabName) return Promise.resolve({ ok: false, error: "tab" });
+      if (step.nextName) found.name = clipTabName(step.nextName);
+      if (step.showHome === true || step.showHome === false) found.showHome = step.showHome;
+      STATE.settings.feedTabs = cleanFeedTabs(feedTabs());
+      saveSettings();
+      render();
+      return Promise.resolve({ ok: true });
+    }
+    if (name.indexOf("person.") === 0) {
+      if (serverOffList().includes("ai_people")) return Promise.resolve({ ok: false, error: "off" });
+      const act = name.indexOf("mute") >= 0 ? "mute" : "block";
+      const on = name.indexOf(".un") < 0;
+      const ok = aiPersonApply("person:" + act + ":" + step.handle, on);
+      if (ok) saveSettings();
+      render();
+      return Promise.resolve({ ok: ok, handle: step.handle });
+    }
+    return Promise.resolve({ ok: false, error: "action" });
+  }
   window.ViktorychSettingsHost = {
     get: aiValue,
     values: () => {
@@ -33219,6 +33300,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     peopleOn: () => !serverOffList().includes("ai_people"),
     ggufOff: () => serverOffList().includes("gguf_models"),
     instantLimits: () => !serverOffList().includes("instant_limits"),
+    toolsOn: () => !serverOffList().includes("ai_tools"),
+    actionContext: actionContext,
+    performApp: (step, typed) => performAppAction(step, typed),
     signedIn: () => !!accountToken(),
     lang: () => (window.SI18n ? window.SI18n.getLang() : "en"),
     lowEnd: () => {
