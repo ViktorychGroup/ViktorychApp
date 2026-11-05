@@ -91,7 +91,10 @@ export const FEATURES = {
   instant_limits: { paths: [] },
   // Settings > Site permissions: live browser permission states with
   // one-tap Allow and steps for blocked ones. No server endpoints.
-  site_permissions: { paths: [] }
+  site_permissions: { paths: [] },
+  // In-app notification sounds: WebAudio sounds per account, per type and a
+  // default while the app is open. Per device. No server endpoints.
+  notif_sounds: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

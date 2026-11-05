@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-05T07:30:00.000Z-site-permissions
+// cache-bust: 2026-11-05T07:40:00.000Z-notif-sounds
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -86,6 +86,7 @@ const SHELL_FILES = [
   "./device-seal.js",
   "./device-data.js",
   "./site-permissions.js",
+  "./notif-sounds.js",
   "./direct.js",
   "./comments-client.js",
   "./device.js",
