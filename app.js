@@ -2025,7 +2025,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "site_permissions"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "site_permissions", "notif_sounds"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2129,7 +2129,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       ai_people: [tr("Viktrych blocks and mutes"), tr("Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.")],
       gguf_models: [tr("GGUF models for Viktrych"), tr("Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.")],
       instant_limits: [tr("Instant limits"), tr("Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.")],
-      site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")]
+      site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")],
+      notif_sounds: [tr("In-app notification sounds"), tr("While the app is open, new notifications play a sound picked per account, per type or the default, with a volume control. Made on the device; no sound files.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -10499,6 +10500,31 @@ const here = parseRoute();
      count notes this device has not listed (an incremental pull after the
      local list was reset, a notification type this build drops), which made
      the badge say 8 or 10 over an empty list. */
+  /* In-app notification sounds (notif-sounds.js, owner switch notif_sounds):
+     new unread notes that arrive while the app is visible play the sound
+     picked for their account, their type or the default. Notes older than
+     this page load never sound, so opening the app stays quiet. */
+  const SOUNDS_SINCE = Date.now();
+  function soundsOn() { return !!window.ViktorychSounds && !serverOffList().includes("notif_sounds"); }
+  function bellIds() {
+    const ids = {};
+    ((STATE.settings && STATE.settings.bellNotes) || []).forEach((note) => { if (note && note.id) ids[String(note.id)] = true; });
+    return ids;
+  }
+  function noteSounds(before) {
+    if (!soundsOn() || document.hidden || !STATE.settings) return;
+    if (window.ViktorychPresence && window.ViktorychPresence.mutesNotices && window.ViktorychPresence.mutesNotices()) return;
+    const read = Math.max(Number(STATE.settings.bellRead) || 0, SOUNDS_SINCE - 30000);
+    const fresh = visibleNotes((STATE.settings.bellNotes || []).filter((note) => note && note.id && !before[String(note.id)] && !note.read && (Number(note.at) || 0) > read));
+    if (fresh.length) window.ViktorychSounds.onNew(fresh);
+  }
+  function soundSenderKey(target) {
+    const feed = String(target.feedId || "");
+    const handle = String(target.handle || "").replace(/^@/, "").toLowerCase();
+    if (feed && feed.indexOf("person:") !== 0) return feed;
+    return handle ? (target.platform || "x") + ":" + handle : "";
+  }
+
   function bellUnread() {
     const serverNotes = typeof notesServer === "function" ? notesServer() : null;
     const read = Math.max(Number(STATE.settings && STATE.settings.bellRead) || 0, Number(serverNotes && serverNotes.readUntil) || 0);
@@ -14597,6 +14623,7 @@ const here = parseRoute();
         rows.push(profileSheetRow("nick-edit", tr("Set custom name"), `data-platform="${esc(target.platform || "x")}" data-handle="${esc(target.handle)}" data-original="${esc(target.original || target.name || "")}"${target.personId ? ` data-person="${esc(target.personId)}"` : ""}`));
       }
       rows.push(profileSheetRow("share", tr("Share"), `data-kind="profile" data-id="${esc(target.feedId || link)}"`));
+      if (!target.own && soundsOn() && soundSenderKey(target)) rows.push(profileSheetRow("profile-sound", tr("Notification sound")));
       if (!target.own && (target.feedId || target.handle)) rows.push(profileSheetRow("profile-mute", tr("Mute"), `data-id="${esc(target.feedId || (target.platform + ":" + target.handle))}"`));
       if (!target.own && (target.feedId || target.handle) && target.platform !== "app") rows.push(profileSheetRow("busy-menu", tr("Posting volume"), `data-key="${esc(target.feedId || ((target.platform || "x") + ":" + String(target.handle || "").toLowerCase()))}" data-name="${esc(target.name || "")}" data-handle="${esc(target.handle || "")}" data-platform="${esc(target.platform || "x")}"`));
       const signed = window.ViktorychAccounts && window.ViktorychAccounts.token && window.ViktorychAccounts.token();
@@ -14615,6 +14642,10 @@ const here = parseRoute();
       }
       if (target.feedId || target.handle) rows.push(profileSheetRow("profile-cm-tab", tr("Add to Communities tab"), `data-id="${esc(target.feedId || (target.platform + ":" + target.handle))}" data-name="${esc(target.name || target.handle || "")}"`));
     }
+    if (menu === "sound" && soundsOn() && soundSenderKey(target)) {
+      const label = target.handle ? "@" + String(target.handle).replace(/^@/, "") : (target.name || "");
+      window.ViktorychSounds.sheetRows(soundSenderKey(target), label, icon("tick")).forEach((row) => rows.push(row));
+    }
     if (menu === "lists") {
       const lists = (STATE.settings && STATE.settings.lists) || [];
       if (!lists.length) rows.push(`<p class="bell-note">${esc(tr("Create a List to group the accounts you follow."))}</p>`);
@@ -14623,7 +14654,7 @@ const here = parseRoute();
         rows.push(`<button class="bell-choice" type="button" data-act="profile-list-toggle" data-list="${esc(list.id)}" data-id="${esc(target.feedId)}"><span class="bell-choice-label">${esc(list.name || "")}</span><span class="bell-mark">${on ? icon("tick") : ""}</span></button>`);
       });
     }
-    const title = menu === "tools" ? tr("Feed tools") : menu === "lists" ? tr("Lists") : tr("More");
+    const title = menu === "tools" ? tr("Feed tools") : menu === "lists" ? tr("Lists") : menu === "sound" ? tr("Notification sound") : tr("More");
     return `<div class="bell-sheet" data-act="close-profile-menu"><div class="menu bell-menu profile-menu" data-act="stop" role="menu" aria-label="${esc(title)}"><div class="bell-grab" aria-hidden="true"></div>${rows.join("")}</div></div>`;
   }
 
@@ -18524,6 +18555,7 @@ const here = parseRoute();
       </div>${ownerFeaturesSection()}`;
     }
     if (section === "notifications" && sub === "discord") return discordAlertsView();
+    if (section === "notifications" && sub === "sounds" && soundsOn()) return settingsHead(tr("Notification sounds"), "#/settings/notifications") + window.ViktorychSounds.pageHtml();
     if (section === "notifications") {
       const shared = noteTabsSame();
       const sameSwitch = `<button class="tab-switch${shared ? " on" : ""}" type="button" role="switch" aria-checked="${shared ? "true" : "false"}" data-act="note-tabs-same"><span>${esc(tr("Same tabs as Feed"))}</span><i></i></button>`;
@@ -18539,6 +18571,7 @@ const here = parseRoute();
         <button class="primary" type="button" data-act="notify">${esc(notifyOn ? tr("Notifications on") : tr("Notify me about new posts"))}</button>
         ${window.ViktorychNotifPrivacy ? window.ViktorychNotifPrivacy.settingsHtml(STATE.settings && STATE.settings.notifPrivacy, esc) : ""}
         ${settingsRow("#/settings/notifications/discord", tr("Discord alerts"), tr("Mentions and keywords from channels this app already shows."))}
+        ${soundsOn() ? settingsRow("#/settings/notifications/sounds", tr("Notification sounds"), tr("Sounds while the app is open, per account and per type.")) : ""}
         ${prefRow("mentions", tr("Mentions"))}
         <button class="tab-switch${followOnly ? " on" : ""}" type="button" role="switch" aria-checked="${followOnly ? "true" : "false"}" data-act="note-mentions-from"><span>${esc(tr("Only from people you follow"))}</span><i></i></button>
         ${prefRow("replies", tr("Replies"))}
@@ -24553,6 +24586,14 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     }
     if (act === "close-profile-menu") { STATE.profileMenu = null; if (el.tagName !== "A") render(); return; }
     if (act === "profile-lists") { STATE.profileMenu = "lists"; render(); return; }
+    if (act === "profile-sound") { STATE.profileMenu = "sound"; render(); return; }
+    if (act === "snd-sender") {
+      if (window.ViktorychSounds) window.ViktorychSounds.setSender(el.dataset.key || "", el.dataset.label || "", el.dataset.sound || "");
+      STATE.profileMenu = null;
+      render();
+      toast(el.dataset.sound ? tr("Sound set for {name}", { name: el.dataset.label || "" }) : tr("Uses your other notification sounds"));
+      return;
+    }
     if (act === "profile-cm-tab") {
       const id = String(el.dataset.id || "");
       const name = String(el.dataset.name || "");
@@ -30034,6 +30075,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   function applyServerNotes(view) {
     if (!view || !STATE.settings) return;
     const until = Number(view.readUntil) || 0;
+    const soundBefore = bellIds();
     STATE.settings.bellNotes = cleanBellNotes(mergeLocalNotes(STATE.settings.bellNotes || [], visibleNotes(view.items || []), until));
     STATE.settings.bellRead = Math.max(Number(STATE.settings.bellRead) || 0, until);
     if (Array.isArray(view.tabs)) {
@@ -30058,6 +30100,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     writeNotesServer(server);
     saveSettings();
     paintBellBadge();
+    noteSounds(soundBefore);
     if (parseRoute().name === "notifications") render();
   }
 
@@ -30085,6 +30128,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     if (data.type === "upsert" && Array.isArray(data.items)) {
       const until = Number(data.readUntil) || Number(notesServer().readUntil) || 0;
+      const soundBefore = bellIds();
       STATE.settings.bellNotes = cleanBellNotes(mergeLocalNotes(STATE.settings.bellNotes || [], visibleNotes(data.items), until));
       const server = notesServer();
       server.unread = Number(data.unread) || 0;
@@ -30092,6 +30136,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       writeNotesServer(server);
       saveSettings();
       paintBellBadge();
+      noteSounds(soundBefore);
       if (parseRoute().name === "notifications") render();
       return;
     }
@@ -30425,8 +30470,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     });
     if (!added.length) return;
     STATE.settings.bellSeen = Object.keys(seen).slice(-500);
+    const soundBefore = bellIds();
     STATE.settings.bellNotes = cleanBellNotes(added.concat(STATE.settings.bellNotes || []));
     saveSettings();
+    noteSounds(soundBefore);
     scheduleNoteSync();
     if (parseRoute().name === "notifications") render();
     else paintBellBadge();

@@ -2,6 +2,7 @@
 # Files whose string tables are pack keys, translated with tr() where they render.
 keys: settings-assistant.js
 keys: settings-sync.js
+keys: notif-sounds.js
 keys: shared/feed-sources.js
 keys: shared/gift-catalog.js
 keys: shared/presence.js
