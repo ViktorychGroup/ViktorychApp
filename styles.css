@@ -7948,15 +7948,16 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
   html.chrome-hidden:not(.bar-rest) body.space-docked .lai-fab { transform: none; }
 }
 
-/* Header status icons (status_icons): small, thin, X-style, one row with the
-   Local AI button on phones and just before the tab settings on tablets.
-   Never on computers (fine pointer). */
+/* Header status icons (status_icons): one 20px / 8px visual rhythm with the
+   Local AI button on phones and tab settings button on touch tablets. The
+   row's non-interactive symbols stay 20px while controls keep their 44px
+   targets. Never on computers (fine pointer). */
 .sticons { display: none; }
-.m-right { display: flex; align-items: center; gap: 2px; margin-left: auto; }
-.sticons { align-items: center; gap: 10px; padding: 0 6px; color: var(--muted); font-size: 13px; line-height: 16px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
-.sticon { display: inline-flex; align-items: center; gap: 3px; height: 20px; color: inherit; text-decoration: none; }
-.sticon svg { width: 16px; height: 16px; flex: none; }
-.sticon b { font-weight: 500; font-size: 12px; }
+.m-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.sticons { align-items: center; gap: 8px; padding: 0; color: var(--text); font-size: 15px; line-height: 20px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+.sticon { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 20px; color: inherit; text-decoration: none; }
+.sticon svg { width: 20px; height: 20px; flex: none; }
+.sticon b { font-weight: 500; font-size: 12px; line-height: 20px; }
 .st-clock { color: var(--text); font-weight: 600; }
 .st-battery.is-low { color: #f4212e; }
 .st-net.is-off { color: #f4212e; }
@@ -7964,11 +7965,13 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
 .st-unread b { color: var(--blue); font-weight: 700; }
 @media (max-width: 499px) {
   .mhead .sticons { display: flex; }
+  /* A classic header's centered name cannot fit beside three or more status
+     items; keep the status group intact instead of drawing over the name. */
+  .mhead:has(.sticons .sticon:nth-child(3)) .m-logo { display: none; }
 }
 @media (min-width: 500px) and (pointer: coarse) {
-  .tabs-bar .sticons-tab { display: flex; flex: none; align-self: center; }
+  .tabs-bar .sticons-tab { display: flex; flex: none; align-self: center; margin-right: 8px; }
 }
-.sticon.st-battery svg { width: 20px; height: 20px; margin-right: -2px; }
 
 /* Desktop side panel (switch side_panel; see sidePanelOn in app.js):
    optional left placement next to the icon bar, a drag handle on the inner
