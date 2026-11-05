@@ -71,7 +71,7 @@ const NOTES = [{ id: "n1", at: Date.now(), handle: "news", name: "News", text: "
 
 async function open(browser, origin, opts) {
   const touch = opts.view !== "computer";
-  const size = opts.view === "phone" ? { width: 390, height: 844 } : opts.view === "tablet" ? { width: 820, height: 1180 } : { width: 1366, height: 900 };
+  const size = opts.width ? { width: opts.width, height: opts.view === "tablet" ? 1180 : 844 } : opts.view === "phone" ? { width: 390, height: 844 } : opts.view === "tablet" ? { width: 820, height: 1180 } : { width: 1366, height: 900 };
   const context = await browser.newContext({ viewport: size, hasTouch: touch, isMobile: touch, serviceWorkers: "block" });
   await context.addInitScript((o) => {
     try {
@@ -101,16 +101,56 @@ const READ = `(() => {
   const box = [...document.querySelectorAll(".sticons")].find((el) => el.getBoundingClientRect().width > 0);
   if (!box) return null;
   const r = box.getBoundingClientRect();
-  const kids = [...box.children].map((el) => { const k = el.getBoundingClientRect(); return { st: el.dataset.st, cy: k.top + k.height / 2, h: k.height, off: el.classList.contains("is-off") }; });
-  const ai = document.querySelector(".mhead .m-ai");
+  const kids = [...box.children].map((el) => {
+    const k = el.getBoundingClientRect();
+    const svg = el.querySelector("svg");
+    const v = svg && svg.getBoundingClientRect();
+    return { st: el.dataset.st, left: k.left, right: k.right, cy: k.top + k.height / 2, h: k.height,
+      fontSize: parseFloat(getComputedStyle(el).fontSize), lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+      svg: v && { width: v.width, height: v.height, cy: v.top + v.height / 2, strokeWidth: parseFloat(getComputedStyle(svg).strokeWidth) },
+      off: el.classList.contains("is-off") };
+  });
+  const ai = document.querySelector(".mhead .m-icon");
   const a = ai && ai.getBoundingClientRect();
   const manage = document.querySelector(".tabs-bar .tab-manage");
   const m = manage && manage.getBoundingClientRect();
-  return { inMhead: !!box.closest(".mhead"), inTabs: !!box.closest(".tabs-bar"), cy: r.top + r.height / 2, right: r.right, kids,
-    ai: a && a.width ? { left: a.left, cy: a.top + a.height / 2 } : null,
-    manage: m && m.width ? { left: m.left, cy: m.top + m.height / 2 } : null,
+  const glyphBox = (el) => {
+    const svg = el && el.querySelector("svg");
+    if (!svg) return null;
+    const v = svg.getBoundingClientRect();
+    const drawn = svg.querySelector("g") || svg;
+    return { width: v.width, height: v.height, cy: v.top + v.height / 2, strokeWidth: getComputedStyle(drawn).stroke === "none" ? null : parseFloat(getComputedStyle(drawn).strokeWidth) || null };
+  };
+  const logo = box.closest(".mhead") && box.closest(".mhead").querySelector(".m-logo");
+  const l = logo && logo.getBoundingClientRect();
+  return { inMhead: !!box.closest(".mhead"), inTabs: !!box.closest(".tabs-bar"), cy: r.top + r.height / 2, left: r.left, right: r.right, gap: parseFloat(getComputedStyle(box).columnGap), kids,
+    logo: l && l.width ? { left: l.left, right: l.right } : null,
+    compact: !!box.closest(".compact-head"), statusBar: document.documentElement.hasAttribute("data-status-bar"),
+    ai: a && a.width ? { left: a.left, cy: a.top + a.height / 2, glyph: glyphBox(ai) } : null,
+    manage: m && m.width ? { left: m.left, cy: m.top + m.height / 2, glyph: glyphBox(manage) } : null,
     nextIsManage: !!(box.nextElementSibling && box.nextElementSibling.classList.contains("tab-manage")) };
 })()`;
+
+function checkVisualGroup(got, label) {
+  const ref = got.inMhead ? got.ai : got.manage;
+  if (!ref || !ref.glyph) fail(label + ": comparison control is missing " + JSON.stringify(got));
+  if (Math.abs(got.cy - ref.cy) > 0.5) fail(label + ": row and control centers differ " + JSON.stringify(got));
+  for (const [i, k] of got.kids.entries()) {
+    if (Math.abs(k.cy - got.cy) > 0.5) fail(label + ": row is not on one centerline " + JSON.stringify(k));
+    if (k.h > 22) fail(label + ": status item is oversized " + JSON.stringify(k));
+    if (k.svg) {
+      if (Math.abs(k.svg.cy - ref.glyph.cy) > 0.5) fail(label + ": glyph centerlines differ " + JSON.stringify(k));
+      if (k.svg.width > 22 || k.svg.height > 22) fail(label + ": status symbol is oversized " + JSON.stringify(k));
+      if (Math.abs(k.svg.width - ref.glyph.width) > 0.5 || Math.abs(k.svg.height - ref.glyph.height) > 0.5) fail(label + ": symbol size does not match the control " + JSON.stringify({ icon: k, control: ref }));
+      if (k.svg.strokeWidth && ref.glyph.strokeWidth && Math.abs(k.svg.strokeWidth - ref.glyph.strokeWidth) > 0.1) fail(label + ": stroke weights do not match " + JSON.stringify({ icon: k, control: ref }));
+    }
+    if (k.st === "clock" && (k.fontSize !== 15 || k.lineHeight !== 20)) fail(label + ": clock typography does not fit the row " + JSON.stringify(k));
+    if (i && Math.abs(k.left - got.kids[i - 1].right - 8) > 0.5) fail(label + ": inconsistent 8px item spacing " + JSON.stringify(got.kids));
+  }
+  const gap = ref.left - got.right;
+  if (gap < 7.5 || gap > 8.5) fail(label + ": control spacing is not 8px: " + gap);
+  if (got.logo && got.inMhead && got.logo.right > got.left) fail(label + ": classic app name overlaps status icons " + JSON.stringify(got));
+}
 
 async function main() {
   const chromium = await loadPlaywright();
@@ -144,9 +184,7 @@ async function main() {
       const got = await page.evaluate(READ);
       if (!got || !got.inMhead) fail("phone: icons not in the header row " + JSON.stringify(got));
       if (got.kids.map((k) => k.st).join() !== "clock,battery,network,unread") fail("phone: wrong icons " + JSON.stringify(got.kids));
-      for (const k of got.kids) if (Math.abs(k.cy - got.cy) > 1 || k.h > 22) fail("phone: icons not in one small row " + JSON.stringify(got.kids));
-      if (!got.ai || Math.abs(got.cy - got.ai.cy) > 1) fail("phone: icons not centred with the AI button " + JSON.stringify(got));
-      if (got.right > got.ai.left || got.ai.left - got.right > 12) fail("phone: spacing to the AI button is off " + JSON.stringify(got));
+      checkVisualGroup(got, "phone");
       if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + "/phone.png", clip: { x: 0, y: 0, width: 390, height: 160 } });
       await context.close();
     }
@@ -173,7 +211,7 @@ async function main() {
       const { context, page } = await open(browser, origin, { view: "tablet", battery: true, settings: { statusIcons: ALL, bellNotes: NOTES } });
       const got = await page.evaluate(READ);
       if (!got || !got.inTabs || !got.nextIsManage) fail("tablet: icons not just before the tab settings button " + JSON.stringify(got));
-      if (!got.manage || Math.abs(got.cy - got.manage.cy) > 1) fail("tablet: icons not centred with the tab settings button " + JSON.stringify(got));
+      checkVisualGroup(got, "tablet");
       if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + "/tablet.png", clip: { x: 0, y: 0, width: 820, height: 200 } });
       await context.close();
     }
@@ -187,6 +225,24 @@ async function main() {
     {
       const { context, page } = await open(browser, origin, { view: "phone", battery: true, ownerOff: true, settings: { statusIcons: ALL, bellNotes: NOTES } });
       if (await page.evaluate(READ)) fail("status icons show with the owner switch off");
+      await context.close();
+    }
+    // 7. The same visual rhythm at narrow/wide phone widths, in the classic
+    // header, and with the optional phone status bar. The reference control is
+    // Viktrych in compact mode and Settings in classic mode.
+    for (const item of [
+      { name: "phone-320-classic", width: 320, settings: { classicHeader: true, statusIcons: ALL, bellNotes: NOTES } },
+      { name: "phone-430-status-bar", width: 430, settings: { statusBar: true, statusIcons: ALL, bellNotes: NOTES } },
+      { name: "tablet-600-compact", width: 600, view: "tablet", settings: { statusIcons: ALL, bellNotes: NOTES } }
+    ]) {
+      const view = item.view || "phone";
+      const { context, page } = await open(browser, origin, { view, width: item.width, battery: true, settings: item.settings });
+      const got = await page.evaluate(READ);
+      if (!got) fail(item.name + ": no visible status group");
+      if (got.compact !== !item.settings.classicHeader) fail(item.name + ": wrong compact/classic mode " + JSON.stringify(got));
+      if (got.statusBar !== !!item.settings.statusBar) fail(item.name + ": wrong status-bar mode " + JSON.stringify(got));
+      checkVisualGroup(got, item.name);
+      if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + "/" + item.name + ".png", clip: { x: 0, y: 0, width: item.width, height: view === "tablet" ? 160 : 150 } });
       await context.close();
     }
     console.log("status icons ok");
