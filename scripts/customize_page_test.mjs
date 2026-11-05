@@ -91,7 +91,7 @@ async function check(page, label) {
   const ach = await page.evaluate(() => !window.ViktorychAchievements || !!document.querySelector(".pz-page .pz-ach [data-ach-set='sound']"));
   if (!ach) fail(label + " Achievements settings are missing");
   if (parts.sections < 9 || parts.themes !== parts.registry || parts.themes < 3 || parts.accents !== 6 || parts.fonts !== 5 || !parts.edit) fail(label + " page is missing parts " + JSON.stringify(parts));
-  const postText = await page.evaluate(() => !!document.querySelector(".pz-page [data-act='pz-look'][data-key='textAlign'][data-value='justify']") && !!document.querySelector(".pz-page [data-act='pz-look'][data-key='textWrapAvatar']"));
+  const postText = await page.evaluate(() => !!document.querySelector(".pz-page [data-act='pz-look'][data-key='postAlign'][data-value='justify']") && !!document.querySelector(".pz-page [data-act='pz-look'][data-key='postWrapAvatar']"));
   if (!postText) fail(label + " Post text controls are missing");
   if (parts.drawer) fail(label + " the menu stayed open over the page");
   await page.locator(".pz-accent[data-value='pink']").click();
@@ -105,8 +105,8 @@ async function check(page, label) {
   }
   await page.locator(".pz-theme[data-theme='default']").click();
   await page.locator(".pz-page [data-act='pz-look'][data-key='reduceMotion']").click();
-  await page.locator(".pz-page [data-act='pz-look'][data-key='textAlign'][data-value='justify']").click();
-  await page.locator(".pz-page [data-act='pz-look'][data-key='textWrapAvatar']").click();
+  await page.locator(".pz-page [data-act='pz-look'][data-key='postAlign'][data-value='justify']").click();
+  await page.locator(".pz-page [data-act='pz-look'][data-key='postWrapAvatar']").click();
   const applied = await page.evaluate(() => {
     const root = document.documentElement;
     const saved = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}");
@@ -117,14 +117,14 @@ async function check(page, label) {
       density: root.getAttribute("data-density"),
       motion: root.getAttribute("data-motion"),
       theme: root.getAttribute("data-theme"),
-      textAlign: root.getAttribute("data-text-align"),
+      postAlign: root.getAttribute("data-text-align"),
       textWrap: root.getAttribute("data-text-wrap"),
       sampleSize: sample ? getComputedStyle(sample).fontSize : "",
       sampleAlign: sample ? getComputedStyle(sample).textAlign : "",
-      saved: [saved.accent, saved.fontSize, saved.density, saved.reduceMotion, saved.appearance, saved.textAlign, !!saved.textWrapAvatar]
+      saved: [saved.accent, saved.fontSize, saved.density, saved.reduceMotion, saved.appearance, saved.postAlign, !!saved.postWrapAvatar]
     };
   });
-  if (applied.blue !== "#f91880" || applied.fs !== "18" || applied.density !== "compact" || applied.motion !== "reduce" || applied.theme !== "default" || applied.textAlign !== "justify" || applied.textWrap !== "avatar") fail(label + " choices did not apply " + JSON.stringify(applied));
+  if (applied.blue !== "#f91880" || applied.fs !== "18" || applied.density !== "compact" || applied.motion !== "reduce" || applied.theme !== "default" || applied.postAlign !== "justify" || applied.textWrap !== "avatar") fail(label + " choices did not apply " + JSON.stringify(applied));
   if (applied.sampleSize !== "18px") fail(label + " preview text did not grow " + applied.sampleSize);
   if (applied.sampleAlign !== "justify") fail(label + " preview text was not justified " + applied.sampleAlign);
   if (JSON.stringify(applied.saved) !== JSON.stringify(["pink", 18, "compact", true, "default", "justify", true])) fail(label + " choices were not saved " + JSON.stringify(applied.saved));

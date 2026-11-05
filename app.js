@@ -18180,8 +18180,8 @@ const here = parseRoute();
       fontSize: LOOK_FONTS.indexOf(Number(st.fontSize)) >= 0 ? Number(st.fontSize) : 15,
       density: st.density === "compact" || st.density === "comfy" ? st.density : "default",
       reduceMotion: !!st.reduceMotion,
-      textAlign: st.textAlign === "justify" ? "justify" : "left",
-      textWrapAvatar: !!st.textWrapAvatar
+      postAlign: st.postAlign === "justify" ? "justify" : "left",
+      postWrapAvatar: !!st.postWrapAvatar
     };
   }
   function applyLook() {
@@ -18204,9 +18204,9 @@ const here = parseRoute();
     else root.setAttribute("data-density", look.density);
     if (look.reduceMotion) root.setAttribute("data-motion", "reduce");
     else root.removeAttribute("data-motion");
-    if (look.textAlign === "justify") root.setAttribute("data-text-align", "justify");
+    if (look.postAlign === "justify") root.setAttribute("data-text-align", "justify");
     else root.removeAttribute("data-text-align");
-    if (look.textWrapAvatar) root.setAttribute("data-text-wrap", "avatar");
+    if (look.postWrapAvatar) root.setAttribute("data-text-wrap", "avatar");
     else root.removeAttribute("data-text-wrap");
   }
 
@@ -18269,8 +18269,8 @@ const here = parseRoute();
         ${sw("theme", appearance === "auto", tr("Match my device"), tr("Light or dark follows your phone or computer."), ` data-theme="${appearance === "auto" ? shownTheme : "auto"}"`)}`)}
       ${sec(tr("Color"), `<div class="pz-accents" role="radiogroup" aria-label="${esc(tr("Color"))}">${accents}</div>`)}
       ${sec(tr("Font size"), `<div class="pz-fonts" role="radiogroup" aria-label="${esc(tr("Font size"))}"><span class="pz-aa small" aria-hidden="true">Aa</span><div class="pz-track">${fonts}</div><span class="pz-aa big" aria-hidden="true">Aa</span></div>`)}
-      ${sec(tr("Post text"), `<h3>${esc(tr("Alignment"))}</h3><div class="theme-row" role="group" aria-label="${esc(tr("Alignment"))}">${seg("pz-look", `data-key="textAlign" data-value="left"`, look.textAlign !== "justify", tr("Left"))}${seg("pz-look", `data-key="textAlign" data-value="justify"`, look.textAlign === "justify", tr("Justified"))}</div>
-        ${sw("pz-look", look.textWrapAvatar, tr("Wrap around profile picture"), tr("Long text flows around the profile picture on text posts. Photos and videos stay full width."), ` data-key="textWrapAvatar"`)}`)}
+      ${sec(tr("Post text"), `<h3>${esc(tr("Alignment"))}</h3><div class="theme-row" role="group" aria-label="${esc(tr("Alignment"))}">${seg("pz-look", `data-key="postAlign" data-value="left"`, look.postAlign !== "justify", tr("Left"))}${seg("pz-look", `data-key="postAlign" data-value="justify"`, look.postAlign === "justify", tr("Justified"))}</div>
+        ${sw("pz-look", look.postWrapAvatar, tr("Wrap around profile picture"), tr("Long text flows around the profile picture on text posts. Photos and videos stay full width."), ` data-key="postWrapAvatar"`)}`)}
       ${sec(tr("Density"), `<div class="theme-row" role="group" aria-label="${esc(tr("Density"))}">${seg("pz-look", `data-key="density" data-value="compact"`, look.density === "compact", tr("Compact"))}${seg("pz-look", `data-key="density" data-value="default"`, look.density === "default", tr("Default"))}${seg("pz-look", `data-key="density" data-value="comfy"`, look.density === "comfy", tr("Comfortable"))}</div>`)}
       ${sec(tr("Profile pictures"), `<div class="theme-row" role="group" aria-label="${esc(tr("Profile pictures"))}">${face("pictures", "show", tr("Show"))}${face("pictures", "default", tr("Default"))}${face("pictures", "none", tr("None"))}</div>
         ${shapeRow}
@@ -24145,8 +24145,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       else if (key === "fontSize" && LOOK_FONTS.indexOf(Number(val)) >= 0) STATE.settings.fontSize = Number(val);
       else if (key === "density" && (val === "compact" || val === "default" || val === "comfy")) STATE.settings.density = val;
       else if (key === "reduceMotion") STATE.settings.reduceMotion = !STATE.settings.reduceMotion;
-      else if (key === "textAlign" && (val === "left" || val === "justify")) STATE.settings.textAlign = val;
-      else if (key === "textWrapAvatar") STATE.settings.textWrapAvatar = !STATE.settings.textWrapAvatar;
+      else if (key === "postAlign" && (val === "left" || val === "justify")) STATE.settings.postAlign = val;
+      else if (key === "postWrapAvatar") STATE.settings.postWrapAvatar = !STATE.settings.postWrapAvatar;
       else return;
       STATE.settings.prefsAt = Object.assign({}, STATE.settings.prefsAt || {}, { [key]: Date.now() });
       saveSettings();
@@ -32674,7 +32674,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (row.id === "privacyEmbedShield" || row.id === "privacyZeroTrace") return v === true;
     if (row.id === "fontSize") return LOOK_FONTS.indexOf(Number(v)) >= 0 ? Number(v) : 15;
     if (row.id === "accent") return LOOK_ACCENTS[v] ? v : "blue";
-    if (row.id === "textAlign") return v === "justify" ? "justify" : "left";
+    if (row.id === "postAlign") return v === "justify" ? "justify" : "left";
     if (row.id === "homePills" || row.id === "stories") return userFeatureOn(row.key);
     if (row.id === "notify") return !!(v && typeof Notification !== "undefined" && Notification.permission === "granted");
     if (row.type === "bool") return typeof v === "boolean" ? v : row.def;
@@ -32791,7 +32791,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         } else {
           STATE.settings[row.key] = v;
         }
-        if (row.id === "accent" || row.id === "fontSize" || row.id === "density" || row.id === "reduceMotion" || row.id === "textAlign" || row.id === "textWrapAvatar") { stamp(row.key); look = true; }
+        if (row.id === "accent" || row.id === "fontSize" || row.id === "density" || row.id === "reduceMotion" || row.id === "postAlign" || row.id === "postWrapAvatar") { stamp(row.key); look = true; }
         if (row.id === "appearance" || row.id === "avatarShape") theme = true;
         if (row.id === "homePills" || row.id === "stories") { stamp(row.key); if (featureLoaded(row.key) !== featureOn(row.key)) reloadFor = row.id; }
         if (/^privacy|^friendsRail$/.test(row.id)) privacy = true;
@@ -33309,7 +33309,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const next = loadSettings();
     // Synced display choices from another device apply right away.
     let lookChanged = false;
-    ["appearance", "homePills", "reactionsData", "communityNotesData", "stories", "prefsAt", "syncUi", "syncUiAt", "showPictures", "showBanners", "profileTabs", "autoplay", "followingSort", "forYouReposts", "forYouReplies", "livePreview", "friendsRail", "translateTo", "translateAuto", "translateNever", "notify", "bells", "mutedWords", "mutedAccounts", "privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "brandLogo", "peopleLinks", "inboxLayout", "busyPrefs", "avatarShape", "accent", "fontSize", "density", "reduceMotion", "textAlign", "textWrapAvatar", "haptics", "aiFab"].forEach((key) => {
+    ["appearance", "homePills", "reactionsData", "communityNotesData", "stories", "prefsAt", "syncUi", "syncUiAt", "showPictures", "showBanners", "profileTabs", "autoplay", "followingSort", "forYouReposts", "forYouReplies", "livePreview", "friendsRail", "translateTo", "translateAuto", "translateNever", "notify", "bells", "mutedWords", "mutedAccounts", "privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "brandLogo", "peopleLinks", "inboxLayout", "busyPrefs", "avatarShape", "accent", "fontSize", "density", "reduceMotion", "postAlign", "postWrapAvatar", "haptics", "aiFab"].forEach((key) => {
       if (JSON.stringify(STATE.settings[key]) === JSON.stringify(next[key])) return;
       STATE.settings[key] = next[key];
       lookChanged = true;
