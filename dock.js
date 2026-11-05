@@ -180,7 +180,8 @@
   }
   function launcherHtml(kind) {
     var text = label(kind);
-    var icon = kind === "ai" ? svg("spark") : svg("chat");
+    var VI = window.ViktorychIcons;
+    var icon = kind === "ai" ? (VI && VI.has && VI.has("viktrych") ? VI.svg("viktrych") : svg("spark")) : svg("chat");
     return '<button class="xdock-launcher" type="button" data-dock="toggle" data-panel="' + kind + '" aria-label="' + esc(text) + '" data-tooltip="' + esc(text) + '" data-tip="' + esc(text) + '">' + icon + "</button>";
   }
   function headInner(kind) {

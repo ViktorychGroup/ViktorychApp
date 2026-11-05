@@ -251,14 +251,16 @@
     profile: `<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c.6-3.9 3.6-6.3 7.5-6.3s6.9 2.4 7.5 6.3z"/>`,
     friends: `<circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 20c.5-3.4 3.1-5.5 6.5-5.5s6 2.1 6.5 5.5z"/><path d="M15.5 5.2a3.5 3.5 0 0 1 0 6.6"/><path d="M17.8 14.6c2 .7 3.4 2.6 3.7 5.4"/>`,
     feeds: `<path d="M12 3 2.8 8 12 13l9.2-5z"/><path d="m2.8 12 9.2 5 9.2-5"/><path d="m2.8 16 9.2 5 9.2-5"/>`,
-    compose: `<path d="M3.5 7h6M6.5 4v6"/><path d="M17 5.2a2.1 2.1 0 0 1 3 3L10.4 17.8 6.5 19l1.2-3.9z"/><path d="m15.3 6.9 3 3"/>`
+    compose: `<path d="M3.5 7h6M6.5 4v6"/><path d="M17 5.2a2.1 2.1 0 0 1 3 3L10.4 17.8 6.5 19l1.2-3.9z"/><path d="m15.3 6.9 3 3"/>`,
+    /* Viktrych (the on-device AI) logo: a V with a small spark. Also logo/viktrych.svg. */
+    viktrych: `<path d="M4.5 6 11 19.5l4.6-9.6"/><path d="M18.6 2.6l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z" fill="currentColor" stroke="none"/>`
   };
   /* The Viktorychs coin: black inside, white lines, a thin rim so it still shows on dark themes. */
   const COIN_SVG = `<svg class="vk-coin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.6" fill="#000" stroke="rgba(255,255,255,.45)" stroke-width="1"/><circle cx="12" cy="12" r="7.8" fill="none" stroke="#fff" stroke-width="1" opacity=".6"/><path d="M8.7 8.3 12 15.9l3.3-7.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const icon = (name) => name === "clock"
     ? `<svg class="clock" viewBox="0 0 24 24" aria-hidden="true">${LINE.clock}</svg>`
     : name === "coin" ? COIN_SVG
-    : XLINE[name] ? `<svg class="xline" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${XLINE[name]}</g></svg>`
+    : XLINE[name] ? `<svg class="xline${name === "viktrych" ? " vk-logo" : ""}" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${XLINE[name]}</g></svg>`
     : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${PATH[name] || ""}"/></svg>`;
   if (window.SIntelMusic && window.SIntelMusic.install) window.SIntelMusic.install(PATH);
   // Shared with feature modules so their icons come from the same set as the app.
@@ -9726,7 +9728,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const items = follow
       + `<button type="button" data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button>`
       + `<button type="button" data-gift="reply" data-parent="${esc(post.id || "")}" data-handle="${esc(post.handle || "")}">${tr("Send a gift")}</button>`
-      + (localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("spark")} ${tr("Explain this post")}</button>` : "")
+      + (localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("viktrych")} ${tr("Explain this post")}</button>` : "")
       + `<button type="button" class="odai-btn" data-act="odai-thread" data-id="${esc(postKey(post))}" data-scope="post">${tr("Summarize thread")}</button>`
       + (post.appPost ? appMenuItems(post) : (post.url ? `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url)}">${tr("View on {platform}", { platform: PLATFORM[post.platform] || tr("Web") })}</a>` : ""))
       + blockMenuItems(post, "status")
@@ -10216,7 +10218,7 @@ const here = parseRoute();
     const busyItem = busyKey ? `<button data-act="busy-menu" data-key="${esc(busyKey)}" data-name="${esc(post.author || post.name || "")}" data-handle="${esc(post.handle || "")}" data-platform="${esc(post.platform || "x")}">${tr("Posting volume")}</button>` : "";
     const giftItem = `<button type="button" data-gift="reply" data-parent="${esc(post.id || "")}" data-handle="${esc(post.handle || "")}">${tr("Send a gift")}</button>`;
     const blockItems = STATE.menu === post.id ? blockMenuItems(post, mode) : "";
-    const menu = STATE.menu === post.id ? `<div class="menu" data-act="stop">${localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("spark")} ${tr("Explain this post")}</button>` : ""}<button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
+    const menu = STATE.menu === post.id ? `<div class="menu" data-act="stop">${localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("viktrych")} ${tr("Explain this post")}</button>` : ""}<button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
     const continues = !!opts.continues;
     const face = authorFace(post);
     const creator = isRepost(post) ? creatorOf(post) : null;
@@ -10265,7 +10267,7 @@ const here = parseRoute();
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
             ${asAccount ? linkedSourceBadge(post.platform) : postSourceBadges(post)}
-            <span class="byline-end">${shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}<button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}">${icon("more")}</button></span>
+            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}">${icon("more")}</button></span>
           </div>
           ${reply}
           ${discordMeta(post)}
@@ -11420,7 +11422,7 @@ const here = parseRoute();
     };
     const compact = compactHeaderOn();
     const rightIcon = compact && localAiOn()
-      ? `<a class="m-icon m-ai" href="#/ai" aria-label="${esc(tr("Open Local AI"))}">${icon("spark")}</a>`
+      ? `<a class="m-icon m-ai" href="#/ai" aria-label="${esc(tr("Open Local AI"))}">${icon("viktrych")}</a>`
       : `<a class="m-icon" href="#/settings" aria-label="${tr("Settings")}">${icon("spark")}</a>`;
     return `<div class="topbar tall${compact ? " compact-head" : ""}">
       <h1 class="vh">${tr("Home")}</h1>
@@ -15201,7 +15203,7 @@ const here = parseRoute();
             <a class="name" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">${esc(nickName(post.platform, post.handle, post.author || ""))}${badge(face.verified)}${appMarks(post)}</a>${affSlot(post)}
             <a class="handle" data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}">@${esc(statusHandle)}</a>
           </div>
-          <span class="status-end">${postSourceBadges(post)}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("spark")}</button>` : ""}${statusMenu(post)}</span>`;
+          <span class="status-end">${postSourceBadges(post)}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}${statusMenu(post)}</span>`;
     const parented = chain.nodes.length > 0 ? " has-parent" : "";
     const article = threaded
       ? `<article class="status has-thread${parented}"><div class="status-thread"><div class="ava-col"><a data-card="${esc((post.platform || "x") + ":" + (post.handle || ""))}" href="${esc(accountHash(post.platform, post.handle))}" aria-label="${esc(post.author || post.handle || tr("Profile"))}">${avatar(face.avatar, post.author, isOrgVerified(post, face) ? "sq" : "")}</a><div class="thread-line"></div></div><div class="status-main"><div class="status-author">${names}</div>${body}</div></div></article>`
@@ -18035,7 +18037,7 @@ const here = parseRoute();
   function localAiSetupOn() { return localAiOn() && !serverOffList().includes("local_ai_setup"); }
   function localAiEntryHtml() {
     if (!localAiOn() || String(STATE.settingsQ || "").trim()) return "";
-    return `<a class="lai-entry" href="#/ai"><span class="lai-entry-ico" aria-hidden="true">${icon("spark")}</span><span class="lai-entry-copy"><b>${esc(tr("Ask Local AI"))}</b><span>${esc(tr("Say what you want changed, like “bigger text” or “make it private”. It runs on this device."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></a>`;
+    return `<a class="lai-entry" href="#/ai"><span class="lai-entry-ico" aria-hidden="true">${icon("viktrych")}</span><span class="lai-entry-copy"><b>${esc(tr("Ask Local AI"))}</b><span>${esc(tr("Say what you want changed, like “bigger text” or “make it private”. It runs on this device."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></a>`;
   }
   function paintAiFab(route) {
     let fab = document.getElementById("lai-fab");
@@ -18050,7 +18052,7 @@ const here = parseRoute();
     }
     fab.setAttribute("aria-label", tr("Local AI"));
     fab.title = tr("Local AI");
-    if (!fab.firstChild) fab.innerHTML = icon("spark");
+    if (!fab.querySelector("svg.vk-logo")) fab.innerHTML = icon("viktrych");
   }
 
   function settingsSearchHtml() {
@@ -18728,7 +18730,7 @@ const here = parseRoute();
     if (id === "requests") return { id: id, href: drawerRequestsHref(), icon: "user", label: tr("Requests"), extra: requestsCountHtml() };
     if (id === "studio") return { id: id, href: "#/feeds", icon: "feeds", label: tr("Creator Studio") };
     if (id === "help") return { id: id, href: "#/settings/resources", icon: "help", label: tr("Help Center") };
-    if (id === "localai") return localAiOn() ? { id: id, href: "#/ai", icon: "spark", label: tr("Local AI") } : null;
+    if (id === "localai") return localAiOn() ? { id: id, href: "#/ai", icon: "viktrych", label: tr("Local AI") } : null;
     if (id === "settings") return { id: id, href: "#/settings", icon: "gear", label: tr("Settings and privacy"), locked: true };
     if (id === "logout") return { id: id, href: "", icon: "user", label: mine ? tr("Log out") : tr("Sign in"), locked: true, accountMenu: true };
     if (id === "customize") return { id: id, href: "", icon: "sliders", label: tr("Customize"), locked: true, act: "customize-page" };
