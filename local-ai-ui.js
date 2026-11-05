@@ -477,7 +477,11 @@
     send(tr(row.label) + " → " + shown(row, to), { calls: [{ fn: "set", id: id, value: to }] });
   }
   function chipsHtml() {
-    return '<div class="lai-chips">' + chips().map(function (c) { return '<button type="button" class="lai-chip" data-lai="chip">' + esc(c) + "</button>"; }).join("") + "</div>";
+    // Phones keep the empty chat clean like the Grok app: quick settings sit
+    // behind this chip instead of filling the page (desktop shows them inline).
+    var qs = prefs().canChange && groups().some(function (g) { return quickRows(g[0]).length; })
+      ? '<button type="button" class="lai-chip lai-chip-qs" data-lai="qs" aria-expanded="' + (S.qsOpen ? "true" : "false") + '">' + esc(tr("Quick settings")) + "</button>" : "";
+    return '<div class="lai-chips">' + qs + chips().map(function (c) { return '<button type="button" class="lai-chip" data-lai="chip">' + esc(c) + "</button>"; }).join("") + "</div>";
   }
   function progressHtml() {
     var e = S.engine;
@@ -583,6 +587,7 @@
     S.root.classList.toggle("is-empty", empty);
     S.root.classList.toggle("side-open", S.sideOpen && !S.setup);
     S.root.classList.toggle("is-setup", !!S.setup);
+    S.root.classList.toggle("qs-open", !!S.qsOpen);
     paintSetup();
     S.root.querySelector(".lai-side").innerHTML = sideHtml();
     S.root.querySelector(".lai-title").textContent = S.setup ? tr("Set up Local AI") : (c && c.title ? c.title : tr("Local AI"));
@@ -669,6 +674,7 @@
     if (act === "open-chat") { S.chatId = el.getAttribute("data-id"); S.sideOpen = false; paint(); return; }
     if (act === "del-chat") { var id = el.getAttribute("data-id"); S.chats = S.chats.filter(function (c) { return c.id !== id; }); if (S.chatId === id) S.chatId = ""; saveChats(); paint(); return; }
     if (act === "chip") { send(el.textContent); return; }
+    if (act === "qs") { S.qsOpen = !S.qsOpen; S.root.classList.toggle("qs-open", S.qsOpen); el.setAttribute("aria-expanded", S.qsOpen ? "true" : "false"); return; }
     if (act === "tab") { S.browse = el.getAttribute("data-cat"); var b = S.root.querySelector(".lai-browse-slot"); if (b) b.innerHTML = browseHtml(); var t = S.root.querySelector('.lai-tab.on'); if (t) t.focus(); return; }
     if (act === "quick") { if (prefs().canChange) quick(el.getAttribute("data-id")); return; }
     if (act === "models") { S.menu = !S.menu; detectOnce(); paintBar(); return; }
@@ -710,8 +716,9 @@
     paintBar();
   }
   function focusBox() {
+    // The box takes focus on every screen so the phone keyboard opens with the page.
     var box = S.root && S.root.querySelector(".lai-input");
-    if (box && window.innerWidth >= 700) box.focus();
+    if (box && !S.setup && document.activeElement !== box) box.focus({ preventScroll: true });
   }
 
   /* On-device speech only: the mic shows when the browser can recognise
@@ -1136,9 +1143,12 @@
     }
     if (S.root.parentNode !== spot) {
       spot.appendChild(S.root);
-      var box = S.root.querySelector(".lai-input");
-      if (S.inFocus && box && (!document.activeElement || document.activeElement === document.body)) box.focus();
     }
+    // Opening the chat puts the cursor in the box, like the Grok app, so the
+    // keyboard is already up. Not during setup, and not over a field the
+    // person is typing in elsewhere.
+    var act0 = document.activeElement;
+    if (!S.setup && (!act0 || act0 === document.body || act0.classList.contains("lai-input") || act0.hasAttribute("data-lai-kb"))) focusBox();
     document.documentElement.classList.add("lai-on");
     var queryPrompt = route && route.query && route.query.get && route.query.get("q");
     if (queryPrompt && queryPrompt.trim()) {

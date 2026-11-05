@@ -18039,6 +18039,22 @@ const here = parseRoute();
     if (!localAiOn() || String(STATE.settingsQ || "").trim()) return "";
     return `<a class="lai-entry" href="#/ai"><span class="lai-entry-ico" aria-hidden="true">${icon("viktrych")}</span><span class="lai-entry-copy"><b>${esc(tr("Ask Local AI"))}</b><span>${esc(tr("Say what you want changed, like “bigger text” or “make it private”. It runs on this device."))}</span></span><span class="set-chev" aria-hidden="true">${icon("chevR")}</span></a>`;
   }
+  /* iPhones only open the keyboard for a focus inside the tap itself, and the
+     Viktrych page builds a moment later. A tap on a link to it focuses a
+     hidden field right away; the page then moves focus to its own box and
+     the keyboard stays up. */
+  document.addEventListener("click", (e) => {
+    const a = e.target && e.target.closest ? e.target.closest('a[href="#/ai"], a[href^="#/ai?"]') : null;
+    if (!a || !localAiOn() || !(window.matchMedia && matchMedia("(pointer: coarse)").matches)) return;
+    const kb = document.createElement("input");
+    kb.setAttribute("data-lai-kb", "1");
+    kb.setAttribute("aria-hidden", "true");
+    kb.tabIndex = -1;
+    kb.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;border:0;padding:0;font-size:16px;pointer-events:none";
+    document.body.appendChild(kb);
+    try { kb.focus({ preventScroll: true }); } catch (err) { /* old browser */ }
+    setTimeout(() => kb.remove(), 1500);
+  }, true);
   function paintAiFab(route) {
     let fab = document.getElementById("lai-fab");
     const want = localAiOn() && !!(STATE.settings && STATE.settings.aiFab) && route && route.name !== "localai" && route.name !== "watch" && route.name !== "shorts" && route.name !== "tv";
