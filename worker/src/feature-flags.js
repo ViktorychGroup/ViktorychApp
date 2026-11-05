@@ -99,6 +99,9 @@ export const FEATURES = {
   // Viktrych device and data-plan setup. App settings only, after a preview.
   // No server endpoints.
   ai_device_setup: { paths: [] },
+  // Easy voice: a large Talk button, on-screen guidance, and browser
+  // keys the page actually receives. No server endpoints.
+  ai_easy_voice: { paths: [] },
   // Settings > Site permissions: live browser permission states with
   // one-tap Allow and steps for blocked ones. No server endpoints.
   site_permissions: { paths: [] },
