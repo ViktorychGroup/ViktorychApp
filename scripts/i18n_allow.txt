@@ -12,6 +12,7 @@ keys: mesh-chat.js
 keys: settings-registry.js
 # Local AI core: the model prompt is English on purpose, and model names are proper nouns.
 keys: local-ai.js
+keys: site-permissions.js
 # Pack keys picked by a ternary inside tr().
 x-compose.js|Reply
 x-compose.js|5 minutes
