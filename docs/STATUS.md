@@ -1,6 +1,6 @@
 # Status snapshot
 
-Written 2026-11-04 (UTC). Main is `241ec93a`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
+Written 2026-11-05 (UTC). Main is `f67fff5e`. Latest D1 migration is `0131_shorts_on.sql`. This is a snapshot: check `gh pr list` and `git log origin/main` before acting on it. Update this file at the end of every PR.
 
 ## How to work on this repo
 
@@ -20,7 +20,7 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
-**Current state.** Main is `9c062c68`. Open unblock PR for Navigation `nav-nav-layout`: `scripts/zoom_lock_test.mjs` failed at the photo-viewer open step with `Cannot read properties of null (reading 'scrollIntoView')` after Home repainted the found control. The fix keeps every zoom-lock and pinch assertion and resolves/activates the photo control in one retried page task. This PR does not merge the open grey-strip (#604) or publish-app (#605) branches. Still parked: #571 custom-tab swipe. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
+**Current state.** Main is `bdfd30cd`. Open PR `quote-widen-gutter`: on phones and tablets (max-width 999px) a quoted post in a feed card widens left into the empty space under the author's avatar; thread parents (connector line), link cards, hidden pictures and desktop keep their layout. New check `scripts/quote_gutter_test.mjs` (Navigation shard step `quote-gutter`). Open unblock PR for Navigation `nav-nav-layout`: `scripts/zoom_lock_test.mjs` failed at the photo-viewer open step with `Cannot read properties of null (reading 'scrollIntoView')` after Home repainted the found control. The fix keeps every zoom-lock and pinch assertion and resolves/activates the photo control in one retried page task. This PR does not merge the open grey-strip (#604) or publish-app (#605) branches. Still parked: #571 custom-tab swipe. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
 
 
 ## Speed log

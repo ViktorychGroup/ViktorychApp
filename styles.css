@@ -1495,6 +1495,12 @@ img[data-ia-wait] { visibility: hidden; }
 .quote .ava, .quote .ava img, .quote .initials { width: 20px; height: 20px; font-size: 11px; }
 .quote .media { margin-top: 12px; }
 .quote .actions { display: none !important; }
+/* Phones and tablets: a quoted post widens left into the empty space under the
+   author's avatar (40px avatar + 12px gap). Thread parents keep that space for
+   their connector line; link cards, hidden pictures and desktop stay put. */
+@media (max-width: 999px) {
+  .post:not(.continues) > .post-row:not(:has(> a > .ava-none)) > .post-main > .quote:not(.lp-post) { margin-left: -52px; }
+}
 
 .actions {
   display: flex;
