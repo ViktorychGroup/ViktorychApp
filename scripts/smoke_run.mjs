@@ -131,7 +131,7 @@ const PAGE_STEPS = [
     paths: [file("yt_embed_smoke.mjs"), /^app\.js$/]
   }),
   step("x-video", "PLAYWRIGHT_CORE=" + core149 + " node scripts/x_video_play.mjs --root _site", {
-    weight: 40, needs: ["built", "pw149", "ffmpeg"],
+    weight: 40, needs: ["built", "pw149"],
     paths: [file("x_video_play.mjs"), /^app\.js$/]
   }),
   step("signup-sizes", "SIGNUP_PART=sizes node scripts/signup_flow_test.mjs", {
@@ -505,10 +505,6 @@ async function main() {
   }
   if (needs.has("pw149")) await ensurePw149();
   if (needs.has("worker")) await ensureWorker();
-  if (needs.has("ffmpeg")) {
-    const found = spawnSync("which", ["ffmpeg"], { encoding: "utf8" });
-    if (found.status !== 0) throw new Error("ffmpeg is not installed");
-  }
   const before = steps.filter((item) => item.phase === "before");
   const parallel = steps.filter((item) => item.phase !== "before");
   if (parallel.some((item) => item.needs.includes("built")) && !before.some((item) => item.id === "assemble-site")) {
