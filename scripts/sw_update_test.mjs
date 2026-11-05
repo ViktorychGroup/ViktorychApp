@@ -702,7 +702,19 @@ async function testDismissThenHide(browser) {
       if (sha === NEW) break;
       await page.waitForTimeout(300);
     }
-    assert(sha === NEW, "closing the composer did not apply the downloaded build (" + sha + ")");
+    if (sha !== NEW) {
+      const detail = await page.evaluate(() => {
+        const root = document.getElementById("upd-root");
+        const nodes = Array.from(document.querySelectorAll(".xc-modal, .modal-back, .modal, [role='dialog'], [role='alertdialog']"));
+        return {
+          update: document.documentElement.getAttribute("data-update") || "",
+          phase: root ? (root.getAttribute("data-phase") || "") : "",
+          visibility: document.visibilityState,
+          dialogs: nodes.slice(0, 8).map((el) => (el.id || el.className || el.tagName) + (el.hidden ? ":hidden" : ""))
+        };
+      }).catch((err) => ({ error: String(err && err.message || err) }));
+      assert(false, "closing the composer did not apply the downloaded build (" + sha + ") " + JSON.stringify(detail));
+    }
     await page.waitForSelector("#upd-notes-sheet", { timeout: 8000 });
     const saved = await page.evaluate(() => (sessionStorage.getItem("viktorychapp-update-restore") || "") + (localStorage.getItem("viktorychapp-update-restore") || ""));
     assert(saved.includes("draft"), "the draft was not saved before reload");
