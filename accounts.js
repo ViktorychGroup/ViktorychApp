@@ -5483,6 +5483,58 @@ function signupPayload() {
   var backupChannels = null;
   var backupChannelNote = "";
   var backupChannelsAt = 0;
+  var liveRecord = { server: false, uploadsPaused: false, at: 0 };
+  var liveRecordSave = 0;
+  function recorderSwitchOn() {
+    try {
+      var list = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]");
+      return !(Array.isArray(list) && list.indexOf("tiktok_auto_record") >= 0);
+    } catch (err) { return true; }
+  }
+  function loadLiveRecord() {
+    var session = readSession();
+    if (!session || !session.token || !session.account || !session.account.owner || !recorderSwitchOn()) return;
+    if (Date.now() - liveRecord.at < 20000) return;
+    var started = Date.now();
+    liveRecord.at = started;
+    api("/v1/owner/live-record", { token: session.token }).then(function (body) {
+      if (!body || body.status !== 200 || liveRecordSave > started) return;
+      liveRecord.server = body.server === true;
+      liveRecord.uploadsPaused = body.uploadsPaused === true;
+      if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+    }).catch(function () {});
+  }
+  function saveLiveRecord(patch) {
+    var session = readSession();
+    if (!session || !session.token || !recorderSwitchOn()) return;
+    var stamp = Date.now();
+    liveRecordSave = stamp;
+    if (patch.server != null) liveRecord.server = patch.server === true;
+    if (patch.uploadsPaused != null) liveRecord.uploadsPaused = patch.uploadsPaused === true;
+    if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+    api("/v1/owner/live-record", {
+      method: "POST",
+      token: session.token,
+      body: { server: liveRecord.server === true, uploadsPaused: liveRecord.uploadsPaused === true }
+    }).then(function (body) {
+      if (!body || body.status !== 200 || liveRecordSave !== stamp) return;
+      liveRecord.server = body.server === true;
+      liveRecord.uploadsPaused = body.uploadsPaused === true;
+      if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+    }).catch(function () {});
+  }
+  function liveRecordHtml() {
+    if (!recorderSwitchOn()) return "";
+    function sw(on, label, act) {
+      return '<button class="tab-switch' + (on ? " on" : "") + '" type="button" role="switch" aria-checked="' + (on ? "true" : "false") + '" data-acct="' + act + '"><span>' + esc(label) + "</span><i></i></button>";
+    }
+    return '<div class="set-block"><h2>' + esc(tr("Automatic recording")) + "</h2>" +
+      '<p class="set-sub">' + esc(tr("Record TikTok lives on the server when they start. This device does not record or upload.")) + "</p>" +
+      sw(liveRecord.server, tr("Automatic recording"), "toggle-live-record") +
+      '<p class="set-sub">' + esc(tr("While this is on, saved segments stay stored and are not sent. Turn it off to resume.")) + "</p>" +
+      sw(liveRecord.uploadsPaused, tr("Pause uploads"), "toggle-upload-pause") +
+      "</div>";
+  }
   function loadTikTokHealth() {
     var session = readSession();
     if (!session || !session.token || !session.account || !session.account.owner) return;
@@ -6406,8 +6458,9 @@ function signupPayload() {
     if (account.owner) {
       loadTikTokHealth();
       loadBackupChannels();
+      loadLiveRecord();
       loadUsage();
-      health = usageHtml() + healthHtml() + channelsHtml();
+      health = usageHtml() + healthHtml() + channelsHtml() + liveRecordHtml();
     }
     if (window.ProfileAbout) window.ProfileAbout.ensure(account, "");
     var aboutPrivacy = window.ProfileAbout && window.ProfileAbout.privacyOpen() ? window.ProfileAbout.privacyHtml(account.about || { sections: [] }) : "";
@@ -6812,6 +6865,8 @@ function signupPayload() {
     }
     else if (act === "add-channel") addBackupChannel();
     else if (act === "remove-channel") removeBackupChannel(acct.dataset.index);
+    else if (act === "toggle-live-record") saveLiveRecord({ server: !liveRecord.server });
+    else if (act === "toggle-upload-pause") saveLiveRecord({ uploadsPaused: !liveRecord.uploadsPaused });
     else if (act === "logout-all") logout(true);
 else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender(); }
     else if (act === "copy-id") copyAccountId();
