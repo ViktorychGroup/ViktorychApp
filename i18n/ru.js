@@ -6304,5 +6304,18 @@ SI18n.addPack("ru", {
   "These app settings already match this device.": "Эти настройки приложения уже подходят этому устройству.",
   "Apply these settings": "Применить эти настройки",
   "Device setup": "Настройка устройства",
-  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych может посмотреть этот браузер и подготовить настройки приложения для устройства и мобильного интернета. Он спрашивает перед изменениями и не может менять телефон или оператора."
+  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych может посмотреть этот браузер и подготовить настройки приложения для устройства и мобильного интернета. Он спрашивает перед изменениями и не может менять телефон или оператора.",
+  "Auto": "Авто",
+  "Picks a downloaded model for each message. It does not download or use a paid service.": "Выбирает уже скачанную модель для каждого сообщения. Ничего не скачивает и не использует платный сервис.",
+  "The message is short, so Instant is enough.": "Сообщение короткое, поэтому хватает Instant.",
+  "This looks like a setting change, so Instant is enough.": "Похоже на изменение настройки, поэтому хватает Instant.",
+  "This looks like a longer piece of writing, and this model is already on the device.": "Похоже на более длинный текст, и эта модель уже есть на устройстве.",
+  "This looks like code or a tool request, and this model is already on the device.": "Похоже на код или запрос инструмента, и эта модель уже есть на устройстве.",
+  "This looks like translation, and this model is already on the device.": "Похоже на перевод, и эта модель уже есть на устройстве.",
+  "This looks like a summary, and this model is already on the device.": "Похоже на краткое содержание, и эта модель уже есть на устройстве.",
+  "No larger downloaded model fits, so Instant is the fallback.": "Более крупная скачанная модель не помещается, поэтому запасной вариант — Instant.",
+  "Auto used {name}.": "Авто выбрало {name}.",
+  "Use my model": "Моя модель",
+  "Auto model": "Автовыбор модели",
+  "Viktrych can pick a model already on this device for each message. Off keeps the model you chose. It does not download or call a paid service.": "Viktrych может выбирать модель, которая уже есть на устройстве, для каждого сообщения. Выключено — остаётся выбранная вами модель. Ничего не скачивает и не вызывает платный сервис."
 });

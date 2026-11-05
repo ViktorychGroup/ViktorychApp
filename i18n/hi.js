@@ -6292,5 +6292,18 @@ SI18n.addPack("hi", {
   "These app settings already match this device.": "ये ऐप सेटिंग्स पहले से इस डिवाइस से मेल खाती हैं।",
   "Apply these settings": "ये सेटिंग्स लागू करें",
   "Device setup": "डिवाइस सेटअप",
-  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych इस ब्राउज़र को देखकर डिवाइस और सेल्युलर डेटा प्लान के लिए ऐप सेटिंग्स तैयार कर सकता है। कुछ बदलने से पहले पूछता है और फ़ोन या कैरियर नहीं बदल सकता।"
+  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych इस ब्राउज़र को देखकर डिवाइस और सेल्युलर डेटा प्लान के लिए ऐप सेटिंग्स तैयार कर सकता है। कुछ बदलने से पहले पूछता है और फ़ोन या कैरियर नहीं बदल सकता।",
+  "Auto": "ऑटो",
+  "Picks a downloaded model for each message. It does not download or use a paid service.": "हर संदेश के लिए पहले से डाउनलोड किया मॉडल चुनता है। न डाउनलोड करता है, न भुगतान वाला सेवा इस्तेमाल करता है।",
+  "The message is short, so Instant is enough.": "संदेश छोटा है, इसलिए Instant काफ़ी है।",
+  "This looks like a setting change, so Instant is enough.": "यह सेटिंग बदलने जैसा है, इसलिए Instant काफ़ी है।",
+  "This looks like a longer piece of writing, and this model is already on the device.": "यह लंबा लेख जैसा है, और यह मॉडल पहले से डिवाइस पर है।",
+  "This looks like code or a tool request, and this model is already on the device.": "यह कोड या उपकरण अनुरोध जैसा है, और यह मॉडल पहले से डिवाइस पर है।",
+  "This looks like translation, and this model is already on the device.": "यह अनुवाद जैसा है, और यह मॉडल पहले से डिवाइस पर है।",
+  "This looks like a summary, and this model is already on the device.": "यह सार जैसा है, और यह मॉडल पहले से डिवाइस पर है।",
+  "No larger downloaded model fits, so Instant is the fallback.": "कोई बड़ा डाउनलोड किया मॉडल नहीं समाता, इसलिए Instant बचाव है।",
+  "Auto used {name}.": "ऑटो ने {name} चुना।",
+  "Use my model": "मेरा मॉडल इस्तेमाल करें",
+  "Auto model": "ऑटो मॉडल",
+  "Viktrych can pick a model already on this device for each message. Off keeps the model you chose. It does not download or call a paid service.": "Viktrych हर संदेश के लिए इस डिवाइस पर मौजूद मॉडल चुन सकता है। बंद होने पर आपका चुना मॉडल रहता है। यह डाउनलोड नहीं करता और भुगतान वाली सेवा नहीं बुलाता।"
 });

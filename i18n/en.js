@@ -6302,5 +6302,18 @@ SI18n.addPack("en", {
   "These app settings already match this device.": "These app settings already match this device.",
   "Apply these settings": "Apply these settings",
   "Device setup": "Device setup",
-  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier."
+  "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.": "Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.",
+  "Auto": "Auto",
+  "Picks a downloaded model for each message. It does not download or use a paid service.": "Picks a downloaded model for each message. It does not download or use a paid service.",
+  "The message is short, so Instant is enough.": "The message is short, so Instant is enough.",
+  "This looks like a setting change, so Instant is enough.": "This looks like a setting change, so Instant is enough.",
+  "This looks like a longer piece of writing, and this model is already on the device.": "This looks like a longer piece of writing, and this model is already on the device.",
+  "This looks like code or a tool request, and this model is already on the device.": "This looks like code or a tool request, and this model is already on the device.",
+  "This looks like translation, and this model is already on the device.": "This looks like translation, and this model is already on the device.",
+  "This looks like a summary, and this model is already on the device.": "This looks like a summary, and this model is already on the device.",
+  "No larger downloaded model fits, so Instant is the fallback.": "No larger downloaded model fits, so Instant is the fallback.",
+  "Auto used {name}.": "Auto used {name}.",
+  "Use my model": "Use my model",
+  "Auto model": "Auto model",
+  "Viktrych can pick a model already on this device for each message. Off keeps the model you chose. It does not download or call a paid service.": "Viktrych can pick a model already on this device for each message. Off keeps the model you chose. It does not download or call a paid service."
 });
