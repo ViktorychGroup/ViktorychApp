@@ -2081,7 +2081,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2190,7 +2190,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")],
       notif_sounds: [tr("In-app notification sounds"), tr("While the app is open, new notifications play a sound picked per account, per type or the default, with a volume control. Made on the device; no sound files.")],
       owner_user_settings: [tr("Manage member settings"), tr("In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.")],
-      tiktok_auto_record: [tr("Automatic TikTok recorder"), tr("Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.")]
+      tiktok_auto_record: [tr("Automatic TikTok recorder"), tr("Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.")],
+      x_broadcast: [tr("X broadcasts"), tr("Public X broadcasts play in the feed when a public stream is available. Otherwise the card opens the broadcast on X.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -3733,8 +3734,276 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return !(w && h) || w / h >= 1.3;
   }
 
+  function xBroadcastOn() {
+    return !serverOffList().includes("x_broadcast");
+  }
+
+  /* A broadcast page becomes a player card when the switch is on. The first
+     paint has no video and no iframe. A public stream is attached later. */
+  function xBroadcastCard(url, link, post) {
+    if (!xBroadcastOn()) return "";
+    const api = window.ViktorychXBroadcast;
+    if (!api) {
+      if (!xBroadcastCard.loading) {
+        xBroadcastCard.loading = true;
+        import("./shared/x-broadcast.js").then(() => {
+          xBroadcastCard.loading = false;
+          // A full rebuild here can land during the Home AI long-press and
+          // cancel it. The next navigation paints any broadcast card.
+        }).catch(() => { xBroadcastCard.loading = false; });
+      }
+      return "";
+    }
+    const id = api.broadcastId(String(url || (link && link.url) || ""));
+    if (!id) return "";
+    const known = api.playbackForBroadcast(post && post.media, id);
+    return api.cardHtml({
+      id: id,
+      statusId: post && post.statusId,
+      title: (link && link.title) || (known && known.title) || "",
+      poster: (known && known.poster) || (link && link.image) || "",
+      hls: known && known.hls,
+      kind: known && known.kind,
+      state: known && known.state,
+      width: known && known.width,
+      height: known && known.height,
+      checked: !!(known && known.hls)
+    }, { tr: tr, esc: esc });
+  }
+
+  function xcastAutoEnv() {
+    const conn = connectionInfo();
+    const mode = (STATE.settings && STATE.settings.autoplay) || "all";
+    let reducedMotion = false;
+    let reducedData = false;
+    try {
+      reducedMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      reducedData = !!(window.matchMedia && window.matchMedia("(prefers-reduced-data: reduce)").matches);
+    } catch (err) { /* matchMedia can throw in a locked document */ }
+    return {
+      inView: true,
+      hasPlayback: true,
+      setting: mode === "wifi" || mode === "never" ? mode : "all",
+      type: conn.type,
+      saveData: conn.saveData,
+      effectiveType: conn.effectiveType,
+      reducedMotion: reducedMotion,
+      reducedData: reducedData
+    };
+  }
+
+  function xcastRecall(id) {
+    const row = STATE.xcastMem && STATE.xcastMem[id];
+    if (!row) return null;
+    if (Date.now() - row.at > row.ttl) { delete STATE.xcastMem[id]; return null; }
+    return row.model;
+  }
+
+  function xcastRemember(id, model) {
+    STATE.xcastMem = STATE.xcastMem || {};
+    const ttl = model && model.state === "live" ? 60 * 1000 : 5 * 60 * 1000;
+    STATE.xcastMem[id] = { at: Date.now(), ttl: ttl, model: model };
+  }
+
+  function xcastFill(card, model) {
+    const api = window.ViktorychXBroadcast;
+    if (!card || !api) return;
+    const row = api.present(model);
+    card.setAttribute("data-xcast-mode", row.mode);
+    card.setAttribute("data-xcast-state", row.state);
+    card.setAttribute("data-xcast-hls", row.hls);
+    card.setAttribute("data-xcast-kind", row.kind);
+    if (row.openUrl) card.setAttribute("data-xcast-open", row.openUrl);
+    const label = row.state === "live" ? tr("Live") : row.state === "replay" ? tr("Replay") : row.state === "ended" ? tr("Ended") : "";
+    let badge = card.querySelector(".xcast-badge");
+    if (label) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "xcast-badge";
+        const stage = card.querySelector(".xcast-stage");
+        if (stage) stage.appendChild(badge);
+      }
+      badge.textContent = label;
+      badge.classList.toggle("is-live", row.state === "live");
+      badge.hidden = false;
+    } else if (badge) badge.hidden = true;
+    if (row.poster) {
+      let img = card.querySelector(".xcast-poster");
+      if (!img) {
+        img = document.createElement("img");
+        img.className = "xcast-poster";
+        img.alt = "";
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.referrerPolicy = "no-referrer";
+        const stage = card.querySelector(".xcast-stage");
+        if (stage) stage.insertBefore(img, stage.firstChild);
+      }
+      if (img.getAttribute("src") !== row.poster) img.src = row.poster;
+    }
+    const title = card.querySelector(".xcast-title");
+    if (title) title.textContent = row.title || tr("X broadcast");
+    const go = card.querySelector(".xcast-go");
+    const watch = card.querySelector(".xcast-watch");
+    const copy = card.querySelector(".xcast-copy");
+    let note = card.querySelector(".xcast-note");
+    if (row.mode === "fallback") {
+      if (go) go.hidden = true;
+      if (watch) watch.hidden = false;
+      if (!note && copy) {
+        note = document.createElement("span");
+        note.className = "xcast-note";
+        note.textContent = tr("This broadcast plays on X.");
+        copy.appendChild(note);
+      }
+    } else if (go) go.hidden = false;
+    const err = card.querySelector(".xcast-error");
+    if (err) err.hidden = true;
+  }
+
+  function xcastFail(card) {
+    const api = window.ViktorychXBroadcast;
+    if (api) api.stopCard(card);
+    if (!card) return;
+    const go = card.querySelector(".xcast-go");
+    if (go) go.hidden = true;
+    const watch = card.querySelector(".xcast-watch");
+    if (watch) watch.hidden = false;
+    const err = card.querySelector(".xcast-error");
+    if (err) err.hidden = false;
+    const copy = card.querySelector(".xcast-copy");
+    if (copy && !card.querySelector(".xcast-note")) {
+      const note = document.createElement("span");
+      note.className = "xcast-note";
+      note.textContent = tr("This broadcast plays on X.");
+      copy.appendChild(note);
+    }
+    card.setAttribute("data-xcast-mode", "fallback");
+    card.setAttribute("data-xcast-hls", "");
+  }
+
+  function xcastLoadHls(card, video, url, fail, start) {
+    loadHls().then((Hls) => {
+      if (!card.isConnected || !video.isConnected) return;
+      if (!Hls || !(typeof Hls.isSupported === "function" ? Hls.isSupported() : Hls.isSupported)) { fail(); return; }
+      const hls = new Hls(hlsAhead());
+      card._hls = hls;
+      const wait = setTimeout(() => fail(), 8000);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data && (data.fatal || (data.response && Number(data.response.code) >= 400))) { clearTimeout(wait); fail(); }
+      });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (!card.isConnected || !video.isConnected) return;
+        clearTimeout(wait);
+        lockHlsTop(hls);
+        start();
+      });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+    }).catch(() => fail());
+  }
+
+  function xcastStopOthers(card) {
+    const api = window.ViktorychXBroadcast;
+    document.querySelectorAll(".xcast.is-playing").forEach((other) => {
+      if (other !== card && api) api.stopCard(other);
+    });
+    lvStopFeed();
+  }
+
+  function xcastMaybePlay(card, userGesture) {
+    const api = window.ViktorychXBroadcast;
+    if (!api || !card || card.getAttribute("data-xcast-mode") === "fallback") return;
+    if (!card.getAttribute("data-xcast-hls")) return;
+    const result = api.playCard(card, {
+      userGesture: !!userGesture,
+      auto: xcastAutoEnv(),
+      loadHls: (video, url, fail, start) => xcastLoadHls(card, video, url, fail, start),
+      onFail: () => { if (card.isConnected) xcastFail(card); }
+    });
+    if (result === "play") xcastStopOthers(card);
+  }
+
+  function xcastResolve(card, userGesture) {
+    const api = window.ViktorychXBroadcast;
+    if (!card || !api || !xBroadcastOn() || card._xcastBusy) return;
+    const id = card.getAttribute("data-xcast") || "";
+    const status = card.getAttribute("data-xcast-status") || "";
+    const cached = xcastRecall(id);
+    if (cached) {
+      xcastFill(card, cached);
+      xcastMaybePlay(card, userGesture);
+      return;
+    }
+    if (card.getAttribute("data-xcast-hls") && card.getAttribute("data-xcast-mode") === "play") {
+      xcastMaybePlay(card, userGesture);
+      return;
+    }
+    const root = accountsApi();
+    if (!root) {
+      xcastFill(card, { id: id, checked: true });
+      return;
+    }
+    card._xcastBusy = true;
+    const q = root.replace(/\/$/, "") + "/v1/x-broadcast?id=" + encodeURIComponent(id) + (status ? "&status=" + encodeURIComponent(status) : "");
+    const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = setTimeout(() => { if (ctrl) ctrl.abort(); }, 6000);
+    fetch(q, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" }).then((res) => {
+      if (res.status === 204) return { id: id, checked: true };
+      if (!res.ok) throw new Error(String(res.status));
+      return res.json();
+    }).then((body) => {
+      if (!card.isConnected) return;
+      const model = body && typeof body === "object" ? body : { id: id };
+      model.id = id;
+      model.checked = true;
+      model.statusId = status;
+      xcastRemember(id, model);
+      xcastFill(card, model);
+      xcastMaybePlay(card, userGesture);
+    }).catch(() => {
+      if (card.isConnected) xcastFail(card);
+    }).finally(() => {
+      clearTimeout(timer);
+      card._xcastBusy = false;
+    });
+  }
+
+  function xcastArm() {
+    const api = window.ViktorychXBroadcast;
+    if (!api || !xBroadcastOn() || !("IntersectionObserver" in window)) return;
+    const nodes = document.querySelectorAll(".xcast[data-xcast]");
+    if (!nodes.length) return;
+    if (!STATE.xcastObserver) {
+      STATE.xcastObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          const card = entry.target;
+          if (!card.isConnected) return;
+          if (entry.intersectionRatio < 0.25) {
+            api.stopCard(card);
+            return;
+          }
+          xcastResolve(card, false);
+        });
+      }, { rootMargin: "0px", threshold: [0, 0.25, 0.6] });
+    }
+    nodes.forEach((card) => STATE.xcastObserver.observe(card));
+  }
+
+  function xcastReleaseAll() {
+    const api = window.ViktorychXBroadcast;
+    const stop = (root) => {
+      if (!root || !root.querySelectorAll) return;
+      root.querySelectorAll(".xcast").forEach((card) => { if (api) api.stopCard(card); });
+    };
+    stop(document);
+    if (typeof viewParks !== "undefined" && viewParks && viewParks.forEach) viewParks.forEach((slot) => stop(slot && slot.root));
+  }
+
   function linkCard(link, post) {
     if (!link || !link.url) return "";
+    const cast = xBroadcastCard(link.url, link, post);
+    if (cast) return cast;
     const id = post && post.id ? ` data-id="${esc(post.id)}"` : "";
     const external = window.ViktorychEmbed && window.ViktorychEmbed.xExternal ? window.ViktorychEmbed.xExternal(link.url) : null;
     if (external && external.kind === "link" && external.openUrl) {
@@ -4160,6 +4429,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   }
 
   function linkPreviewHtml(url, post, id) {
+    const cast = xBroadcastCard(url, null, post || (id ? { id: id } : null));
+    if (cast) return cast;
     lpLoad();
     const row = LINK_PREVIEW.mem[url];
     if (!row) {
@@ -4253,6 +4524,11 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       const embedHold = holdMedia(src) ? ` data-ds-hold="1" data-ds-label="${esc(tr("Tap to load"))}"` : "";
       const frame = `<iframe src="${esc(src)}" title="${esc(embed.title || tr("Post noun"))}" loading="lazy"${policy}${allow}></iframe>`;
       return `<div class="media m1 embed-media"><div class="tile embed-tile"${embedHold}>${embedHold ? dataSaver().holdAttrs(frame) : frame}${open}</div></div>` + files;
+    }
+    if (list.length === 1) {
+      const only = list[0];
+      const cast = xBroadcastCard(only.url || only.open || only.fallback || "", only, post);
+      if (cast) return cast + files;
     }
     if (list.length === 1 && list[0].type === "placeholder") {
       return `<div class="media m1"><div class="tile broken"><a class="open-original" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(list[0].url || "#")}">${tr("Open original")}</a></div></div>` + files;
@@ -11546,6 +11822,7 @@ const here = parseRoute();
         else localStorage.setItem(HOME_FEATURE_FLAGS[key], "1");
       } catch (err) { /* storage blocked */ }
     });
+    if (serverOffList().includes("x_broadcast")) off.push("xBroadcast");
     // The service worker reads this list so its shell download skips off features too.
     const body = JSON.stringify(off);
     if (body === featureOffSent || !window.caches) return;
@@ -18400,7 +18677,7 @@ const here = parseRoute();
   function settingsSearchOut() {
     if (!window.ViktorychSettingsAssistant) return "";
     const q = String(STATE.settingsQ || "");
-    return `<div class="set-list set-search-out" id="settings-q-out" aria-live="polite"${q.trim() ? "" : " hidden"}>${settingsSearchRows(q, -1)}</div>`;
+    return `<div class="set-list set-search-out" id="settings-q-out" aria-live="polite"${q.trim() ? "" : " hidden"}>${settingsSearchRows(q, q.trim() ? settingsAskPick : -1)}</div>`;
   }
 
   function settingsSearchRows(q, pick) {
@@ -18420,10 +18697,12 @@ const here = parseRoute();
   }
 
   let settingsAskSeq = 0;
+  let settingsAskPick = -1;
   function settingsSearchInput(value) {
     STATE.settingsQ = value;
     const out = document.getElementById("settings-q-out");
     const q = String(value || "").trim();
+    settingsAskPick = -1;
     document.querySelectorAll(".set-main-list, .set-main-note").forEach((el) => { el.hidden = !!q; });
     if (!out) return;
     out.hidden = !q;
@@ -18436,6 +18715,7 @@ const here = parseRoute();
       const t = (key, vars) => tr(key, Object.assign({ app: productName("app") }, vars || {}));
       sa.ask(q, t).then((pick) => {
         if (seq !== settingsAskSeq || pick < 0) return;
+        settingsAskPick = pick;
         const box = document.getElementById("settings-q-out");
         if (box) box.innerHTML = settingsSearchRows(value, pick);
       });
@@ -21962,6 +22242,7 @@ if (STATE.histClear) {
     window.addEventListener("pagehide", () => {
       hscrollRemember(document.getElementById("app"));
       hscrollFlush();
+      xcastReleaseAll();
     });
     if (window.MutationObserver && document.body) {
       const observer = new MutationObserver((records) => {
@@ -22336,6 +22617,7 @@ if (STATE.histClear) {
     viewParks.forEach((slot, key) => {
       if (!slot.live || !slot.root) return;
       slot.root.querySelectorAll("video, audio").forEach((el) => { try { el.pause(); } catch (err) { /* already stopped */ } });
+      if (window.ViktorychXBroadcast) slot.root.querySelectorAll(".xcast").forEach((card) => window.ViktorychXBroadcast.stopCard(card));
       slot.root.querySelectorAll(".center.route-wait").forEach((el) => el.classList.remove("route-wait"));
       scrollLock = true;
       slot.root.remove();
@@ -22532,6 +22814,7 @@ if (STATE.histClear) {
         document.title = withUnreadTitle(routeTitle(route, "", "", ""));
         if (window.SIntelMusic && window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(route);
         window.scrollTo(0, y);
+        xcastArm();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
       } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force) {
@@ -22682,6 +22965,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (window.WeatherPills && window.WeatherPills.afterRender) window.WeatherPills.afterRender(route);
       if (window.ViktorychXCompose && window.ViktorychXCompose.afterRender) window.ViktorychXCompose.afterRender();
       bindPlayers();
+      xcastArm();
       bindMediaFrames();
       primeTelegramImages();
       resumePlayback();
@@ -24019,6 +24303,17 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     }
     if (act === "lv-play") {
       lvPlay(el);
+      return;
+    }
+    if (act === "xcast-play" || act === "xcast-retry") {
+      const card = el.closest(".xcast");
+      if (!card) return;
+      if (act === "xcast-retry") {
+        const key = card.getAttribute("data-xcast");
+        if (STATE.xcastMem && key) delete STATE.xcastMem[key];
+        card._xcastBusy = false;
+      }
+      xcastResolve(card, true);
       return;
     }
     if (act === "open-link") {
@@ -25461,7 +25756,16 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     // If the browser sends no click after this, do not eat the next real tap.
     setTimeout(() => { swallowStatusIconRelease = false; }, 400);
   }, { capture: true, passive: false });
-  document.addEventListener("scroll", clearStatusIconHold, { capture: true, passive: true });
+  document.addEventListener("scroll", (event) => {
+    const target = event.target;
+    // Restoring a horizontal strip (tabs, pills) also scrolls. That is not
+    // the page moving under the finger, so it must not cancel the hold.
+    if (target && target !== document && target !== document.documentElement && target !== document.body) {
+      const el = target.nodeType === 1 ? target : null;
+      if (el && el.scrollHeight <= el.clientHeight + 24) return;
+    }
+    clearStatusIconHold();
+  }, { capture: true, passive: true });
   window.addEventListener("blur", clearStatusIconHold);
   document.addEventListener("click", (event) => {
     if (swallowStatusIconRelease) {

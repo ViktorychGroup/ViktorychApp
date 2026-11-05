@@ -93,6 +93,11 @@ async function main() {
       localStorage.setItem("viktorychapp-live-translate-v1", JSON.stringify({ on: true, target: "es", mode: "both", duck: 0.2 }));
       localStorage.setItem("viktorychapp-live-translate-key", "${KEY}"); })();`);
     const page = await context.newPage();
+    const slow = Number(process.env.CPU || 0);
+    if (slow > 1) {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Emulation.setCPUThrottlingRate", { rate: slow });
+    }
     const errors = [];
     page.on("pageerror", (err) => errors.push(String(err)));
     await page.goto(base + "/lt.html");
@@ -116,10 +121,15 @@ async function main() {
     const bytes = Buffer.from(audio.data, "base64");
     if (bytes.length !== 3200) fail("chunks are not 100 ms of 16 kHz PCM16: " + bytes.length);
     await page.waitForFunction(() => { const el = document.querySelector(".lt-subs"); return el && !el.hidden && el.textContent === "Hola mundo"; }, null, { timeout: 5000 });
-    await page.waitForFunction(() => window.ViktorychLiveTranslate.state().ducked, null, { timeout: 3000 });
-    await page.waitForTimeout(250);
+    /* The gain approaches the saved 0.2 target on the audio clock. Poll until
+       it is there. A fixed wait reads the ramp mid-way when that clock is slow. */
+    const duckLimit = 0.25;
+    await page.waitForFunction((limit) => {
+      const s = window.ViktorychLiveTranslate.state();
+      return !!(s && s.ducked && s.duck <= limit);
+    }, duckLimit, { timeout: 4000 });
     const ducked = await page.evaluate(() => window.ViktorychLiveTranslate.state().duck);
-    if (ducked > 0.35) fail("the original was not ducked: " + ducked);
+    if (!(ducked <= duckLimit)) fail("the original was not ducked: " + ducked);
     await page.waitForFunction(() => !window.ViktorychLiveTranslate.state().ducked, null, { timeout: 4000 });
     const subsBox = await page.locator(".lt-subs").boundingBox();
     if (!subsBox || subsBox.width < 200) fail("subtitles are not placed");

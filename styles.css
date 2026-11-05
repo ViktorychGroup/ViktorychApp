@@ -3985,6 +3985,27 @@ html.tv-on #new-posts { display: none; }
 .link-card.lv-card .lv-copy { display: flex; color: inherit; text-decoration: none; }
 .link-card.lv-card:hover { background: transparent; }
 .link-card.lv-card .lv-copy:hover { background: var(--hover-soft); }
+/* X broadcast: a 16:9 still, then our player or a Watch on X link.
+   The same card is used in the phone column and the desktop column. */
+.xcast { display: block; margin-top: 12px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--bg, #000); max-width: 100%; }
+.xcast-stage { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; overflow: hidden; }
+.xcast-stage img, .xcast-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+.xcast-badge { position: absolute; z-index: 2; top: 8px; left: 8px; padding: 2px 8px; border-radius: 4px; background: rgba(15, 20, 25, .75); color: #fff; font-size: 13px; font-weight: 700; line-height: 16px; }
+.xcast-badge.is-live { background: #f4212e; }
+.xcast-go { position: absolute; z-index: 2; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; padding: 0; border: 0; border-radius: 999px; background: rgba(0, 0, 0, .65); color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.xcast-go svg { width: 30px; height: 30px; fill: currentColor; }
+.xcast-watch { position: absolute; z-index: 2; left: 50%; top: 50%; transform: translate(-50%, -50%); min-height: 44px; padding: 10px 16px; border-radius: 999px; background: #fff; color: #0f1419; font-weight: 700; font-size: 15px; line-height: 20px; text-decoration: none; display: inline-flex; align-items: center; }
+.xcast-error { position: absolute; z-index: 2; left: 8px; right: 8px; bottom: 8px; margin: 0; color: #fff; font-size: 13px; line-height: 18px; text-shadow: 0 1px 2px #000; }
+.xcast-error button { margin-left: 8px; min-height: 32px; border: 0; border-radius: 999px; padding: 4px 10px; background: #fff; color: #0f1419; font: inherit; font-weight: 700; cursor: pointer; }
+.xcast-go[hidden], .xcast-watch[hidden], .xcast-error[hidden], .xcast-badge[hidden] { display: none !important; }
+.xcast.is-playing .xcast-go, .xcast.is-playing .xcast-watch { display: none; }
+.xcast-copy { display: flex; flex-direction: column; gap: 2px; padding: 12px; }
+.xcast-site { color: var(--muted); font-size: 13px; line-height: 16px; }
+.xcast-title { font-size: 15px; line-height: 20px; font-weight: 700; }
+.xcast-note { color: var(--muted); font-size: 13px; line-height: 16px; }
+@media (max-width: 699px) {
+  .xcast { border-radius: 12px; }
+}
 .link-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin-top: 12px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 14px; text-decoration: none; }
 .link-chip:hover { background: var(--hover-soft); }
 .link-chip svg { width: 16px; height: 16px; fill: currentColor; flex: none; }

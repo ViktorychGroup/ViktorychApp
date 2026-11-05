@@ -885,6 +885,7 @@
     <script src="live.js" defer></script>
     <script src="x-compose.js" defer></script>
     <script src="affiliations.js" defer></script>
+    <script src="shared/x-broadcast.js" type="module"></script>
     <script src="app.js" defer></script>
     <script src="keys.js" defer></script>
     <script src="keys-ui.js" defer></script>
@@ -940,6 +941,7 @@
           var server = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]") || [];
           if (server.indexOf("pills") >= 0) off.push("shared/pill-data.js", "scores.js", "weather.js", "scores.css", "weather.css");
           if (server.indexOf("stories") >= 0) off.push("stories.js", "stories.css");
+          if (server.indexOf("x_broadcast") >= 0) off.push("shared/x-broadcast.js");
           /* For You off (allowed unless the owner switched foryou_off off): no ranking code. */
           if (localStorage.getItem("viktorychapp-off-foryou") === "1" && server.indexOf("foryou_off") < 0) off.push("shared/for-you.js");
         } catch (err) { /* storage blocked */ }

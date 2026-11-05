@@ -108,7 +108,10 @@ export const FEATURES = {
   notif_sounds: { paths: [] },
   // Owner-managed member settings: the owner changes another account's
   // synced settings and can lock them; /v1/sync keeps locked values.
-  owner_user_settings: { paths: ["/v1/owner/user-settings"] }
+  owner_user_settings: { paths: ["/v1/owner/user-settings"] },
+  // Public X broadcasts in the feed. On by default. Off: the card is a
+  // link to X and /v1/x-broadcast answers empty. No private X API.
+  x_broadcast: { paths: ["/v1/x-broadcast"] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 
