@@ -1828,6 +1828,20 @@ def main() -> None:
     check(vk_text_post["url"] == "https://vk.com/wall-10000041_1730797" and vk_text_post["stats"]["replies"] == 12, "vk post links to the wall and keeps the comment count")
     vk_video = vk_doc["posts"][1]
     check(vk_video["media"][0]["type"] == "video" and vk_video["media"][0]["poster"].endswith("vk-video.jpg") and vk_video["media"][0]["open"].startswith("https://vk.com/video"), "vk video keeps a poster and the watch page")
+    check(vk_video["media"][0].get("width") == 1280 and vk_video["media"][0].get("height") == 720, "a landscape vk video keeps its 16:9 frame size")
+    vk_clip = parse_vk({"response": {"count": 2, "items": [
+        {"id": 21, "owner_id": -10000041, "from_id": -10000041, "date": 21, "post_type": "post", "text": "", "attachments": [{"type": "video", "video": {
+            "id": 31, "owner_id": -10000041, "type": "short_video", "duration": 20,
+            "image": [{"width": 320, "height": 240, "with_padding": 1, "url": "https://sun1.userapi.com/clip-pad-small.jpg"}, {"width": 1280, "height": 720, "with_padding": 1, "url": "https://sun1.userapi.com/clip-pad.jpg"}],
+            "first_frame": [{"width": 360, "height": 640, "url": "https://sun1.userapi.com/clip-frame-small.jpg"}, {"width": 720, "height": 1280, "url": "https://sun1.userapi.com/clip-frame.jpg"}]}}]},
+        {"id": 22, "owner_id": -10000041, "from_id": -10000041, "date": 22, "post_type": "post", "text": "", "attachments": [{"type": "video", "video": {
+            "id": 32, "owner_id": -10000041, "width": 1080, "height": 1080, "duration": 9,
+            "image": [{"width": 1280, "height": 720, "with_padding": 1, "url": "https://sun1.userapi.com/square-pad.jpg"}]}}]},
+    ]}, "groups": [{"id": 10000041, "name": "ВКонтакте", "screen_name": "vk"}]}, {"id": "vk:vk", "platform": "vk", "handle": "vk"})
+    clip_media = next(post for post in vk_clip["posts"] if post["id"].endswith("_21"))["media"][0]
+    square_media = next(post for post in vk_clip["posts"] if post["id"].endswith("_22"))["media"][0]
+    check(clip_media["width"] == 720 and clip_media["height"] == 1280 and clip_media["poster"].endswith("clip-frame.jpg"), "a vertical vk clip takes its frame size and poster from the real first frame, not the padded cover")
+    check(square_media["width"] == 1080 and square_media["height"] == 1080 and square_media["poster"].endswith("square-pad.jpg"), "a vk video's own size wins and a padded cover never sets the frame")
     vk_repost = vk_doc["posts"][2]
     check(vk_repost["kind"] == "repost" and vk_repost["handle"] == "team" and vk_repost["repostedBy"]["handle"] == "vk" and vk_repost["repostedBy"]["platform"] == "vk" and vk_repost["repostedBy"]["feedId"] == "vk:vk" and "Исходная" in vk_repost["text"], "vk repost credits the community and shows the original")
     vk_wall = next(post for post in vk_doc["posts"] if post["id"] == "-220923985_58381")
