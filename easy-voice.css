@@ -1,12 +1,15 @@
+.easy-voice[hidden],
+#easy-spotlight[hidden] { display: none !important; }
 .easy-voice {
   position: fixed;
-  z-index: 45;
+  z-index: 16;
   left: 12px;
-  right: 12px;
-  bottom: calc(76px + env(safe-area-inset-bottom));
+  right: auto;
+  width: min(280px, calc(100vw - 120px));
+  bottom: calc(78px + env(safe-area-inset-bottom));
   display: grid;
   gap: 10px;
-  padding: 12px;
+  padding: 8px;
   border: 2px solid #fff;
   border-radius: 20px;
   background: #000;
@@ -15,6 +18,13 @@
   line-height: 1.3;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
+.easy-voice:not(.is-open) .easy-voice-state,
+.easy-voice:not(.is-open) .easy-voice-say,
+.easy-voice:not(.is-open) .easy-voice-actions,
+.easy-voice:not(.is-open) .easy-voice-note,
+.easy-voice:not(.is-open) .easy-voice-more,
+.easy-voice:not(.is-open) [data-ev="stop"],
+.easy-voice:not(.is-open) [data-ev="pause"] { display: none; }
 .easy-voice-state { margin: 0; font-weight: 800; }
 .easy-voice-row, .easy-voice-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .easy-voice button, .easy-voice input {
@@ -70,7 +80,8 @@
 .easy-callout button { min-height: 48px; margin-top: 8px; }
 .easy-voice-still .easy-spot, .easy-voice-still .easy-callout, .easy-voice-still .easy-voice { transition: none; }
 @media (min-width: 1000px) {
-  .easy-voice { left: auto; width: 420px; right: 20px; bottom: 20px; }
+  .easy-voice { left: 320px; bottom: 16px; width: min(280px, 28vw); }
+  .easy-voice.is-open { width: min(420px, 34vw); }
 }
 @media (prefers-reduced-motion: reduce) {
   .easy-spot, .easy-callout, .easy-voice { transition: none; scroll-behavior: auto; }

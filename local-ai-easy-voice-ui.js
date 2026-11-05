@@ -97,10 +97,19 @@
     if (stop) stop.hidden = name !== "listening" && name !== "speaking";
     if (pause) pause.hidden = name !== "speaking";
     dock.classList.toggle("easy-voice-still", still());
+    syncChrome();
+  }
+  function syncChrome() {
+    var dock = rootEl();
+    if (!dock) return;
+    var open = E.state !== "ready" || !!E.plan || !!E.heard || !!E.learn || !!E.note;
+    dock.classList.toggle("is-open", open);
   }
   function note(text) {
+    E.note = text || "";
     var el = rootEl() && rootEl().querySelector(".easy-voice-note");
-    if (el) el.textContent = text || "";
+    if (el) el.textContent = E.note;
+    syncChrome();
   }
   function sayBox(text) {
     var el = rootEl() && rootEl().querySelector(".easy-voice-say");
@@ -560,9 +569,7 @@
     dock.hidden = false;
     setState(E.state || "ready");
     extra();
-    if (!dock.querySelector(".easy-voice-say").textContent) {
-      note(tr("On-screen talk is the large Talk button. A saved key is extra."));
-    }
+    syncChrome();
   }
   function unmount() {
     stopAll();
