@@ -1,7 +1,7 @@
 /* Service worker update. An old worker can move to a new one, a file that
    fails once is tried again, a file that keeps failing never shows an error
-   (the background download tries again later). A downloaded update stays as
-   a pill until it is applied. What's new is one sheet after that apply. */
+   (the background download tries again later). A downloaded update applies
+   on its own, with no tap prompt. What's new is one page after that apply. */
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -203,8 +203,6 @@ async function openApp(browser, url) {
 
 async function offerUpdate(page) {
   await page.evaluate(() => window.ViktorychUpdate.poke());
-  await page.waitForSelector("#upd-pill", { state: "visible", timeout: 15000 });
-  await page.click("#upd-pill");
 }
 
 async function registrationState(page) {
@@ -243,8 +241,9 @@ async function waitSha(page, expected) {
       if (detail && (detail.failed || detail.offer)) {
         nudged += 1;
         const pill = await page.$("#upd-pill");
-        if (pill && await pill.isVisible()) await page.click("#upd-pill").catch(() => {});
-        else await page.click("#upd-go").catch(() => {});
+        if (pill && await pill.isVisible()) throw new Error("a tap-to-update prompt was shown");
+        const go = await page.$("#upd-go");
+        if (go && await go.isVisible()) await page.click("#upd-go").catch(() => {});
       }
     }
     await page.waitForTimeout(300);
@@ -354,8 +353,8 @@ async function shownState(page) {
 }
 
 /* A file that keeps failing: nothing is shown (no error, no Retry, no
-   pill) while the new version downloads in the background. Once the file
-   is back, the pill stays until the update is applied. What's new follows. */
+   tap prompt) while the new version downloads in the background. Once the
+   file is back, the update applies itself. What's new follows. */
 async function testSilentUntilReady(browser) {
   const { server, state, url } = await startServer();
   const { context, page } = await openApp(browser, url);
@@ -369,11 +368,18 @@ async function testSilentUntilReady(browser) {
     assert(!during.visible && !during.pill && !during.error, "an update that is still downloading was shown: " + JSON.stringify(during));
     state.fail = null;
     await page.evaluate(() => window.ViktorychUpdate.poke());
-    await page.waitForSelector("#upd-pill", { state: "visible", timeout: 60000 });
-    const ready = await shownState(page);
-    assert(ready.pill && !ready.notes && !ready.error, "a ready update did not stay a pill: " + JSON.stringify(ready));
-    await page.click("#upd-pill");
-    await waitSha(page, NEW);
+    let prompted = false;
+    const started = Date.now();
+    let sha = "";
+    while (Date.now() - started < 180000) {
+      const shown = await shownState(page);
+      if (shown.pill) prompted = true;
+      try { sha = await shaOf(page); } catch (err) { sha = ""; }
+      if (sha === NEW) break;
+      await page.waitForTimeout(300);
+    }
+    assert(!prompted, "a tap-to-update prompt was shown");
+    assert(sha === NEW, "the ready update did not apply itself (" + sha + ")");
     await page.waitForSelector("#upd-notes-sheet", { timeout: 8000 });
     await page.click("#upd-gotit");
     await page.waitForFunction(() => !document.getElementById("upd-notes-sheet"));
@@ -381,7 +387,7 @@ async function testSilentUntilReady(browser) {
     await context.close();
     server.close();
   }
-  console.log("a failing file stayed silent, then the pill applied and What's new showed once");
+  console.log("a failing file stayed silent, then the update applied itself and What's new showed once");
 }
 
 /* With a manifest, the next update downloads only the files that changed,
@@ -650,29 +656,12 @@ async function setLifecycle(page, state) {
   }, visible ? "visible" : "hidden");
 }
 
-/* Later, Escape, and a tap outside do not skip the build. The pill stays.
-   Hide while a composer is open does not apply. Hide after it closes does,
-   once, and What's new follows. */
+/* A composer holds the apply. There is no tap prompt. Closing it applies
+   once, the draft is saved, and a second hide does not reload again. */
 async function testDismissThenHide(browser) {
   const { server, state, url } = await startServer();
   const { context, page } = await openApp(browser, url);
   try {
-    state.version = NEW;
-    state.built = NEW_BUILT;
-    await page.evaluate(() => window.ViktorychUpdate.poke());
-    await page.waitForSelector("#upd-pill", { state: "visible", timeout: 60000 });
-    const label = await page.locator("#upd-pill").innerText();
-    assert(/Update ready/.test(label), "the pill did not offer a refresh: " + label);
-    await page.evaluate(() => {
-      document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-      const later = document.getElementById("upd-later");
-      if (later) later.click();
-    });
-    await page.waitForTimeout(300);
-    const after = await shownState(page);
-    assert(after.pill && !after.visible, "dismiss removed the waiting update: " + JSON.stringify(after));
-    assert(await shaOf(page) === OLD, "dismiss applied the build");
     await page.evaluate(() => {
       const modal = document.createElement("div");
       modal.className = "xc-modal";
@@ -682,6 +671,15 @@ async function testDismissThenHide(browser) {
       area.id = "hold-text";
       area.value = "draft";
       document.body.appendChild(area);
+    });
+    state.version = NEW;
+    state.built = NEW_BUILT;
+    await page.evaluate(() => window.ViktorychUpdate.poke());
+    await page.waitForFunction(() => document.documentElement.getAttribute("data-update") === "ready", null, { timeout: 60000 });
+    const prompted = await page.locator("#upd-pill").isVisible().catch(() => false);
+    assert(!prompted, "a tap-to-update prompt was shown while composing");
+    assert(await shaOf(page) === OLD, "the build applied while composing");
+    await page.evaluate(() => {
       location.hash = "#/compose";
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
@@ -690,13 +688,9 @@ async function testDismissThenHide(browser) {
     await setLifecycle(page, "hidden");
     await page.waitForTimeout(600);
     assert(await shaOf(page) === OLD, "hiding the app applied the build while composing");
-    const held = await shownState(page);
-    assert(held.pill, "the pill left while the composer was open");
     await page.evaluate(() => {
       const modal = document.getElementById("hold-modal");
-      const area = document.getElementById("hold-text");
       if (modal) modal.remove();
-      if (area) area.remove();
     });
     let reloads = 0;
     page.on("framenavigated", () => { reloads += 1; });
@@ -708,11 +702,13 @@ async function testDismissThenHide(browser) {
       if (sha === NEW) break;
       await page.waitForTimeout(300);
     }
-    assert(sha === NEW, "reopen did not apply the downloaded build (" + sha + ")");
+    assert(sha === NEW, "closing the composer did not apply the downloaded build (" + sha + ")");
     await page.waitForSelector("#upd-notes-sheet", { timeout: 8000 });
+    const saved = await page.evaluate(() => (sessionStorage.getItem("viktorychapp-update-restore") || "") + (localStorage.getItem("viktorychapp-update-restore") || ""));
+    assert(saved.includes("draft"), "the draft was not saved before reload");
     const notes = await page.locator("#upd-notes-sheet").innerText();
-    // Visible updates (update_notice, on by default): the full-screen page with Continue.
     assert(notes.includes("What's new") && notes.includes("Continue"), "What's new did not follow the apply: " + notes);
+    assert(!/tap to/i.test(notes), "What's new asked for a tap: " + notes);
     await page.click("#upd-gotit");
     await page.waitForFunction(() => !document.getElementById("upd-notes-sheet"));
     const again = await page.evaluate((sha) => window.ViktorychUpdate.showReleaseNotes(sha, ["A test note"]), NEW);
@@ -726,7 +722,7 @@ async function testDismissThenHide(browser) {
     await context.close();
     server.close();
   }
-  console.log("dismiss left the pill, hide applied once, and compose held it");
+  console.log("compose held the update, then it applied once and kept the draft");
 }
 
 const browser = await chromium.launch({

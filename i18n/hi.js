@@ -6200,5 +6200,12 @@ SI18n.addPack("hi", {
   "Unlock all": "सभी अनलॉक करें",
   "1 setting locked": "1 सेटिंग लॉक है",
   "{count} settings locked": "{count} सेटिंग्स लॉक हैं",
-  "Each change is logged in the access log.": "हर बदलाव एक्सेस लॉग में दर्ज होता है।"
+  "Each change is logged in the access log.": "हर बदलाव एक्सेस लॉग में दर्ज होता है।",
+  "A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.": "डाउनलोड हुआ अपडेट अपने आप लागू होता है जब आप रिकॉर्ड नहीं कर रहे, देख नहीं रहे और कॉल में नहीं हैं, फिर ऐप एक बार रीलोड होता है।",
+  "A short Updating notice while an update applies, then a full-screen What's new page.": "अपडेट लागू होते समय एक छोटा अपडेट हो रहा है संदेश, फिर पूरी स्क्रीन का नया क्या है पेज।",
+  "This update is already on this device.": "यह अपडेट इस डिवाइस पर पहले से है।",
+  "Your drafts, sign-in and settings stay here.": "आपके ड्राफ़्ट, साइन-इन और सेटिंग्स यहीं रहती हैं।",
+  "Updated {date}": "अपडेट {date}",
+  "In this update": "इस अपडेट में",
+  "Fix": "सुधार"
 });

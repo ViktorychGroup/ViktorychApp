@@ -6210,5 +6210,12 @@ SI18n.addPack("en", {
   "Unlock all": "Unlock all",
   "1 setting locked": "1 setting locked",
   "{count} settings locked": "{count} settings locked",
-  "Each change is logged in the access log.": "Each change is logged in the access log."
+  "Each change is logged in the access log.": "Each change is logged in the access log.",
+  "A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.": "A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.",
+  "A short Updating notice while an update applies, then a full-screen What's new page.": "A short Updating notice while an update applies, then a full-screen What's new page.",
+  "This update is already on this device.": "This update is already on this device.",
+  "Your drafts, sign-in and settings stay here.": "Your drafts, sign-in and settings stay here.",
+  "Updated {date}": "Updated {date}",
+  "In this update": "In this update",
+  "Fix": "Fix"
 });

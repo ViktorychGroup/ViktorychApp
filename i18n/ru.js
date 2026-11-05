@@ -6212,5 +6212,12 @@ SI18n.addPack("ru", {
   "Unlock all": "Разблокировать все",
   "1 setting locked": "1 настройка заблокирована",
   "{count} settings locked": "Заблокировано настроек: {count}",
-  "Each change is logged in the access log.": "Каждое изменение записывается в журнал доступа."
+  "Each change is logged in the access log.": "Каждое изменение записывается в журнал доступа.",
+  "A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.": "Загруженное обновление применяется само, когда вы не записываете, не смотрите видео и не в звонке, затем приложение один раз перезагружается.",
+  "A short Updating notice while an update applies, then a full-screen What's new page.": "Короткое уведомление «Обновление», пока обновление применяется, затем полноэкранная страница «Что нового».",
+  "This update is already on this device.": "Это обновление уже на этом устройстве.",
+  "Your drafts, sign-in and settings stay here.": "Черновики, вход и настройки остаются здесь.",
+  "Updated {date}": "Обновлено {date}",
+  "In this update": "В этом обновлении",
+  "Fix": "Исправление"
 });

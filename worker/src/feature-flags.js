@@ -55,7 +55,8 @@ export const FEATURES = {
   live_frame_grab: { paths: [] },
   // Repair app button, the Home-stuck repair offer and the reinstall guide.
   app_repair: { paths: [] },
-  // Apply a downloaded update after a pause in use (one reload).
+  // Apply a downloaded update on its own, once, when nothing is recording,
+  // playing or in a call.
   auto_update: { paths: [] },
   // Sideways swipe between Home and profile tabs on touch screens. No server
   // endpoints; on by default, off keeps tabs to taps only.
@@ -67,8 +68,8 @@ export const FEATURES = {
   status_bar: { paths: [] },
   // Pinch-zoom lock on phones (viewport, iOS gesture events). No server endpoints.
   zoom_lock: { paths: [] },
-  // Visible updates: the small Updating toast, "tap to restart" and the
-  // full-screen What's new page. No server endpoints.
+  // Visible updates: a short Updating notice while an update applies, then
+  // the full-screen What's new page. No tap-to-update prompt. No endpoints.
   update_notice: { paths: [] },
   // For You off switch in Settings > Home: Following becomes Home and the
   // ranking code is not loaded. No server endpoints. On by default.
