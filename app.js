@@ -13279,9 +13279,9 @@ const here = parseRoute();
      user setting. */
   function compactHeaderOn() { return !serverOffList().includes("compact_header") && !(STATE.settings && STATE.settings.classicHeader); }
   /* Phone status bar mode (owner switch status_bar): kept for the display
-     setting. Native system bars always use the opaque theme colour: Android
-     replaces a transparent theme-color with its own grey, while the page's
-     viewport-fit=cover header still supplies the safe-area clearance. */
+     setting. The native bar uses an opaque theme colour. Android paints its
+     own grey (#131313) when that colour is missing, transparent, or pure
+     black; the page background stays the real theme colour. */
   function statusBarOn() { return !serverOffList().includes("status_bar") && !!(STATE.settings && STATE.settings.statusBar); }
   function mobileLogo() {
     return `<a class="m-logo" href="#/" aria-label="${productName("app")}">${markSvg("app", "logo-full")}${markSvg("appShort", "logo-short")}</a>`;
@@ -27502,6 +27502,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     return below;
   }
 
+  function nativeBarColor(theme) {
+    if (THEMES.native) return THEMES.native(theme);
+    const color = THEME_COLORS[theme] || "#000000";
+    const hex = String(color).trim().toLowerCase();
+    if (!hex || hex === "transparent" || hex === "#000" || hex === "#000000") return "#010101";
+    return color;
+  }
+
   function installedApp() {
     return !!(window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) || window.navigator.standalone);
   }
@@ -27516,11 +27524,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     applyZoomLock();
     const installed = installedApp();
     applySafeTop(!!installed);
-    // Android does not honour a transparent native theme-color: it falls back
-    // to #131313, leaving a grey strip above the black Home header. Keep the
-    // native strip on the selected theme instead. iOS still draws through its
-    // black-translucent status bar and the topbar owns the safe-area padding.
-    const color = THEME_COLORS[theme] || "#000000";
+    // Android's dark UI treats a missing, transparent, or pure-black
+    // theme-color as unset and paints #131313 in the status-bar inset. The
+    // page background stays the real theme colour; only the native bar shifts
+    // one step off black. iOS still draws through black-translucent.
+    const color = nativeBarColor(theme);
     if (statusBarOn()) document.documentElement.setAttribute("data-status-bar", "1");
     else document.documentElement.removeAttribute("data-status-bar");
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", color));
