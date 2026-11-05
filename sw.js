@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-05T12:36:00.000Z-x-broadcast
+// cache-bust: 2026-11-05T13:32:00.000Z-x-broadcast
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -219,6 +219,7 @@ const SHELL_FILES = [
   "./local-ai-memory.js",
   "./local-ai-chat.js",
   "./local-ai-runner.js",
+  "./local-ai-device-setup.js",
   "./local-ai-ffmpeg-worker.js",
   "./local-ai-code-worker.js",
   "./local-ai-ui.js",

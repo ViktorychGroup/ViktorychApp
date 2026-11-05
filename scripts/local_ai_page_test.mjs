@@ -163,6 +163,30 @@ async function main() {
       await settled(page, () => JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}").autoplay === "wifi");
       check((await settings(page)).autoplay === "wifi", size.name + " a quick tap saves after Apply");
       if (size.mobile) check(await page.evaluate(() => { const n = document.querySelector(".bottom-nav"); return !n || getComputedStyle(n).display === "none"; }), "phone hides the bottom bar on this page");
+      await page.click('.lai-head [data-lai="new"]');
+      await say(page, "set up this device");
+      await page.waitForSelector(".lai-msg.ai:last-child [data-lai='dev-apply']", { timeout: 10000 });
+      const setupCard = await page.evaluate(() => {
+        const card = document.querySelector(".lai-msg.ai:last-child .lai-tools");
+        const text = card ? card.innerText : "";
+        return {
+          apply: !!(card && card.querySelector("[data-lai='dev-apply']")),
+          choice: !!(card && card.querySelector("[data-lai='dev-link']")),
+          box: !!(card && card.querySelector("[role='checkbox']")),
+          ready: /already match/i.test(text),
+          guidance: /APN/.test(text) && /browser questions/.test(text)
+        };
+      });
+      check(setupCard.apply && setupCard.choice && setupCard.guidance && (setupCard.box || setupCard.ready), size.name + " device setup previews choices and outside limits: " + JSON.stringify(setupCard));
+      check((await settings(page)).autoplay === "wifi", size.name + " the preview does not apply settings");
+      await page.click(".lai-msg.ai:last-child [data-lai='dev-link'][data-v='cellular']");
+      await page.waitForSelector(".lai-msg.ai:last-child [data-lai='dev-toggle'][data-id='videoHd']", { timeout: 5000 });
+      await page.click(".lai-msg.ai:last-child [data-lai='dev-apply']");
+      await settled(page, () => JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}").videoHd === false);
+      check((await settings(page)).videoHd === false, size.name + " Apply saves the cellular video setting");
+      await page.click(".lai-msg.ai:last-child [data-lai='dev-revert']");
+      await settled(page, () => JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}").videoHd !== false);
+      check((await settings(page)).videoHd !== false, size.name + " Undo device setup restores video HD");
       check(errors.length === 0, size.name + " page errors: " + errors.join(" | "));
       await context.close();
     }

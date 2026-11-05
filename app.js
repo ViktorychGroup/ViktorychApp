@@ -2081,7 +2081,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "x_broadcast"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2186,6 +2186,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       gguf_models: [tr("GGUF models for Viktrych"), tr("Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.")],
       instant_limits: [tr("Instant limits"), tr("Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.")],
       ai_tools: [tr("Viktrych local tools"), tr("On this device Viktrych can fetch a direct media file, run FFmpeg in the page, and prepare drafts you confirm. Each step asks first. Off hides tools.")],
+      ai_device_setup: [tr("Device setup"), tr("Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.")],
       site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")],
       notif_sounds: [tr("In-app notification sounds"), tr("While the app is open, new notifications play a sound picked per account, per type or the default, with a volume control. Made on the device; no sound files.")],
       owner_user_settings: [tr("Manage member settings"), tr("In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.")],
@@ -3745,7 +3746,11 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!api) {
       if (!xBroadcastCard.loading) {
         xBroadcastCard.loading = true;
-        import("./shared/x-broadcast.js").then(() => { xBroadcastCard.loading = false; render(); }).catch(() => { xBroadcastCard.loading = false; });
+        import("./shared/x-broadcast.js").then(() => {
+          xBroadcastCard.loading = false;
+          // A full rebuild here can land during the Home AI long-press and
+          // cancel it. The next navigation paints any broadcast card.
+        }).catch(() => { xBroadcastCard.loading = false; });
       }
       return "";
     }
@@ -25748,7 +25753,16 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     // If the browser sends no click after this, do not eat the next real tap.
     setTimeout(() => { swallowStatusIconRelease = false; }, 400);
   }, { capture: true, passive: false });
-  document.addEventListener("scroll", clearStatusIconHold, { capture: true, passive: true });
+  document.addEventListener("scroll", (event) => {
+    const target = event.target;
+    // Restoring a horizontal strip (tabs, pills) also scrolls. That is not
+    // the page moving under the finger, so it must not cancel the hold.
+    if (target && target !== document && target !== document.documentElement && target !== document.body) {
+      const el = target.nodeType === 1 ? target : null;
+      if (el && el.scrollHeight <= el.clientHeight + 24) return;
+    }
+    clearStatusIconHold();
+  }, { capture: true, passive: true });
   window.addEventListener("blur", clearStatusIconHold);
   document.addEventListener("click", (event) => {
     if (swallowStatusIconRelease) {
@@ -33301,6 +33315,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     ggufOff: () => serverOffList().includes("gguf_models"),
     instantLimits: () => !serverOffList().includes("instant_limits"),
     toolsOn: () => !serverOffList().includes("ai_tools"),
+    deviceSetupOn: () => !serverOffList().includes("ai_device_setup"),
+    deviceLevel: () => (STATE.settings && STATE.settings.devicePerf && STATE.settings.devicePerf.level) || "balanced",
+    setDeviceLevel: (level) => {
+      if (!window.ViktorychDevice || !window.ViktorychDevice.applyLevel) return false;
+      STATE.settings.devicePerf = window.ViktorychDevice.applyLevel(level);
+      saveSettings();
+      return true;
+    },
     actionContext: actionContext,
     performApp: (step, typed) => performAppAction(step, typed),
     signedIn: () => !!accountToken(),

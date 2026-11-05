@@ -96,6 +96,9 @@ export const FEATURES = {
   // Viktrych local tools: in-page FFmpeg, direct media, drafts and app
   // actions. Each step asks first. No server endpoints.
   ai_tools: { paths: [] },
+  // Viktrych device and data-plan setup. App settings only, after a preview.
+  // No server endpoints.
+  ai_device_setup: { paths: [] },
   // Settings > Site permissions: live browser permission states with
   // one-tap Allow and steps for blocked ones. No server endpoints.
   site_permissions: { paths: [] },
