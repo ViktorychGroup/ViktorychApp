@@ -500,9 +500,19 @@ async function main() {
   const needs = new Set(steps.flatMap((item) => item.needs));
   if (needs.has("pw") || needs.has("webkit")) await ensurePlaywright();
   if (needs.has("webkit")) {
-    // Download the browser only. --with-deps apt-installs gstreamer1.0-libav,
-    // which pulls the ffmpeg codec stack and can use the whole 15 minute job.
-    // The iOS check opens pages; it does not play video.
+    // Page checks need WebKit's own libraries, not the ffmpeg codec stack.
+    // gstreamer1.0-libav pulls that stack and can spend the whole 15 minute
+    // job downloading it. These packages are the small ones the browser links.
+    const libs = [
+      "libsoup-3.0-0", "libwayland-server0", "libwayland-client0", "libwayland-egl1",
+      "libgtk-4-1", "libwoff1", "libhyphen0", "libsecret-1-0", "libharfbuzz-icu0",
+      "libmanette-0.2-0", "libgstreamer-plugins-base1.0-0", "libgstreamer-gl1.0-0",
+      "libegl1", "libgles2", "libglx0", "libevdev2", "libgudev-1.0-0", "libnotify4",
+      "libopengl0", "libopenjp2-7", "libopus0", "libproxy1v5", "libwebp7", "libwebpdemux2",
+      "libxkbcommon0", "libxslt1.1", "libevent-2.1-7t64", "libavif16"
+    ].join(" ");
+    const apt = await runShell("sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " + libs, process.env);
+    if (apt !== 0) throw new Error("webkit libraries failed to install");
     process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
     const code = await runShell("cd " + PW + " && npx playwright install webkit", process.env);
     if (code !== 0) throw new Error("webkit install failed");
