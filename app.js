@@ -31624,6 +31624,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         if (startX < 28 && dx > 72) history.back();
         return;
       }
+      /* The owner switch swipe_tabs turns every sideways tab swipe off,
+         including this older Home fallback. */
+      if (serverOffList().includes("swipe_tabs")) return;
       const tab = route.tab === "following" ? "following" : "foryou";
       if (dx < 0 && tab === "foryou") goHash(homeHash("following"));
       else if (dx > 0 && tab === "following" && !forYouOff()) goHash(homeHash("foryou"));
