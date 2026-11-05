@@ -53,6 +53,10 @@ export const FEATURES = {
   local_ai_setup: { paths: [] },
   // Lossless stills from a live, on the owner's device. No server endpoints.
   live_frame_grab: { paths: [] },
+  // Automatic TikTok live recorder. On by default so segments already
+  // buffered keep uploading. A new recording still waits for the owner's
+  // server switch. Off stops new recordings and upload jobs.
+  tiktok_auto_record: { paths: ["/v1/owner/live-record"] },
   // Repair app button, the Home-stuck repair offer and the reinstall guide.
   app_repair: { paths: [] },
   // Apply a downloaded update after a pause in use (one reload).

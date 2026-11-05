@@ -23,7 +23,7 @@ import { handleVaultRoute, VAULT_SCHEMA } from "./vault.js";
 import { handleXProxy } from "./xproxy.js";
 import { handleExtGraph } from "./ext-graph.js";
 import { handleYtRoute } from "./ythls.js";
-import { admitRecord, fresh, needsUpload, recordingAllowed, shouldRememberLive, uploaderStale, watchDecision, watchHandles } from "./live-watch.js";
+import { admitRecord, fresh, needsUpload, recordingAllowed, shouldRememberLive, uploaderStale, uploadsPaused, watchDecision, watchHandles } from "./live-watch.js";
 import { mediaMime, streamFresh, shouldSniffMedia, livePartPlayable, stitchPlaylists, TG_DIRECT_MAX } from "../../shared/live-playback.js";
 import { thumbObjectKey } from "../../shared/live-preview.js";
 import { b2Configured, b2GetThumb } from "./b2-thumb.js";
@@ -2242,6 +2242,7 @@ async function fetchRoom(roomId, keyed) {
 }
 
 const VIEWER_CAP_KEY = "owner/live-viewer-cap.json";
+const LIVE_RECORD_KEY = "owner/live-record.json";
 
 async function readViewerCap(env) {
   const doc = await readJsonObject(env, VIEWER_CAP_KEY);
@@ -2304,6 +2305,31 @@ async function handleViewerCap(request, env) {
   const autoRestart = body.autoRestart === true;
   await writeViewerCap(env, cap, autoRestart);
   return json(200, { cap: cap, autoRestart: autoRestart });
+}
+
+function liveRecordView(doc) {
+  const row = doc && typeof doc === "object" ? doc : {};
+  return { server: row.server === true, uploadsPaused: uploadsPaused(row) };
+}
+
+/* Owner switch for the automatic recorder. `auto` is the on-device copy
+   and is never stored: this device does not record or upload. */
+async function handleLiveRecord(request, env) {
+  const gate = await requireOwner(request, env);
+  if (gate.error) return gate.error;
+  if (request.method === "GET") return json(200, liveRecordView(await readJsonObject(env, LIVE_RECORD_KEY)));
+  if (request.method !== "POST") return json(405, { error: "method" });
+  const body = await readJson(request, 800);
+  if (body.error) return json(400, { error: body.error });
+  if (body.server != null && typeof body.server !== "boolean") return json(400, { error: "server" });
+  if (body.uploadsPaused != null && typeof body.uploadsPaused !== "boolean") return json(400, { error: "uploadsPaused" });
+  const prev = liveRecordView(await readJsonObject(env, LIVE_RECORD_KEY));
+  const next = {
+    server: typeof body.server === "boolean" ? body.server : prev.server,
+    uploadsPaused: typeof body.uploadsPaused === "boolean" ? body.uploadsPaused : prev.uploadsPaused
+  };
+  await writeJsonObject(env, LIVE_RECORD_KEY, next);
+  return json(200, next);
 }
 
 async function handleLiveStats(request, env, handle, gate, prev) {
@@ -4185,6 +4211,10 @@ async function watchTikTokLive(env, nowMs) {
     await writeJsonObject(env, "owner/tiktok-watch.json", { checkedAt: stamp(), accounts: prevAccounts });
     return;
   }
+  const flags = await readFlags(env, Number(nowMs) || Date.now());
+  const recorderOff = !!(flags && flags.tiktok_auto_record);
+  const recordPref = recorderOff ? null : await readJsonObject(env, LIVE_RECORD_KEY);
+  const holdUploads = recorderOff || uploadsPaused(recordPref);
   const channelDoc = await readJsonObject(env, WATCH_CHANNELS_KEY);
   const extras = Array.isArray(channelDoc && channelDoc.channels)
     ? channelDoc.channels.filter((value) => WATCH_CHANNEL.test(String(value || "").trim())).length
@@ -4241,12 +4271,11 @@ async function watchTikTokLive(env, nowMs) {
     const active = job && job.active && typeof job.active === "object" ? job.active : {};
     report[handle] = watchAccountNote(handle, info.live ? "live" : "offline", job, prevAccounts[handle]);
 
-    if (needsUpload(active, nowMs)) uploader = true;
-    if (!info.live) continue;
+    if (!holdUploads && needsUpload(active, nowMs)) uploader = true;
+    if (!info.live || recorderOff) continue;
 
     const capNoted = await noteViewerCap(env, handle, info.viewers || 0, prev, true, !!(job && job.active));
     if (capNoted.capPaused) continue;
-    const recordPref = await readJsonObject(env, "owner/live-record.json");
     const choice = watchDecision(job, mark, seen.roomId, nowMs);
     if (!admitRecord(choice, handle, activeNames)) continue;
     if (!recordingAllowed(job, recordPref)) continue;
@@ -4270,7 +4299,7 @@ async function watchTikTokLive(env, nowMs) {
     checkedAt: stamp(),
     accounts: Object.assign({}, prevAccounts, report)
   });
-  if (!uploader) return;
+  if (holdUploads || !uploader) return;
   for (let slot = 0; slot < channels; slot++) {
     const beat = await readJsonObject(env, WATCH_UPLOAD_PREFIX + slot + ".json");
     if (!uploaderStale(beat, nowMs)) continue;
@@ -5965,6 +5994,7 @@ async function route(request, env, ctx) {
   if (path === "/v1/owner/tiktok/channels" && (request.method === "GET" || request.method === "POST")) return handleBackupChannels(request, env);
   if (path === "/v1/owner/tiktok/board" && request.method === "GET") return handleLiveBoard(request, env);
   if (path === "/v1/owner/live-resume" && (request.method === "GET" || request.method === "PUT")) return handlePlaybackResume(request, env);
+  if (path === "/v1/owner/live-record" && (request.method === "GET" || request.method === "POST")) return handleLiveRecord(request, env);
   const thumbPath = path.match(/^\/v1\/owner\/tiktok\/thumb\/([A-Za-z0-9._]{2,24})\/([1-9][0-9]{5,24})$/);
   if (thumbPath && request.method === "GET") return handleLiveThumb(request, env, thumbPath[1], thumbPath[2]);
   if (path === "/v1/owner/tiktok" && request.method === "GET") return handleOwnerTiktok(request, env);
