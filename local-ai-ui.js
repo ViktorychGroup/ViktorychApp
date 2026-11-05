@@ -378,6 +378,17 @@
       msg.upsell = cut ? "more" : "";
       if (cut) reply = tr("Instant does up to {n} things at a time, so here are the first {n}.", { n: INSTANT_MAX }) + " " + reply;
       else if (limited && ((res.unknown && res.unknown.length) || (!plan.changes.length && !plan.reads.length && !plan.opens.length))) msg.upsell = "words";
+      var deviceAsk = source === "user-chat" && deviceSetupOn() && window.ViktorychDeviceSetup && window.ViktorychDeviceSetup.asked(text);
+      if (deviceAsk) {
+        msg.device = buildDevice("");
+        reply = tr("Here is a setup for this device. Nothing changes until you apply it.");
+        msg.toolSteps = [];
+        msg.plan = [];
+        msg.opens = [];
+        msg.state = "";
+        msg.upsell = "";
+        return typeOut(msg, shownText, reply);
+      }
       var toolSteps = source === "user-chat" ? collectToolSteps(text) : [];
       if (toolSteps.length && !plan.changes.length && !plan.opens.length && !plan.reads.length) {
         reply = toolSteps.length === 1 ? tr("Here is the step. It runs only after you confirm.") : tr("Here are {n} steps. Each one runs only after you confirm.", { n: toolSteps.length });
@@ -639,7 +650,7 @@
     if (msg.role === "user") return '<div class="lai-msg user' + hit + '" data-i="' + mi + '">' + pick + '<div class="lai-bubble">' + esc(msg.text) + "</div>" + del + "</div>";
     var body = msg.text ? esc(msg.text).replace(/\n/g, "<br>") : (msg.streaming ? '<span class="lai-dots"><i></i><i></i><i></i></span>' : "");
     var actions = msg.streaming ? "" : '<div class="lai-acts">' + pick + '<button type="button" class="lai-icon sm" data-lai="copy" data-m="' + mi + '" aria-label="' + esc(tr("Copy")) + '" title="' + esc(tr("Copy")) + '">' + I.copy + '</button><button type="button" class="lai-icon sm" data-lai="regen" data-m="' + mi + '" aria-label="' + esc(tr("Regenerate")) + '" title="' + esc(tr("Regenerate")) + '">' + I.redo + "</button>" + del + (msg.engine && msg.engine !== "instant" && msg.engine !== "tap" ? '<span class="lai-engine">' + esc(engineLabel(msg.engine)) + "</span>" : "") + "</div>";
-    return '<div class="lai-msg ai' + hit + (msg.streaming ? " streaming" : "") + '" data-i="' + mi + '"><div class="lai-text">' + body + "</div>" + (msg.streaming ? "" : cardHtml(msg, mi) + opensHtml(msg) + upsellHtml(msg) + toolCardHtml(msg)) + actions + "</div>";
+    return '<div class="lai-msg ai' + hit + (msg.streaming ? " streaming" : "") + '" data-i="' + mi + '"><div class="lai-text">' + body + "</div>" + (msg.streaming ? "" : cardHtml(msg, mi) + deviceCardHtml(msg) + opensHtml(msg) + upsellHtml(msg) + toolCardHtml(msg)) + actions + "</div>";
   }
   function engineLabel(e) {
     var m = core().model(String(e).replace(/^instant\+/, ""));
@@ -922,6 +933,59 @@
       paint();
       return;
     }
+    if (act === "dev-link") {
+      var linkMsg = el.closest && el.closest(".lai-msg");
+      var linkPlan = linkMsg && chat() ? chat().msgs[Number(linkMsg.getAttribute("data-i"))] : null;
+      if (linkPlan) linkPlan.device = buildDevice(el.getAttribute("data-v"));
+      paint();
+      return;
+    }
+    if (act === "dev-toggle") {
+      var togMsg = el.closest && el.closest(".lai-msg");
+      var tog = togMsg && chat() ? chat().msgs[Number(togMsg.getAttribute("data-i"))] : null;
+      var id = el.getAttribute("data-id");
+      if (tog && tog.device) tog.device.rows.forEach(function (row) { if (row.id === id) row.on = row.on === false; });
+      paint();
+      return;
+    }
+    if (act === "dev-apply") { applyDevice(el); return; }
+    if (act === "dev-revert") { revertDevice(); return; }
+  }
+  function applyDevice(el) {
+    var D = window.ViktorychDeviceSetup;
+    var node = el.closest && el.closest(".lai-msg");
+    var msg = node && chat() ? chat().msgs[Number(node.getAttribute("data-i"))] : null;
+    var h = host();
+    if (!D || !msg || !msg.device || !h || !h.apply) return;
+    var rows = D.selected(msg.device);
+    if (!rows.length) return;
+    D.saveRevert(rows);
+    var settings = rows.filter(function (row) { return row.id !== "deviceLevel"; }).map(function (row) { return { id: row.id, to: row.to }; });
+    var level = rows.filter(function (row) { return row.id === "deviceLevel"; })[0];
+    var job = settings.length ? h.apply(settings) : Promise.resolve([]);
+    job.then(function () {
+      if (level && h.setDeviceLevel) h.setDeviceLevel(level.to);
+      if (h.toast) h.toast(tr("Device setup applied"));
+      msg.device = buildDevice(msg.device.choice || "");
+      saveChats();
+      paint();
+    });
+  }
+  function revertDevice() {
+    var D = window.ViktorychDeviceSetup;
+    var h = host();
+    var saved = D && D.loadRevert && D.loadRevert();
+    if (!saved || !h || !h.apply) return;
+    var settings = saved.rows.filter(function (row) { return row.id !== "deviceLevel"; }).map(function (row) { return { id: row.id, to: row.from }; });
+    var level = saved.rows.filter(function (row) { return row.id === "deviceLevel"; })[0];
+    var job = settings.length ? h.apply(settings) : Promise.resolve([]);
+    job.then(function () {
+      if (level && h.setDeviceLevel) h.setDeviceLevel(level.from);
+      D.clearRevert();
+      if (h.toast) h.toast(tr("Device setup undone"));
+      saveChats();
+      paint();
+    });
   }
   function useModel(m) {
     S.model = m.id;
@@ -1329,6 +1393,67 @@
     return false;
   }
 
+  function deviceSetupOn() {
+    var h = host();
+    return !h || !h.deviceSetupOn || h.deviceSetupOn();
+  }
+  function buildDevice(choice) {
+    var D = window.ViktorychDeviceSetup;
+    var h = host();
+    var values = h && h.values ? h.values() : {};
+    values.deviceLevel = h && h.deviceLevel ? h.deviceLevel() : "balanced";
+    return D.recommend(D.readSignals(D.browserEnv()), values, choice || "");
+  }
+  function deviceWhy(code) {
+    if (code === "data") return tr("This keeps media off mobile data. It is not your carrier plan.");
+    if (code === "wifi") return tr("This browser reports Wi-Fi or Ethernet, so fuller media can load.");
+    if (code === "device") return tr("This device is short on memory or processor cores.");
+    if (code === "motion") return tr("This device asks for less motion.");
+    if (code === "haptics") return tr("This phone can vibrate.");
+    if (code === "no-vibrate") return tr("This browser cannot vibrate.");
+    if (code === "desktop") return tr("A computer does not use tap vibration.");
+    if (code === "battery") return tr("The battery reading is low.");
+    return "";
+  }
+  function deviceLinkLine(plan) {
+    var why = plan.signals && plan.signals.linkWhy;
+    if (why === "type" && plan.signals.link === "cellular") return tr("This browser says the connection is cellular.");
+    if (why === "type" && plan.signals.link === "wifi") return tr("This browser says the connection is Wi-Fi or Ethernet.");
+    if (why === "saveData") return tr("Data saver is on in this browser. That does not show your carrier plan.");
+    if (why === "effectiveType") return tr("The connection looks slow. This is not your carrier plan.");
+    if (why === "offline") return tr("You are offline. Pick the connection you usually use.");
+    return tr("This browser does not report Wi-Fi or cellular. Choose one.");
+  }
+  function deviceOutside(code) {
+    if (code === "carrier") return tr("This page cannot see or change your carrier plan, data cap, or APN. Those stay with your carrier.");
+    if (code === "os-data") return tr("Low Data Mode, background data, and the system battery saver stay in the phone's own Settings app.");
+    if (code === "permissions") return tr("Notifications, camera, microphone, and location stay as browser questions. This setup does not turn them on.");
+    if (code === "os-autoplay") return tr("The phone can still block autoplay in its own settings after this app allows it.");
+    return "";
+  }
+  function deviceValue(id, value) {
+    if (id === "deviceLevel") return value === "light" ? tr("Light") : tr("Balanced");
+    var row = reg() && reg().get(id);
+    if (!row) return String(value);
+    return shown(row, value);
+  }
+  function deviceCardHtml(msg) {
+    var plan = msg.device;
+    if (!plan) return "";
+    var choices = '<div class="lai-card-foot">' + ["cellular", "wifi", "unknown"].map(function (choice) {
+      var label = choice === "cellular" ? tr("On a cellular data plan") : (choice === "wifi" ? tr("On Wi-Fi") : tr("Not sure"));
+      return '<button type="button" class="lai-btn ghost' + (plan.choice === choice ? " on" : "") + '" data-lai="dev-link" data-v="' + choice + '" aria-pressed="' + (plan.choice === choice ? "true" : "false") + '">' + esc(label) + "</button>";
+    }).join("") + "</div>";
+    var rows = (plan.rows || []).map(function (row) {
+      var name = row.id === "deviceLevel" ? tr("Device performance") : (reg() && reg().get(row.id) ? tr(reg().get(row.id).label) : row.id);
+      return '<li class="lai-ch"><button type="button" class="lai-pick" role="checkbox" aria-checked="' + (row.on !== false ? "true" : "false") + '" data-lai="dev-toggle" data-id="' + esc(row.id) + '"><i class="lai-cb' + (row.on !== false ? " is-on" : "") + '" aria-hidden="true">' + I.check + '</i></button><div class="lai-ch-copy"><span class="lai-ch-name">' + esc(name) + '</span><span class="lai-ch-val">' + esc(deviceValue(row.id, row.from)) + " → <b>" + esc(deviceValue(row.id, row.to)) + '</b></span><span class="lai-tool-meta">' + esc(deviceWhy(row.why)) + "</span></div></li>";
+    }).join("");
+    var outside = (plan.outside || []).map(function (code) { return "<li>" + esc(deviceOutside(code)) + "</li>"; }).join("");
+    var revert = window.ViktorychDeviceSetup && window.ViktorychDeviceSetup.loadRevert && window.ViktorychDeviceSetup.loadRevert() ? '<button type="button" class="lai-btn ghost" data-lai="dev-revert">' + esc(tr("Undo device setup")) + "</button>" : "";
+    return '<div class="lai-tools" role="region" aria-label="' + esc(tr("Set up this device")) + '"><p class="lai-card-head">' + esc(tr("Set up this device")) + "</p><p>" + esc(deviceLinkLine(plan)) + '</p><p class="lai-tool-meta">' + esc(tr("These settings stay in the app. Nothing here changes the phone or the carrier.")) + "</p>" + choices +
+      (rows ? '<ul class="lai-chs">' + rows + "</ul>" : '<p class="lai-tool-meta">' + esc(tr("These app settings already match this device.")) + "</p>") +
+      '<ul class="lai-audit">' + outside + '</ul><div class="lai-card-foot"><button type="button" class="lai-btn" data-lai="dev-apply">' + esc(tr("Apply these settings")) + "</button>" + revert + "</div></div>";
+  }
   function toolsOn() {
     var h = host();
     return !h || !h.toolsOn || h.toolsOn();
