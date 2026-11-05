@@ -7969,3 +7969,32 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
   .tabs-bar .sticons-tab { display: flex; flex: none; align-self: center; }
 }
 .sticon.st-battery svg { width: 20px; height: 20px; margin-right: -2px; }
+
+/* Desktop side panel (switch side_panel; see sidePanelOn in app.js):
+   optional left placement next to the icon bar, a drag handle on the inner
+   edge with a saved width, and folding section headings. */
+.side.side-custom { position: sticky; }
+.side-split { display: none; }
+@media (min-width: 1000px) {
+  .side-split {
+    display: block; position: absolute; top: 0; bottom: 0; left: 0; z-index: 6;
+    width: 8px; cursor: col-resize; touch-action: none; background: transparent;
+  }
+  .side-split:focus { outline: none; }
+  .side-split::before { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; }
+  .side-split:hover::before, .side-split.is-dragging::before, .side-split:focus-visible::before { background: var(--blue); }
+  html[data-side-w] .side.side-custom { width: var(--side-w, 350px); flex: 0 0 var(--side-w, 350px); }
+  html[data-side-pos="left"] .app > .nav { order: 0; }
+  html[data-side-pos="left"] .app > .side { order: 1; padding-left: 16px; padding-right: 16px; }
+  html[data-side-pos="left"] .app > .center { order: 2; }
+  html[data-side-pos="left"] .side-split { left: auto; right: 0; }
+}
+.side-fold-head { padding: 0 !important; }
+.side-fold {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 12px 16px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 800; font-size: 20px; line-height: 24px; text-align: left; cursor: pointer;
+}
+.side-fold svg { width: 18px; height: 18px; flex: 0 0 auto; opacity: 0.7; transition: transform 0.15s ease; }
+.side-sec.is-folded .side-fold svg { transform: rotate(-90deg); }
+.side-sec.is-folded .card > :not(.side-fold-head) { display: none !important; }
+.side-sec.is-folded .card { padding-bottom: 0; }

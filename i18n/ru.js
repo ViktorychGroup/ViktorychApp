@@ -6121,5 +6121,10 @@ SI18n.addPack("ru", {
   "Wi-Fi": "Wi-Fi",
   "Wired network": "Проводная сеть",
   "{n} unread notifications": "Непрочитанных уведомлений: {n}",
-  "Which small icons (clock, battery, network, unread notifications) show at the top right of Home on phones and tablets.": "Какие маленькие значки (часы, батарея, сеть, непрочитанные уведомления) показываются в правом верхнем углу Главной на телефонах и планшетах."
+  "Which small icons (clock, battery, network, unread notifications) show at the top right of Home on phones and tablets.": "Какие маленькие значки (часы, батарея, сеть, непрочитанные уведомления) показываются в правом верхнем углу Главной на телефонах и планшетах.",
+  "Resize side panel": "Изменить ширину боковой панели",
+  "Side panel on the left": "Боковая панель слева",
+  "On computers, show search, Friends and Who to follow next to the icon bar instead of on the right. Drag the panel's edge to resize it; tap a section title to fold it.": "На компьютере поиск, Друзья и «Кого читать» показываются рядом с панелью значков, а не справа. Потяните край панели, чтобы изменить ширину; нажмите заголовок раздела, чтобы свернуть его.",
+  "Movable side panel": "Перемещаемая боковая панель",
+  "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "На компьютере настройка в разделе «Экран» переносит боковую панель влево; её ширину можно менять перетаскиванием, а разделы сворачивать."
 });

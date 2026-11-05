@@ -6109,5 +6109,10 @@ SI18n.addPack("hi", {
   "Wi-Fi": "वाई-फ़ाई",
   "Wired network": "वायर्ड नेटवर्क",
   "{n} unread notifications": "{n} अनपढ़ी सूचनाएँ",
-  "Which small icons (clock, battery, network, unread notifications) show at the top right of Home on phones and tablets.": "फ़ोन और टैबलेट पर होम के ऊपर दाईं ओर कौन-से छोटे आइकन (घड़ी, बैटरी, नेटवर्क, अनपढ़ी सूचनाएँ) दिखें।"
+  "Which small icons (clock, battery, network, unread notifications) show at the top right of Home on phones and tablets.": "फ़ोन और टैबलेट पर होम के ऊपर दाईं ओर कौन-से छोटे आइकन (घड़ी, बैटरी, नेटवर्क, अनपढ़ी सूचनाएँ) दिखें।",
+  "Resize side panel": "साइड पैनल का आकार बदलें",
+  "Side panel on the left": "साइड पैनल बाईं ओर",
+  "On computers, show search, Friends and Who to follow next to the icon bar instead of on the right. Drag the panel's edge to resize it; tap a section title to fold it.": "कंप्यूटर पर खोज, दोस्त और किसे फ़ॉलो करें को दाईं ओर की जगह आइकन बार के पास दिखाएँ। आकार बदलने के लिए पैनल का किनारा खींचें; किसी सेक्शन को समेटने के लिए उसके शीर्षक पर टैप करें।",
+  "Movable side panel": "खिसकाने योग्य साइड पैनल",
+  "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "कंप्यूटर पर डिस्प्ले की एक सेटिंग साइड पैनल को बाईं ओर ले जाती है; उसकी चौड़ाई खींचकर बदली जा सकती है और सेक्शन समेटे जा सकते हैं।"
 });

@@ -6119,5 +6119,10 @@ SI18n.addPack("en", {
   "Wi-Fi": "Wi-Fi",
   "Wired network": "Wired network",
   "{n} unread notifications": "{n} unread notifications",
-  "Which small icons (clock, battery, network, unread notifications) show at the top right of Home on phones and tablets.": "Which small icons (clock, battery, network, unread notifications) show at the top right of Home on phones and tablets."
+  "Which small icons (clock, battery, network, unread notifications) show at the top right of Home on phones and tablets.": "Which small icons (clock, battery, network, unread notifications) show at the top right of Home on phones and tablets.",
+  "Resize side panel": "Resize side panel",
+  "Side panel on the left": "Side panel on the left",
+  "On computers, show search, Friends and Who to follow next to the icon bar instead of on the right. Drag the panel's edge to resize it; tap a section title to fold it.": "On computers, show search, Friends and Who to follow next to the icon bar instead of on the right. Drag the panel's edge to resize it; tap a section title to fold it.",
+  "Movable side panel": "Movable side panel",
+  "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded."
 });
