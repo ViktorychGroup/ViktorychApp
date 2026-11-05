@@ -201,6 +201,21 @@ for (const q of ["who can send me friend requests", "stop friend requests"]) {
   const off = A.choices(Object.assign(info({ webgpu: false, noGguf: true }), { tier: "cpu" })).list;
   assert.ok(!off.some((m) => m.engine === "gguf"), "switch off hides GGUF");
   assert.ok(!A.choices(Object.assign(info({ webgpu: false }), { tier: "cpu" })).recommended.engine.startsWith("gguf"), "GGUF is never picked by size alone");
+  // Speed, not size: a Pixel 6a class phone (slow speed test) gets the
+  // model that still answers fast, not the biggest one it can hold.
+  const b = A.bench();
+  assert.ok(b.gops > 0 && b.ms > 0, "the speed test reports a rate");
+  const phone = Object.assign(info({ mobile: true, mem: 6, f16: true }), { tier: "lite", bench: { gops: 0.6 } });
+  const r6 = A.choices(phone).recommended;
+  assert.ok(A.expectTps(r6, phone) >= A.GOOD_TPS && !r6.uncensored, "slow phone gets a model at " + A.GOOD_TPS + "+ tokens/s: " + r6.id);
+  assert.notStrictEqual(r6.id, "Qwen3.5-0.8B-q4f16_1-MLC", "the slow WebGPU 0.8B is not suggested to a slow phone");
+  const seen = Object.assign({}, phone, { speed: { [r6.id]: 2 } });
+  assert.notStrictEqual(A.choices(seen).recommended.id, r6.id, "a measured slow speed moves the suggestion off that model");
+  const crawl = Object.assign({}, phone, { bench: { gops: 0.05 } });
+  assert.strictEqual(A.choices(crawl).recommended.id, "instant", "nothing fast enough means Instant");
+  const desk = Object.assign(info({}), { tier: "max", bench: { gops: 1.6 } });
+  assert.strictEqual(A.choices(desk).recommended.id, "Qwen3.5-4B-q4f16_1-MLC", "a fast computer still gets the biggest model");
+  assert.ok(!A.choices(Object.assign({}, desk, { saveData: true })).recommended.paramsB, "data saver still starts on Instant");
   const wk = fs.readFileSync(path.join(root, "local-ai-worker.js"), "utf8");
   assert.ok(wk.indexOf("@wllama/wllama@" + A.WLLAMA_VERSION + "/") >= 0, "worker and core agree on the wllama version");
   assert.ok(/gguf_models:\s*\{/.test(flags) && /SERVER_FEATURES\s*=\s*\[[^\]]*"gguf_models"/.test(appJs), "GGUF models have their own switch");

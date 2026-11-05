@@ -54,6 +54,36 @@
   });
   function ggufUrl(m) { return m && m.engine === "gguf" ? "https://huggingface.co/" + m.repo + "/resolve/main/" + m.file : ""; }
   var LIB_MB = { webllm: 2, tjs: 24, gguf: 9 };
+  MODELS.forEach(function (m) { var b = /([0-9.]+)B/.exec(m.label); if (b && !m.paramsB) m.paramsB = Number(b[1]); });
+
+  /* ---------- Speed ----------
+     Size alone is a poor guide: a small model can still crawl on a phone.
+     bench() is a short on-device test (about 0.1 s) of how many numbers per
+     second this device's processor reads in JavaScript; token speed scales
+     with it and falls with the model's size. A real chat replaces the guess
+     with the measured tokens per second (info.speed[id]). */
+  var GOOD_TPS = 6;
+  function bench(now) {
+    var perf = root && root.performance;
+    now = now || function () { return perf && perf.now ? perf.now() : Date.now(); };
+    var n = 1 << 20, a = new Float32Array(n), s = 0, reads = 0, i;
+    for (i = 0; i < n; i += 1) a[i] = i & 255;
+    var t0 = now(), t = t0;
+    do { for (i = 0; i < n; i += 1) s += a[i]; reads += n; t = now(); } while (t - t0 < 60 && reads < n * 64);
+    var ms = Math.max(1, t - t0);
+    return { gops: Math.round(reads / ms / 1e3) / 1e3, ms: Math.round(ms), sink: s > 0 };
+  }
+  /* Expected tokens per second for model m, or 0 when unknown. */
+  function expectTps(m, info) {
+    if (!m || !m.paramsB) return 0;
+    var seen = info && info.speed && Number(info.speed[m.id]);
+    if (seen > 0) return seen;
+    var g = info && info.bench && Number(info.bench.gops);
+    if (!(g > 0)) return 0;
+    var k = m.engine === "gguf" ? 8 : m.engine === "tjs" ? 5 : (info.mobile ? 6 : 30);
+    return Math.round(g * k / m.paramsB * 10) / 10;
+  }
+  function measured(m, info) { return !!(m && info && info.speed && Number(info.speed[m.id]) > 0); }
 
   function model(id) {
     for (var i = 0; i < MODELS.length; i += 1) if (MODELS[i].id === id) return MODELS[i];
@@ -123,6 +153,19 @@
     // Data saver, 2G and low-end devices start on Instant and are asked first.
     var recommended = (info.saveData || info.slowNet || info.lowEnd) ? model("instant") : list[0];
     if (recommended && recommended.engine === "tjs" && info.nano === "available") recommended = model("nano");
+    // With a speed test or a measured speed, pick the biggest model that
+    // still answers at GOOD_TPS or faster (never an Uncensored one).
+    var tested = (info.bench && info.bench.gops > 0) || (info.speed && Object.keys(info.speed).length);
+    if (recommended && recommended.engine !== "instant" && tested) {
+      var best = null;
+      list.forEach(function (m) {
+        if (!m.paramsB || m.uncensored) return;
+        var tps = expectTps(m, info);
+        if (tps < GOOD_TPS) return;
+        if (!best || m.paramsB > best.paramsB || (m.paramsB === best.paramsB && tps > expectTps(best, info))) best = m;
+      });
+      recommended = best || (info.nano === "available" ? model("nano") : model("instant"));
+    }
     return { recommended: recommended, list: list };
   }
   function downloadMB(m) { return m && m.sizeMB ? m.sizeMB + (LIB_MB[m.engine] || 0) : 0; }
@@ -534,7 +577,7 @@
   }
 
   return {
-    WEBLLM_VERSION: WEBLLM_VERSION, TJS_VERSION: TJS_VERSION, WLLAMA_VERSION: WLLAMA_VERSION, MODELS: MODELS, SCHEMA: SCHEMA, ggufUrl: ggufUrl,
+    WEBLLM_VERSION: WEBLLM_VERSION, TJS_VERSION: TJS_VERSION, WLLAMA_VERSION: WLLAMA_VERSION, MODELS: MODELS, SCHEMA: SCHEMA, ggufUrl: ggufUrl, GOOD_TPS: GOOD_TPS, bench: bench, expectTps: expectTps, measured: measured,
     model: model, detect: detect, tierOf: tierOf, choices: choices, downloadMB: downloadMB,
     tokens: tokens, rank: rank, langOf: langOf, splitClauses: splitClauses, parse: parse, plan: plan,
     parsePeople: parsePeople, withoutPeople: withoutPeople, personId: personId, personRow: personRow,

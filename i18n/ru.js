@@ -6137,5 +6137,8 @@ SI18n.addPack("ru", {
   "{n}B GGUF from {repo}, runs on the processor.": "GGUF {n}B из {repo}, работает на процессоре.",
   "More models from Hugging Face (GGUF)": "Ещё модели с Hugging Face (GGUF)",
   "GGUF models for Viktrych": "Модели GGUF для Viktrych",
-  "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Небольшие модели GGUF с Hugging Face (некоторые с пометкой «Без цензуры»), которые Viktrych запускает на процессоре через llama.cpp; загружаются только при выборе."
+  "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Небольшие модели GGUF с Hugging Face (некоторые с пометкой «Без цензуры»), которые Viktrych запускает на процессоре через llama.cpp; загружаются только при выборе.",
+  "{n} tokens/s measured": "{n} токенов/с по замеру",
+  "about {n} tokens/s": "около {n} токенов/с",
+  "Best for this device comes from a short speed test here and the speed of your chats.": "Лучшее для этого устройства выбрано по короткому тесту скорости здесь и скорости ваших чатов."
 });

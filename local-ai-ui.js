@@ -81,11 +81,38 @@
     if (m && m.engine === "instant") return m;
     return A.model("instant");
   }
+  /* Speed: a short test on this device (kept a week) and the tokens per
+     second real chats reached, so the suggestion follows what this phone
+     actually does rather than model size. */
+  var BENCH_KEY = "viktorych-ai-bench", SPEED_KEY = "viktorych-ai-speed";
+  function readJson(key) { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { return null; } }
+  function benchOnce() {
+    var b = readJson(BENCH_KEY);
+    if (b && b.gops > 0 && Date.now() - (b.at || 0) < 7 * 864e5) return b;
+    try { b = core().bench(); b.at = Date.now(); localStorage.setItem(BENCH_KEY, JSON.stringify(b)); return b; } catch (e) { return null; }
+  }
+  function noteSpeed(id, tps, chars) {
+    if (!id || !(tps > 0) || chars < 40) return;
+    var all = readJson(SPEED_KEY) || {};
+    var old = Number(all[id]) || 0;
+    all[id] = Math.round((old ? old * 0.5 + tps * 0.5 : tps) * 10) / 10;
+    try { localStorage.setItem(SPEED_KEY, JSON.stringify(all)); } catch (e) {}
+    if (S.info) { S.info.speed = all; S.choices = core().choices(S.info); }
+  }
+  function speedText(m) {
+    if (!S.info || !m || m.engine === "instant" || m.engine === "nano") return "";
+    var tps = core().expectTps(m, S.info);
+    if (!tps) return "";
+    var n = tps >= 10 ? Math.round(tps) : tps.toFixed(1);
+    return core().measured(m, S.info) ? tr("{n} tokens/s measured", { n: n }) : tr("about {n} tokens/s", { n: n });
+  }
   function detectOnce() {
     if (S.info) return Promise.resolve(S.info);
     var h = host();
     return core().detect({ saveData: h && h.lowEnd ? h.lowEnd() : false }).then(function (info) {
       S.info = info;
+      info.bench = benchOnce();
+      info.speed = readJson(SPEED_KEY) || {};
       // Owner switch gguf_models hides the GGUF group.
       info.noGguf = !!(h && h.ggufOff && h.ggufOff());
       S.choices = core().choices(info);
@@ -129,8 +156,14 @@
         return;
       }
       if (!job) return;
-      if (msg.type === "delta") { if (job.onDelta) job.onDelta(msg.text); return; }
+      if (msg.type === "delta") {
+        var t = Date.now();
+        if (!job.t0) job.t0 = t; else { job.t1 = t; job.chars = String(msg.text || "").length; }
+        if (job.onDelta) job.onDelta(msg.text);
+        return;
+      }
       delete S.jobs[msg.id];
+      if (msg.type === "done" && job.model && job.t1 > job.t0) noteSpeed(job.model, (job.chars / 4) * 1000 / (job.t1 - job.t0), job.chars);
       if (msg.type === "error") job.reject(new Error(msg.error || "error"));
       else job.resolve(msg);
     };
@@ -144,7 +177,7 @@
     var id = uid();
     msg.id = id;
     return new Promise(function (resolve, reject) {
-      S.jobs[id] = { resolve: resolve, reject: reject, onDelta: onDelta };
+      S.jobs[id] = { resolve: resolve, reject: reject, onDelta: onDelta, model: msg.type === "chat" ? S.engine.id : "" };
       if (msg.type === "chat") S.chatJob = id;
       worker().postMessage(msg);
     });
@@ -438,9 +471,11 @@
       var have = m.engine === "instant" || m.engine === "nano" || !!S.have[m.id];
       var badge = m === rec ? '<em class="lai-badge">' + esc(tr("Best for this device")) + "</em>" : "";
       var size = m.engine === "instant" || m.engine === "nano" ? "" : (have ? tr("Downloaded") : sizeText(A.downloadMB(m)));
+      var sp = speedText(m);
+      if (sp) size = size ? size + " · " + sp : sp;
       return ggufHead(list, i, "lai-menu-head lai-menu-group") + '<button type="button" role="menuitemradio" aria-checked="' + (m === cur ? "true" : "false") + '" class="lai-menu-item' + (m === cur ? " on" : "") + '" data-lai="pick" data-id="' + esc(m.id) + '"><span class="lai-menu-name">' + esc(modelName(m)) + badge + uncensoredTag(m) + '</span><span class="lai-menu-sub">' + esc(modelBlurb(m)) + (size ? " · " + esc(size) : "") + "</span>" + (m === cur ? '<span class="lai-menu-check">' + I.check + "</span>" : "") + "</button>";
     }).join("");
-    var tier = S.info ? '<p class="lai-menu-foot">' + esc(S.info.webgpu ? tr("This device can run models on its graphics chip.") : tr("No WebGPU here, so models run on the processor.")) + "</p>" : "";
+    var tier = S.info ? '<p class="lai-menu-foot">' + esc(S.info.webgpu ? tr("This device can run models on its graphics chip.") : tr("No WebGPU here, so models run on the processor.")) + (S.info.bench ? " " + esc(tr("Best for this device comes from a short speed test here and the speed of your chats.")) : "") + "</p>" : "";
     var again = setupOn() ? '<button type="button" role="menuitem" class="lai-menu-item lai-menu-again" data-lai="setup-again"><span class="lai-menu-name">' + esc(tr("Set up Local AI again")) + "</span></button>" : "";
     return '<div class="lai-menu" role="menu">' + '<p class="lai-menu-head">' + esc(tr("Model")) + "</p>" + rows + tier + again + "</div>";
   }
@@ -1011,6 +1046,8 @@
           var mb = A.downloadMB(c);
           var on = c.id === st.pick;
           var size = c.engine === "instant" || c.engine === "nano" ? tr("No download") : (S.have[c.id] ? tr("Downloaded") : sizeText(mb));
+          var sp = speedText(c);
+          if (sp) size += " · " + sp;
           return ggufHead(S.choices.list, i, "lai-su-group") + '<button type="button" class="lai-su-opt' + (on ? " on" : "") + '" role="radio" aria-checked="' + (on ? "true" : "false") + '" data-lai="su-pick" data-id="' + esc(c.id) + '"><span class="lai-su-opt-text"><span class="lai-su-opt-name">' + esc(modelName(c)) + (c === rec ? '<em class="lai-badge">' + esc(tr("Recommended")) + "</em>" : "") + uncensoredTag(c) + '</span><span class="lai-su-opt-sub">' + esc(modelBlurb(c)) + '</span><span class="lai-su-opt-size">' + esc(size) + "</span></span>" + suRadio(on) + "</button>";
         }).join("");
         var tooBig = st.storage && needsFiles(m) && !S.have[m.id] && A.downloadMB(m) * 1e6 > free;

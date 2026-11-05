@@ -6125,5 +6125,8 @@ SI18n.addPack("hi", {
   "{n}B GGUF from {repo}, runs on the processor.": "{repo} से {n}B GGUF, प्रोसेसर पर चलता है।",
   "More models from Hugging Face (GGUF)": "Hugging Face से और मॉडल (GGUF)",
   "GGUF models for Viktrych": "Viktrych के लिए GGUF मॉडल",
-  "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Hugging Face से छोटे GGUF मॉडल (कुछ पर बिना सेंसर लिखा है) जिन्हें Viktrych llama.cpp से प्रोसेसर पर चलाता है; चुनने पर ही लोड होते हैं।"
+  "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Hugging Face से छोटे GGUF मॉडल (कुछ पर बिना सेंसर लिखा है) जिन्हें Viktrych llama.cpp से प्रोसेसर पर चलाता है; चुनने पर ही लोड होते हैं।",
+  "{n} tokens/s measured": "{n} टोकन/से. मापा गया",
+  "about {n} tokens/s": "लगभग {n} टोकन/से.",
+  "Best for this device comes from a short speed test here and the speed of your chats.": "इस डिवाइस के लिए सबसे अच्छा, यहाँ एक छोटे स्पीड टेस्ट और आपकी चैट की गति से चुना जाता है।"
 });
