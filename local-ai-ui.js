@@ -86,6 +86,8 @@
     var h = host();
     return core().detect({ saveData: h && h.lowEnd ? h.lowEnd() : false }).then(function (info) {
       S.info = info;
+      // Owner switch gguf_models hides the GGUF group.
+      info.noGguf = !!(h && h.ggufOff && h.ggufOff());
       S.choices = core().choices(info);
       paintBar();
       return info;
@@ -100,11 +102,17 @@
     if (m.engine === "instant") return tr("Built-in rules. Instant, works on every device, no download.");
     if (m.engine === "nano") return tr("Chrome's built-in model. Chrome keeps it; nothing to download here.");
     if (m.engine === "tjs") return tr("Runs on the processor when there is no WebGPU. Slower.");
+    if (m.engine === "gguf") return (m.uncensored ? tr("Uncensored: refuses less and can say offensive or unsafe things.") + " " : "") + tr("{n}B GGUF from {repo}, runs on the processor.", { n: m.paramsB, repo: m.repo });
     if (m.family === "max") return tr("Smartest. For computers with a strong graphics card.");
     if (m.family === "high") return tr("Smart and quick on most computers and new phones.");
     return tr("Small and fast. Good for phones.");
   }
   function modelName(m) { return m.engine === "instant" ? tr("Instant") : m.label; }
+  /* GGUF models sit in their own group; uncensored ones say so. */
+  function ggufHead(list, i, cls) {
+    return list[i].engine === "gguf" && (!i || list[i - 1].engine !== "gguf") ? '<p class="' + cls + '">' + esc(tr("More models from Hugging Face (GGUF)")) + "</p>" : "";
+  }
+  function uncensoredTag(m) { return m.uncensored ? '<em class="lai-badge lai-badge-warn">' + esc(tr("Uncensored")) + "</em>" : ""; }
 
   /* ---------- worker ---------- */
   function worker() {
@@ -151,7 +159,7 @@
     if (m.engine === "nano") {
       job = nanoSession(true).then(function () {});
     } else {
-      job = ask({ type: "load", engine: m.engine, model: m.id, dtype: m.dtype });
+      job = ask({ type: "load", engine: m.engine, model: m.id, dtype: m.dtype, url: core().ggufUrl ? core().ggufUrl(m) : "" });
     }
     S.engine.job = job.then(function () {
       S.engine = { state: "ready", id: m.id, progress: 1 };
@@ -191,7 +199,7 @@
       var parsed = A.parse(text, values);
       return Promise.resolve({ reply: "", calls: parsed.calls, unknown: parsed.unknown, engine: "instant" });
     }
-    var p = A.prompt(text, values, { lang: lang, limit: m.engine === "tjs" ? 12 : 22 });
+    var p = A.prompt(text, values, { lang: lang, limit: m.engine === "tjs" || m.engine === "gguf" ? 12 : 22 });
     var history = [];
     var c = chat();
     if (c) {
@@ -221,7 +229,7 @@
         return pump().then(function (out) { if (session !== S.nano && session.destroy) session.destroy(); return { text: out }; });
       });
     } else {
-      run = ask({ type: "chat", messages: messages, schema: m.engine === "webllm" ? A.SCHEMA : null, maxTokens: 320 }, onDelta);
+      run = ask({ type: "chat", messages: messages, schema: m.engine === "webllm" || m.engine === "gguf" ? A.SCHEMA : null, maxTokens: 320 }, onDelta);
     }
     return run.then(function (res) {
       var ans = A.readAnswer(res.text);
@@ -426,11 +434,11 @@
     var list = (S.choices && S.choices.list) || [A.model("instant")];
     var rec = S.choices && S.choices.recommended;
     var cur = currentModel();
-    var rows = list.map(function (m) {
+    var rows = list.map(function (m, i) {
       var have = m.engine === "instant" || m.engine === "nano" || !!S.have[m.id];
       var badge = m === rec ? '<em class="lai-badge">' + esc(tr("Best for this device")) + "</em>" : "";
       var size = m.engine === "instant" || m.engine === "nano" ? "" : (have ? tr("Downloaded") : sizeText(A.downloadMB(m)));
-      return '<button type="button" role="menuitemradio" aria-checked="' + (m === cur ? "true" : "false") + '" class="lai-menu-item' + (m === cur ? " on" : "") + '" data-lai="pick" data-id="' + esc(m.id) + '"><span class="lai-menu-name">' + esc(modelName(m)) + badge + '</span><span class="lai-menu-sub">' + esc(modelBlurb(m)) + (size ? " · " + esc(size) : "") + "</span>" + (m === cur ? '<span class="lai-menu-check">' + I.check + "</span>" : "") + "</button>";
+      return ggufHead(list, i, "lai-menu-head lai-menu-group") + '<button type="button" role="menuitemradio" aria-checked="' + (m === cur ? "true" : "false") + '" class="lai-menu-item' + (m === cur ? " on" : "") + '" data-lai="pick" data-id="' + esc(m.id) + '"><span class="lai-menu-name">' + esc(modelName(m)) + badge + uncensoredTag(m) + '</span><span class="lai-menu-sub">' + esc(modelBlurb(m)) + (size ? " · " + esc(size) : "") + "</span>" + (m === cur ? '<span class="lai-menu-check">' + I.check + "</span>" : "") + "</button>";
     }).join("");
     var tier = S.info ? '<p class="lai-menu-foot">' + esc(S.info.webgpu ? tr("This device can run models on its graphics chip.") : tr("No WebGPU here, so models run on the processor.")) + "</p>" : "";
     var again = setupOn() ? '<button type="button" role="menuitem" class="lai-menu-item lai-menu-again" data-lai="setup-again"><span class="lai-menu-name">' + esc(tr("Set up Local AI again")) + "</span></button>" : "";
@@ -582,7 +590,8 @@
     el.addEventListener("submit", function (e) { e.preventDefault(); onSend(); });
     el.addEventListener("keydown", onKey);
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && S.root && S.root.isConnected && !S.root.contains(e.target)) onKey(e); });
-    document.addEventListener("click", function (e) { if (S.menu && S.root && !S.root.contains(e.target)) { S.menu = false; paintBar(); } });
+    // A click that repainted the bar leaves its target detached; that is not "outside".
+    document.addEventListener("click", function (e) { if (S.menu && S.root && e.target && e.target.isConnected && !S.root.contains(e.target)) { S.menu = false; paintBar(); } });
     // Remember if the box had focus, so a re-render of the page under us puts it back.
     el.addEventListener("focusin", function (e) { if (e.target && e.target.classList.contains("lai-input")) S.inFocus = true; });
     el.addEventListener("focusout", function (e) { if (e.target && e.target.classList.contains("lai-input") && el.isConnected) S.inFocus = false; });
@@ -786,7 +795,7 @@
     var s = setupOn() ? setupSaved() : null;
     return { lang: s && s.lang ? String(s.lang) : "", canChange: !s || s.canChange !== false, history: s && s.history === "off" ? "off" : "keep" };
   }
-  function needsFiles(m) { return !!m && (m.engine === "webllm" || m.engine === "tjs"); }
+  function needsFiles(m) { return !!m && (m.engine === "webllm" || m.engine === "tjs" || m.engine === "gguf"); }
   /* What still has to happen here: "" (nothing), "full" or "device". */
   function setupNeed() {
     if (!setupOn()) return "";
@@ -939,7 +948,7 @@
       var p = A.prompt(q, values, { lang: "en", limit: 12 });
       job = loadModel(m).then(function () {
         if (m.engine === "nano") return nanoSession(true).then(function (s) { return s.prompt(p.system + "\n\nUser: " + q, { responseConstraint: A.SCHEMA }); }).then(function (text) { return { text: text }; });
-        return ask({ type: "chat", messages: [{ role: "system", content: p.system }, { role: "user", content: q }], schema: m.engine === "webllm" ? A.SCHEMA : null, maxTokens: 160 });
+        return ask({ type: "chat", messages: [{ role: "system", content: p.system }, { role: "user", content: q }], schema: m.engine === "webllm" || m.engine === "gguf" ? A.SCHEMA : null, maxTokens: 160 });
       });
       var limit = new Promise(function (resolve, reject) { setTimeout(function () { reject(new Error("timeout")); }, 120000); });
       job = Promise.race([job, limit]);
@@ -998,11 +1007,11 @@
           [tr("Device"), info.mobile ? tr("Phone or tablet") : tr("Computer")]
         ];
         var rec = S.choices.recommended;
-        var rows = S.choices.list.map(function (c) {
+        var rows = S.choices.list.map(function (c, i) {
           var mb = A.downloadMB(c);
           var on = c.id === st.pick;
           var size = c.engine === "instant" || c.engine === "nano" ? tr("No download") : (S.have[c.id] ? tr("Downloaded") : sizeText(mb));
-          return '<button type="button" class="lai-su-opt' + (on ? " on" : "") + '" role="radio" aria-checked="' + (on ? "true" : "false") + '" data-lai="su-pick" data-id="' + esc(c.id) + '"><span class="lai-su-opt-text"><span class="lai-su-opt-name">' + esc(modelName(c)) + (c === rec ? '<em class="lai-badge">' + esc(tr("Recommended")) + "</em>" : "") + '</span><span class="lai-su-opt-sub">' + esc(modelBlurb(c)) + '</span><span class="lai-su-opt-size">' + esc(size) + "</span></span>" + suRadio(on) + "</button>";
+          return ggufHead(S.choices.list, i, "lai-su-group") + '<button type="button" class="lai-su-opt' + (on ? " on" : "") + '" role="radio" aria-checked="' + (on ? "true" : "false") + '" data-lai="su-pick" data-id="' + esc(c.id) + '"><span class="lai-su-opt-text"><span class="lai-su-opt-name">' + esc(modelName(c)) + (c === rec ? '<em class="lai-badge">' + esc(tr("Recommended")) + "</em>" : "") + uncensoredTag(c) + '</span><span class="lai-su-opt-sub">' + esc(modelBlurb(c)) + '</span><span class="lai-su-opt-size">' + esc(size) + "</span></span>" + suRadio(on) + "</button>";
         }).join("");
         var tooBig = st.storage && needsFiles(m) && !S.have[m.id] && A.downloadMB(m) * 1e6 > free;
         body = "<h1>" + esc(tr("This device")) + '</h1><p class="lai-su-lead">' + esc(tr("Best for this device: {name} · {size}", { name: modelName(rec), size: rec.engine === "instant" || rec.engine === "nano" ? tr("No download") : sizeText(A.downloadMB(rec)) })) + "</p>" +

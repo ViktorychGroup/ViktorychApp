@@ -29,7 +29,7 @@ assert.strictEqual(pick({ saveData: true }).c.recommended.id, "instant", "data s
 assert.strictEqual(pick({ slowNet: true }).c.recommended.id, "instant");
 assert.strictEqual(pick({ mem: 2, lowEnd: true, mobile: true }).c.recommended.id, "instant");
 A.MODELS.forEach((m) => {
-  if (m.engine === "webllm" || m.engine === "tjs") assert.ok(m.sizeMB > 300 && A.downloadMB(m) > m.sizeMB, m.id + " has a real size");
+  if (m.engine === "webllm" || m.engine === "tjs" || m.engine === "gguf") assert.ok(m.sizeMB > 300 && A.downloadMB(m) > m.sizeMB, m.id + " has a real size");
   else assert.strictEqual(A.downloadMB(m), 0);
 });
 assert.strictEqual(A.downloadMB(A.model("Qwen3.5-0.8B-q4f16_1-MLC")), 428);
@@ -184,5 +184,25 @@ for (const q of ["who can send me friend requests", "stop friend requests"]) {
   assert.ok(/ai_people:\s*\{/.test(flags) && /SERVER_FEATURES\s*=\s*\[[^\]]*"ai_people"/.test(appJs), "people actions have their own switch");
   const ui = fs.readFileSync(path.join(root, "local-ai-ui.js"), "utf8");
   assert.ok(/fn === "person"/.test(ui) && /typed:/.test(ui), "the UI drops model people calls and passes the typed text");
+}
+// ---- GGUF models (wllama), switch gguf_models ----
+{
+  const gg = A.MODELS.filter((m) => m.engine === "gguf");
+  assert.ok(gg.length >= 6 && gg.length <= 10, "a short curated GGUF list");
+  gg.forEach((m) => {
+    assert.ok(/^[\w.-]+\/[\w.-]+-GGUF$/.test(m.repo) && /Q4_K_M\.gguf$/.test(m.file), m.id + " is a Q4_K_M file in a GGUF repo");
+    assert.strictEqual(A.ggufUrl(m), "https://huggingface.co/" + m.repo + "/resolve/main/" + m.file);
+    assert.ok(m.paramsB >= 0.5 && m.paramsB <= 3 && m.sizeMB < 2000, m.id + " fits a mid-range phone");
+    assert.strictEqual(m.uncensored, /abliterated|dolphin/i.test(m.repo), m.id + " is labeled uncensored exactly when it is");
+  });
+  assert.ok(gg.some((m) => m.uncensored) && gg.some((m) => !m.uncensored), "both kinds are offered");
+  const all = A.choices(Object.assign(info({ webgpu: false }), { tier: "cpu" })).list;
+  assert.ok(all.filter((m) => m.engine === "gguf").length === gg.length && all[all.length - 1].id === "instant", "GGUF group before Instant");
+  const off = A.choices(Object.assign(info({ webgpu: false, noGguf: true }), { tier: "cpu" })).list;
+  assert.ok(!off.some((m) => m.engine === "gguf"), "switch off hides GGUF");
+  assert.ok(!A.choices(Object.assign(info({ webgpu: false }), { tier: "cpu" })).recommended.engine.startsWith("gguf"), "GGUF is never picked by size alone");
+  const wk = fs.readFileSync(path.join(root, "local-ai-worker.js"), "utf8");
+  assert.ok(wk.indexOf("@wllama/wllama@" + A.WLLAMA_VERSION + "/") >= 0, "worker and core agree on the wllama version");
+  assert.ok(/gguf_models:\s*\{/.test(flags) && /SERVER_FEATURES\s*=\s*\[[^\]]*"gguf_models"/.test(appJs), "GGUF models have their own switch");
 }
 console.log("local ai tests ok (" + want.size + " strings in 4 packs)");

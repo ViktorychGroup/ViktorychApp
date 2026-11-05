@@ -6129,5 +6129,11 @@ SI18n.addPack("en", {
   "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.",
   "Which side panel sections are folded.": "Which side panel sections are folded.",
   "Viktrych blocks and mutes": "Viktrych blocks and mutes",
-  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo."
+  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.",
+  "Uncensored": "Uncensored",
+  "Uncensored: refuses less and can say offensive or unsafe things.": "Uncensored: refuses less and can say offensive or unsafe things.",
+  "{n}B GGUF from {repo}, runs on the processor.": "{n}B GGUF from {repo}, runs on the processor.",
+  "More models from Hugging Face (GGUF)": "More models from Hugging Face (GGUF)",
+  "GGUF models for Viktrych": "GGUF models for Viktrych",
+  "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked."
 });

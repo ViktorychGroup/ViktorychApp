@@ -6132,5 +6132,11 @@ SI18n.addPack("es", {
   "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "En ordenadores, coloca el panel lateral (búsqueda, Amigos, A quién seguir) a la izquierda junto a la barra de iconos en lugar de a la derecha.",
   "Which side panel sections are folded.": "Qué secciones del panel lateral están plegadas.",
   "Viktrych blocks and mutes": "Bloqueos y silencios de Viktrych",
-  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych puede bloquear, silenciar, desbloquear o dejar de silenciar una @cuenta que nombres con tus palabras, tras tu confirmación y con Deshacer."
+  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych puede bloquear, silenciar, desbloquear o dejar de silenciar una @cuenta que nombres con tus palabras, tras tu confirmación y con Deshacer.",
+  "Uncensored": "Sin censura",
+  "Uncensored: refuses less and can say offensive or unsafe things.": "Sin censura: se niega menos y puede decir cosas ofensivas o peligrosas.",
+  "{n}B GGUF from {repo}, runs on the processor.": "GGUF de {n}B de {repo}; funciona en el procesador.",
+  "More models from Hugging Face (GGUF)": "Más modelos de Hugging Face (GGUF)",
+  "GGUF models for Viktrych": "Modelos GGUF para Viktrych",
+  "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Modelos GGUF pequeños de Hugging Face (algunos marcados Sin censura) que Viktrych ejecuta en el procesador con llama.cpp; solo se cargan al elegirlos."
 });

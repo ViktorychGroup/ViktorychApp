@@ -31,7 +31,29 @@
     { id: "Qwen3.5-4B-q4f16_1-MLC", engine: "webllm", label: "Qwen3.5 4B", sizeMB: 2280, vramMB: 3868, f16: true, tiers: ["max"], family: "max" },
     { id: "onnx-community/Qwen3.5-0.8B-Text-ONNX", engine: "tjs", label: "Qwen3.5 0.8B (CPU)", sizeMB: 545, tiers: ["cpu"], dtype: "q4", family: "cpu" }
   ];
-  var LIB_MB = { webllm: 2, tjs: 24 };
+  /* GGUF models run by wllama (llama.cpp in WebAssembly, on the processor),
+     loaded from jsDelivr only when one is picked. Small Q4_K_M instruct
+     models that fit a mid-range phone (Pixel 6a class). Each file is a real
+     Hugging Face repo and file, checked with a HEAD request in
+     scripts/gguf_models_check.mjs; sizes are the files' bytes / 1e6.
+     "uncensored" models are abliterated or Dolphin tunes: they refuse less
+     and say so on their label. */
+  var WLLAMA_VERSION = "3.8.1";
+  var GGUF = [
+    { label: "Qwen2.5 0.5B", repo: "bartowski/Qwen2.5-0.5B-Instruct-GGUF", file: "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf", sizeMB: 398, paramsB: 0.5 },
+    { label: "Gemma 3 1B abliterated", repo: "bartowski/huihui-ai_gemma-3-1b-it-abliterated-GGUF", file: "huihui-ai_gemma-3-1b-it-abliterated-Q4_K_M.gguf", sizeMB: 806, paramsB: 1, uncensored: true },
+    { label: "Llama 3.2 1B", repo: "bartowski/Llama-3.2-1B-Instruct-GGUF", file: "Llama-3.2-1B-Instruct-Q4_K_M.gguf", sizeMB: 808, paramsB: 1.2 },
+    { label: "Llama 3.2 1B abliterated", repo: "mradermacher/Llama-3.2-1B-Instruct-abliterated-GGUF", file: "Llama-3.2-1B-Instruct-abliterated.Q4_K_M.gguf", sizeMB: 955, paramsB: 1.2, uncensored: true },
+    { label: "Qwen2.5 1.5B", repo: "bartowski/Qwen2.5-1.5B-Instruct-GGUF", file: "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf", sizeMB: 986, paramsB: 1.5 },
+    { label: "Qwen2.5 1.5B abliterated", repo: "mradermacher/Qwen2.5-1.5B-Instruct-abliterated-GGUF", file: "Qwen2.5-1.5B-Instruct-abliterated.Q4_K_M.gguf", sizeMB: 986, paramsB: 1.5, uncensored: true },
+    { label: "Dolphin 3.0 Qwen2.5 1.5B", repo: "bartowski/Dolphin3.0-Qwen2.5-1.5B-GGUF", file: "Dolphin3.0-Qwen2.5-1.5B-Q4_K_M.gguf", sizeMB: 986, paramsB: 1.5, uncensored: true },
+    { label: "Qwen3 1.7B abliterated", repo: "bartowski/mlabonne_Qwen3-1.7B-abliterated-GGUF", file: "mlabonne_Qwen3-1.7B-abliterated-Q4_K_M.gguf", sizeMB: 1107, paramsB: 1.7, uncensored: true }
+  ];
+  GGUF.forEach(function (g) {
+    MODELS.push({ id: "gguf:" + g.repo + "/" + g.file, engine: "gguf", label: g.label, sizeMB: g.sizeMB, paramsB: g.paramsB, repo: g.repo, file: g.file, quant: "Q4_K_M", uncensored: !!g.uncensored, tiers: ["cpu"], family: "gguf" });
+  });
+  function ggufUrl(m) { return m && m.engine === "gguf" ? "https://huggingface.co/" + m.repo + "/resolve/main/" + m.file : ""; }
+  var LIB_MB = { webllm: 2, tjs: 24, gguf: 9 };
 
   function model(id) {
     for (var i = 0; i < MODELS.length; i += 1) if (MODELS[i].id === id) return MODELS[i];
@@ -95,6 +117,8 @@
     order.forEach(function (family) { var m = pick(family); if (m) list.push(m); });
     if (info.nano === "available" || info.nano === "downloadable" || info.nano === "downloading") list.push(model("nano"));
     if (info.wasm) list.push(model("onnx-community/Qwen3.5-0.8B-Text-ONNX"));
+    // GGUF models from Hugging Face, in their own group; Instant stays last.
+    if (info.wasm && !info.noGguf) MODELS.forEach(function (m) { if (m.engine === "gguf") list.push(m); });
     list.push(model("instant"));
     // Data saver, 2G and low-end devices start on Instant and are asked first.
     var recommended = (info.saveData || info.slowNet || info.lowEnd) ? model("instant") : list[0];
@@ -510,7 +534,7 @@
   }
 
   return {
-    WEBLLM_VERSION: WEBLLM_VERSION, TJS_VERSION: TJS_VERSION, MODELS: MODELS, SCHEMA: SCHEMA,
+    WEBLLM_VERSION: WEBLLM_VERSION, TJS_VERSION: TJS_VERSION, WLLAMA_VERSION: WLLAMA_VERSION, MODELS: MODELS, SCHEMA: SCHEMA, ggufUrl: ggufUrl,
     model: model, detect: detect, tierOf: tierOf, choices: choices, downloadMB: downloadMB,
     tokens: tokens, rank: rank, langOf: langOf, splitClauses: splitClauses, parse: parse, plan: plan,
     parsePeople: parsePeople, withoutPeople: withoutPeople, personId: personId, personRow: personRow,

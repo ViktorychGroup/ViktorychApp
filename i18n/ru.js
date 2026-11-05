@@ -6131,5 +6131,11 @@ SI18n.addPack("ru", {
   "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "На компьютерах размещает боковую панель (поиск, Друзья, Кого читать) слева рядом с панелью значков, а не справа.",
   "Which side panel sections are folded.": "Какие разделы боковой панели свёрнуты.",
   "Viktrych blocks and mutes": "Блокировки и скрытие через Viktrych",
-  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych может заблокировать, скрыть, разблокировать или вернуть @аккаунт, который вы назовёте своими словами, после подтверждения и с возможностью отмены."
+  "Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.": "Viktrych может заблокировать, скрыть, разблокировать или вернуть @аккаунт, который вы назовёте своими словами, после подтверждения и с возможностью отмены.",
+  "Uncensored": "Без цензуры",
+  "Uncensored: refuses less and can say offensive or unsafe things.": "Без цензуры: реже отказывает и может сказать что-то оскорбительное или опасное.",
+  "{n}B GGUF from {repo}, runs on the processor.": "GGUF {n}B из {repo}, работает на процессоре.",
+  "More models from Hugging Face (GGUF)": "Ещё модели с Hugging Face (GGUF)",
+  "GGUF models for Viktrych": "Модели GGUF для Viktrych",
+  "Small GGUF models from Hugging Face (some labeled Uncensored) that Viktrych runs on the processor with llama.cpp, loaded only when picked.": "Небольшие модели GGUF с Hugging Face (некоторые с пометкой «Без цензуры»), которые Viktrych запускает на процессоре через llama.cpp; загружаются только при выборе."
 });
