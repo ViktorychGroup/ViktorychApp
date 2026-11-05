@@ -119,8 +119,15 @@ try {
     if (!facts.cancelled) fail("zoom lock: gesturestart was not cancelled");
 
     // 2. The photo viewer still zooms with two fingers.
-    await page.waitForSelector(`[data-act="view"][data-id="${PID}"]`, { state: "attached", timeout: 20000 });
-    await page.evaluate((id) => { const el = document.querySelector(`[data-act="view"][data-id="${id}"]`); el.scrollIntoView({ block: "center" }); el.click(); }, PID);
+    // Home can repaint between queries and while Playwright waits for stability.
+    // Resolve and activate the control in one retried page task instead.
+    await page.waitForFunction((id) => {
+      const el = document.querySelector(`[data-act="view"][data-id="${id}"]`);
+      if (!el) return false;
+      el.scrollIntoView({ block: "center" });
+      el.click();
+      return true;
+    }, PID, { timeout: 20000 });
     await page.waitForSelector("#viewer-img", { timeout: 10000 });
     await sleep(300);
     const cdp = await ctx.newCDPSession(page);
