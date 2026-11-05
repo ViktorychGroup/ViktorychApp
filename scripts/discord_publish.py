@@ -269,10 +269,10 @@ def publish_site(root: Path, token: str = "") -> None:
     repo = os.environ.get("GITHUB_REPOSITORY") or ""
     gh = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
     if in_actions:
-        # Sync feeds owns the app shell and version.json. Wait while its Pages
+        # Publish app owns the app shell and version.json. Wait while its Pages
         # deploy or version publish is in flight instead of racing it.
         if not _pages_guard(root).wait_until_free(repo, gh):
-            print("[discord-live] Sync feeds is still publishing Pages; this refresh waits for the next cycle")
+            print("[discord-live] app publishing is still using Pages; this refresh waits for the next cycle")
             return
     since = time.time()
     site = assemble(root, token)

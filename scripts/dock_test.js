@@ -123,7 +123,7 @@ const echo = dock.activeProvider();
 
   const page = fs.readFileSync("index.html", "utf8");
   const worker = fs.readFileSync("sw.js", "utf8");
-  const sync = fs.readFileSync(".github/workflows/sync.yml", "utf8");
+  const sync = fs.readFileSync(".github/workflows/publish-app.yml", "utf8");
   const publish = fs.readFileSync("scripts/discord_publish.py", "utf8");
   assert(page.includes('href="dock.css"'));
   assert(page.includes('href="presence.css"'));

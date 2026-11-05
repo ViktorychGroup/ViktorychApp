@@ -16,11 +16,15 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Merge.** Squash-merge only when every check is success or skipped and the pull request is clean. Pin the merge to the head commit (`gh pr merge <n> --squash --match-head-commit <sha>`). After a merge to main, rebase or merge main into any open pull request whose state becomes dirty.
 
-**Verify live.** After a merge, the published `version.json` shows main's commit, and the accounts watchdog returns HTTP 200. If a deploy fails on a transient Cloudflare API error (for example error 10013), the owner re-runs the failed jobs, Accounts first and then Sync feeds. Agent tokens cannot re-run Actions.
+**Verify live.** After a merge, the published `version.json` shows main's commit, and the accounts watchdog returns HTTP 200. App-code pushes run **Publish app** directly; scheduled/manual **Sync feeds** refreshes feeds and calls the same reusable publisher in parallel. If a deploy fails on a transient Cloudflare API error (for example error 10013), the owner re-runs the failed jobs, Accounts first and then Publish app. Agent tokens cannot re-run Actions.
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
 **Current state.** Main includes #604, #608, #609, #611 and #610 (quote-widen-gutter: on phones/tablets a quoted post widens into the space under the author's avatar; check `scripts/quote_gutter_test.mjs`). This pull request keeps For You's idle top-up from resetting to six cards or appending stale indexes after a feed refresh, and preserves unchanged mounted For You cards across background renders. Following and custom tabs keep their existing render behavior. The For You off switch is unchanged. The cross-tab block check is unchanged. Still parked: #571 custom-tab swipe. Still open: the phone sign-up welcome step (`scripts/signup_flow_test.mjs`, no part flag and no assertion changes; it is not in the sharded jobs). The TikTok and Shorts roadmap stays paused. X-style replies and quotes wait for the owner's go.
+
+## Separate app publishing
+
+`publish-app.yml` owns the app build, Accounts health gate, GitHub Pages lock, Cloudflare mirror, live smoke check and delayed `version.json` publish. A non-data push to main starts it directly, without starting feed fetching. Scheduled or manually dispatched `sync.yml` runs its feed refresh and calls the same reusable publisher in parallel, preserving the existing scheduled/manual app-and-data publication. Discord live checks both publishing workflows. The watchdog retries `publish-app.yml` when the live version is behind; it does not fetch feeds merely to publish the app. No user-facing strings or service-worker-cached files changed.
 
 ## Speed log
 

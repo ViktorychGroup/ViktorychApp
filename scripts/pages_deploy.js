@@ -22,13 +22,13 @@ async function main() {
     console.log("[discord-live] artifact upload did not return an id");
     process.exit(1);
   }
-  // Sync feeds may have started or finished a Pages publish while this tar
+  // An app or feed publish may have started or finished while this tar
   // uploaded. Its shell and version.json win; this refresh waits a cycle.
   if (process.env.PAGES_GUARD_SINCE) {
     const { spawnSync } = require("child_process");
     const guard = spawnSync("python3", [path.join(__dirname, "pages_guard.py"), "busy", "--since", process.env.PAGES_GUARD_SINCE], { stdio: "inherit" });
     if (guard.status === 3) {
-      console.log("[discord-live] pages deploy skipped; Sync feeds published meanwhile");
+      console.log("[discord-live] pages deploy skipped; app publishing ran meanwhile");
       return;
     }
   }
