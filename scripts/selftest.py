@@ -415,6 +415,9 @@ def refresh_budget_checks() -> None:
     import update_feeds
     import x_fetch
 
+    order = [p["id"] for p in replies.stored_first([{"id": "a", "platform": "x"}, {"id": "b", "platform": "vk"}, {"id": "c", "platform": "x"}, {"id": "d", "platform": "instagram"}])]
+    check(order == ["b", "d", "a", "c"], "replies refresh stores VK and Instagram before X")
+
     saved = update_feeds._DEADLINE
     update_feeds._DEADLINE = 0.0
     x_fetch._JOB_DEADLINE.limit = time.monotonic() - 1

@@ -629,10 +629,21 @@ def _budget_spent() -> bool:
     return over_deadline()
 
 
+def stored_first(posts: list) -> list:
+    """Sources the browser cannot read live (VK, Instagram, Threads, RSS) first.
+
+    The feed lists hundreds of X posts ahead of them, and the job clock used to
+    stop the run before VK was reached, so VK posts kept a reply count with no
+    stored replies. X goes last; the browser loads X replies live anyway.
+    """
+    rows = [post for post in posts or [] if isinstance(post, dict)]
+    return [post for post in rows if (post.get("platform") or "") != "x"] + [post for post in rows if (post.get("platform") or "") == "x"]
+
+
 def refresh(posts: list, use_fixtures: bool, fresh_ids: set | None = None) -> None:
     seen = set()
     missed = {"instagram": 0, "threads": 0}
-    for post in posts:
+    for post in stored_first(posts):
         if not use_fixtures and _budget_spent():
             print("[replies] stopped; refresh budget spent", file=sys.stderr)
             break
