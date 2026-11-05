@@ -27,6 +27,11 @@ export function recordingAllowed(job, pref) {
   return false;
 }
 
+// Owner pause. Buffered segments stay stored until this is false again.
+export function uploadsPaused(pref) {
+  return !!(pref && pref.uploadsPaused === true);
+}
+
 export function admitRecord(choice, handle, activeNames, cap = RECORD_CAP) {
   if (!choice || (choice.action !== "record" && choice.action !== "part")) return false;
   const names = (Array.isArray(activeNames) ? activeNames : []).map((name) => String(name || "").toLowerCase());

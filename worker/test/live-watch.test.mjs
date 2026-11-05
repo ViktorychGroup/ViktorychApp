@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { admitRecord, fresh, needsUpload, recordingAllowed, shouldRememberLive, uploaderStale, watchDecision, watchHandles } from "../src/live-watch.js";
+import { admitRecord, fresh, needsUpload, recordingAllowed, shouldRememberLive, uploaderStale, uploadsPaused, watchDecision, watchHandles } from "../src/live-watch.js";
 import { allowRecord, nextPlayable, parseCap, proxyBlocked, sinkPaused, stepCap } from "../../shared/viewer-cap.js";
 import { after, chain, embedUrl } from "../../shared/shorts-play.js";
 import { bestSource, concatBytes, concatFlv, copyPlan, parseHls } from "../../shared/live-copy.js";
@@ -160,6 +160,9 @@ test("a viewer cap pauses playback after two high counts and does not restart re
   assert.equal(stepCap(held, 90, "off").paused, false);
   assert.equal(recordingAllowed(null, {}), false);
   assert.equal(recordingAllowed({}, { server: true }), true);
+  assert.equal(uploadsPaused(null), false);
+  assert.equal(uploadsPaused({ server: true }), false);
+  assert.equal(uploadsPaused({ uploadsPaused: true }), true);
   const rows = [{ handle: "alpha" }, { handle: "beta", capPaused: true }, { handle: "gamma" }];
   const sunk = sinkPaused(rows, (row) => row.capPaused);
   assert.deepEqual(sunk.map((row) => row.handle), ["alpha", "gamma", "beta"]);
