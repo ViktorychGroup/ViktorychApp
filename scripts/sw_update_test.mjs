@@ -703,6 +703,7 @@ async function testDismissThenHide(browser) {
       await page.waitForTimeout(300);
     }
     if (sha !== NEW) {
+      // Phase, visibility and dialogs show whether the apply was held, still working, or in error.
       const detail = await page.evaluate(() => {
         const root = document.getElementById("upd-root");
         const nodes = Array.from(document.querySelectorAll(".xc-modal, .modal-back, .modal, [role='dialog'], [role='alertdialog']"));
