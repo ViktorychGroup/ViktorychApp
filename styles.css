@@ -7929,3 +7929,15 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
 .fab svg.xline { color: #fff; }
 .post-btn .post-ico.xline { color: var(--on-fill); }
 .fab svg.xline g, .post-btn .post-ico.xline g { stroke-width: 2; }
+/* Phones and touch tablets: the Viktrych button is the same size as the + post
+   button, on the same right edge, one 12px gap above it, and it moves with it. */
+@media (max-width: 699px) {
+  .lai-fab { right: 20px; width: 56px; height: 56px; bottom: calc(137px + env(safe-area-inset-bottom)); }
+  .lai-fab svg { width: 26px; height: 26px; }
+  html.music-on .lai-fab { bottom: calc(224px + env(safe-area-inset-bottom)); }
+  html.ytm-card.music-on .lai-fab { bottom: calc(436px + env(safe-area-inset-bottom)); }
+  body.space-docked .lai-fab { bottom: calc(189px + env(safe-area-inset-bottom)); }
+  html.music-on.chrome-hidden:not(.bar-rest) .lai-fab,
+  html.music-mini.chrome-hidden:not(.bar-rest) .lai-fab,
+  html.chrome-hidden:not(.bar-rest) body.space-docked .lai-fab { transform: none; }
+}

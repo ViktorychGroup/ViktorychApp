@@ -48,7 +48,7 @@
   };
   function mark() {
     var h = host();
-    return h && h.icon ? h.icon("spark") : I.bolt;
+    return h && h.icon ? h.icon("viktrych") : I.bolt;
   }
 
   /* ---------- state ---------- */
