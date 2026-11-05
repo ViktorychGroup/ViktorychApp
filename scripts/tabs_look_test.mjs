@@ -109,6 +109,21 @@ async function check(browser, origin, view, route, label) {
   if (look.hairline !== "1px") fail(label + ": no hairline under the strip " + look.hairline);
   if (look.plus) fail(label + ": a + button was added to the strip");
   if (route === "" && !look.manage) fail(label + ": the customize button at the end of Home tabs is gone");
+  if (route === "") {
+    // The active tab's chevron sits snug after its label, centred on it, short and long names alike.
+    for (const name of [null, "Fútbol del fin de semana"]) {
+      const chev = await page.evaluate((name) => {
+        const pair = [...document.querySelectorAll("#app .tabs-bar .tab-pair.on")].find((el) => el.getBoundingClientRect().width > 0);
+        if (!pair) return null;
+        const span = pair.querySelector(".tab.on > span:not(.tab-grip)");
+        if (name) span.textContent = name;
+        const s = span.getBoundingClientRect(), g = pair.querySelector(".tab-caret svg").getBoundingClientRect(), c = pair.querySelector(".tab-caret").getBoundingClientRect();
+        return { gap: g.left - s.right, dy: (g.top + g.height / 2) - (s.top + s.height / 2), tail: c.right - g.right };
+      }, name);
+      if (!chev) fail(label + ": no menu chevron on the active Home tab");
+      if (chev.gap < 2 || chev.gap > 6 || Math.abs(chev.dy) > 1.5 || chev.tail > 3) fail(label + ": the tab chevron is not snug next to the label " + JSON.stringify(chev));
+    }
+  }
   if (view.touch) {
     const box = await page.evaluate(() => {
       const tab = document.querySelector("#app .tabs-bar .tab:not(.on)");

@@ -7786,6 +7786,12 @@ html[data-nav-layout="bar"] .topbar.compact-head.is-hidden .sp-row-wrap { visibi
 .tab-pair .tab.on > span:not(.tab-grip)::after { content: ""; }
 .tab-caret { width: 24px; height: 24px; margin-left: 2px; }
 .tab-caret svg { width: 14px; height: 14px; }
+/* The active tab's menu chevron sits snug after its label (4px), centred on
+   it, with no padding after it; the tap area stays large through ::before. */
+.tab-pair .tab.on { padding-right: 0; }
+.tab-pair .tab-caret,
+.tabs-bar .tab-pair .tab-caret { position: relative; width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin: 0 0 0 2px; }
+.tab-pair .tab-caret::before { content: ""; position: absolute; inset: -13px -12px; }
 .ptabs .tab, .ptabs .ptab-edit { padding: 0 16px; }
 @media (hover: none) {
   .tab:hover, .tab-caret:hover, .tab-manage:hover { background: transparent; }
