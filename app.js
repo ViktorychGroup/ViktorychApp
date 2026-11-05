@@ -18677,7 +18677,7 @@ const here = parseRoute();
   function settingsSearchOut() {
     if (!window.ViktorychSettingsAssistant) return "";
     const q = String(STATE.settingsQ || "");
-    return `<div class="set-list set-search-out" id="settings-q-out" aria-live="polite"${q.trim() ? "" : " hidden"}>${settingsSearchRows(q, -1)}</div>`;
+    return `<div class="set-list set-search-out" id="settings-q-out" aria-live="polite"${q.trim() ? "" : " hidden"}>${settingsSearchRows(q, q.trim() ? settingsAskPick : -1)}</div>`;
   }
 
   function settingsSearchRows(q, pick) {
@@ -18697,10 +18697,12 @@ const here = parseRoute();
   }
 
   let settingsAskSeq = 0;
+  let settingsAskPick = -1;
   function settingsSearchInput(value) {
     STATE.settingsQ = value;
     const out = document.getElementById("settings-q-out");
     const q = String(value || "").trim();
+    settingsAskPick = -1;
     document.querySelectorAll(".set-main-list, .set-main-note").forEach((el) => { el.hidden = !!q; });
     if (!out) return;
     out.hidden = !q;
@@ -18713,6 +18715,7 @@ const here = parseRoute();
       const t = (key, vars) => tr(key, Object.assign({ app: productName("app") }, vars || {}));
       sa.ask(q, t).then((pick) => {
         if (seq !== settingsAskSeq || pick < 0) return;
+        settingsAskPick = pick;
         const box = document.getElementById("settings-q-out");
         if (box) box.innerHTML = settingsSearchRows(value, pick);
       });
