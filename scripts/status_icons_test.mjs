@@ -200,13 +200,17 @@ async function main() {
       await page.click(selector);
       await page.waitForURL(/#\/ai$/, { timeout: 10000 });
       await page.goto(origin + "/#/");
-      await page.waitForSelector(selector, { state: "visible" });
-      await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
-      const point = await page.$eval(selector, (el) => {
-        const r = el.getBoundingClientRect();
-        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-      });
       const cdp = await context.newCDPSession(page);
+      const aim = async () => {
+        await page.waitForSelector(selector, { state: "visible" });
+        await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+        return page.$eval(selector, (el) => {
+          const r = el.getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        });
+      };
+      let point = await aim();
       await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x, y: point.y, id: 1 }] });
       await sleep(200);
       await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
@@ -215,8 +219,7 @@ async function main() {
       await page.tap(selector);
       await page.waitForURL(/#\/ai$/, { timeout: 10000 });
       await page.goto(origin + "/#/");
-      await page.waitForSelector(selector, { state: "visible" });
-      await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+      point = await aim();
 
       await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x, y: point.y, id: 1 }] });
       await sleep(150);
@@ -228,8 +231,9 @@ async function main() {
       await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
 
       await page.evaluate(() => { window.dispatchEvent(new Event("resize")); });
+      await sleep(300);
+      point = await aim();
       await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x, y: point.y, id: 1 }] });
-      await sleep(700);
       await page.waitForURL(/#\/settings\/display$/, { timeout: 10000 });
       await page.waitForSelector('[data-act="status-icon"][data-key="clock"]', { state: "visible", timeout: 15000 });
       await page.waitForFunction(() => document.activeElement?.dataset.key === "clock" && document.getElementById("status-icons-settings"));

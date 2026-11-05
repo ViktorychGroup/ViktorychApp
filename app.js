@@ -2081,7 +2081,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "article_reader"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2181,13 +2181,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       merged_profiles: [tr("Merged linked profiles"), tr("Linked profiles set to merge show on their owner's profile, and their own pages, links and follows lead there.")],
       live_frame_grab: [tr("Live frame grab"), tr("A camera button on a live saves a full-size still, or a short burst, on this device.")],
       app_repair: [tr("Repair app"), tr("A Repair app button in Settings, an offer to repair when Home does not load, and a reinstall guide for phone apps installed before full screen.")],
-      auto_update: [tr("Quiet updates"), tr("A downloaded update is applied after a short pause in use, with one reload, so old and new app files never mix.")],
+      auto_update: [tr("Quiet updates"), tr("A downloaded update applies on its own while you are not recording, watching or in a call, then the app reloads once.")],
       swipe_tabs: [tr("Swipe between tabs"), tr("On phones and tablets a sideways swipe on Home or a profile opens the next or previous tab.")],
       compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
       status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
-      update_notice: [tr("Visible updates"), tr("A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.")],
+      update_notice: [tr("Visible updates"), tr("A short Updating notice while an update applies, then a full-screen What's new page.")],
       status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")],
       side_panel: [tr("Movable side panel"), tr("On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.")],
       ai_people: [tr("Viktrych blocks and mutes"), tr("Viktrych can block, mute, unblock or unmute an @account you name in your own words, after you confirm, with Undo.")],
@@ -2195,10 +2195,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       instant_limits: [tr("Instant limits"), tr("Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.")],
       ai_tools: [tr("Viktrych local tools"), tr("On this device Viktrych can fetch a direct media file, run FFmpeg in the page, and prepare drafts you confirm. Each step asks first. Off hides tools.")],
       ai_device_setup: [tr("Device setup"), tr("Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.")],
+      ai_auto_model: [tr("Auto model"), tr("Viktrych can pick a model already on this device for each message. Off keeps the model you chose. It does not download or call a paid service.")],
       site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")],
       notif_sounds: [tr("In-app notification sounds"), tr("While the app is open, new notifications play a sound picked per account, per type or the default, with a volume control. Made on the device; no sound files.")],
       owner_user_settings: [tr("Manage member settings"), tr("In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.")],
       tiktok_auto_record: [tr("Automatic TikTok recorder"), tr("Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.")],
+      x_broadcast: [tr("X broadcasts"), tr("Public X broadcasts play in the feed when a public stream is available. Otherwise the card opens the broadcast on X.")],
       article_reader: [tr("Article reader"), tr("A reading view for public article links in posts. Off leaves those links opening on their own sites.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
@@ -3765,8 +3767,276 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!btn) return html;
     return `<div class="rd-card">${html}${btn}</div>`;
   }
+  function xBroadcastOn() {
+    return !serverOffList().includes("x_broadcast");
+  }
+
+  /* A broadcast page becomes a player card when the switch is on. The first
+     paint has no video and no iframe. A public stream is attached later. */
+  function xBroadcastCard(url, link, post) {
+    if (!xBroadcastOn()) return "";
+    const api = window.ViktorychXBroadcast;
+    if (!api) {
+      if (!xBroadcastCard.loading) {
+        xBroadcastCard.loading = true;
+        import("./shared/x-broadcast.js").then(() => {
+          xBroadcastCard.loading = false;
+          // A full rebuild here can land during the Home AI long-press and
+          // cancel it. The next navigation paints any broadcast card.
+        }).catch(() => { xBroadcastCard.loading = false; });
+      }
+      return "";
+    }
+    const id = api.broadcastId(String(url || (link && link.url) || ""));
+    if (!id) return "";
+    const known = api.playbackForBroadcast(post && post.media, id);
+    return api.cardHtml({
+      id: id,
+      statusId: post && post.statusId,
+      title: (link && link.title) || (known && known.title) || "",
+      poster: (known && known.poster) || (link && link.image) || "",
+      hls: known && known.hls,
+      kind: known && known.kind,
+      state: known && known.state,
+      width: known && known.width,
+      height: known && known.height,
+      checked: !!(known && known.hls)
+    }, { tr: tr, esc: esc });
+  }
+
+  function xcastAutoEnv() {
+    const conn = connectionInfo();
+    const mode = (STATE.settings && STATE.settings.autoplay) || "all";
+    let reducedMotion = false;
+    let reducedData = false;
+    try {
+      reducedMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      reducedData = !!(window.matchMedia && window.matchMedia("(prefers-reduced-data: reduce)").matches);
+    } catch (err) { /* matchMedia can throw in a locked document */ }
+    return {
+      inView: true,
+      hasPlayback: true,
+      setting: mode === "wifi" || mode === "never" ? mode : "all",
+      type: conn.type,
+      saveData: conn.saveData,
+      effectiveType: conn.effectiveType,
+      reducedMotion: reducedMotion,
+      reducedData: reducedData
+    };
+  }
+
+  function xcastRecall(id) {
+    const row = STATE.xcastMem && STATE.xcastMem[id];
+    if (!row) return null;
+    if (Date.now() - row.at > row.ttl) { delete STATE.xcastMem[id]; return null; }
+    return row.model;
+  }
+
+  function xcastRemember(id, model) {
+    STATE.xcastMem = STATE.xcastMem || {};
+    const ttl = model && model.state === "live" ? 60 * 1000 : 5 * 60 * 1000;
+    STATE.xcastMem[id] = { at: Date.now(), ttl: ttl, model: model };
+  }
+
+  function xcastFill(card, model) {
+    const api = window.ViktorychXBroadcast;
+    if (!card || !api) return;
+    const row = api.present(model);
+    card.setAttribute("data-xcast-mode", row.mode);
+    card.setAttribute("data-xcast-state", row.state);
+    card.setAttribute("data-xcast-hls", row.hls);
+    card.setAttribute("data-xcast-kind", row.kind);
+    if (row.openUrl) card.setAttribute("data-xcast-open", row.openUrl);
+    const label = row.state === "live" ? tr("Live") : row.state === "replay" ? tr("Replay") : row.state === "ended" ? tr("Ended") : "";
+    let badge = card.querySelector(".xcast-badge");
+    if (label) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "xcast-badge";
+        const stage = card.querySelector(".xcast-stage");
+        if (stage) stage.appendChild(badge);
+      }
+      badge.textContent = label;
+      badge.classList.toggle("is-live", row.state === "live");
+      badge.hidden = false;
+    } else if (badge) badge.hidden = true;
+    if (row.poster) {
+      let img = card.querySelector(".xcast-poster");
+      if (!img) {
+        img = document.createElement("img");
+        img.className = "xcast-poster";
+        img.alt = "";
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.referrerPolicy = "no-referrer";
+        const stage = card.querySelector(".xcast-stage");
+        if (stage) stage.insertBefore(img, stage.firstChild);
+      }
+      if (img.getAttribute("src") !== row.poster) img.src = row.poster;
+    }
+    const title = card.querySelector(".xcast-title");
+    if (title) title.textContent = row.title || tr("X broadcast");
+    const go = card.querySelector(".xcast-go");
+    const watch = card.querySelector(".xcast-watch");
+    const copy = card.querySelector(".xcast-copy");
+    let note = card.querySelector(".xcast-note");
+    if (row.mode === "fallback") {
+      if (go) go.hidden = true;
+      if (watch) watch.hidden = false;
+      if (!note && copy) {
+        note = document.createElement("span");
+        note.className = "xcast-note";
+        note.textContent = tr("This broadcast plays on X.");
+        copy.appendChild(note);
+      }
+    } else if (go) go.hidden = false;
+    const err = card.querySelector(".xcast-error");
+    if (err) err.hidden = true;
+  }
+
+  function xcastFail(card) {
+    const api = window.ViktorychXBroadcast;
+    if (api) api.stopCard(card);
+    if (!card) return;
+    const go = card.querySelector(".xcast-go");
+    if (go) go.hidden = true;
+    const watch = card.querySelector(".xcast-watch");
+    if (watch) watch.hidden = false;
+    const err = card.querySelector(".xcast-error");
+    if (err) err.hidden = false;
+    const copy = card.querySelector(".xcast-copy");
+    if (copy && !card.querySelector(".xcast-note")) {
+      const note = document.createElement("span");
+      note.className = "xcast-note";
+      note.textContent = tr("This broadcast plays on X.");
+      copy.appendChild(note);
+    }
+    card.setAttribute("data-xcast-mode", "fallback");
+    card.setAttribute("data-xcast-hls", "");
+  }
+
+  function xcastLoadHls(card, video, url, fail, start) {
+    loadHls().then((Hls) => {
+      if (!card.isConnected || !video.isConnected) return;
+      if (!Hls || !(typeof Hls.isSupported === "function" ? Hls.isSupported() : Hls.isSupported)) { fail(); return; }
+      const hls = new Hls(hlsAhead());
+      card._hls = hls;
+      const wait = setTimeout(() => fail(), 8000);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data && (data.fatal || (data.response && Number(data.response.code) >= 400))) { clearTimeout(wait); fail(); }
+      });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (!card.isConnected || !video.isConnected) return;
+        clearTimeout(wait);
+        lockHlsTop(hls);
+        start();
+      });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+    }).catch(() => fail());
+  }
+
+  function xcastStopOthers(card) {
+    const api = window.ViktorychXBroadcast;
+    document.querySelectorAll(".xcast.is-playing").forEach((other) => {
+      if (other !== card && api) api.stopCard(other);
+    });
+    lvStopFeed();
+  }
+
+  function xcastMaybePlay(card, userGesture) {
+    const api = window.ViktorychXBroadcast;
+    if (!api || !card || card.getAttribute("data-xcast-mode") === "fallback") return;
+    if (!card.getAttribute("data-xcast-hls")) return;
+    const result = api.playCard(card, {
+      userGesture: !!userGesture,
+      auto: xcastAutoEnv(),
+      loadHls: (video, url, fail, start) => xcastLoadHls(card, video, url, fail, start),
+      onFail: () => { if (card.isConnected) xcastFail(card); }
+    });
+    if (result === "play") xcastStopOthers(card);
+  }
+
+  function xcastResolve(card, userGesture) {
+    const api = window.ViktorychXBroadcast;
+    if (!card || !api || !xBroadcastOn() || card._xcastBusy) return;
+    const id = card.getAttribute("data-xcast") || "";
+    const status = card.getAttribute("data-xcast-status") || "";
+    const cached = xcastRecall(id);
+    if (cached) {
+      xcastFill(card, cached);
+      xcastMaybePlay(card, userGesture);
+      return;
+    }
+    if (card.getAttribute("data-xcast-hls") && card.getAttribute("data-xcast-mode") === "play") {
+      xcastMaybePlay(card, userGesture);
+      return;
+    }
+    const root = accountsApi();
+    if (!root) {
+      xcastFill(card, { id: id, checked: true });
+      return;
+    }
+    card._xcastBusy = true;
+    const q = root.replace(/\/$/, "") + "/v1/x-broadcast?id=" + encodeURIComponent(id) + (status ? "&status=" + encodeURIComponent(status) : "");
+    const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = setTimeout(() => { if (ctrl) ctrl.abort(); }, 6000);
+    fetch(q, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" }).then((res) => {
+      if (res.status === 204) return { id: id, checked: true };
+      if (!res.ok) throw new Error(String(res.status));
+      return res.json();
+    }).then((body) => {
+      if (!card.isConnected) return;
+      const model = body && typeof body === "object" ? body : { id: id };
+      model.id = id;
+      model.checked = true;
+      model.statusId = status;
+      xcastRemember(id, model);
+      xcastFill(card, model);
+      xcastMaybePlay(card, userGesture);
+    }).catch(() => {
+      if (card.isConnected) xcastFail(card);
+    }).finally(() => {
+      clearTimeout(timer);
+      card._xcastBusy = false;
+    });
+  }
+
+  function xcastArm() {
+    const api = window.ViktorychXBroadcast;
+    if (!api || !xBroadcastOn() || !("IntersectionObserver" in window)) return;
+    const nodes = document.querySelectorAll(".xcast[data-xcast]");
+    if (!nodes.length) return;
+    if (!STATE.xcastObserver) {
+      STATE.xcastObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          const card = entry.target;
+          if (!card.isConnected) return;
+          if (entry.intersectionRatio < 0.25) {
+            api.stopCard(card);
+            return;
+          }
+          xcastResolve(card, false);
+        });
+      }, { rootMargin: "0px", threshold: [0, 0.25, 0.6] });
+    }
+    nodes.forEach((card) => STATE.xcastObserver.observe(card));
+  }
+
+  function xcastReleaseAll() {
+    const api = window.ViktorychXBroadcast;
+    const stop = (root) => {
+      if (!root || !root.querySelectorAll) return;
+      root.querySelectorAll(".xcast").forEach((card) => { if (api) api.stopCard(card); });
+    };
+    stop(document);
+    if (typeof viewParks !== "undefined" && viewParks && viewParks.forEach) viewParks.forEach((slot) => stop(slot && slot.root));
+  }
+
   function linkCard(link, post) {
     if (!link || !link.url) return "";
+    const cast = xBroadcastCard(link.url, link, post);
+    if (cast) return cast;
     const id = post && post.id ? ` data-id="${esc(post.id)}"` : "";
     const external = window.ViktorychEmbed && window.ViktorychEmbed.xExternal ? window.ViktorychEmbed.xExternal(link.url) : null;
     if (external && external.kind === "link" && external.openUrl) {
@@ -4192,6 +4462,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   }
 
   function linkPreviewHtml(url, post, id) {
+    const cast = xBroadcastCard(url, null, post || (id ? { id: id } : null));
+    if (cast) return cast;
     lpLoad();
     const row = LINK_PREVIEW.mem[url];
     if (!row) {
@@ -4285,6 +4557,11 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       const embedHold = holdMedia(src) ? ` data-ds-hold="1" data-ds-label="${esc(tr("Tap to load"))}"` : "";
       const frame = `<iframe src="${esc(src)}" title="${esc(embed.title || tr("Post noun"))}" loading="lazy"${policy}${allow}></iframe>`;
       return `<div class="media m1 embed-media"><div class="tile embed-tile"${embedHold}>${embedHold ? dataSaver().holdAttrs(frame) : frame}${open}</div></div>` + files;
+    }
+    if (list.length === 1) {
+      const only = list[0];
+      const cast = xBroadcastCard(only.url || only.open || only.fallback || "", only, post);
+      if (cast) return cast + files;
     }
     if (list.length === 1 && list[0].type === "placeholder") {
       return `<div class="media m1"><div class="tile broken"><a class="open-original" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(list[0].url || "#")}">${tr("Open original")}</a></div></div>` + files;
@@ -11578,6 +11855,7 @@ const here = parseRoute();
         else localStorage.setItem(HOME_FEATURE_FLAGS[key], "1");
       } catch (err) { /* storage blocked */ }
     });
+    if (serverOffList().includes("x_broadcast")) off.push("xBroadcast");
     // The service worker reads this list so its shell download skips off features too.
     const body = JSON.stringify(off);
     if (body === featureOffSent || !window.caches) return;
@@ -13311,9 +13589,9 @@ const here = parseRoute();
      user setting. */
   function compactHeaderOn() { return !serverOffList().includes("compact_header") && !(STATE.settings && STATE.settings.classicHeader); }
   /* Phone status bar mode (owner switch status_bar): kept for the display
-     setting. Native system bars always use the opaque theme colour: Android
-     replaces a transparent theme-color with its own grey, while the page's
-     viewport-fit=cover header still supplies the safe-area clearance. */
+     setting. The native bar uses an opaque theme colour. Android paints its
+     own grey (#131313) when that colour is missing, transparent, or pure
+     black; the page background stays the real theme colour. */
   function statusBarOn() { return !serverOffList().includes("status_bar") && !!(STATE.settings && STATE.settings.statusBar); }
   function mobileLogo() {
     return `<a class="m-logo" href="#/" aria-label="${productName("app")}">${markSvg("app", "logo-full")}${markSvg("appShort", "logo-short")}</a>`;
@@ -18432,7 +18710,7 @@ const here = parseRoute();
   function settingsSearchOut() {
     if (!window.ViktorychSettingsAssistant) return "";
     const q = String(STATE.settingsQ || "");
-    return `<div class="set-list set-search-out" id="settings-q-out" aria-live="polite"${q.trim() ? "" : " hidden"}>${settingsSearchRows(q, -1)}</div>`;
+    return `<div class="set-list set-search-out" id="settings-q-out" aria-live="polite"${q.trim() ? "" : " hidden"}>${settingsSearchRows(q, q.trim() ? settingsAskPick : -1)}</div>`;
   }
 
   function settingsSearchRows(q, pick) {
@@ -18452,10 +18730,12 @@ const here = parseRoute();
   }
 
   let settingsAskSeq = 0;
+  let settingsAskPick = -1;
   function settingsSearchInput(value) {
     STATE.settingsQ = value;
     const out = document.getElementById("settings-q-out");
     const q = String(value || "").trim();
+    settingsAskPick = -1;
     document.querySelectorAll(".set-main-list, .set-main-note").forEach((el) => { el.hidden = !!q; });
     if (!out) return;
     out.hidden = !q;
@@ -18468,6 +18748,7 @@ const here = parseRoute();
       const t = (key, vars) => tr(key, Object.assign({ app: productName("app") }, vars || {}));
       sa.ask(q, t).then((pick) => {
         if (seq !== settingsAskSeq || pick < 0) return;
+        settingsAskPick = pick;
         const box = document.getElementById("settings-q-out");
         if (box) box.innerHTML = settingsSearchRows(value, pick);
       });
@@ -21994,6 +22275,7 @@ if (STATE.histClear) {
     window.addEventListener("pagehide", () => {
       hscrollRemember(document.getElementById("app"));
       hscrollFlush();
+      xcastReleaseAll();
     });
     if (window.MutationObserver && document.body) {
       const observer = new MutationObserver((records) => {
@@ -22368,6 +22650,7 @@ if (STATE.histClear) {
     viewParks.forEach((slot, key) => {
       if (!slot.live || !slot.root) return;
       slot.root.querySelectorAll("video, audio").forEach((el) => { try { el.pause(); } catch (err) { /* already stopped */ } });
+      if (window.ViktorychXBroadcast) slot.root.querySelectorAll(".xcast").forEach((card) => window.ViktorychXBroadcast.stopCard(card));
       slot.root.querySelectorAll(".center.route-wait").forEach((el) => el.classList.remove("route-wait"));
       scrollLock = true;
       slot.root.remove();
@@ -22564,6 +22847,7 @@ if (STATE.histClear) {
         document.title = withUnreadTitle(routeTitle(route, "", "", ""));
         if (window.SIntelMusic && window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(route);
         window.scrollTo(0, y);
+        xcastArm();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
       } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force) {
@@ -22714,6 +22998,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (window.WeatherPills && window.WeatherPills.afterRender) window.WeatherPills.afterRender(route);
       if (window.ViktorychXCompose && window.ViktorychXCompose.afterRender) window.ViktorychXCompose.afterRender();
       bindPlayers();
+      xcastArm();
       bindMediaFrames();
       primeTelegramImages();
       resumePlayback();
@@ -24051,6 +24336,17 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     }
     if (act === "lv-play") {
       lvPlay(el);
+      return;
+    }
+    if (act === "xcast-play" || act === "xcast-retry") {
+      const card = el.closest(".xcast");
+      if (!card) return;
+      if (act === "xcast-retry") {
+        const key = card.getAttribute("data-xcast");
+        if (STATE.xcastMem && key) delete STATE.xcastMem[key];
+        card._xcastBusy = false;
+      }
+      xcastResolve(card, true);
       return;
     }
     if (act === "open-link") {
@@ -25504,7 +25800,16 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     // If the browser sends no click after this, do not eat the next real tap.
     setTimeout(() => { swallowStatusIconRelease = false; }, 400);
   }, { capture: true, passive: false });
-  document.addEventListener("scroll", clearStatusIconHold, { capture: true, passive: true });
+  document.addEventListener("scroll", (event) => {
+    const target = event.target;
+    // Restoring a horizontal strip (tabs, pills) also scrolls. That is not
+    // the page moving under the finger, so it must not cancel the hold.
+    if (target && target !== document && target !== document.documentElement && target !== document.body) {
+      const el = target.nodeType === 1 ? target : null;
+      if (el && el.scrollHeight <= el.clientHeight + 24) return;
+    }
+    clearStatusIconHold();
+  }, { capture: true, passive: true });
   window.addEventListener("blur", clearStatusIconHold);
   document.addEventListener("click", (event) => {
     if (swallowStatusIconRelease) {
@@ -27483,6 +27788,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   // while env() can still report the bar's height, which gives a second gap
   // (a solid band over the header). The page's own height against the screen
   // tells the two apart: under the bar the page is taller than the free area.
+  // A third case is immersive full screen (installed fullscreen, or a tab that
+  // called requestFullscreen): the OS status bar is gone and the page fills
+  // the screen, but env() can still report the bar's 50px (Pixel 6a). Keeping
+  // that padding leaves an empty dead band above the avatar and in-app status
+  // icons. Zero --sat there. iOS always keeps a real status bar / notch, so
+  // it never takes this path.
   function safeTopProbe() {
     let el = document.getElementById("sat-probe");
     if (!el) {
@@ -27495,6 +27806,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     return el.getBoundingClientRect().height || 0;
   }
 
+  function appleSafeTopDevice() {
+    if (window.navigator && window.navigator.standalone === true) return true;
+    const ua = (window.navigator && window.navigator.userAgent) || "";
+    return /iphone|ipad|ipod/i.test(ua) && !/android/i.test(ua);
+  }
+
   function applySafeTop(installed) {
     const root = document.documentElement;
     if (!document.body) return false;
@@ -27504,11 +27821,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const free = Number(scr.availHeight) || 0;
     const page = window.innerHeight || 0;
     const landscape = (window.innerWidth || 0) > page;
+    // OS bars are not taking height out of the screen and the page fills it.
+    const barsHidden = !!(full && free && free >= full - 1 && page >= full - 2);
     let sat = null;
     let below = false;
     if (installed && env > 0 && !document.fullscreenElement && !landscape && full && free && free < full - 1 && page <= free + 1) {
       sat = 0;
       below = true;
+    } else if (env > 0 && barsHidden && !landscape && !appleSafeTopDevice() && (installed || !!document.fullscreenElement)) {
+      sat = 0;
     } else if (installed && env > 0 && full && free && free < full - 1 && !landscape) {
       const room = full - free;
       if (env > room + 1) sat = room;
@@ -27517,13 +27838,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     else root.style.setProperty("--sat", sat + "px");
     if (below) root.setAttribute("data-sat-below", "1");
     else root.removeAttribute("data-sat-below");
+    if (sat === 0 && barsHidden && !below) root.setAttribute("data-sat-immersive", "1");
+    else root.removeAttribute("data-sat-immersive");
     if (!applySafeTop.bound) {
       applySafeTop.bound = true;
       let queued = 0;
       // Phones fire resize while scrolling (the browser bars slide in and out);
       // only the width, the screen or the display mode can change the status bar,
       // so a height-only resize keeps the inset and the header stays one size.
-      const sizeKey = () => { const sc = window.screen || {}; return [window.innerWidth || 0, sc.height || 0, sc.availHeight || 0].join("x"); };
+      const sizeKey = () => { const sc = window.screen || {}; return [window.innerWidth || 0, sc.height || 0, sc.availHeight || 0, document.fullscreenElement ? 1 : 0].join("x"); };
       let lastKey = sizeKey();
       const again = (event) => {
         if (event && event.type === "resize") {
@@ -27545,6 +27868,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     return below;
   }
 
+  function nativeBarColor(theme) {
+    if (THEMES.native) return THEMES.native(theme);
+    const color = THEME_COLORS[theme] || "#000000";
+    const hex = String(color).trim().toLowerCase();
+    if (!hex || hex === "transparent" || hex === "#000" || hex === "#000000") return "#010101";
+    return color;
+  }
+
   function installedApp() {
     return !!(window.matchMedia("(display-mode: standalone)").matches || window.matchMedia("(display-mode: window-controls-overlay)").matches || (window.matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement) || window.navigator.standalone);
   }
@@ -27559,11 +27890,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     applyZoomLock();
     const installed = installedApp();
     applySafeTop(!!installed);
-    // Android does not honour a transparent native theme-color: it falls back
-    // to #131313, leaving a grey strip above the black Home header. Keep the
-    // native strip on the selected theme instead. iOS still draws through its
-    // black-translucent status bar and the topbar owns the safe-area padding.
-    const color = THEME_COLORS[theme] || "#000000";
+    // Android's dark UI treats a missing, transparent, or pure-black
+    // theme-color as unset and paints #131313 in the status-bar inset. The
+    // page background stays the real theme colour; only the native bar shifts
+    // one step off black. iOS still draws through black-translucent.
+    const color = nativeBarColor(theme);
     if (statusBarOn()) document.documentElement.setAttribute("data-status-bar", "1");
     else document.documentElement.removeAttribute("data-status-bar");
     document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => meta.setAttribute("content", color));
@@ -33058,6 +33389,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     instantLimits: () => !serverOffList().includes("instant_limits"),
     toolsOn: () => !serverOffList().includes("ai_tools"),
     deviceSetupOn: () => !serverOffList().includes("ai_device_setup"),
+    autoModelOn: () => !serverOffList().includes("ai_auto_model"),
     deviceLevel: () => (STATE.settings && STATE.settings.devicePerf && STATE.settings.devicePerf.level) || "balanced",
     setDeviceLevel: (level) => {
       if (!window.ViktorychDevice || !window.ViktorychDevice.applyLevel) return false;

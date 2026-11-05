@@ -576,11 +576,67 @@
     } catch (err) { return { reply: partialReply(s), calls: [], bad: true }; }
   }
 
+  /* Auto is a local rule, not a claim that one model is best. It only
+     chooses among models already on the device. */
+  function paramsOf(m) {
+    if (!m) return 0;
+    if (m.paramsB) return m.paramsB;
+    if (m.family === "max") return 4;
+    if (m.family === "high") return 2;
+    if (m.family === "lite" || m.family === "cpu" || m.engine === "tjs") return 0.8;
+    if (m.engine === "nano") return 1.5;
+    return 0;
+  }
+  function taskKind(text) {
+    var s = String(text || "");
+    if (/```|\b(function|const |let |class |def |ffmpeg|python|javascript)\b|код|código|कोड/i.test(s)) return "code";
+    if (/\b(translate|translation|traduce|traducir|перевед|अनुवाद)\b/i.test(s)) return "translate";
+    if (/summari|tldr|tl;dr|resumen|резюме|кратк|सार/i.test(s)) return "summarize";
+    if (s.length > 500 || /\b(essay|story|article|ensayo|рассказ|статья|निबंध|कहानी)\b/i.test(s)) return "write";
+    if (s.length < 180 && /\b(setting|autoplay|dark mode|ajuste|настройк|सेटिंग)\b/i.test(s)) return "settings";
+    if (s.length < 160) return "short";
+    return "write";
+  }
+  function fitsModel(m, info) {
+    if (!m || m.engine === "instant" || m.engine === "nano") return true;
+    info = info || {};
+    var mb = m.vramMB || m.sizeMB || 0;
+    if (info.lowEnd && (paramsOf(m) > 1 || mb > 2000)) return false;
+    if (info.mem && mb > info.mem * 1024 * 0.55) return false;
+    return true;
+  }
+  function readyModel(m, have, info) {
+    if (!m) return false;
+    if (m.uncensored && !(info && info.allowUncensored)) return false;
+    if (m.engine === "instant") return true;
+    if (m.engine === "nano") return !!(info && info.nano === "available");
+    return !!(have && have[m.id]);
+  }
+  function pickAuto(text, opts) {
+    opts = opts || {};
+    var info = opts.info || {};
+    info.allowUncensored = !!opts.allowUncensored;
+    var have = opts.have || {};
+    var kind = taskKind(text);
+    var instant = model("instant");
+    var pool = MODELS.filter(function (m) { return readyModel(m, have, info) && fitsModel(m, info); });
+    if (kind === "short" || kind === "settings") return { model: instant, kind: kind, reason: kind };
+    var heavy = pool.filter(function (m) {
+      if (m.engine === "instant") return false;
+      var tps = expectTps(m, info);
+      return !(tps > 0 && tps < GOOD_TPS);
+    });
+    heavy.sort(function (a, b) { return paramsOf(b) - paramsOf(a); });
+    if (!heavy.length) return { model: instant, kind: kind, reason: "fallback" };
+    return { model: heavy[0], kind: kind, reason: kind };
+  }
+
   return {
     WEBLLM_VERSION: WEBLLM_VERSION, TJS_VERSION: TJS_VERSION, WLLAMA_VERSION: WLLAMA_VERSION, MODELS: MODELS, SCHEMA: SCHEMA, ggufUrl: ggufUrl, GOOD_TPS: GOOD_TPS, bench: bench, expectTps: expectTps, measured: measured,
     model: model, detect: detect, tierOf: tierOf, choices: choices, downloadMB: downloadMB,
     tokens: tokens, rank: rank, langOf: langOf, splitClauses: splitClauses, parse: parse, plan: plan,
     parsePeople: parsePeople, withoutPeople: withoutPeople, personId: personId, personRow: personRow,
-    prompt: prompt, partialReply: partialReply, readAnswer: readAnswer
+    prompt: prompt, partialReply: partialReply, readAnswer: readAnswer,
+    taskKind: taskKind, pickAuto: pickAuto, paramsOf: paramsOf
   };
 });
