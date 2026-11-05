@@ -25261,9 +25261,10 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     const now = Date.now();
     if (now - statusIconOpened < 1500) return;
     statusIconOpened = now;
+    // Read whether a finger is still down before the hold is cleared.
+    swallowStatusIconRelease = !!statusIconHold;
     clearStatusIconHold();
     swallowStatusIconClick = now;
-    swallowStatusIconRelease = !!statusIconHold;
     buzz(5);
     focusStatusIconsPending = true;
     // Do not let the active pointer hold back the Settings route render.
@@ -25316,6 +25317,8 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     event.preventDefault();
     swallowStatusIconClick = 0;
     clearStatusIconHold();
+    // If the browser sends no click after this, do not eat the next real tap.
+    setTimeout(() => { swallowStatusIconRelease = false; }, 400);
   }, { capture: true, passive: false });
   document.addEventListener("scroll", clearStatusIconHold, { capture: true, passive: true });
   window.addEventListener("blur", clearStatusIconHold);
