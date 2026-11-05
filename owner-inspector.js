@@ -13,7 +13,8 @@
     q: "", sort: "created", filter: "all",
     list: null, listKey: "", loading: false, error: "", more: false, totals: null,
     detail: {}, detailLoading: {}, detailError: {},
-    audit: null, auditLoading: false, sheet: null
+    audit: null, auditLoading: false, sheet: null,
+    manage: {}, manageLoading: {}, manageError: {}, manageBusy: {}
   };
   function kindLabel(k) {
     const words = { person: tr("Person"), business: tr("Business"), organization: tr("Organization"), media: tr("Media"), government: tr("Government"), creator: tr("Creator"), bot: tr("Bot"), community: tr("Community"), other: tr("Other") };
@@ -290,11 +291,82 @@
       actRow(`href="#/@${encodeURIComponent(d.handle)}"`, tr("View profile"), "", "a"),
       actRow('data-acct="open-reports"', tr("Review reports"), ""),
       actRow(`data-oi-act="copy-id" data-oi-id="${esc(d.id)}"`, tr("Copy account ID"), ""),
-      actRow(`data-oi-act="open-kind" data-oi-id="${esc(d.id)}" aria-haspopup="dialog"`, tr("Account type"), kindNow)
+      actRow(`data-oi-act="open-kind" data-oi-id="${esc(d.id)}" aria-haspopup="dialog"`, tr("Account type"), kindNow),
+      manageOn() && !d.owner ? actRow(`href="#/settings/accounts-inspector/manage:${encodeURIComponent(d.id)}"`, tr("Manage settings"), tr("Change their settings and lock the ones they can't change."), "a") : ""
     ].join("")}</section>`;
 
     const foot = `<p class="oi-note oi-note-foot">${icon("lock")}<span>${esc(d.audited ? tr("This view was logged in the access log.") : tr("Only you see this."))}</span></p>`;
     return `<div class="oi-page oi-detail">${head}${names}${dnames}${people}${account}${privacy}${linked}${activity}${communities}${requests}${moderation}${devices}${settings}${extras}${actions}${foot}</div>`;
+  }
+
+  /* ---------- manage a member's settings (switch owner_user_settings) ----------
+     #/settings/accounts-inspector/manage:<id>. The Worker checks the owner,
+     validates every value and keeps locked values on the member's syncs. */
+  function manageOn() { return !(hooks && hooks.manageSettingsOn && !hooks.manageSettingsOn()); }
+  const GROUP_WORD = () => ({ look: tr("Look and menus"), feed: tr("Feed"), media: tr("Media"), privacy: tr("Privacy"), language: tr("Language") });
+  function loadManage(id, force) {
+    if (!force && (S.manage[id] || S.manageLoading[id])) return;
+    S.manageLoading[id] = true;
+    api("/v1/owner/user-settings/" + encodeURIComponent(id)).then((res) => {
+      S.manageLoading[id] = false;
+      if (res.ok && res.body && res.body.schema) { S.manage[id] = res.body; S.manageError[id] = ""; }
+      else S.manageError[id] = res.status === 403 && res.body.error === "owner_account" ? tr("Owner accounts manage their own settings.") : failText(res);
+      paint();
+    });
+  }
+  function manageSave(id, change) {
+    const m = S.manage[id];
+    if (!m || S.manageBusy[id]) return;
+    S.manageBusy[id] = true;
+    paint();
+    api("/v1/owner/user-settings/" + encodeURIComponent(id), "PUT", change).then((res) => {
+      S.manageBusy[id] = false;
+      if (res.ok && res.body && res.body.settings) { m.settings = res.body.settings; m.locks = res.body.locks || {}; toast(tr("Saved")); }
+      else toast(tr("Couldn’t save. Try again."));
+      paint();
+    });
+  }
+  function valueWord(row, v) {
+    if (v == null) return tr("Their choice");
+    if (row.type === "bool") return v ? tr("On") : tr("Off");
+    if (row.valueLabels && row.valueLabels[v]) return tr(row.valueLabels[v]);
+    return String(v).toUpperCase();
+  }
+  function manageView(id) {
+    loadManage(id, false);
+    const m = S.manage[id];
+    if (!m) {
+      const err = S.manageError[id];
+      return `<div class="oi-page">${err ? `<div class="oi-empty"><p>${esc(err)}</p><button type="button" class="oi-btn" data-oi-act="retry-manage" data-oi-id="${esc(id)}">${esc(tr("Retry"))}</button></div>` : `<p class="oi-empty">${esc(tr("Loading…"))}</p>`}</div>`;
+    }
+    const busy = !!S.manageBusy[id];
+    const gw = GROUP_WORD();
+    const locks = m.locks || {};
+    const intro = `<p class="oi-sheet-sub oi-sec-sub oi-manage-intro">${esc(tr("Changes reach @{handle}'s devices on their next sync. A locked setting keeps your value and they can't change it.", { handle: m.handle }))}</p>`;
+    const groups = (m.groups || []).map((g) => {
+      const rows = m.schema.filter((r) => r.group === g);
+      if (!rows.length) return "";
+      const allLocked = rows.every((r) => Object.prototype.hasOwnProperty.call(locks, r.key));
+      const items = rows.map((r) => {
+        const v = m.settings[r.key];
+        const locked = Object.prototype.hasOwnProperty.call(locks, r.key);
+        let control;
+        if (r.type === "bool") {
+          const on = v == null ? r.def === true : v === true;
+          control = `<button type="button" class="tab-switch oi-ms-switch${on ? " on" : ""}" role="switch" aria-checked="${on ? "true" : "false"}" aria-label="${esc(tr(r.label))}" data-oi-act="ms-bool" data-oi-id="${esc(id)}" data-oi-k="${esc(r.key)}"${busy ? " disabled" : ""}><i></i></button>`;
+        } else {
+          const cur = v == null ? r.def : v;
+          control = `<select class="oi-ms-select" aria-label="${esc(tr(r.label))}" data-oi-ms="value" data-oi-id="${esc(id)}" data-oi-k="${esc(r.key)}"${busy ? " disabled" : ""}>${cur != null && r.values.map(String).indexOf(String(cur)) < 0 ? `<option value="" selected disabled>${esc(String(cur))}</option>` : ""}${r.values.map((x) => `<option value="${esc(String(x))}"${String(x) === String(cur) ? " selected" : ""}>${esc(valueWord(r, x))}</option>`).join("")}</select>`;
+        }
+        const lockBtn = `<button type="button" class="oi-ms-lock${locked ? " on" : ""}" aria-label="${esc(tr(r.label) + " · " + (locked ? tr("Locked") : tr("Lock")))}" aria-pressed="${locked ? "true" : "false"}" data-oi-act="ms-lock" data-oi-id="${esc(id)}" data-oi-k="${esc(r.key)}"${busy ? " disabled" : ""}>${icon("lock")}<span>${esc(locked ? tr("Locked") : tr("Lock"))}</span></button>`;
+        return `<div class="oi-ms-row${locked ? " is-locked" : ""}"><span class="set-copy"><b>${esc(tr(r.label))}</b><span class="set-sub">${esc(v == null ? tr("Their choice") + " · " + valueWord(r, r.def) : valueWord(r, v))}</span></span><span class="oi-ms-ctl">${control}${lockBtn}</span></div>`;
+      }).join("");
+      const groupBtn = `<button type="button" class="oi-link oi-ms-group" data-oi-act="ms-lock-group" data-oi-id="${esc(id)}" data-oi-v="${esc(g)}" data-oi-on="${allLocked ? "0" : "1"}"${busy ? " disabled" : ""}>${esc(allLocked ? tr("Unlock all") : tr("Lock all"))}</button>`;
+      return `<section class="oi-sec oi-sec-rows oi-ms-sec"><div class="oi-ms-head"><h2>${esc(gw[g] || g)}</h2>${groupBtn}</div>${items}</section>`;
+    }).join("");
+    const count = Object.keys(locks).length;
+    const foot = `<p class="oi-note oi-note-foot">${icon("lock")}<span>${esc(count === 1 ? tr("1 setting locked") : tr("{count} settings locked", { count: String(count) }))} · ${esc(tr("Each change is logged in the access log."))}</span></p>`;
+    return `<div class="oi-page oi-manage">${intro}${groups}${foot}</div>`;
   }
 
   /* ---------- audit ---------- */
@@ -359,6 +431,13 @@
   function view(sub) {
     const id = String(sub || "");
     const back = id ? "#/settings/accounts-inspector" : "#/settings";
+    const manageId = id.indexOf("manage:") === 0 ? decodeURIComponent(id.slice(7)) : "";
+    if (manageId) {
+      const mhead = hooks.settingsHead ? hooks.settingsHead(tr("Manage settings"), "#/settings/accounts-inspector/" + encodeURIComponent(manageId)) : "";
+      if (!ownerOn() || !manageOn()) return mhead + `<p class="oi-empty">${esc(tr("Only the owner can see this."))}</p>`;
+      S.sheet = null;
+      return mhead + manageView(manageId);
+    }
     const title = id === "audit" ? tr("Access log") : id ? (S.detail[id] ? "@" + S.detail[id].handle : tr("Account")) : tr("Accounts");
     const head = hooks.settingsHead ? hooks.settingsHead(title, back) : "";
     if (!ownerOn()) return head + `<p class="oi-empty">${esc(tr("Only the owner can see this."))}</p>`;
@@ -394,6 +473,27 @@
     if (act === "more") { loadList(false, true); paint(); return; }
     if (act === "retry-detail") { const id = btn.dataset.oiId; S.detailError[id] = ""; loadDetail(id, true); paint(); return; }
     if (act === "copy-id") { copy(btn.dataset.oiId || ""); return; }
+    if (act === "retry-manage") { const id = btn.dataset.oiId; S.manageError[id] = ""; loadManage(id, true); paint(); return; }
+    if (act === "ms-bool" || act === "ms-lock" || act === "ms-lock-group") {
+      const id = btn.dataset.oiId;
+      const m = S.manage[id];
+      if (!m) return;
+      const key = btn.dataset.oiK;
+      if (act === "ms-bool") {
+        const row = m.schema.find((r) => r.key === key);
+        const v = m.settings[key];
+        const on = v == null ? !!(row && row.def === true) : v === true;
+        manageSave(id, { values: { [key]: !on } });
+      } else if (act === "ms-lock") {
+        manageSave(id, { locks: { [key]: !Object.prototype.hasOwnProperty.call(m.locks || {}, key) } });
+      } else {
+        const on = btn.dataset.oiOn === "1";
+        const locks = {};
+        m.schema.filter((r) => r.group === btn.dataset.oiV).forEach((r) => { locks[r.key] = on; });
+        manageSave(id, { locks });
+      }
+      return;
+    }
     if (act === "reveal") { btn.textContent = btn.dataset.oiFull || ""; btn.classList.remove("oi-masked"); return; }
     if (act === "close-sheet") { S.sheet = null; paint(); return; }
     if (act === "close-sheet-go") { S.sheet = null; location.hash = btn.getAttribute("href"); return; }
@@ -442,7 +542,13 @@
   }
   function onChange(event) {
     const el = event.target;
-    if (!el || !el.dataset) return;
+    if (!el || !el.dataset || el.dataset.oiMs !== "value") return;
+    const id = el.dataset.oiId;
+    const m = S.manage[id];
+    const row = m ? m.schema.find((r) => r.key === el.dataset.oiK) : null;
+    if (!row) return;
+    const value = row.type === "number" ? Number(el.value) : String(el.value);
+    manageSave(id, { values: { [row.key]: value } });
   }
   function onSubmit(event) {
     const form = event.target && event.target.closest ? event.target.closest("form[data-oi-form]") : null;
