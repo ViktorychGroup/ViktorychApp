@@ -235,6 +235,75 @@ async function main() {
     await cycle(run, ref, rows, 0, "fullscreen below bar with status icons");
     await run.context.close();
 
+    // Fullscreen install with the OS status bar hidden, but env() still reports
+    // the Pixel 6a 50px bar. The page fills the screen (avail == height), so
+    // --sat must be zero: no empty dead band above the avatar / in-app icons.
+    run = await open(browser, origin, {
+      displayMode: "fullscreen",
+      inset: 50,
+      statusIcons: { clock: true, network: true },
+      screen: { height: 915, avail: 915 },
+      appearance: "lightsout"
+    });
+    await run.page.setViewportSize({ width: 412, height: 915 });
+    await run.inset(50);
+    await settle(run.page);
+    h = await run.page.evaluate(PROBE);
+    if (!near(h.pad, 0) || !near(h.headTop, 0)) fail("hidden OS status bar still reserved a dead band " + JSON.stringify(h));
+    if (String(h.color).toUpperCase() !== "#010101") fail("immersive fullscreen lost the near-black native bar colour " + JSON.stringify(h));
+    if (!await run.page.$(".mhead .sticons .st-clock")) fail("in-app status icons missing when the OS bar is hidden");
+    const immersiveHit = await run.page.evaluate(() => {
+      const head = document.querySelector("#app .mhead");
+      const ava = document.querySelector("#app .mhead .m-ava");
+      const clock = document.querySelector("#app .mhead .st-clock");
+      if (!head || !ava || !clock) return { ava: false, clock: false };
+      const hr = head.getBoundingClientRect();
+      const ar = ava.getBoundingClientRect();
+      const cr = clock.getBoundingClientRect();
+      // Status icons are pointer-events: none, so hit-test the avatar only and
+      // require the clock to sit in the same header row (not under a dead band).
+      const hitA = document.elementFromPoint(Math.round(ar.left + 8), Math.round(ar.top + ar.height / 2));
+      return {
+        ava: !!(hitA && hitA.closest(".m-ava")),
+        clock: cr.width > 8 && cr.height > 8 && cr.top >= hr.top - 1 && cr.bottom <= hr.bottom + 1,
+        immersive: document.documentElement.hasAttribute("data-sat-immersive"),
+        headTop: Math.round(hr.top),
+        clockTop: Math.round(cr.top),
+        sat: getComputedStyle(document.documentElement).getPropertyValue("--sat").trim()
+      };
+    });
+    if (!immersiveHit.ava || !immersiveHit.clock || immersiveHit.headTop > 1) fail("avatar or in-app status icons are covered after dropping the dead band " + JSON.stringify(immersiveHit));
+    if (!immersiveHit.immersive || immersiveHit.sat !== "0px") fail("immersive hidden-bar did not zero --sat " + JSON.stringify(immersiveHit));
+    if (process.env.SHOT_DIR) {
+      fs.mkdirSync(process.env.SHOT_DIR, { recursive: true });
+      await run.page.screenshot({ path: path.join(process.env.SHOT_DIR, "pixel-immersive-hidden-bar-rest.png"), clip: { x: 0, y: 0, width: 412, height: 160 } });
+    }
+    await cycle(run, ref, rows, 0, "fullscreen hidden bar with status icons");
+    if (process.env.SHOT_DIR) {
+      await scrollDown(run.page);
+      await run.page.screenshot({ path: path.join(process.env.SHOT_DIR, "pixel-immersive-hidden-bar-scrolled.png"), clip: { x: 0, y: 0, width: 412, height: 120 } });
+      await scrollUp(run.page);
+      await run.page.evaluate(() => window.scrollTo(0, 0));
+      await settle(run.page);
+    }
+    await run.context.close();
+
+    // Same 50px env() with the OS status bar still present (page drawn under
+    // it): keep the real safe area so content does not sit under system icons.
+    run = await open(browser, origin, {
+      displayMode: "fullscreen",
+      inset: 50,
+      statusIcons: { clock: true, network: true },
+      screen: { height: 915, avail: 800 }
+    });
+    await run.page.setViewportSize({ width: 412, height: 915 });
+    await run.inset(50);
+    await settle(run.page);
+    h = await run.page.evaluate(PROBE);
+    if (!near(h.pad, 50) || !near(h.headTop, 50)) fail("visible OS status bar lost its safe-area inset " + JSON.stringify(h));
+    await cycle(run, ref, rows, 50, "fullscreen under visible bar");
+    await run.context.close();
+
     // A reported inset taller than every system bar together is capped (fat header).
     run = await open(browser, origin, { standalone: true, inset: 60, screen: { height: 844, avail: 820 } });
     await cycle(run, ref, rows, 24, "installed oversized inset");

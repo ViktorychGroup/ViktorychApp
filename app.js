@@ -27440,6 +27440,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   // while env() can still report the bar's height, which gives a second gap
   // (a solid band over the header). The page's own height against the screen
   // tells the two apart: under the bar the page is taller than the free area.
+  // A third case is immersive full screen (installed fullscreen, or a tab that
+  // called requestFullscreen): the OS status bar is gone and the page fills
+  // the screen, but env() can still report the bar's 50px (Pixel 6a). Keeping
+  // that padding leaves an empty dead band above the avatar and in-app status
+  // icons. Zero --sat there. iOS always keeps a real status bar / notch, so
+  // it never takes this path.
   function safeTopProbe() {
     let el = document.getElementById("sat-probe");
     if (!el) {
@@ -27452,6 +27458,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     return el.getBoundingClientRect().height || 0;
   }
 
+  function appleSafeTopDevice() {
+    if (window.navigator && window.navigator.standalone === true) return true;
+    const ua = (window.navigator && window.navigator.userAgent) || "";
+    return /iphone|ipad|ipod/i.test(ua) && !/android/i.test(ua);
+  }
+
   function applySafeTop(installed) {
     const root = document.documentElement;
     if (!document.body) return false;
@@ -27461,11 +27473,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const free = Number(scr.availHeight) || 0;
     const page = window.innerHeight || 0;
     const landscape = (window.innerWidth || 0) > page;
+    // OS bars are not taking height out of the screen and the page fills it.
+    const barsHidden = !!(full && free && free >= full - 1 && page >= full - 2);
     let sat = null;
     let below = false;
     if (installed && env > 0 && !document.fullscreenElement && !landscape && full && free && free < full - 1 && page <= free + 1) {
       sat = 0;
       below = true;
+    } else if (env > 0 && barsHidden && !landscape && !appleSafeTopDevice() && (installed || !!document.fullscreenElement)) {
+      sat = 0;
     } else if (installed && env > 0 && full && free && free < full - 1 && !landscape) {
       const room = full - free;
       if (env > room + 1) sat = room;
@@ -27474,13 +27490,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     else root.style.setProperty("--sat", sat + "px");
     if (below) root.setAttribute("data-sat-below", "1");
     else root.removeAttribute("data-sat-below");
+    if (sat === 0 && barsHidden && !below) root.setAttribute("data-sat-immersive", "1");
+    else root.removeAttribute("data-sat-immersive");
     if (!applySafeTop.bound) {
       applySafeTop.bound = true;
       let queued = 0;
       // Phones fire resize while scrolling (the browser bars slide in and out);
       // only the width, the screen or the display mode can change the status bar,
       // so a height-only resize keeps the inset and the header stays one size.
-      const sizeKey = () => { const sc = window.screen || {}; return [window.innerWidth || 0, sc.height || 0, sc.availHeight || 0].join("x"); };
+      const sizeKey = () => { const sc = window.screen || {}; return [window.innerWidth || 0, sc.height || 0, sc.availHeight || 0, document.fullscreenElement ? 1 : 0].join("x"); };
       let lastKey = sizeKey();
       const again = (event) => {
         if (event && event.type === "resize") {
