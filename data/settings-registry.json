@@ -113,6 +113,40 @@
    "sync": "account"
   },
   {
+   "id": "postAlign",
+   "label": "Alignment",
+   "desc": "Post text alignment: left or justified.",
+   "type": "enum",
+   "values": [
+    "left",
+    "justify"
+   ],
+   "valueLabels": {
+    "left": "Left",
+    "justify": "Justified"
+   },
+   "def": "left",
+   "store": "state",
+   "key": "postAlign",
+   "page": "#/customize",
+   "cat": "look",
+   "risk": "safe",
+   "sync": "account"
+  },
+  {
+   "id": "postWrapAvatar",
+   "label": "Wrap around profile picture",
+   "desc": "Long post text flows around the profile picture. Photos and videos stay full width.",
+   "type": "bool",
+   "def": false,
+   "store": "state",
+   "key": "postWrapAvatar",
+   "page": "#/customize",
+   "cat": "look",
+   "risk": "safe",
+   "sync": "account"
+  },
+  {
    "id": "showPictures",
    "label": "Profile pictures",
    "desc": "How profile pictures show: show = real photos, default = plain default avatar, none = hidden.",

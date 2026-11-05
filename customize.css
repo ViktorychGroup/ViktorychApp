@@ -1,5 +1,6 @@
 /* Customize page (#/customize) and the look choices it sets on <html>:
-   data-fs (text size), data-density, data-motion and the --blue accent. */
+   data-fs (text size), data-density, data-motion, data-text-align,
+   data-text-wrap and the --blue accent. */
 
 /* Text size, X-style five steps; 15px is the default and sets nothing. */
 html[data-fs="14"] .post-text, html[data-fs="14"] .quote-text, html[data-fs="14"] .bio, html[data-fs="14"] .byline { font-size: 14px; line-height: 19px; }
@@ -10,6 +11,46 @@ html[data-fs="14"] .status-text { font-size: 16px; line-height: 22px; }
 html[data-fs="16"] .status-text { font-size: 18px; line-height: 25px; }
 html[data-fs="17"] .status-text { font-size: 19px; line-height: 26px; }
 html[data-fs="18"] .status-text { font-size: 20px; line-height: 28px; }
+
+
+/* Post text alignment (left is the default and sets nothing). */
+html[data-text-align="justify"] .post-text,
+html[data-text-align="justify"] .status-text,
+html[data-text-align="justify"] .quote-text,
+html[data-text-align="justify"] .bio {
+  text-align: justify;
+  text-justify: inter-word;
+}
+
+/* Long post text wraps around the profile picture. Media, quotes, polls and
+   action rows clear so video and image posts keep a full-width frame. Thread
+   continuations and reply cards keep the column layout. */
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row {
+  display: block;
+}
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row > a:has(> .ava),
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row > .ava-col,
+html[data-text-wrap="avatar"] article.post.pz-sample > .post-row > .pz-sample-ava {
+  float: left;
+  margin: 0 12px 6px 0;
+}
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row > .post-main {
+  display: block;
+  overflow: visible;
+  min-width: 0;
+}
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row > .post-main > .media,
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row > .post-main > .actions,
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row > .post-main > .quote,
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row > .post-main > .poll,
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row > .post-main > .show-thread,
+html[data-text-wrap="avatar"] article.post:not(.continues):not(.reply-card) > .post-row > .post-main > .xa,
+html[data-text-wrap="avatar"] article.post.pz-sample > .post-row > .post-main > .actions {
+  clear: both;
+}
+html[data-text-wrap="avatar"] .post:not(.continues) > .post-row:not(:has(> a > .ava-none)) > .post-main > .quote:not(.lp-post) {
+  margin-left: 0;
+}
 
 /* Density */
 html[data-density="compact"] .post { padding: 8px 16px 4px; }
