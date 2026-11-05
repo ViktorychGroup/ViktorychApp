@@ -83,8 +83,8 @@
     })();
   </script>
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FFFFFF">
-  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000">
-  <meta name="theme-color" content="#000000">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#010101">
+  <meta name="theme-color" content="#010101">
   <meta name="color-scheme" content="dark">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -430,6 +430,14 @@
           russia: { name: "Russia", flag: ["#FFFFFF", "#0039A6", "#D52B1E"], tint: ["#0b0b0d", "#00081a", "#1a0503"], surface: "#05070d" }
         },
         color: function (id) { var f = T.flags[id]; return f ? f.tint[0] : (T.base[id] || "#000000"); },
+        /* Colour for the phone's own status bar. Pure black and transparent are
+           the same unset value to Android in dark mode, so it paints its surface
+           (#131313) in that strip. One step off black still matches Lights out. */
+        native: function (id) {
+          var c = String(T.color(id) || "").replace(/\s/g, "").toLowerCase();
+          if (!c || c === "transparent" || c === "#000" || c === "#000000") return "#010101";
+          return T.color(id);
+        },
         known: function (id) { return !!(T.base[id] || T.flags[id]); },
         apply: function (id) {
           var root = document.documentElement, f = T.flags[id], names = ["1", "2", "3"], i;
@@ -474,9 +482,9 @@
         if (savedNav.density === "compact" || savedNav.density === "comfy") document.documentElement.setAttribute("data-density", savedNav.density);
         if (savedNav.reduceMotion === true) document.documentElement.setAttribute("data-motion", "reduce");
         var metas = document.querySelectorAll('meta[name="theme-color"]');
-        // Keep the native Android strip black: "transparent" falls back to
-        // its grey default. Edge-to-edge layout comes from viewport-fit=cover.
-        var barColor = themes.color(mode);
+        // Never hand Android pure black or transparent: both become its grey
+        // #131313 strip. The page itself stays the real theme background.
+        var barColor = themes.native ? themes.native(mode) : themes.color(mode);
         for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", barColor);
         var scheme = document.querySelector('meta[name="color-scheme"]');
         if (scheme) scheme.setAttribute("content", mode === "default" ? "light" : "dark");
@@ -877,6 +885,7 @@
     <script src="live.js" defer></script>
     <script src="x-compose.js" defer></script>
     <script src="affiliations.js" defer></script>
+    <script src="shared/x-broadcast.js" type="module"></script>
     <script src="app.js" defer></script>
     <script src="keys.js" defer></script>
     <script src="keys-ui.js" defer></script>
@@ -932,6 +941,7 @@
           var server = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]") || [];
           if (server.indexOf("pills") >= 0) off.push("shared/pill-data.js", "scores.js", "weather.js", "scores.css", "weather.css");
           if (server.indexOf("stories") >= 0) off.push("stories.js", "stories.css");
+          if (server.indexOf("x_broadcast") >= 0) off.push("shared/x-broadcast.js");
           /* For You off (allowed unless the owner switched foryou_off off): no ranking code. */
           if (localStorage.getItem("viktorychapp-off-foryou") === "1" && server.indexOf("foryou_off") < 0) off.push("shared/for-you.js");
         } catch (err) { /* storage blocked */ }

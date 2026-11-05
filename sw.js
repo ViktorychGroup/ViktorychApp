@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-05T12:57:00.000Z-auto-model
+// cache-bust: 2026-11-05T16:59:00.000Z-auto-model
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -245,6 +245,7 @@ const SHELL_FILES = [
   "./shared/mirror.js",
   "./video-embed.js",
   "./video-providers.js",
+  "./shared/x-broadcast.js",
   "./mention-suggest.js",
   "./settings-assistant.js",
   "./nostr.js",
@@ -1690,7 +1691,8 @@ const PREFS_CACHE = "viktorych-prefs";
 const FEATURE_FILES = {
   homePills: ["./scores.js", "./scores.css", "./weather.js", "./weather.css", "./shared/pill-data.js"],
   stories: ["./stories.js", "./stories.css"],
-  forYou: ["./shared/for-you.js"]
+  forYou: ["./shared/for-you.js"],
+  xBroadcast: ["./shared/x-broadcast.js"]
 };
 async function offFeatureFiles() {
   try {

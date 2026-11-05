@@ -168,10 +168,10 @@ async function main() {
 
     // Installed app: the native strip is always opaque. Android turns a
     // transparent theme-color into a flat grey band above the Home header.
-    const want = { default: "#FFFFFF", dim: "#15202B", lightsout: "#000000" };
+    const want = { default: "#FFFFFF", dim: "#15202B", lightsout: "#010101" };
     run = await open(browser, origin, { standalone: true, settings: { appearance: "lightsout" } });
     h = await run.page.evaluate(HEAD);
-    if (String(h.color).toUpperCase() !== "#000000") fail("installed app must not fall back to Android's grey default, got " + h.color);
+    if (String(h.color).toUpperCase() !== "#010101") fail("installed app must not fall back to Android's grey default, got " + h.color);
     await run.context.close();
     for (const mode of Object.keys(want)) {
       run = await open(browser, origin, { standalone: true, settings: { appearance: mode, statusBar: mode === "dim" } });

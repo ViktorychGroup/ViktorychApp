@@ -59,7 +59,8 @@ export const FEATURES = {
   tiktok_auto_record: { paths: ["/v1/owner/live-record"] },
   // Repair app button, the Home-stuck repair offer and the reinstall guide.
   app_repair: { paths: [] },
-  // Apply a downloaded update after a pause in use (one reload).
+  // Apply a downloaded update on its own, once, when nothing is recording,
+  // playing or in a call.
   auto_update: { paths: [] },
   // Sideways swipe between Home and profile tabs on touch screens. No server
   // endpoints; on by default, off keeps tabs to taps only.
@@ -71,8 +72,8 @@ export const FEATURES = {
   status_bar: { paths: [] },
   // Pinch-zoom lock on phones (viewport, iOS gesture events). No server endpoints.
   zoom_lock: { paths: [] },
-  // Visible updates: the small Updating toast, "tap to restart" and the
-  // full-screen What's new page. No server endpoints.
+  // Visible updates: a short Updating notice while an update applies, then
+  // the full-screen What's new page. No tap-to-update prompt. No endpoints.
   update_notice: { paths: [] },
   // For You off switch in Settings > Home: Following becomes Home and the
   // ranking code is not loaded. No server endpoints. On by default.
@@ -109,7 +110,10 @@ export const FEATURES = {
   notif_sounds: { paths: [] },
   // Owner-managed member settings: the owner changes another account's
   // synced settings and can lock them; /v1/sync keeps locked values.
-  owner_user_settings: { paths: ["/v1/owner/user-settings"] }
+  owner_user_settings: { paths: ["/v1/owner/user-settings"] },
+  // Public X broadcasts in the feed. On by default. Off: the card is a
+  // link to X and /v1/x-broadcast answers empty. No private X API.
+  x_broadcast: { paths: ["/v1/x-broadcast"] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 
