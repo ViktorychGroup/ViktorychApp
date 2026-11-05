@@ -94,7 +94,10 @@ export const FEATURES = {
   site_permissions: { paths: [] },
   // In-app notification sounds: WebAudio sounds per account, per type and a
   // default while the app is open. Per device. No server endpoints.
-  notif_sounds: { paths: [] }
+  notif_sounds: { paths: [] },
+  // Owner-managed member settings: the owner changes another account's
+  // synced settings and can lock them; /v1/sync keeps locked values.
+  owner_user_settings: { paths: ["/v1/owner/user-settings"] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

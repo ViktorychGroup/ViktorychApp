@@ -6190,5 +6190,19 @@ SI18n.addPack("en", {
   "Notification sounds": "Notification sounds",
   "Sounds while the app is open, per account and per type.": "Sounds while the app is open, per account and per type.",
   "Sound set for {name}": "Sound set for {name}",
-  "Uses your other notification sounds": "Uses your other notification sounds"
+  "Uses your other notification sounds": "Uses your other notification sounds",
+  "Manage member settings": "Manage member settings",
+  "In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.": "In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.",
+  "The site owner locked this setting.": "The site owner locked this setting.",
+  "The site owner manages 1 of your settings.": "The site owner manages 1 of your settings.",
+  "The site owner manages {count} of your settings.": "The site owner manages {count} of your settings.",
+  "Manage settings": "Manage settings",
+  "Change their settings and lock the ones they can't change.": "Change their settings and lock the ones they can't change.",
+  "Owner accounts manage their own settings.": "Owner accounts manage their own settings.",
+  "Changes reach @{handle}'s devices on their next sync. A locked setting keeps your value and they can't change it.": "Changes reach @{handle}'s devices on their next sync. A locked setting keeps your value and they can't change it.",
+  "Lock all": "Lock all",
+  "Unlock all": "Unlock all",
+  "1 setting locked": "1 setting locked",
+  "{count} settings locked": "{count} settings locked",
+  "Each change is logged in the access log.": "Each change is logged in the access log."
 });

@@ -6193,5 +6193,19 @@ SI18n.addPack("es", {
   "Notification sounds": "Sonidos de notificación",
   "Sounds while the app is open, per account and per type.": "Sonidos con la app abierta, por cuenta y por tipo.",
   "Sound set for {name}": "Sonido elegido para {name}",
-  "Uses your other notification sounds": "Usa tus otros sonidos de notificación"
+  "Uses your other notification sounds": "Usa tus otros sonidos de notificación",
+  "Manage member settings": "Gestionar ajustes de miembros",
+  "In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.": "En Cuentas puedes cambiar los ajustes de un miembro y bloquearlos para que no los cambie. Desactivado devuelve cada elección a los miembros.",
+  "The site owner locked this setting.": "El propietario del sitio bloqueó este ajuste.",
+  "The site owner manages 1 of your settings.": "El propietario del sitio gestiona 1 de tus ajustes.",
+  "The site owner manages {count} of your settings.": "El propietario del sitio gestiona {count} de tus ajustes.",
+  "Manage settings": "Gestionar ajustes",
+  "Change their settings and lock the ones they can't change.": "Cambia sus ajustes y bloquea los que no podrán cambiar.",
+  "Owner accounts manage their own settings.": "Las cuentas de propietario gestionan sus propios ajustes.",
+  "Changes reach @{handle}'s devices on their next sync. A locked setting keeps your value and they can't change it.": "Los cambios llegan a los dispositivos de @{handle} en su próxima sincronización. Un ajuste bloqueado mantiene tu valor y no podrá cambiarlo.",
+  "Lock all": "Bloquear todo",
+  "Unlock all": "Desbloquear todo",
+  "1 setting locked": "1 ajuste bloqueado",
+  "{count} settings locked": "{count} ajustes bloqueados",
+  "Each change is logged in the access log.": "Cada cambio queda en el registro de accesos."
 });
