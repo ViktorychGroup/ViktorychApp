@@ -191,7 +191,7 @@ async function main() {
       if (/cdn\.fixture\.test/.test(url)) return route.fulfill({ status: 200, contentType: "image/png", body: widePng() });
       return route.fulfill({ status: 404, body: "{}" });
     });
-    const page = ctx.pages()[0] || await ctx.newPage();
+    let page = ctx.pages()[0] || await ctx.newPage();
     const errors = [];
     page.on("pageerror", (err) => errors.push(err.message));
     await page.addInitScript((follows) => {
@@ -298,7 +298,18 @@ async function main() {
       localStorage.removeItem("viktorych-screen-v1");
     });
     await helper.close();
-    await page.goto("http://127.0.0.1:" + port + "/index.html#/");
+    /* A service worker that claims the page can abort this navigation.
+       The switch check still runs on the page that finishes loading. */
+    const again = "http://127.0.0.1:" + port + "/index.html#/";
+    try {
+      await page.goto(again, { waitUntil: "domcontentloaded" });
+    } catch (err) {
+      const msg = String(err && err.message || err);
+      if (!/ERR_ABORTED|frame was detached|crashed/i.test(msg)) throw err;
+      page = await ctx.newPage();
+      page.on("pageerror", (err2) => errors.push(err2.message));
+      await page.goto(again, { waitUntil: "domcontentloaded" });
+    }
     const back = await waitFor(page, () => page.evaluate(() => (document.body.innerText || "").includes("Harbour notes") ? "yes" : ""), 50);
     const off = await page.evaluate((story) => document.querySelectorAll('.rd-launch[data-url="' + story + '"]').length, STORY);
     check(back === "yes" && off === 0, "the owner switch hides Read (" + off + ")");
