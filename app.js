@@ -11577,7 +11577,7 @@ const here = parseRoute();
     };
     const compact = compactHeaderOn();
     const rightIcon = compact && localAiOn()
-      ? `<a class="m-icon m-ai" href="#/ai" aria-label="${esc(tr("Open Local AI"))}">${icon("viktrych")}</a>`
+      ? `<a class="m-icon m-ai" href="#/ai" aria-label="${esc(tr("Open Local AI"))}" aria-keyshortcuts="Shift+F10">${icon("viktrych")}</a>`
       : `<a class="m-icon" href="#/settings" aria-label="${tr("Settings")}">${icon("spark")}</a>`;
     return `<div class="topbar tall${compact ? " compact-head" : ""}">
       <h1 class="vh">${tr("Home")}</h1>
@@ -18130,7 +18130,7 @@ const here = parseRoute();
       ["network", tr("Network"), tr("Online or offline, and Wi-Fi or mobile data where the browser tells.")],
       ["unread", tr("Unread notifications"), tr("This app's unread notifications, shown only when there are some.")]
     ].filter((row) => row[0] !== "battery" || batterySupported());
-    let out = `<h3 class="set-sub">${esc(tr("Status icons"))}</h3><p class="phandle">${esc(tr("Small icons at the top right of Home on phones and tablets, handy in full screen where the phone's status bar is hidden. Web apps cannot show the system volume or other apps' notifications."))}</p>`;
+    let out = `<h3 class="set-sub" id="status-icons-settings">${esc(tr("Status icons"))}</h3><p class="phandle">${esc(tr("Small icons at the top right of Home on phones and tablets, handy in full screen where the phone's status bar is hidden. Web apps cannot show the system volume or other apps' notifications."))}</p>`;
     for (const [key, label, desc] of rows) {
       const on = !!picks[key];
       out += `<button class="tab-switch${on ? " on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}" data-act="status-icon" data-key="${key}"><span>${esc(label)}</span><i></i></button><p class="phandle">${esc(desc)}</p>`;
@@ -22633,6 +22633,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       else clearExploreSearchFit();
       bindNavSplit();
       bindSideSplit();
+      if (focusStatusIconsPending && route.name === "settings" && route.section === "display") queueStatusIconFocus();
       scheduleRemember(route);
     };
     const endRoute = () => {
@@ -25295,6 +25296,140 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
   let groupPress = 0;
   let groupPoint = null;
   let swallowGroupClick = false;
+  /* Press and hold the compact Home AI link to reach the existing status-icon
+     switches. A normal click still follows #/ai. Pointer cancellation and a
+     small movement tolerance let an intended page scroll stay a page scroll. */
+  const STATUS_ICON_HOLD_MS = 500;
+  let statusIconHold = null;
+  let swallowStatusIconClick = 0;
+  let swallowStatusIconRelease = false;
+  let statusIconOpened = 0;
+  let focusStatusIconsPending = false;
+
+  function statusIconSettingsTarget(node) {
+    if (!node || !node.closest || serverOffList().includes("status_icons")) return null;
+    return node.closest('.mhead a.m-ai[href="#/ai"]');
+  }
+
+  function clearStatusIconHold() {
+    if (!statusIconHold) return;
+    clearTimeout(statusIconHold.timer);
+    statusIconHold = null;
+  }
+
+  function focusStatusIconSettings() {
+    const first = document.querySelector('[data-act="status-icon"]');
+    if (!first) return;
+    first.focus({ preventScroll: true });
+    first.scrollIntoView({ block: "center", behavior: "auto" });
+  }
+
+  function queueStatusIconFocus() {
+    focusStatusIconsPending = false;
+    // Run after the current render's scheduled repaints, not between two of
+    // them. The focused switch must not be replaced by that later DOM update.
+    setTimeout(() => {
+      if (parseRoute().section === "display") focusStatusIconSettings();
+    }, 0);
+  }
+
+  function openStatusIconSettings() {
+    const now = Date.now();
+    if (now - statusIconOpened < 1500) return;
+    statusIconOpened = now;
+    // Read whether a finger is still down before the hold is cleared.
+    swallowStatusIconRelease = !!statusIconHold;
+    clearStatusIconHold();
+    swallowStatusIconClick = now;
+    buzz(5);
+    focusStatusIconsPending = true;
+    // Do not let the active pointer hold back the Settings route render.
+    // Its render reads the same current state, so a queued Home one is moot.
+    renderQ.held = false;
+    renderQ.pending = false;
+    renderQ.opts = null;
+    const route = parseRoute();
+    if (route.name === "settings" && route.section === "display") render();
+    else goHash("#/settings/display");
+  }
+
+  document.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.isPrimary === false) return;
+    const el = statusIconSettingsTarget(event.target);
+    if (!el) return;
+    // A fresh press is never the duplicate contextmenu from an earlier hold.
+    statusIconOpened = 0;
+    swallowStatusIconClick = 0;
+    swallowStatusIconRelease = false;
+    clearStatusIconHold();
+    const pointer = event.pointerId;
+    statusIconHold = { pointer: pointer, x: event.clientX, y: event.clientY, timer: setTimeout(() => {
+      if (statusIconHold && statusIconHold.pointer === pointer) openStatusIconSettings();
+    }, STATUS_ICON_HOLD_MS) };
+  }, { capture: true, passive: true });
+  document.addEventListener("pointermove", (event) => {
+    if (!statusIconHold || event.pointerId !== statusIconHold.pointer) return;
+    const dx = event.clientX - statusIconHold.x;
+    const dy = event.clientY - statusIconHold.y;
+    if (dx * dx + dy * dy > 100) clearStatusIconHold();
+  }, { capture: true, passive: true });
+  const endStatusIconHold = (event) => {
+    if (statusIconHold && event.pointerId === statusIconHold.pointer) clearStatusIconHold();
+    if (swallowStatusIconRelease && event.pointerType === "touch") {
+      // Prevent the compatibility mouse sequence before touchend. Some
+      // browsers still emit it when only the later touch event is cancelled.
+      event.preventDefault();
+    }
+  };
+  document.addEventListener("pointerup", endStatusIconHold, { capture: true, passive: false });
+  document.addEventListener("pointercancel", endStatusIconHold, { capture: true, passive: true });
+  document.addEventListener("touchstart", (event) => {
+    if (event.touches && event.touches.length > 1) clearStatusIconHold();
+  }, { capture: true, passive: true });
+  document.addEventListener("touchend", (event) => {
+    if (!swallowStatusIconRelease) return;
+    // The old Home link may already be detached, and the browser can target
+    // the compatibility click at the Settings back button under the finger.
+    event.preventDefault();
+    swallowStatusIconClick = 0;
+    clearStatusIconHold();
+    // If the browser sends no click after this, do not eat the next real tap.
+    setTimeout(() => { swallowStatusIconRelease = false; }, 400);
+  }, { capture: true, passive: false });
+  document.addEventListener("scroll", clearStatusIconHold, { capture: true, passive: true });
+  window.addEventListener("blur", clearStatusIconHold);
+  document.addEventListener("click", (event) => {
+    if (swallowStatusIconRelease) {
+      swallowStatusIconRelease = false;
+      swallowStatusIconClick = 0;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (!swallowStatusIconClick || Date.now() - swallowStatusIconClick > 1500) return;
+    if (!statusIconSettingsTarget(event.target)) return;
+    swallowStatusIconClick = 0;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  document.addEventListener("contextmenu", (event) => {
+    const el = statusIconSettingsTarget(event.target);
+    if (!el) return;
+    event.preventDefault();
+    event.stopPropagation();
+    // Chrome's touch hold can emit this again after the timer has navigated.
+    // The old Home DOM may still be present under the finger.
+    if (Date.now() - statusIconOpened < 1500) return;
+    openStatusIconSettings();
+  }, true);
+  document.addEventListener("keydown", (event) => {
+    if (!((event.key === "F10" && event.shiftKey) || event.key === "ContextMenu")) return;
+    if (!statusIconSettingsTarget(document.activeElement)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openStatusIconSettings();
+  }, true);
+
   document.addEventListener("contextmenu", (event) => {
     const target = groupTarget(event.target);
     if (target) {
