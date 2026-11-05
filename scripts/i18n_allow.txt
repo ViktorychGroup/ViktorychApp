@@ -398,6 +398,8 @@ local-ai.js|Qwen3 1.7B abliterated
 settings-registry.js|Accent colour used for buttons, links and highlights.
 settings-registry.js|Text size in pixels for posts and menus. 15 is normal.
 settings-registry.js|Turns off most animations and moving effects.
+settings-registry.js|Post text alignment: left or justified.
+settings-registry.js|Long post text flows around the profile picture. Photos and videos stay full width.
 settings-registry.js|Shape of profile pictures: round or square.
 settings-registry.js|Small vibrations when you tap buttons on phones.
 settings-registry.js|Hides the status bar and navigation bar of the phone in a browser tab after a tap.
