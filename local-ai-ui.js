@@ -238,7 +238,11 @@
     });
   }
 
+  /* A registry row, or the card row for blocking or muting one @handle. */
+  function rowOf(id) { return reg().get(id) || (core().personRow ? core().personRow(id) : null); }
+  function title(row) { return row.subject ? tr(row.label) + " " + row.subject : tr(row.label); }
   function shown(row, v) {
+    if (row && row.person) return v ? tr("Yes") : tr("No");
     if (v === undefined || v === null) return tr("Unknown");
     if (row.type === "bool") return v ? tr("On") : tr("Off");
     if (row.type === "number") return String(v);
@@ -254,7 +258,7 @@
     else if (n === 1) parts.push(tr("Here's the change. Check it and tap Apply."));
     else if (n > 1) parts.push(tr("Here are {n} changes. Check them and tap Apply.", { n: n }));
     plan.reads.forEach(function (r) {
-      parts.push(r.same ? tr("{name} is already {value}.", { name: tr(r.row.label), value: shown(r.row, r.value) }) : tr("{name} is {value} right now.", { name: tr(r.row.label), value: shown(r.row, r.value) }));
+      parts.push(r.same ? tr("{name} is already {value}.", { name: title(r.row), value: shown(r.row, r.value) }) : tr("{name} is {value} right now.", { name: title(r.row), value: shown(r.row, r.value) }));
     });
     if (plan.opens.length) {
       var danger = plan.opens.some(function (r) { return r.risk === "danger"; });
@@ -289,7 +293,12 @@
     answer(text, { calls: opts && opts.calls, onDelta: function (t) { shownText = t; msg.text = t; paintMsg(msg); } }).then(function (res) {
       var h = host();
       var values = h ? h.values() : {};
-      var plan = core().plan(res.calls, values);
+      // Block and mute come only from the words typed here, read by the
+      // rules; a model's own people calls (which post text could steer) are dropped.
+      var typedPeople = res.engine === "tap" ? [] : core().parsePeople(text);
+      var calls = (res.calls || []).filter(function (c) { return !(c && c.fn === "person"); }).concat(typedPeople);
+      typedPeople.forEach(function (c) { var pid = core().personId(c.act, c.handle); values[pid] = !!(h && h.personState && h.personState(pid)); });
+      var plan = core().plan(calls, values, { typed: res.engine === "tap" ? "" : text });
       var reply = res.reply && res.reply.trim() ? res.reply.trim() : instantReply(plan, res.unknown);
       // Setup said "only show where settings are": changes become links.
       if (!prefs().canChange && plan.changes.length) {
@@ -500,7 +509,7 @@
     var signed = h && h.signedIn ? h.signedIn() : false;
     var done = msg.state === "done";
     var rows = msg.plan.map(function (ch) {
-      var row = R.get(ch.id);
+      var row = rowOf(ch.id);
       if (!row) return "";
       var needSign = ch.signedIn && !signed;
       var status = "";
@@ -509,7 +518,7 @@
       else if (done && ch.done) status = '<button type="button" class="lai-ch-undo" data-lai="undo-one" data-m="' + mi + '" data-id="' + esc(ch.id) + '">' + I.undo + "<span>" + esc(tr("Undo")) + "</span></button>";
       else if (needSign) status = '<span class="lai-ch-st">' + esc(tr("Sign in first")) + "</span>";
       var tick = done && ch.done && !ch.undone ? '<span class="lai-ch-ok">' + I.check + "</span>" : "";
-      return '<li class="lai-ch' + (ch.risky ? " risky" : "") + (needSign ? " off" : "") + '">' + tick + '<div class="lai-ch-copy"><a class="lai-ch-name" href="' + esc(row.page) + '">' + esc(tr(row.label)) + '</a><span class="lai-ch-val"><s>' + esc(shown(row, ch.from)) + "</s> → <b>" + esc(shown(row, ch.to)) + "</b></span>" + (ch.risky ? '<span class="lai-ch-risk">' + esc(tr("Less private")) + "</span>" : "") + "</div>" + status + "</li>";
+      return '<li class="lai-ch' + (ch.risky ? " risky" : "") + (needSign ? " off" : "") + '">' + tick + '<div class="lai-ch-copy"><a class="lai-ch-name" href="' + esc(row.page) + '">' + esc(title(row)) + '</a><span class="lai-ch-val"><s>' + esc(shown(row, ch.from)) + "</s> → <b>" + esc(shown(row, ch.to)) + "</b></span>" + (ch.risky ? '<span class="lai-ch-risk">' + esc(tr("Less private")) + "</span>" : "") + "</div>" + status + "</li>";
     }).join("");
     var foot = "";
     var can = msg.plan.filter(function (ch) { return !(ch.signedIn && !signed); }).length;
