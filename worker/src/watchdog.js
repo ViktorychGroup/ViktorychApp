@@ -33,7 +33,7 @@ const DAY = 24 * HOUR;
 
 // Workflows that run on their own. Three failed runs in a row is a problem.
 export const WATCHED = [
-  "sync.yml", "accounts.yml", "reddit.yml", "discord-live.yml", "media-extract.yml",
+  "sync.yml", "publish-app.yml", "accounts.yml", "reddit.yml", "discord-live.yml", "media-extract.yml",
   "telegram-backup.yml", "gdrive-backup.yml", "backup-warmup.yml", "radio-check.yml",
   "tiktok-live.yml", "worker-dispatch-secret.yml"
 ];
@@ -286,7 +286,7 @@ export async function runWatchdog(env, now, fetcher) {
         if (v.redeploy) {
           let ok = false;
           try {
-            const res = await gh(env, "/actions/workflows/sync.yml/dispatches", { method: "POST", body: { ref: "main", inputs: { source: v.source } } }, f);
+            const res = await gh(env, "/actions/workflows/publish-app.yml/dispatches", { method: "POST", body: { ref: "main", inputs: { source: v.source } } }, f);
             ok = res.status === 204 || res.ok;
           } catch (err) { ok = false; }
           versionState.lastDispatchAt = at;

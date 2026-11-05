@@ -219,10 +219,10 @@ def _list_open(repo: str) -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-def apply(decision: dict, lines: list[str], run_url: str, repo: str) -> None:
+def apply(decision: dict, lines: list[str], run_url: str, repo: str, title: str = TITLE) -> None:
     action = decision.get("action")
     if action == "open":
-        _gh(["issue", "create", "--repo", repo, "--title", TITLE, "--body", body_for(lines, run_url)])
+        _gh(["issue", "create", "--repo", repo, "--title", title, "--body", body_for(lines, run_url)])
     elif action == "edit":
         _gh(["issue", "edit", str(decision["number"]), "--repo", repo, "--body", body_for(lines, run_url)])
     elif action == "close":
@@ -247,12 +247,13 @@ def main() -> int:
             report = json.loads(REPORT.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             report = None
+    title = os.environ.get("PROBLEM_TITLE") or TITLE
     lines = problems(report, now, build_result, deploy_result, accounts_result, refresh_result)
     print("\n".join(lines) or "healthy")
     if not repo:
         return 0
-    decision = plan(lines, _list_open(repo))
-    apply(decision, lines, run_url, repo)
+    decision = plan(lines, _list_open(repo), title=title)
+    apply(decision, lines, run_url, repo, title=title)
     print(decision.get("action"))
     # The Worker watchdog's findings, in a bot-authored issue so GitHub
     # emails the owner (an issue the owner's own token opens sends no mail).

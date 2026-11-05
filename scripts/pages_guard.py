@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Keep GitHub Pages deploys from overwriting each other.
 
-Sync feeds and Discord live both publish Pages. They do not share a job, so
+Publish app, Sync feeds and Discord live publish Pages. They do not share a job, so
 this helper is the shared lock and the freshness check:
 
-  pick-head   Which commit the Sync build assembles. main's head when its
+  pick-head   Which commit the app build assembles. main's head when its
               Accounts deploy is done (or it has none), else this run's commit.
               Writes sha=... to GITHUB_OUTPUT.
   superseded  Whether a newer app shell than --sha is already live. Writes
               go=true|false to GITHUB_OUTPUT. A stale run then skips its
               version publish instead of putting old files back.
-  busy        Exit 3 when a Sync feeds Pages job (deploy or publish-version) is
+  busy        Exit 3 when a Sync feeds or Publish app Pages job (deploy or publish-version) is
               queued or running, or finished after --since. Discord live waits
               on this before it publishes and checks again right before the
               Pages deployment is created.
@@ -38,6 +38,7 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SW_RE = re.compile(r'const VERSION = "viktorych-[a-z0-9]+-([0-9a-f]{40})"')
 ACTIVE = {"queued", "in_progress", "waiting", "pending", "requested"}
 PAGES_JOBS = {"deploy", "publish-version"}
+PAGES_WORKFLOWS = ("sync.yml", "publish-app.yml")
 # Commits that only touch these paths do not change the app shell.
 DATA_ONLY = ("data/communities/", "feeds.json", "stories.json", "people.json", "suggestions.json")
 
@@ -127,22 +128,23 @@ def busy(repo: str, token: str, since: float = 0.0) -> bool:
     if not repo or not token:
         return False
     try:
-        runs = _get(f"/repos/{repo}/actions/workflows/sync.yml/runs?branch=main&per_page=6", token).get("workflow_runs") or []
-        for run in runs:
-            status = run.get("status") or ""
-            if status == "completed" and (not since or _stamp(run.get("updated_at") or "") < since):
-                continue
-            jobs = _get(f"/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=50", token).get("jobs") or []
-            if jobs_busy(jobs, since):
-                print(f"[pages-guard] Sync feeds run {run.get('id')} is publishing Pages")
-                return True
+        for workflow in PAGES_WORKFLOWS:
+            runs = _get(f"/repos/{repo}/actions/workflows/{workflow}/runs?branch=main&per_page=6", token).get("workflow_runs") or []
+            for run in runs:
+                status = run.get("status") or ""
+                if status == "completed" and (not since or _stamp(run.get("updated_at") or "") < since):
+                    continue
+                jobs = _get(f"/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=50", token).get("jobs") or []
+                if jobs_busy(jobs, since):
+                    print(f"[pages-guard] {workflow} run {run.get('id')} is publishing Pages")
+                    return True
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, KeyError) as exc:
         print(f"[pages-guard] lock check skipped: {type(exc).__name__}")
     return False
 
 
 def wait_until_free(repo: str, token: str, limit: float = 720, step: float = 20) -> bool:
-    """True once no Sync Pages job is in flight; False after limit seconds."""
+    """True once no app or feed Pages job is in flight; False after limit seconds."""
     finish = time.monotonic() + limit
     while busy(repo, token):
         if time.monotonic() >= finish:
@@ -269,6 +271,7 @@ def selftest() -> int:
     assert not jobs_busy([{"name": "publish-version", "status": "completed", "conclusion": "success", "completed_at": earlier}], now)
     assert not jobs_busy([{"name": "deploy", "status": "completed", "conclusion": "success", "completed_at": later}], 0)
     assert busy("", "") is False
+    assert PAGES_WORKFLOWS == ("sync.yml", "publish-app.yml")
     assert newer_shell({"status": "ahead", "files": [{"filename": "app.js"}]})
     assert not newer_shell({"status": "ahead", "files": [{"filename": "feeds.json"}]})
     assert not newer_shell({"status": "behind", "files": [{"filename": "app.js"}]})

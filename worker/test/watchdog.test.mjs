@@ -83,7 +83,7 @@ test("a full run re-enables, redeploys, and opens an issue only when Actions sto
   const env = { DATA: memoryR2(), GITHUB_DISPATCH_TOKEN: "test-token" };
   const doc = await runWatchdog(env, now, fetcher);
   assert.ok(calls.some((c) => c.startsWith("PUT ") && c.endsWith("/actions/workflows/9/enable")));
-  assert.ok(calls.some((c) => c.startsWith("POST ") && c.endsWith("/sync.yml/dispatches")));
+  assert.ok(calls.some((c) => c.startsWith("POST ") && c.endsWith("/publish-app.yml/dispatches")));
   const codes = doc.problems.map((p) => p.code);
   assert.ok(codes.includes("sync_stale"));
   assert.ok(codes.includes("gh_token_expiring"));
