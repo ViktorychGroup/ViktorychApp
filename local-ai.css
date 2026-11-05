@@ -408,7 +408,7 @@ html[data-theme="default"] .lai-su-card { box-shadow: 0 0 15px rgba(101, 119, 13
 @keyframes lai-su-up { from { transform: translateY(24px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .lai-su-card, .lai-su-spin { animation: none; } }
 
-/* Phones: the empty chat looks like the Grok app home. A large plain logo in
+/* Phones: the empty chat looks like a mobile chat app home. A large plain logo in
    the middle, a short line under it, suggestion chips above a rounded box
    pinned to the bottom. Quick settings open from their chip. */
 .lai-chip-qs { display: none; }

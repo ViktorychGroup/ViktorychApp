@@ -1,4 +1,4 @@
-/* Viktrych chat home: once a model is ready the page looks like the Grok app home (a big plain logo, clean empty state, a rounded box pinned to the bottom) and the box has focus so the keyboard opens. Demo data only. */
+/* Viktrych chat home: once a model is ready the page looks like a mobile chat app home (a big plain logo, clean empty state, a rounded box pinned to the bottom) and the box has focus so the keyboard opens. Demo data only. */
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";

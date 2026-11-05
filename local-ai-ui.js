@@ -477,7 +477,7 @@
     send(tr(row.label) + " → " + shown(row, to), { calls: [{ fn: "set", id: id, value: to }] });
   }
   function chipsHtml() {
-    // Phones keep the empty chat clean like the Grok app: quick settings sit
+    // Phones keep the empty chat clean like a mobile chat app: quick settings sit
     // behind this chip instead of filling the page (desktop shows them inline).
     var qs = prefs().canChange && groups().some(function (g) { return quickRows(g[0]).length; })
       ? '<button type="button" class="lai-chip lai-chip-qs" data-lai="qs" aria-expanded="' + (S.qsOpen ? "true" : "false") + '">' + esc(tr("Quick settings")) + "</button>" : "";
@@ -1144,7 +1144,7 @@
     if (S.root.parentNode !== spot) {
       spot.appendChild(S.root);
     }
-    // Opening the chat puts the cursor in the box, like the Grok app, so the
+    // Opening the chat puts the cursor in the box, like a mobile chat app, so the
     // keyboard is already up. Not during setup, and not over a field the
     // person is typing in elsewhere.
     var act0 = document.activeElement;
