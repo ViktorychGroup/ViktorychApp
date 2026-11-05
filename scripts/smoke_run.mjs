@@ -500,7 +500,11 @@ async function main() {
   const needs = new Set(steps.flatMap((item) => item.needs));
   if (needs.has("pw") || needs.has("webkit")) await ensurePlaywright();
   if (needs.has("webkit")) {
-    const code = await runShell("cd " + PW + " && npx playwright install --with-deps webkit", process.env);
+    // Download the browser only. --with-deps apt-installs gstreamer1.0-libav,
+    // which pulls the ffmpeg codec stack and can use the whole 15 minute job.
+    // The iOS check opens pages; it does not play video.
+    process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
+    const code = await runShell("cd " + PW + " && npx playwright install webkit", process.env);
     if (code !== 0) throw new Error("webkit install failed");
   }
   if (needs.has("pw149")) await ensurePw149();
