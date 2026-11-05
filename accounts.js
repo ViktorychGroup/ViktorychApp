@@ -1979,8 +1979,8 @@ var numberNote = form.passkey
     else document.documentElement.setAttribute("data-theme", mode);
     var colors = { default: "#FFFFFF", dim: "#15202B", lightsout: "#000000" };
     var metas = document.querySelectorAll('meta[name="theme-color"]');
-    var installed = (window.matchMedia && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || (matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement))) || navigator.standalone;
-    var barColor = installed ? "transparent" : (themes ? themes.color(mode) : colors[mode]);
+    // Android's fallback for a transparent native bar is grey, not see-through.
+    var barColor = themes ? themes.color(mode) : colors[mode];
     for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", barColor);
     try {
       var key = "viktorychapp-settings-v1";
