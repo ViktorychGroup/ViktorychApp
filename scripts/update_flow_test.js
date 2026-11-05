@@ -127,7 +127,10 @@ assert.strictEqual(update.CHECK_MS, 3 * 60 * 1000);
 // or applies, and stays out of the way of the full screen and of errors.
 assert.strictEqual(update.statusKind({ pending: true, phase: "working" }, "idle"), "updating");
 assert.strictEqual(update.statusKind({ pending: true, phase: "done" }, "idle"), "updating");
-assert.strictEqual(update.statusKind({ pending: true, phase: "offer", preBusy: true, ready: false }, "idle"), "updating");
+// The background download is quiet; the toast is only for the switch-over, and never for long.
+assert.strictEqual(update.statusKind({ pending: true, phase: "offer", preBusy: true, ready: false }, "idle"), "");
+assert.strictEqual(update.statusKind({ pending: true, phase: "working", workingSince: 1000 }, "idle", 3000), "updating");
+assert.strictEqual(update.statusKind({ pending: true, phase: "working", workingSince: 1000 }, "idle", 6000), "");
 assert.strictEqual(update.statusKind({ pending: true, phase: "offer", preBusy: false, ready: true }, "pill"), "");
 assert.strictEqual(update.statusKind({ pending: true, phase: "working" }, "blocking"), "");
 assert.strictEqual(update.statusKind({ pending: true, phase: "error" }, "idle"), "");

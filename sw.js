@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-05T01:10:00.000Z-viktrych
+// cache-bust: 2026-11-05T01:20:00.000Z-fast-update
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -420,7 +420,11 @@ self.addEventListener("activate", (event) => {
       const beat = updateReporting ? setInterval(() => broadcastProgress({ step: "activate" }, true), 4000) : null;
       activateBeat = beat;
       const keys = await caches.keys();
-      await Promise.all(keys.filter((key) => key !== SHELL && key !== DATA && key !== MEDIA && key !== LIVE && key !== OFFLINE_MUSIC && key !== PREFS_CACHE && !OLD_USER_CACHE.test(key)).map((key) => caches.delete(key)));
+      // An update applied with only the core files keeps the older shell and
+      // the half-filled download until the rest is in, so those files are
+      // copied by hash instead of downloaded again. They go once it is done.
+      const keepShells = !(await shellReadyState());
+      await Promise.all(keys.filter((key) => key !== SHELL && !(keepShells && key.indexOf("shell-") === 0) && key !== DATA && key !== MEDIA && key !== LIVE && key !== OFFLINE_MUSIC && key !== PREFS_CACHE && !OLD_USER_CACHE.test(key)).map((key) => caches.delete(key)));
       try { await forgetLoopCaches(); } catch (err) { /* a stuck loop playlist must not block the new shell */ }
       if (updateReporting) broadcastProgress({ step: "clean" }, true);
     } catch (err) { /* a full disk must not leave the worker stuck activating */ }
@@ -1770,6 +1774,7 @@ async function doPrecache(report, generation, signal, mode) {
     const summary = { files: state.files, totalFiles: state.totalFiles, bytes: state.bytes, totalBytes: state.totalBytes };
     if (!coreOnly) {
       try { await live.put(SHELL_READY, new Response(JSON.stringify(summary), { headers: { "Content-Type": "application/json" } })); } catch (err) { /* the next apply checks the files again */ }
+      if (self.registration.active === self.serviceWorker) dropOtherShells().catch(() => {});
     }
     console.info("shell update ready", "reused " + state.reused, "downloaded " + state.fetched);
     progressState = { files: state.files, totalFiles: state.totalFiles, bytes: state.bytes, totalBytes: state.totalBytes };
@@ -1806,18 +1811,34 @@ async function activateWaiting() {
   throw shellError("", "timeout");
 }
 
+/* Older shells and this version's download cache, once the full shell is in
+   and this worker is in charge. */
+async function dropOtherShells() {
+  const names = await caches.keys();
+  await Promise.all(names.filter((name) => name.indexOf("shell-") === 0 && name !== SHELL).map((name) => caches.delete(name)));
+}
+
 async function runApply(fresh) {
   updateReporting = true;
+  // Switching over waits only for the core files (index, app, styles, the
+  // worker's own imports) when the quiet background download has not
+  // finished. The rest follows right after, still pinned to this version.
+  const full = !!(await shellReadyState());
+  const mode = full ? "all" : "core";
   // A nudge with fresh:false must not abort a download that is already
   // running. Retry omits the flag and replaces a download that is stuck.
-  const task = precacheShell(true, fresh !== false);
+  const task = precacheShell(true, fresh !== false, mode);
   const generation = task.generation;
   try {
-    if (fresh !== false) broadcastProgress({ step: "download", files: 0, totalFiles: SHELL_FILES.length, bytes: 0, totalBytes: 0 }, true);
+    if (fresh !== false) broadcastProgress({ step: "download", files: 0, totalFiles: mode === "core" ? SHELL_CORE.length : SHELL_FILES.length, bytes: 0, totalBytes: 0 }, true);
     const state = await task;
     if (generation !== precacheGeneration) return;
     broadcastProgress({ step: "install", files: state.files, totalFiles: state.totalFiles, bytes: state.bytes, totalBytes: state.totalBytes }, true);
     await activateWaiting();
+    if (mode === "core") {
+      updateReporting = false;
+      await precacheShell(false, false, "all").catch(() => {});
+    }
   } catch (err) {
     if (generation !== precacheGeneration || (err && err.reason === "replaced")) return;
     updateReporting = false;
@@ -2304,7 +2325,9 @@ self.addEventListener("fetch", (event) => {
       const cached = await cache.match(request);
       if (cached) return url.pathname.endsWith("manifest.webmanifest") ? brandManifestResponse(cached) : cached;
       try {
-        const res = await mirrorFetch(request);
+        // Not saved yet (an update that switched over with its core files):
+        // skip the browser's HTTP cache so an older copy is never mixed in.
+        const res = await mirrorFetch(new Request(request, { cache: "no-store" }));
         if (res && url.pathname.endsWith("manifest.webmanifest")) return brandManifestResponse(res);
         // Video players load on first use instead of with every update, then
         // stay for offline use until the next version.
