@@ -500,32 +500,43 @@ async function main() {
   const needs = new Set(steps.flatMap((item) => item.needs));
   if (needs.has("pw") || needs.has("webkit")) await ensurePlaywright();
   if (needs.has("webkit")) {
-    // Install the libraries MiniBrowser actually links. Do not install
+    // MiniBrowser ships WPE and JPEG-XL beside itself. Install only the
+    // Ubuntu libraries it still cannot find. Do not install
     // gstreamer1.0-libav: that pulls the ffmpeg codec stack and can spend
     // the whole 15 minute job downloading it. The iOS check does not play video.
+    // Package names are Playwright's Ubuntu 24.04 map for WebKit build 2215.
     process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
     const code = await runShell("cd " + PW + " && npx playwright install webkit", process.env);
     if (code !== 0) throw new Error("webkit install failed");
     const apt = await runShell([
-      "set -e",
-      "browser=$(find \"$HOME/.cache/ms-playwright\" -type f -path '*/minibrowser-wpe/bin/MiniBrowser' | head -n 1)",
-      "test -n \"$browser\"",
-      "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq",
-      "for round in 1 2 3; do",
-      "  missing=$(ldd \"$browser\" | awk '/not found/ {print $1}')",
-      "  test -z \"$missing\" && exit 0",
-      "  pkgs=",
-      "  for lib in $missing; do",
-      "    guess=$(printf '%s' \"$lib\" | sed -E 's/\\.so\\././; s/\\.so$//; s/\\.//g')",
-      "    case \"$guess\" in",
-      "      libavcodec*|libcodec2*|libflite*|libsvtav1*) echo \"refusing $guess\"; exit 1 ;;",
-      "    esac",
-      "    apt-cache show \"$guess\" >/dev/null 2>&1 || { echo \"no package for $lib\"; exit 1; }",
-      "    pkgs=\"$pkgs $guess\"",
-      "  done",
-      "  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $pkgs",
+      "set -euo pipefail",
+      "root=$(find \"$HOME/.cache/ms-playwright\" -type d -path '*/minibrowser-wpe' -print -quit)",
+      "browser=\"$root/bin/MiniBrowser\"",
+      "test -x \"$browser\"",
+      "export LD_LIBRARY_PATH=\"$root/lib:$root/sys/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"",
+      "missing=$(ldd \"$browser\" | awk '/not found/ {print $1}' | sort -u)",
+      "if [ -z \"$missing\" ]; then exit 0; fi",
+      "pkgs=",
+      "for lib in $missing; do",
+      "  case \"$lib\" in",
+      "    libavif.so.16) pkg=libavif16 ;;",
+      "    libevent-2.1.so.7) pkg=libevent-2.1-7t64 ;;",
+      "    libgstallocators-1.0.so.0|libgstapp-1.0.so.0|libgstaudio-1.0.so.0|libgstfft-1.0.so.0|libgstpbutils-1.0.so.0|libgsttag-1.0.so.0|libgstvideo-1.0.so.0) pkg=libgstreamer-plugins-base1.0-0 ;;",
+      "    libgstcodecparsers-1.0.so.0) pkg=libgstreamer-plugins-bad1.0-0 ;;",
+      "    libgstgl-1.0.so.0) pkg=libgstreamer-gl1.0-0 ;;",
+      "    libharfbuzz-icu.so.0) pkg=libharfbuzz-icu0 ;;",
+      "    libwayland-server.so.0) pkg=libwayland-server0 ;;",
+      "    libwoff2dec.so.1.0.2) pkg=libwoff1 ;;",
+      "    libxslt.so.1) pkg=libxslt1.1 ;;",
+      "    libavcodec*|libcodec2*|libflite*|libsvtav1*|libx264*) echo \"refusing codec library $lib\"; exit 1 ;;",
+      "    *) echo \"no package for $lib\"; exit 1 ;;",
+      "  esac",
+      "  pkgs=\"$pkgs $pkg\"",
       "done",
-      "still=$(ldd \"$browser\" | awk '/not found/ {print $1}')",
+      "echo \"webkit libraries:$pkgs\"",
+      "sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq",
+      "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $pkgs",
+      "still=$(ldd \"$browser\" | awk '/not found/ {print $1}' | sort -u)",
       "test -z \"$still\""
     ].join("\n"), process.env);
     if (apt !== 0) throw new Error("webkit libraries failed to install");
