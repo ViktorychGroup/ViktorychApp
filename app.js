@@ -2081,7 +2081,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "ai_easy_voice"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2187,6 +2187,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       instant_limits: [tr("Instant limits"), tr("Viktrych's Instant rules do up to 3 things per message and point to a downloaded model for longer asks.")],
       ai_tools: [tr("Viktrych local tools"), tr("On this device Viktrych can fetch a direct media file, run FFmpeg in the page, and prepare drafts you confirm. Each step asks first. Off hides tools.")],
       ai_device_setup: [tr("Device setup"), tr("Viktrych can look at this browser and prepare app settings for the device and a cellular data plan. It asks before changing anything and cannot change the phone or the carrier.")],
+      ai_easy_voice: [tr("Easy voice"), tr("A large Talk button can open pages, change settings, and point at a control on this screen. It asks before privacy or destructive changes. It cannot use the power, volume, or assistant buttons.")],
       site_permissions: [tr("Site permissions page"), tr("Settings shows whether notifications, location, camera, microphone and saved data are allowed, with one-tap Allow and steps for blocked ones.")],
       notif_sounds: [tr("In-app notification sounds"), tr("While the app is open, new notifications play a sound picked per account, per type or the default, with a volume control. Made on the device; no sound files.")],
       owner_user_settings: [tr("Manage member settings"), tr("In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.")],
@@ -18389,6 +18390,62 @@ const here = parseRoute();
     fab.title = tr("Local AI");
     if (!fab.querySelector("svg.vk-logo")) fab.innerHTML = icon("viktrych");
   }
+  function easyVoiceOn() { return !serverOffList().includes("ai_easy_voice"); }
+  function paintEasyVoice(route) {
+    const hide = document.documentElement.classList.contains("lai-on") || (route && (route.name === "localai" || route.name === "watch" || route.name === "shorts" || route.name === "tv"));
+    if (!easyVoiceOn() || hide) {
+      if (window.ViktorychEasyVoiceUI) window.ViktorychEasyVoiceUI.unmount();
+      return;
+    }
+    if (!window.ViktorychEasyVoiceUI) { ensureLazy("ai_easy_voice"); return; }
+    window.ViktorychEasyVoiceUI.paint();
+  }
+  window.addEventListener("vklazy", (event) => {
+    if (event && event.detail && event.detail.name === "ai_easy_voice") paintEasyVoice(parseRoute());
+  });
+  function easyPlayback(op) {
+    const videos = Array.from(document.querySelectorAll("video"));
+    let target = videos.find((video) => video && !video.paused && !video.ended);
+    if (!target && op === "play") target = videos.find((video) => video && video.paused);
+    if (!target) return { ok: false, reason: "none" };
+    if (op === "pause") { target.pause(); return { ok: true, op: "pause" }; }
+    const pending = target.play();
+    if (pending && pending.catch) pending.catch(() => {});
+    return { ok: true, op: "play" };
+  }
+  window.ViktorychEasyVoiceHost = {
+    on: () => easyVoiceOn(),
+    lang: () => (window.SI18n ? window.SI18n.getLang() : "en"),
+    page: () => { try { return parseRoute().name || "home"; } catch (err) { return "home"; } },
+    hash: () => location.hash || "#/",
+    go: (hash) => goHash(hash),
+    values: () => {
+      const R = aiRegistry();
+      const out = {};
+      if (R) R.editable().forEach((row) => { out[row.id] = aiValue(row.id); });
+      return out;
+    },
+    apply: (changes) => aiApply(changes),
+    perform: (step, typed) => performAppAction(step, typed),
+    context: () => actionContext(),
+    personState: (id) => aiPersonState(id),
+    restorePerson: (id, on) => {
+      const ok = aiPersonApply(id, !!on);
+      if (ok) saveSettings();
+      render();
+      return ok;
+    },
+    reducedMotion: () => {
+      const set = !!(STATE.settings && STATE.settings.reduceMotion);
+      const mq = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+      return set || mq;
+    },
+    playback: (op) => easyPlayback(op),
+    readable: () => {
+      const el = document.querySelector(".status-text, .post-text");
+      return el ? String(el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 600) : "";
+    }
+  };
 
   function settingsSearchHtml() {
     if (!window.ViktorychSettingsAssistant) return "";
@@ -22602,6 +22659,7 @@ if (STATE.histClear) {
         else window.ViktorychLocalAIPage.unmount();
       }
       paintAiFab(route);
+      paintEasyVoice(route);
       if (window.ViktorychVault) {
         if (route.name === "vault") window.ViktorychVault.mount(route);
         else window.ViktorychVault.unmount();
@@ -32936,6 +32994,13 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       goHash(step.hash);
       return Promise.resolve({ ok: true, effect: "nav" });
     }
+    if (name === "nav.profile") {
+      const handle = String(step.handle || "").replace(/^@/, "");
+      if (!/^[A-Za-z0-9_]{1,20}$/.test(handle)) return Promise.resolve({ ok: false, error: "handle" });
+      if (String(typed || "").toLowerCase().indexOf("@" + handle.toLowerCase()) < 0) return Promise.resolve({ ok: false, error: "action" });
+      goHash("#/@" + encodeURIComponent(handle));
+      return Promise.resolve({ ok: true, effect: "nav" });
+    }
     if (name === "compose.draft") {
       STATE.composeSeed = String(step.text || "").slice(0, 500);
       STATE.composeVia = "app";
@@ -33015,6 +33080,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     instantLimits: () => !serverOffList().includes("instant_limits"),
     toolsOn: () => !serverOffList().includes("ai_tools"),
     deviceSetupOn: () => !serverOffList().includes("ai_device_setup"),
+    easyVoiceOn: () => !serverOffList().includes("ai_easy_voice"),
     deviceLevel: () => (STATE.settings && STATE.settings.devicePerf && STATE.settings.devicePerf.level) || "balanced",
     setDeviceLevel: (level) => {
       if (!window.ViktorychDevice || !window.ViktorychDevice.applyLevel) return false;

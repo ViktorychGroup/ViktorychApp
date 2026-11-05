@@ -78,11 +78,13 @@ async function main() {
       const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, isMobile: !!size.mobile, hasTouch: !!size.mobile, serviceWorkers: "block" });
       const page = await context.newPage();
       const errors = [];
-      page.on("pageerror", (e) => errors.push(String(e)));
+      page.on("pageerror", (e) => errors.push(e.stack || String(e)));
       await page.addInitScript(() => {
-        localStorage.setItem("viktorychapp-lang-user-picked", "1");
-        localStorage.setItem("superintelapp-lang", "en");
-        if (!localStorage.getItem("viktorychapp-settings-v1")) localStorage.setItem("viktorychapp-settings-v1", JSON.stringify({ version: 1, initialized: true, lang: "en", aiSetup: { v: 1, done: true, model: "instant", lang: "en", canChange: true, history: "keep" } }));
+        try {
+          localStorage.setItem("viktorychapp-lang-user-picked", "1");
+          localStorage.setItem("superintelapp-lang", "en");
+          if (!localStorage.getItem("viktorychapp-settings-v1")) localStorage.setItem("viktorychapp-settings-v1", JSON.stringify({ version: 1, initialized: true, lang: "en", aiSetup: { v: 1, done: true, model: "instant", lang: "en", canChange: true, history: "keep" } }));
+        } catch (err) { /* a framed document may deny storage */ }
       });
       await page.route("**/*", (route) => (route.request().url().startsWith("http://127.0.0.1") ? route.continue() : route.abort()));
       await page.goto(origin + "#/ai", { waitUntil: "domcontentloaded" });
@@ -187,6 +189,57 @@ async function main() {
       await page.click(".lai-msg.ai:last-child [data-lai='dev-revert']");
       await settled(page, () => JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}").videoHd !== false);
       check((await settings(page)).videoHd !== false, size.name + " Undo device setup restores video HD");
+      await page.goto(origin + "#/", { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".easy-voice-talk", { timeout: 15000 });
+      await page.fill(".easy-voice-type", "open settings");
+      await page.click(".easy-voice-go");
+      await page.waitForSelector("[data-ev='do']", { timeout: 8000 });
+      const guide = await page.evaluate(() => {
+        const Easy = window.ViktorychEasyVoice;
+        const say = document.querySelector(".easy-voice-say");
+        const call = document.querySelector("#easy-spotlight:not([hidden]) .easy-callout-text");
+        return {
+          off: Easy.canHighlight({ left: -500, top: 10, width: 40, height: 40 }, { width: innerWidth, height: innerHeight }),
+          call: call ? call.innerText : "",
+          say: say ? say.innerText : "",
+          power: Easy.fromKey({ code: "Power" }).ok,
+          assistant: Easy.fromKey({ code: "LaunchAssistant" }).ok,
+          vision: Easy.see({}).mode
+        };
+      });
+      check(guide.off === false && guide.power === false && guide.assistant === false && guide.vision === "dom", size.name + " easy voice refuses OS buttons, offscreen boxes, and remote vision");
+      check(/settings/i.test(guide.say), size.name + " easy voice reads the settings request back: " + guide.say);
+      check(!/profile|premium/i.test(guide.call), size.name + " easy voice does not highlight a different settings link");
+      await page.click("[data-ev='do']");
+      await page.waitForTimeout(400);
+      const opened = await page.evaluate(() => location.hash);
+      check(opened.indexOf("settings") >= 0, size.name + " Do it for me opens settings, hash " + opened);
+      if (!size.mobile) {
+        await page.goto(origin + "#/", { waitUntil: "domcontentloaded" });
+        await page.waitForSelector(".easy-voice-talk", { timeout: 15000 });
+        await page.fill(".easy-voice-type", "premium");
+        await page.click(".easy-voice-go");
+        await page.waitForSelector("#easy-spotlight:not([hidden]) .easy-spot", { timeout: 4000 });
+        const call = await page.evaluate(() => document.querySelector(".easy-callout-text").innerText);
+        check(/premium/i.test(call), size.name + " a uniquely labeled control is highlighted: " + call);
+      }
+      const denied = await page.evaluate(() => {
+        const api = window.ViktorychEasyVoice;
+        function Rec() {}
+        Rec.prototype.start = function () { if (this.onerror) this.onerror({ error: "not-allowed" }); };
+        Rec.prototype.stop = function () {};
+        let replaced = false;
+        try {
+          Object.defineProperty(window, "SpeechRecognition", { configurable: true, writable: true, value: Rec });
+          replaced = window.SpeechRecognition === Rec;
+        } catch (err) { replaced = false; }
+        return { replaced: replaced, reason: api.recognitionError("not-allowed").reason, typed: api.recognitionError("not-allowed").typed };
+      });
+      check(denied.reason === "denied" && denied.typed === true, size.name + " a denied microphone stays on typed input");
+      if (denied.replaced) {
+        await page.click(".easy-voice-talk");
+        await page.waitForFunction(() => /microphone/i.test((document.querySelector(".easy-voice-note") || {}).innerText || ""), null, { timeout: 5000 });
+      }
       check(errors.length === 0, size.name + " page errors: " + errors.join(" | "));
       await context.close();
     }

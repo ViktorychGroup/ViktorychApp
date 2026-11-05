@@ -189,7 +189,10 @@
         allowed.forEach(function (row) { if (!match && row.name === item.name && !item.hash && !item.handle && !item.text && !item.tabName) match = row; });
       }
       if (!match) { rejected.push({ step: item, why: "untyped" }); return; }
-      if (match.hash && !HASHES[match.hash]) { rejected.push({ step: item, why: "route" }); return; }
+      if (match.hash && !HASHES[match.hash]) {
+        var profileOk = match.name === "nav.profile" && /^#\/@[A-Za-z0-9_]{1,20}$/.test(match.hash) && String(opts.typed || "").toLowerCase().indexOf(String(match.handle || "").toLowerCase()) >= 0;
+        if (!profileOk) { rejected.push({ step: item, why: "route" }); return; }
+      }
       if (match.posted === true) { rejected.push({ step: item, why: "post" }); return; }
       accepted.push(match);
     });
