@@ -6,7 +6,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { runScripts, sharedStaticServer } from "./smoke_runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const longName = "🚀 A very long custom feed name that must stay whole on the tab row";
+const longName = "🚀 A very long custom feed name that must stay whole on the tab row and scroll it";
 
 function fail(message) {
   console.error(message);
