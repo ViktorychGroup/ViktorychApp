@@ -21748,10 +21748,18 @@ if (STATE.histClear) {
       next[id] = html;
       const el = live.get(id);
       if (!el || !fresh.parentNode || el.parentNode.tagName !== fresh.parentNode.tagName || el.parentNode.className !== fresh.parentNode.className) return;
-      if (previous[id] !== html) {
-        const settled = (value) => String(value || "").replace(/ loading="eager" fetchpriority="high"/g, ' loading="lazy"').replace(/ lp-slot/g, "");
-        if (settled(previous[id]) !== settled(html)) return;
-      }
+      /* Prefer the live node when its settled markup matches. Fall back to the
+         cached HTML when the live node picked up ephemeral attrs (eager load,
+         hscroll keys) that a fresh render does not have yet. */
+      const settled = (value) => String(value || "")
+        .replace(/ loading="eager" fetchpriority="high"/g, ' loading="lazy"')
+        .replace(/ loading="lazy" fetchpriority="high"/g, ' loading="lazy"')
+        .replace(/ fetchpriority="high"/g, "")
+        .replace(/ lp-slot/g, "")
+        .replace(/ data-hscroll-key="[^"]*"/g, "")
+        .replace(/ data-hscroll-revealed="[^"]*"/g, "");
+      const prior = previous[id] || el.outerHTML;
+      if (settled(prior) !== settled(html) && settled(el.outerHTML) !== settled(html)) return;
       fresh.replaceWith(el);
     });
     STATE.forYouCardHtml = next;
