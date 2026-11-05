@@ -19,7 +19,7 @@
     inboxmail: { classic: true, scripts: ["inbox-mail.js", "inbox-sms.css", "inbox-mail.css"] },
     owner_inspector: { classic: true, scripts: ["owner-inspector.js", "owner-inspector.css"] },
     contacts: { classic: true, scripts: ["contacts-ui.js", "contacts.css"] },
-    localai: { classic: true, scripts: ["settings-registry.js", "local-ai.js", "local-ai-actions.js", "local-ai-tools.js", "local-ai-memory.js", "local-ai-chat.js", "local-ai-runner.js", "local-ai-device-setup.js", "local-ai-ui.js", "local-ai.css"] },
+    localai: { classic: true, scripts: ["settings-registry.js", "local-ai.js", "local-ai-actions.js", "local-ai-tools.js", "local-ai-memory.js", "local-ai-chat.js", "local-ai-runner.js", "local-ai-device-setup.js", "local-ai-voice.js", "local-ai-ui.js", "local-ai.css"] },
     /* Music loads when its page opens, or when a song is already queued, so
        the mini player comes back after a reload. It is not on the first load. */
     music: { classic: true, scripts: ["ytm.js", "music.js", "music.css"] },

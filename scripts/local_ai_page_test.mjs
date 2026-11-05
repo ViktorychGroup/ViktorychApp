@@ -187,6 +187,21 @@ async function main() {
       await page.click(".lai-msg.ai:last-child [data-lai='dev-revert']");
       await settled(page, () => JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}").videoHd !== false);
       check((await settings(page)).videoHd !== false, size.name + " Undo device setup restores video HD");
+      await page.click(".lai-talk");
+      await page.waitForSelector(".lai-voice", { timeout: 5000 });
+      const voiceText = await page.evaluate(() => document.querySelector(".lai-voice").innerText);
+      check(/power button/i.test(voiceText) && /volume buttons/i.test(voiceText) && /not a whisper model/i.test(voiceText) && /not uploaded/i.test(voiceText), size.name + " voice setup states hardware limits and whisper honesty");
+      await page.click("[data-lai='voice-learn']");
+      await page.keyboard.press("F8");
+      await page.waitForFunction(() => /F8/.test((document.querySelector(".lai-voice") || {}).innerText || ""));
+      const learned = await page.evaluate(() => {
+        const V = window.ViktorychVoice;
+        const saved = JSON.parse(localStorage.getItem("viktorych-ai-voice-v1") || "{}");
+        return { power: V.fromKey({ code: "Power" }).ok, volume: V.fromKey({ code: "VolumeUp" }).ok, code: saved.binding && saved.binding.code, whisper: V.speechCapability({ speechRecognition: true, processLocally: true }).whisperModel };
+      });
+      check(learned.power === false && learned.volume === false && learned.code === "F8" && learned.whisper === false, size.name + " a delivered key is saved and OS buttons are refused");
+      await page.click("[data-lai='voice-whisper']");
+      check(await page.evaluate(() => document.querySelector("[data-lai='voice-whisper']").getAttribute("aria-checked") === "true"), size.name + " low-volume mode can be switched on");
       check(errors.length === 0, size.name + " page errors: " + errors.join(" | "));
       await context.close();
     }

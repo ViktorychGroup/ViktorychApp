@@ -108,6 +108,11 @@ html[data-theme="default"] .lai { --lai-bar: #fff; --lai-bar-line: rgba(15, 20, 
 .lai-input::placeholder { color: var(--lai-sub); }
 .lai-row { display: flex; align-items: center; justify-content: space-between; height: 58px; padding: 0 9px; }
 .lai-row-l, .lai-row-r { display: flex; align-items: center; gap: 6px; }
+.lai-talk { height: 34px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--x-blue, #1d9bf0); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.lai-mic.lai-fallback { opacity: 0.72; }
+.lai-voice, .lai-heard { margin: 8px 12px; padding: 12px; border: 1px solid var(--lai-line); border-radius: 16px; }
+.lai-voice p, .lai-heard p { margin: 0 0 8px; color: var(--lai-text-2); font-size: 14px; line-height: 1.35; }
+.lai-voice-level { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; font-size: 14px; }
 .lai-mic { border: 1px solid var(--lai-bar-line); }
 .lai-mic.on { color: #fff; background: var(--red, #f4212e); border-color: transparent; }
 .lai-pill {
