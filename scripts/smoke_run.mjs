@@ -333,7 +333,7 @@ async function ensurePlaywright() {
   const pkg = path.join(PW, "node_modules/playwright/package.json");
   if (!fs.existsSync(pkg)) {
     fs.mkdirSync(PW, { recursive: true });
-    const code = await runShell("npm install --prefix " + PW + " --no-fund --no-audit playwright", process.env);
+    const code = await runShell("npm install --prefix " + PW + " --no-fund --no-audit playwright@1.56.1", process.env);
     if (code !== 0) throw new Error("playwright install failed");
   }
   if (!fs.existsSync(realCore)) throw new Error("playwright-core is missing");
