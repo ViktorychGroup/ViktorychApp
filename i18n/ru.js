@@ -6192,5 +6192,19 @@ SI18n.addPack("ru", {
   "Notification sounds": "Звуки уведомлений",
   "Sounds while the app is open, per account and per type.": "Звуки при открытом приложении, по аккаунтам и типам.",
   "Sound set for {name}": "Звук выбран для {name}",
-  "Uses your other notification sounds": "Используются другие звуки уведомлений"
+  "Uses your other notification sounds": "Используются другие звуки уведомлений",
+  "Manage member settings": "Управление настройками участников",
+  "In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.": "В разделе «Аккаунты» можно менять настройки участника и блокировать их, чтобы он не мог их изменить. Если выключить, все решения вернутся участникам.",
+  "The site owner locked this setting.": "Владелец сайта заблокировал эту настройку.",
+  "The site owner manages 1 of your settings.": "Владелец сайта управляет 1 вашей настройкой.",
+  "The site owner manages {count} of your settings.": "Владелец сайта управляет вашими настройками: {count}.",
+  "Manage settings": "Управлять настройками",
+  "Change their settings and lock the ones they can't change.": "Измените их настройки и заблокируйте те, которые они не смогут менять.",
+  "Owner accounts manage their own settings.": "Аккаунты владельца управляют своими настройками сами.",
+  "Changes reach @{handle}'s devices on their next sync. A locked setting keeps your value and they can't change it.": "Изменения попадут на устройства @{handle} при следующей синхронизации. Заблокированная настройка сохраняет ваше значение, и изменить его нельзя.",
+  "Lock all": "Заблокировать все",
+  "Unlock all": "Разблокировать все",
+  "1 setting locked": "1 настройка заблокирована",
+  "{count} settings locked": "Заблокировано настроек: {count}",
+  "Each change is logged in the access log.": "Каждое изменение записывается в журнал доступа."
 });

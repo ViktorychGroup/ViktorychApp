@@ -64,10 +64,56 @@ def _photo(photo: dict) -> dict | None:
     return {"type": "photo", "url": url, "poster": url, "alt": photo.get("text") or ""}
 
 
+def _size(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _best_row(rows: list) -> dict:
+    best = {}
+    area = -1
+    for row in rows or []:
+        if not isinstance(row, dict) or not row.get("url"):
+            continue
+        size = _size(row.get("width")) * _size(row.get("height"))
+        if size >= area:
+            best = row
+            area = size
+    return best
+
+
+def _video_frame(video: dict) -> tuple[str, int, int]:
+    """Pick the poster and the real frame size of a VK video.
+
+    VK pads its cover images to a fixed landscape box for vertical clips
+    (`with_padding`). Those padded covers would give the feed tile the wrong
+    shape, so the frame size comes from the video itself, then the first
+    frame, then an unpadded cover. A padded cover is only a last-resort poster
+    and never sets the size.
+    """
+    images = [row for row in (video.get("image") or []) if isinstance(row, dict)]
+    clean = [row for row in images if not row.get("with_padding")]
+    padded = [row for row in images if row.get("with_padding")]
+    first = _best_row(video.get("first_frame") or [])
+    cover = _best_row(clean)
+    poster = cover.get("url") or first.get("url") or _best_row(padded).get("url") or ""
+    width, height = _size(video.get("width")), _size(video.get("height"))
+    if not (width and height):
+        for row in (first, cover):
+            width, height = _size(row.get("width")), _size(row.get("height"))
+            if width and height:
+                break
+        else:
+            width, height = 0, 0
+    return poster, width, height
+
+
 def _video(video: dict) -> dict | None:
     if not isinstance(video, dict):
         return None
-    poster = _best_url(video.get("image") or []) or _best_url(video.get("first_frame") or [])
+    poster, width, height = _video_frame(video)
     owner = video.get("owner_id")
     vid = video.get("id")
     page = f"https://vk.com/video{owner}_{vid}" if owner is not None and vid is not None else ""
@@ -80,6 +126,9 @@ def _video(video: dict) -> dict | None:
     if not direct and not poster and not page:
         return None
     media = {"type": "video", "url": direct or page, "poster": poster}
+    if width and height:
+        media["width"] = width
+        media["height"] = height
     if video.get("duration"):
         media["duration"] = int(video["duration"])
     if page:

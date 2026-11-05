@@ -474,8 +474,9 @@
         if (savedNav.density === "compact" || savedNav.density === "comfy") document.documentElement.setAttribute("data-density", savedNav.density);
         if (savedNav.reduceMotion === true) document.documentElement.setAttribute("data-motion", "reduce");
         var metas = document.querySelectorAll('meta[name="theme-color"]');
-        var installed = (window.matchMedia && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches || (matchMedia("(display-mode: fullscreen)").matches && !document.fullscreenElement))) || navigator.standalone;
-        var barColor = installed && savedNav.statusBar !== true ? "transparent" : themes.color(mode);
+        // Keep the native Android strip black: "transparent" falls back to
+        // its grey default. Edge-to-edge layout comes from viewport-fit=cover.
+        var barColor = themes.color(mode);
         for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", barColor);
         var scheme = document.querySelector('meta[name="color-scheme"]');
         if (scheme) scheme.setAttribute("content", mode === "default" ? "light" : "dark");

@@ -71,7 +71,7 @@ const NOTES = [{ id: "n1", at: Date.now(), handle: "news", name: "News", text: "
 
 async function open(browser, origin, opts) {
   const touch = opts.view !== "computer";
-  const size = opts.view === "phone" ? { width: 390, height: 844 } : opts.view === "tablet" ? { width: 820, height: 1180 } : { width: 1366, height: 900 };
+  const size = opts.width ? { width: opts.width, height: opts.view === "tablet" ? 1180 : 844 } : opts.view === "phone" ? { width: 390, height: 844 } : opts.view === "tablet" ? { width: 820, height: 1180 } : { width: 1366, height: 900 };
   const context = await browser.newContext({ viewport: size, hasTouch: touch, isMobile: touch, serviceWorkers: "block" });
   await context.addInitScript((o) => {
     try {
@@ -94,6 +94,10 @@ async function open(browser, origin, opts) {
   await page.goto(origin + "/#/" + (opts.route || ""), { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#app .tabs-bar .tab.on", { timeout: 20000 }).catch(() => {});
   await sleep(900);
+  if (opts.route === "") {
+    await page.waitForSelector('.mhead a.m-ai[href="#/ai"]', { state: "visible", timeout: 15000 });
+    await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+  }
   return { context, page };
 }
 
@@ -101,16 +105,56 @@ const READ = `(() => {
   const box = [...document.querySelectorAll(".sticons")].find((el) => el.getBoundingClientRect().width > 0);
   if (!box) return null;
   const r = box.getBoundingClientRect();
-  const kids = [...box.children].map((el) => { const k = el.getBoundingClientRect(); return { st: el.dataset.st, cy: k.top + k.height / 2, h: k.height, off: el.classList.contains("is-off") }; });
-  const ai = document.querySelector(".mhead .m-ai");
+  const kids = [...box.children].map((el) => {
+    const k = el.getBoundingClientRect();
+    const svg = el.querySelector("svg");
+    const v = svg && svg.getBoundingClientRect();
+    return { st: el.dataset.st, left: k.left, right: k.right, cy: k.top + k.height / 2, h: k.height,
+      fontSize: parseFloat(getComputedStyle(el).fontSize), lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+      svg: v && { width: v.width, height: v.height, cy: v.top + v.height / 2, strokeWidth: parseFloat(getComputedStyle(svg).strokeWidth) },
+      off: el.classList.contains("is-off") };
+  });
+  const ai = document.querySelector(".mhead .m-icon");
   const a = ai && ai.getBoundingClientRect();
   const manage = document.querySelector(".tabs-bar .tab-manage");
   const m = manage && manage.getBoundingClientRect();
-  return { inMhead: !!box.closest(".mhead"), inTabs: !!box.closest(".tabs-bar"), cy: r.top + r.height / 2, right: r.right, kids,
-    ai: a && a.width ? { left: a.left, cy: a.top + a.height / 2 } : null,
-    manage: m && m.width ? { left: m.left, cy: m.top + m.height / 2 } : null,
+  const glyphBox = (el) => {
+    const svg = el && el.querySelector("svg");
+    if (!svg) return null;
+    const v = svg.getBoundingClientRect();
+    const drawn = svg.querySelector("g") || svg;
+    return { width: v.width, height: v.height, cy: v.top + v.height / 2, strokeWidth: getComputedStyle(drawn).stroke === "none" ? null : parseFloat(getComputedStyle(drawn).strokeWidth) || null };
+  };
+  const logo = box.closest(".mhead") && box.closest(".mhead").querySelector(".m-logo");
+  const l = logo && logo.getBoundingClientRect();
+  return { inMhead: !!box.closest(".mhead"), inTabs: !!box.closest(".tabs-bar"), cy: r.top + r.height / 2, left: r.left, right: r.right, gap: parseFloat(getComputedStyle(box).columnGap), kids,
+    logo: l && l.width ? { left: l.left, right: l.right } : null,
+    compact: !!box.closest(".compact-head"), statusBar: document.documentElement.hasAttribute("data-status-bar"),
+    ai: a && a.width ? { left: a.left, cy: a.top + a.height / 2, glyph: glyphBox(ai) } : null,
+    manage: m && m.width ? { left: m.left, cy: m.top + m.height / 2, glyph: glyphBox(manage) } : null,
     nextIsManage: !!(box.nextElementSibling && box.nextElementSibling.classList.contains("tab-manage")) };
 })()`;
+
+function checkVisualGroup(got, label) {
+  const ref = got.inMhead ? got.ai : got.manage;
+  if (!ref || !ref.glyph) fail(label + ": comparison control is missing " + JSON.stringify(got));
+  if (Math.abs(got.cy - ref.cy) > 0.5) fail(label + ": row and control centers differ " + JSON.stringify(got));
+  for (const [i, k] of got.kids.entries()) {
+    if (Math.abs(k.cy - got.cy) > 0.5) fail(label + ": row is not on one centerline " + JSON.stringify(k));
+    if (k.h > 22) fail(label + ": status item is oversized " + JSON.stringify(k));
+    if (k.svg) {
+      if (Math.abs(k.svg.cy - ref.glyph.cy) > 0.5) fail(label + ": glyph centerlines differ " + JSON.stringify(k));
+      if (k.svg.width > 22 || k.svg.height > 22) fail(label + ": status symbol is oversized " + JSON.stringify(k));
+      if (Math.abs(k.svg.width - ref.glyph.width) > 0.5 || Math.abs(k.svg.height - ref.glyph.height) > 0.5) fail(label + ": symbol size does not match the control " + JSON.stringify({ icon: k, control: ref }));
+      if (k.svg.strokeWidth && ref.glyph.strokeWidth && Math.abs(k.svg.strokeWidth - ref.glyph.strokeWidth) > 0.1) fail(label + ": stroke weights do not match " + JSON.stringify({ icon: k, control: ref }));
+    }
+    if (k.st === "clock" && (k.fontSize !== 15 || k.lineHeight !== 20)) fail(label + ": clock typography does not fit the row " + JSON.stringify(k));
+    if (i && Math.abs(k.left - got.kids[i - 1].right - 8) > 0.5) fail(label + ": inconsistent 8px item spacing " + JSON.stringify(got.kids));
+  }
+  const gap = ref.left - got.right;
+  if (gap < 7.5 || gap > 8.5) fail(label + ": control spacing is not 8px: " + gap);
+  if (got.logo && got.inMhead && got.logo.right > got.left) fail(label + ": classic app name overlaps status icons " + JSON.stringify(got));
+}
 
 async function main() {
   const chromium = await loadPlaywright();
@@ -144,13 +188,81 @@ async function main() {
       const got = await page.evaluate(READ);
       if (!got || !got.inMhead) fail("phone: icons not in the header row " + JSON.stringify(got));
       if (got.kids.map((k) => k.st).join() !== "clock,battery,network,unread") fail("phone: wrong icons " + JSON.stringify(got.kids));
-      for (const k of got.kids) if (Math.abs(k.cy - got.cy) > 1 || k.h > 22) fail("phone: icons not in one small row " + JSON.stringify(got.kids));
-      if (!got.ai || Math.abs(got.cy - got.ai.cy) > 1) fail("phone: icons not centred with the AI button " + JSON.stringify(got));
-      if (got.right > got.ai.left || got.ai.left - got.right > 12) fail("phone: spacing to the AI button is off " + JSON.stringify(got));
+      checkVisualGroup(got, "phone");
       if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + "/phone.png", clip: { x: 0, y: 0, width: 390, height: 160 } });
       await context.close();
     }
-    // 3. No Battery API (iOS): no battery icon or switch.
+    // 3. Press and hold opens the existing controls; tap, movement and cancel do not.
+    {
+      const { context, page } = await open(browser, origin, { view: "phone", battery: true, settings: { statusIcons: ALL } });
+      const selector = '.mhead a.m-ai[href="#/ai"]';
+      if (await page.getAttribute(selector, "aria-keyshortcuts") !== "Shift+F10") fail("AI long-press keyboard shortcut is not exposed");
+      await page.click(selector);
+      await page.waitForURL(/#\/ai$/, { timeout: 10000 });
+      await page.goto(origin + "/#/");
+      await page.waitForSelector(selector, { state: "visible" });
+      await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+      const point = await page.$eval(selector, (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x, y: point.y, id: 1 }] });
+      await sleep(200);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+      await sleep(500);
+      if (await page.locator(selector).count() !== 1) fail("cancelled AI hold opened another page");
+      await page.tap(selector);
+      await page.waitForURL(/#\/ai$/, { timeout: 10000 });
+      await page.goto(origin + "/#/");
+      await page.waitForSelector(selector, { state: "visible" });
+      await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x, y: point.y, id: 1 }] });
+      await sleep(150);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: point.x, y: point.y + 30, id: 1 }] });
+      await sleep(500);
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await sleep(150);
+      if (await page.locator(selector).count() !== 1) fail("moved AI hold opened another page");
+      await page.waitForSelector('.mhead .sticons', { state: "visible", timeout: 15000 });
+
+      await page.evaluate(() => { window.dispatchEvent(new Event("resize")); });
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: point.x, y: point.y, id: 1 }] });
+      await sleep(700);
+      await page.waitForURL(/#\/settings\/display$/, { timeout: 10000 });
+      await page.waitForSelector('[data-act="status-icon"][data-key="clock"]', { state: "visible", timeout: 15000 });
+      await page.waitForFunction(() => document.activeElement?.dataset.key === "clock" && document.getElementById("status-icons-settings"));
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] }).catch(() => {});
+      await sleep(200);
+      if (!/#\/settings\/display$/.test(page.url())) fail("AI hold release activated another control");
+      await context.close();
+    }
+    // 4. Keyboard and the equivalent computer hold reach the same controls.
+    {
+      const { context, page } = await open(browser, origin, { view: "computer", battery: true, settings: { statusIcons: ALL } });
+      const selector = '.mhead a.m-ai[href="#/ai"]';
+      await page.locator(selector).evaluate((el) => { el.style.display = "block"; el.closest(".mhead").style.display = "flex"; });
+      await page.focus(selector);
+      await page.keyboard.press("Shift+F10");
+      await page.waitForURL(/#\/settings\/display$/, { timeout: 10000 });
+      await page.waitForSelector('[data-act="status-icon"][data-key="clock"]', { state: "visible", timeout: 15000 });
+      await page.goto(origin + "/#/");
+      await page.waitForSelector(selector, { state: "attached" });
+      await page.locator(selector).evaluate((el) => { el.style.display = "block"; el.closest(".mhead").style.display = "flex"; });
+      await sleep(1600);
+      const box = await page.locator(selector).boundingBox();
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await sleep(700);
+      await page.mouse.up();
+      await page.waitForURL(/#\/settings\/display$/, { timeout: 10000 });
+      await page.waitForSelector('[data-act="status-icon"][data-key="clock"]', { state: "visible", timeout: 15000 });
+      await sleep(150);
+      if (!/#\/settings\/display$/.test(page.url())) fail("computer AI hold's click opened Local AI");
+      await context.close();
+    }
+    // 5. No Battery API (iOS): no battery icon or switch.
     {
       const { context, page } = await open(browser, origin, { view: "phone", battery: false, settings: { statusIcons: ALL } });
       const got = await page.evaluate(READ);
@@ -168,25 +280,43 @@ async function main() {
       if (!net || !net.off) fail("offline is not shown " + JSON.stringify(off));
       await context.close();
     }
-    // 4. Tablet: before the tab settings button, centred with it.
+    // 6. Tablet: before the tab settings button, centred with it.
     {
       const { context, page } = await open(browser, origin, { view: "tablet", battery: true, settings: { statusIcons: ALL, bellNotes: NOTES } });
       const got = await page.evaluate(READ);
       if (!got || !got.inTabs || !got.nextIsManage) fail("tablet: icons not just before the tab settings button " + JSON.stringify(got));
-      if (!got.manage || Math.abs(got.cy - got.manage.cy) > 1) fail("tablet: icons not centred with the tab settings button " + JSON.stringify(got));
+      checkVisualGroup(got, "tablet");
       if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + "/tablet.png", clip: { x: 0, y: 0, width: 820, height: 200 } });
       await context.close();
     }
-    // 5. Computer: never.
+    // 7. Computer: never.
     {
       const { context, page } = await open(browser, origin, { view: "computer", battery: true, settings: { statusIcons: ALL, bellNotes: NOTES } });
       if (await page.evaluate(READ)) fail("status icons show on a computer");
       await context.close();
     }
-    // 6. Owner switch off hides them all.
+    // 8. Owner switch off hides them all.
     {
       const { context, page } = await open(browser, origin, { view: "phone", battery: true, ownerOff: true, settings: { statusIcons: ALL, bellNotes: NOTES } });
       if (await page.evaluate(READ)) fail("status icons show with the owner switch off");
+      await context.close();
+    }
+    // 7. The same visual rhythm at narrow/wide phone widths, in the classic
+    // header, and with the optional phone status bar. The reference control is
+    // Viktrych in compact mode and Settings in classic mode.
+    for (const item of [
+      { name: "phone-320-classic", width: 320, settings: { classicHeader: true, statusIcons: ALL, bellNotes: NOTES } },
+      { name: "phone-430-status-bar", width: 430, settings: { statusBar: true, statusIcons: ALL, bellNotes: NOTES } },
+      { name: "tablet-600-compact", width: 600, view: "tablet", settings: { statusIcons: ALL, bellNotes: NOTES } }
+    ]) {
+      const view = item.view || "phone";
+      const { context, page } = await open(browser, origin, { view, width: item.width, battery: true, settings: item.settings });
+      const got = await page.evaluate(READ);
+      if (!got) fail(item.name + ": no visible status group");
+      if (got.compact !== !item.settings.classicHeader) fail(item.name + ": wrong compact/classic mode " + JSON.stringify(got));
+      if (got.statusBar !== !!item.settings.statusBar) fail(item.name + ": wrong status-bar mode " + JSON.stringify(got));
+      checkVisualGroup(got, item.name);
+      if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + "/" + item.name + ".png", clip: { x: 0, y: 0, width: item.width, height: view === "tablet" ? 160 : 150 } });
       await context.close();
     }
     console.log("status icons ok");
@@ -196,4 +326,4 @@ async function main() {
   }
 }
 
-main().catch((err) => { if (!process.exitCode) process.exitCode = 1; console.error(err && err.message || err); });
+main().catch((err) => { if (!process.exitCode) process.exitCode = 1; console.error(err && err.stack || err); });
