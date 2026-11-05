@@ -2025,7 +2025,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2124,7 +2124,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
       update_notice: [tr("Visible updates"), tr("A small Updating notice while an update downloads, a tap to restart notice when you are busy, and a full-screen What's new page after each update.")],
-      status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")]
+      status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")],
+      side_panel: [tr("Movable side panel"), tr("On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -10901,6 +10902,54 @@ const here = parseRoute();
     return list.filter((f) => !isFollowed(f.id)).sort((a, b) => (b.configured ? 1 : 0) - (a.configured ? 1 : 0));
   }
 
+  /* Desktop side panel (owner switch side_panel): Display settings can move
+     the panel (search, Friends, Who to follow and later sections) to the left,
+     next to the icon bar; its width follows a drag on its inner edge (saved
+     per device in the FeedsSplit map as "side"); each titled section folds
+     from its heading and remembers that (settings.sideFold). Friends keeps its
+     own fold. Default: right side, stock width, everything open. */
+  function sidePanelOn() { return !serverOffList().includes("side_panel"); }
+  function sidePanelLeft() { return sidePanelOn() && !!(STATE.settings && STATE.settings.sidePanelLeft); }
+  function sideFolded(key) { return sidePanelOn() && !!(STATE.settings && STATE.settings.sideFold && STATE.settings.sideFold[key]); }
+  function sideFold(key, html) {
+    if (!html || !sidePanelOn()) return html || "";
+    const folded = sideFolded(key);
+    let done = false;
+    const out = html.replace(/<h2>([\s\S]*?)<\/h2>/, (all, title) => {
+      done = true;
+      return `<h2 class="side-fold-head"><button type="button" class="side-fold" data-act="side-fold" data-key="${esc(key)}" aria-expanded="${folded ? "false" : "true"}"><span>${title}</span>${icon("caret")}</button></h2>`;
+    });
+    if (!done) return html;
+    return `<div class="side-sec${folded ? " is-folded" : ""}" data-side-sec="${esc(key)}">${out}</div>`;
+  }
+  function applySidePanel() {
+    const rootEl = document.documentElement;
+    if (sidePanelLeft()) rootEl.setAttribute("data-side-pos", "left");
+    else rootEl.removeAttribute("data-side-pos");
+    if (!window.FeedsSplit || !window.FeedsSplit.side) return;
+    if (sidePanelOn() && window.FeedsSplit.read("side")) {
+      rootEl.setAttribute("data-side-w", "1");
+      window.FeedsSplit.apply(window.FeedsSplit.side, null, null);
+    } else rootEl.removeAttribute("data-side-w");
+  }
+  function bindSideSplit() {
+    applySidePanel();
+    if (!sidePanelOn() || !window.FeedsSplit || !window.FeedsSplit.side) return;
+    const split = document.querySelector(".side-split");
+    const side = document.querySelector(".side");
+    if (!split || !side) return;
+    if (split.getAttribute("data-split-bound") !== "1") {
+      split.addEventListener("pointerdown", () => document.documentElement.setAttribute("data-side-w", "1"));
+      split.addEventListener("keydown", () => document.documentElement.setAttribute("data-side-w", "1"));
+    }
+    window.FeedsSplit.bind(split, window.FeedsSplit.side, side);
+  }
+  function sidePanelSwitch() {
+    if (!sidePanelOn()) return "";
+    const on = sidePanelLeft();
+    return `<button class="tab-switch${on ? " on" : ""}" type="button" role="switch" aria-checked="${on ? "true" : "false"}" data-act="side-left"><span>${esc(tr("Side panel on the left"))}</span><i></i></button><p class="phandle">${esc(tr("On computers, show search, Friends and Who to follow next to the icon bar instead of on the right. Drag the panel's edge to resize it; tap a section title to fold it."))}</p>`;
+  }
+
   function sidebar() {
     const people = window.ViktorychPYMK && window.ViktorychPYMK.sideHtml ? [] : followSuggestions().slice(0, 3);
     const rows = people.map((f) => `<div class="who-row">
@@ -10910,13 +10959,13 @@ const here = parseRoute();
       </a>
       ${followButtonClean(f.id)}
     </div>`).join("");
-    return `<aside class="side">
+    return `<aside class="side${sidePanelOn() ? " side-custom" : ""}">${sidePanelOn() ? `<div class="side-split" role="separator" tabindex="0" aria-orientation="vertical" aria-label="${esc(tr("Resize side panel"))}"></div>` : ""}
       <form class="side-search" data-act="search-form">
         <label class="search"><span class="sr">${icon("search")}</span><input id="side-q" type="search" placeholder="${tr("Search")}" aria-label="${tr("Search")}"></label>
       </form>
       ${(!STATE.settings || STATE.settings.friendsRail !== false) && !friendsOffNow() && window.ViktorychPresence && window.ViktorychPresence.railHtml ? window.ViktorychPresence.railHtml() : ""}
       ${window.Spaces && window.Spaces.sideCard ? window.Spaces.sideCard() : ""}
-      ${window.ViktorychPYMK && window.ViktorychPYMK.sideHtml ? window.ViktorychPYMK.sideHtml() : people.length ? `<section class="card"><h2>${tr("Who to follow")}</h2>${rows}<a class="show-more-row" href="#/feeds">${tr("Show more")}</a></section>` : ""}
+      ${sideFold("who", window.ViktorychPYMK && window.ViktorychPYMK.sideHtml ? window.ViktorychPYMK.sideHtml() : people.length ? `<section class="card"><h2>${tr("Who to follow")}</h2>${rows}<a class="show-more-row" href="#/feeds">${tr("Show more")}</a></section>` : "")}
       <div class="fineprint"><span>${productName("app")}</span><span>${tr("Preview snapshot")}</span><span>${tr("Not affiliated with X")}</span></div>
     </aside>`;
   }
@@ -18407,6 +18456,7 @@ const here = parseRoute();
         ${headerSwitches()}
         ${statusIconSwitches()}
         ${pageZoomSwitch()}
+        ${sidePanelSwitch()}
         ${repairRow()}
         <h2>${esc(tr("Home"))}</h2>
         ${homeFeatureSwitch("homePills", tr("Live pills row"), tr("Weather, scores and live spaces above the timeline. Off loads nothing for it."))}
@@ -22463,6 +22513,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (route.name === "explore") bindExploreSearchFit();
       else clearExploreSearchFit();
       bindNavSplit();
+      bindSideSplit();
       scheduleRemember(route);
     };
     const endRoute = () => {
@@ -23891,6 +23942,24 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       STATE.accountMenu = false;
       STATE.pzEnter = Date.now();
       goHash("#/customize");
+      return;
+    }
+    if (act === "side-left") {
+      STATE.settings.sidePanelLeft = !STATE.settings.sidePanelLeft;
+      saveSettings();
+      applySidePanel();
+      render();
+      return;
+    }
+    if (act === "side-fold") {
+      const key = el.dataset.key || "";
+      if (!key) return;
+      const folds = Object.assign({}, STATE.settings.sideFold || {});
+      if (folds[key]) delete folds[key];
+      else folds[key] = true;
+      STATE.settings.sideFold = folds;
+      saveSettings();
+      render();
       return;
     }
     if (act === "page-zoom") {

@@ -75,7 +75,11 @@ export const FEATURES = {
   foryou_off: { paths: [] },
   // Header status icons (clock, battery, network, unread) on phones and
   // tablets, each picked in Display settings. No server endpoints.
-  status_icons: { paths: [] }
+  status_icons: { paths: [] },
+  // Desktop side panel: optional left placement, drag-to-resize width and
+  // folding sections. No server endpoints. On by default (the panel itself
+  // stays on the right until the person moves it).
+  side_panel: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

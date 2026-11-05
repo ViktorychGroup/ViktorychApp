@@ -129,6 +129,14 @@
     });
   }
 
+  /* Width from the pane's fixed edge to the pointer. A pane whose handle sits
+     on its left edge (spec.fromRight() true) grows when dragged left. */
+  function offsetOf(spec, host, clientX) {
+    var rect = host.getBoundingClientRect();
+    if (typeof spec.fromRight === "function" && spec.fromRight()) return rect.right - clientX;
+    return clientX - rect.left;
+  }
+
   function bind(el, spec, pane) {
     if (!el || !spec || el.getAttribute("data-split-bound") === "1") return;
     el.setAttribute("data-split-bound", "1");
@@ -158,8 +166,7 @@
     });
     el.addEventListener("pointermove", function (event) {
       if (!item.dragging) return;
-      var left = host.getBoundingClientRect().left;
-      pending = event.clientX - left;
+      pending = offsetOf(spec, host, event.clientX);
       if (frame) return;
       frame = root.requestAnimationFrame(function () {
         frame = 0;
@@ -176,8 +183,7 @@
         root.cancelAnimationFrame(frame);
         frame = 0;
       }
-      var left = host.getBoundingClientRect().left;
-      var x = event && isFinite(event.clientX) ? event.clientX - left : pending;
+      var x = event && isFinite(event.clientX) ? offsetOf(spec, host, event.clientX) : pending;
       commit(x, true);
     }
     el.addEventListener("pointerup", finish);
@@ -255,6 +261,20 @@
     }
   });
 
+  /* Desktop side panel (search, Friends, Who to follow). On the right its
+     handle is the left edge; moved to the left it is the right edge. */
+  var side = register({
+    id: "side",
+    cssVar: "--side-w",
+    fallback: 350,
+    min: 280,
+    max: 520,
+    fromRight: function () {
+      var rootEl = root.document && root.document.documentElement;
+      return !(rootEl && rootEl.getAttribute("data-side-pos") === "left");
+    }
+  });
+
   root.FeedsSplit = {
     read: read,
     write: write,
@@ -265,6 +285,7 @@
     bind: bind,
     register: register,
     messages: messages,
-    sidebar: sidebar
+    sidebar: sidebar,
+    side: side
   };
 })(typeof window !== "undefined" ? window : globalThis);

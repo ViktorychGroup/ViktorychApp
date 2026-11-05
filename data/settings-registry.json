@@ -259,6 +259,32 @@
    "ai": false
   },
   {
+   "id": "sidePanelLeft",
+   "label": "Side panel on the left",
+   "desc": "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.",
+   "type": "bool",
+   "def": false,
+   "store": "state",
+   "key": "sidePanelLeft",
+   "page": "#/settings/display",
+   "cat": "look",
+   "risk": "safe",
+   "sync": "device"
+  },
+  {
+   "id": "sideFold",
+   "label": "Side panel",
+   "desc": "Which side panel sections are folded.",
+   "type": "object",
+   "store": "state",
+   "key": "sideFold",
+   "page": "#/settings/display",
+   "cat": "look",
+   "risk": "safe",
+   "sync": "device",
+   "ai": false
+  },
+  {
    "id": "brandLogo",
    "label": "Sidebar logo",
    "desc": "Logo in the desktop sidebar: default mark, your own text, or hidden.",
