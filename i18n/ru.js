@@ -6126,5 +6126,8 @@ SI18n.addPack("ru", {
   "Side panel on the left": "Боковая панель слева",
   "On computers, show search, Friends and Who to follow next to the icon bar instead of on the right. Drag the panel's edge to resize it; tap a section title to fold it.": "На компьютере поиск, Друзья и «Кого читать» показываются рядом с панелью значков, а не справа. Потяните край панели, чтобы изменить ширину; нажмите заголовок раздела, чтобы свернуть его.",
   "Movable side panel": "Перемещаемая боковая панель",
-  "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "На компьютере настройка в разделе «Экран» переносит боковую панель влево; её ширину можно менять перетаскиванием, а разделы сворачивать."
+  "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "На компьютере настройка в разделе «Экран» переносит боковую панель влево; её ширину можно менять перетаскиванием, а разделы сворачивать.",
+  "Side panel": "Боковая панель",
+  "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "На компьютерах размещает боковую панель (поиск, Друзья, Кого читать) слева рядом с панелью значков, а не справа.",
+  "Which side panel sections are folded.": "Какие разделы боковой панели свёрнуты."
 });

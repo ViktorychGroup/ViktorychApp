@@ -6127,5 +6127,8 @@ SI18n.addPack("es", {
   "Side panel on the left": "Panel lateral a la izquierda",
   "On computers, show search, Friends and Who to follow next to the icon bar instead of on the right. Drag the panel's edge to resize it; tap a section title to fold it.": "En ordenadores, muestra la búsqueda, Amigos y A quién seguir junto a la barra de iconos en lugar de a la derecha. Arrastra el borde del panel para cambiar su tamaño; toca el título de una sección para plegarla.",
   "Movable side panel": "Panel lateral movible",
-  "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "En ordenadores, un ajuste de Pantalla mueve el panel lateral a la izquierda; su ancho se puede arrastrar y sus secciones plegar."
+  "On computers, a Display setting moves the side panel to the left; its width can be dragged and its sections folded.": "En ordenadores, un ajuste de Pantalla mueve el panel lateral a la izquierda; su ancho se puede arrastrar y sus secciones plegar.",
+  "Side panel": "Panel lateral",
+  "On computers, puts the side panel (search, Friends, Who to follow) on the left next to the icon bar instead of the right.": "En ordenadores, coloca el panel lateral (búsqueda, Amigos, A quién seguir) a la izquierda junto a la barra de iconos en lugar de a la derecha.",
+  "Which side panel sections are folded.": "Qué secciones del panel lateral están plegadas."
 });
