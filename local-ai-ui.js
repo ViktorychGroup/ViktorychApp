@@ -139,7 +139,7 @@
   function ggufHead(list, i, cls) {
     return list[i].engine === "gguf" && (!i || list[i - 1].engine !== "gguf") ? '<p class="' + cls + '">' + esc(tr("More models from Hugging Face (GGUF)")) + "</p>" : "";
   }
-  function uncensoredTag(m) { return m.uncensored ? '<em class="lai-badge lai-badge-warn">' + esc(tr("Uncensored")) + "</em>" : ""; }
+  function uncensoredTag(m) { return m.uncensored ? '<em class="lai-warn">' + esc(tr("Uncensored")) + "</em>" : ""; }
 
   /* ---------- worker ---------- */
   function worker() {
