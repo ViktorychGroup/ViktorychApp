@@ -11767,12 +11767,22 @@ const here = parseRoute();
       const id = idOf(post);
       return id && !seen[id];
     });
-    const atTop = window.scrollY < 40 && !homeRead;
-    if (fresh.length && (STATE.forYouAcceptNew || atTop)) {
+    /* New posts at the top remount the first cards on every background
+       rebuild (homePage draws only feedShown items). Keep the snap order
+       while For You is filling, append arrivals for idle top-up, and only
+       prepend when the reader explicitly accepts new posts. */
+    if (fresh.length && STATE.forYouAcceptNew) {
       const ranked = window.ForYou.rank(fresh, forYouContext());
       const next = ranked.concat(kept);
       remember(next.map(idOf));
       STATE.forYouAcceptNew = false;
+      if (STATE.feedShown) STATE.feedShown.foryou = Math.min(FEED_PAGE, (Number(STATE.feedShown.foryou) || 0) + ranked.length);
+      return next;
+    }
+    if (fresh.length) {
+      const ranked = window.ForYou.rank(fresh, forYouContext());
+      const next = kept.concat(ranked);
+      remember(next.map(idOf));
       return next;
     }
     return kept;
@@ -21731,35 +21741,26 @@ if (STATE.histClear) {
   function reuseForYouCards(liveRoot, frag, background) {
     const route = parseRoute();
     if (!background || route.name !== "home" || (route.tab || "foryou") !== "foryou") return;
-    const slot = viewParks.get(parkKey(route));
+    const key = parkKey(route);
+    const slot = key ? viewParks.get(key) : null;
     const live = new Map();
     const collect = (root) => root && root.querySelectorAll("article.post[data-post]").forEach((el) => {
       const id = el.getAttribute("data-post");
       if (id && !live.has(id)) live.set(id, el);
     });
+    /* parkLiveView() detaches the live slot before commitApp runs, so the
+       cards usually live on slot.root rather than #app. */
     collect(liveRoot);
     if (slot && slot.root) collect(slot.root);
-    const previous = STATE.forYouCardHtml || {};
     const next = {};
     frag.querySelectorAll("article.post[data-post]").forEach((fresh) => {
       const id = fresh.getAttribute("data-post");
       if (!id) return;
-      const html = fresh.outerHTML;
-      next[id] = html;
+      next[id] = fresh.outerHTML;
       const el = live.get(id);
-      if (!el || !fresh.parentNode || el.parentNode.tagName !== fresh.parentNode.tagName || el.parentNode.className !== fresh.parentNode.className) return;
-      /* Prefer the live node when its settled markup matches. Fall back to the
-         cached HTML when the live node picked up ephemeral attrs (eager load,
-         hscroll keys) that a fresh render does not have yet. */
-      const settled = (value) => String(value || "")
-        .replace(/ loading="eager" fetchpriority="high"/g, ' loading="lazy"')
-        .replace(/ loading="lazy" fetchpriority="high"/g, ' loading="lazy"')
-        .replace(/ fetchpriority="high"/g, "")
-        .replace(/ lp-slot/g, "")
-        .replace(/ data-hscroll-key="[^"]*"/g, "")
-        .replace(/ data-hscroll-revealed="[^"]*"/g, "");
-      const prior = previous[id] || el.outerHTML;
-      if (settled(prior) !== settled(html) && settled(el.outerHTML) !== settled(html)) return;
+      if (!el || !fresh.parentNode || !el.parentNode) return;
+      if (el.parentNode.tagName !== fresh.parentNode.tagName) return;
+      next[id] = el.outerHTML;
       fresh.replaceWith(el);
     });
     STATE.forYouCardHtml = next;
