@@ -75,7 +75,9 @@ try {
   const firstPostsAt = Date.now();
   await page.waitForFunction(() => document.querySelectorAll("#app article.post").length >= 3, null, { timeout: 60000 });
   const firstThreeMs = Date.now() - firstPostsAt;
-  await page.waitForTimeout(250);
+  // New feed arrivals can legitimately enter ahead of the initial cards.
+  // Sample once the first batch has settled instead of tracking a moving head.
+  await page.waitForTimeout(700);
   await page.evaluate(() => { window.__fy.first = Array.from(document.querySelectorAll("#app article.post[data-post]")).slice(0, 6).map((node) => ({ id: node.dataset.post, node: window.__fy.byPost.get(node.dataset.post) })); });
   await page.waitForFunction(() => document.querySelectorAll("#app article.post").length >= 20, null, { timeout: 30000 }).catch(() => {});
   await page.waitForTimeout(3000);
