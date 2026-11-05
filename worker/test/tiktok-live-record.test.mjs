@@ -82,6 +82,34 @@ function count(name) {
   return dispatches.filter((path) => path.indexOf("/" + name + "/dispatches") >= 0).length;
 }
 
+// A fixed UTC minute, so the cron's quarter-hour Discord check does not depend
+// on the wall clock. :00/:15/:30/:45 ask whether that workflow is busy; other
+// minutes do not.
+function atMinute(minute) {
+  return Date.UTC(2026, 0, 15, 12, minute, 30);
+}
+
+const DISCORD_BUSY_CHECK = "/repos/ViktorychGroup/ViktorychApp/actions/workflows/discord-live.yml/runs";
+
+async function cronWhilePaused(worker, minute) {
+  const uploads = count("tiktok-live-upload.yml");
+  const records = count("tiktok-record.yml");
+  const discordJobs = count("discord-live.yml");
+  const mark = dispatches.length;
+  await worker.scheduled({ cron: "* * * * *", scheduledTime: atMinute(minute) });
+  const added = dispatches.slice(mark);
+  const label = "minute " + minute;
+  assert.equal(count("tiktok-live-upload.yml"), uploads, label + ": pause holds the upload job");
+  assert.equal(count("tiktok-record.yml"), records, label + ": recording stays off");
+  assert.equal(count("discord-live.yml"), discordJobs, label + ": the discord mirror is not dispatched");
+  assert.equal(added.some((path) => path.endsWith("/dispatches")), false, label + ": no workflow is started");
+  if (minute % 15 === 0) {
+    assert.deepEqual(added, [DISCORD_BUSY_CHECK], label + ": only the discord busy check runs");
+  } else {
+    assert.deepEqual(added, [], label + ": no github calls");
+  }
+}
+
 test.before(async () => {
   mf = new Miniflare(workerOptions());
 });
@@ -189,9 +217,11 @@ test("the owner can enable recording and pause uploads without a browser capture
     token,
     body: { uploadsPaused: true }
   });
-  const beforePause = dispatches.length;
-  await worker.scheduled({ cron: "* * * * *", scheduledTime: Date.now() + 1000 });
-  assert.equal(dispatches.length, beforePause, "pause holds the upload job");
+  await cronWhilePaused(worker, 10);
+  await cronWhilePaused(worker, 0);
+  await cronWhilePaused(worker, 15);
+  await cronWhilePaused(worker, 30);
+  await cronWhilePaused(worker, 45);
 
   await call("/v1/owner/live-record", {
     method: "POST",
@@ -241,7 +271,11 @@ test("the owner can enable recording and pause uploads without a browser capture
     body: { uploadsPaused: false }
   });
   assert.equal(blockedWrite.status, 404);
+  const beforeOffUploads = count("tiktok-live-upload.yml");
+  const beforeOffRecords = count("tiktok-record.yml");
   const beforeOff = dispatches.length;
-  await worker.scheduled({ cron: "* * * * *", scheduledTime: Date.now() + 3000 });
-  assert.equal(dispatches.length, beforeOff, "the site switch stops record and upload jobs");
+  await worker.scheduled({ cron: "* * * * *", scheduledTime: atMinute(10) });
+  assert.equal(count("tiktok-live-upload.yml"), beforeOffUploads, "the site switch stops upload jobs");
+  assert.equal(count("tiktok-record.yml"), beforeOffRecords, "the site switch stops record jobs");
+  assert.equal(dispatches.length, beforeOff, "the site switch makes no github calls on an ordinary minute");
 });
