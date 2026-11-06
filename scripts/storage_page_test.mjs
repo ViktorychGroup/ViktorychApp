@@ -189,7 +189,7 @@ async function main() {
         await new Promise((resolve) => {
           if (video && video.readyState >= 2) resolve();
           else if (video) video.addEventListener("loadeddata", () => resolve(), { once: true });
-          setTimeout(resolve, 4000);
+          setTimeout(resolve, 8000);
         });
         play.start = { index: window.ViktorychRecordings.fragmentIndex(), width: video ? video.videoWidth : 0, ready: video ? video.readyState : 0 };
         play.at1 = await landed(1);
@@ -250,6 +250,30 @@ async function main() {
     if (cryptoResult.play.at2.index !== 2 || Math.abs(cryptoResult.play.at2.time - 2) > 0.3) fail("seek 2s " + JSON.stringify(cryptoResult.play.at2));
     if (cryptoResult.telegram !== "named") fail("telegram flag " + cryptoResult.telegram + " opened " + cryptoResult.openedFlag);
     if (await page.locator("[data-ready=provider]").getAttribute("data-ready-state") !== "absent") fail("provider became connected");
+    const catDir = path.join(root, "scripts/fixtures/vsr-catalog");
+    const catalogIdentity = fs.readFileSync(path.join(catDir, "TEST-ONLY-identity.txt"), "utf8").split(/\r?\n/).map((line) => line.trim()).find((line) => line.startsWith("AGE-SECRET-KEY-"));
+    const catalogB64 = b64(fs.readFileSync(path.join(catDir, "catalog.age")));
+    const remote = [];
+    page.on("request", (req) => { if (/telegram|\/tg\/vsr\//.test(req.url())) remote.push(req.url()); });
+    const catalogResult = await page.evaluate(async ({ identity, catalogB64 }) => {
+      window.ViktorychRecordings.unlock(identity);
+      const bin = atob(catalogB64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const opened = await window.ViktorychRecordings.openCatalog(bytes);
+      const provider = document.querySelector("[data-ready=provider]");
+      return {
+        fetched: opened.fetched === true,
+        error: opened.error || "",
+        provider: provider ? provider.getAttribute("data-ready-state") : "",
+        recorder: document.querySelector("[data-recorder-status]").getAttribute("data-recorder-status")
+      };
+    }, { identity: catalogIdentity, catalogB64 });
+    if (catalogResult.error) fail("catalog " + catalogResult.error);
+    if (catalogResult.fetched) fail("catalog fetched before upload");
+    if (catalogResult.provider !== "not_uploaded") fail("provider " + catalogResult.provider);
+    if (catalogResult.recorder !== "unlinked") fail("recorder linked");
+    if (remote.length) fail("telegram request " + remote[0]);
     if (logs.some((line) => line.includes("AGE-SECRET-KEY-") || line.includes("hello storage"))) fail("logged secret");
     console.log("playback " + JSON.stringify(cryptoResult.play));
     await page.locator("header.nav a.nav-item[href='#/storage']").first().scrollIntoViewIfNeeded();

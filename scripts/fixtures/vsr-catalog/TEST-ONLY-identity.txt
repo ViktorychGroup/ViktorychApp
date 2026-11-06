@@ -1,0 +1,3 @@
+TEST ONLY. This identity opens the fixture in this directory.
+It is not the owner key. Do not use it for backups.
+AGE-SECRET-KEY-1SD8EFNCT5EF3A4ZDZG996C5W2YAXTNWPRMFLWLH2X9H25KHDP4FQC3P7V8

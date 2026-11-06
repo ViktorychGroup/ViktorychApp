@@ -6399,5 +6399,9 @@ SI18n.addPack("ru", {
   "Catalog": "Каталог",
   "Needed": "Нужен",
   "Provider": "Провайдер",
-  "This package names Telegram getFile. This page does not download it.": "В этом пакете указан Telegram getFile. Эта страница его не скачивает."
+  "This package names Telegram getFile. This page does not download it.": "В этом пакете указан Telegram getFile. Эта страница его не скачивает.",
+  "Not uploaded": "Не отправлено",
+  "Ciphertext in this tab": "Шифр в этой вкладке",
+  "This catalog is not uploaded. Nothing was fetched.": "Этот каталог не отправлен. Ничего не загружалось.",
+  "Retrieval is not configured.": "Получение не настроено."
 });

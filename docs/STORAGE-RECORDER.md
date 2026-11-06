@@ -8,7 +8,20 @@ After `manifest.age` decrypts, every media chunk must have `requires_init: true`
 
 A single age file that is not this package is a download. It is not played. `telegram_getfile` is a field on the decrypted manifest. When it is true, Storage says so and does not download the object. There is no Telegram client on this page.
 
-`BACKUP_RECIPIENT` in `shared/storage-contract.js` is the public age recipient. The private identity is typed into the tab and is not saved or sent. The page does not ask a server for it. Recorder status stays unlinked, and the provider row stays not connected, until a recorder catalog contract is actually available to this app.
+`BACKUP_RECIPIENT` in `shared/storage-contract.js` is the public age recipient. The private identity is typed into the tab and is not saved or sent. The page does not ask a server for it.
+
+`catalog.age` is a `vsr-sealed-export` catalog. After it decrypts in the tab, each object is named `manifest.age` or `<sha256>.age`. Retrieval is `GET /tg/vsr/{object_name}` on the accounts Worker. The caller must be the signed-in owner. The response is ciphertext bytes only. `file_id` is not returned. The public `/tg` route still requires `encrypted = 0`, so an age row cannot be played as clear media.
+
+An empty `file_id` answers `not_uploaded` and does not call Telegram. If `TELEGRAM_BOT_TOKEN` or `TELEGRAM_CHANNEL_ID` is missing, a row that does have a `file_id` answers `not_configured` and does not call Telegram. This page does not upload, record, or schedule anything.
+
+When those two Worker secrets are added later, use the existing names. The recorder reads the channel as `TELEGRAM_CHAT_ID`; that is an alias, not a second bot. From `worker/`:
+
+```sh
+npx wrangler secret put TELEGRAM_BOT_TOKEN --name viktorych-accounts
+npx wrangler secret put TELEGRAM_CHANNEL_ID --name viktorych-accounts
+```
+
+Do not paste the values into the repo, a log, or chat. Until a real upload writes a `file_id`, the catalog stays Not uploaded. The tests mock Telegram. They do not prove a live channel.
 
 The disposable fixture key under `scripts/fixtures/vsr-playback-2/` is for that test package only. It is not a user key and it is not used for anything else.
 

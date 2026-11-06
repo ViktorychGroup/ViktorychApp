@@ -6400,5 +6400,9 @@ SI18n.addPack("es", {
   "Catalog": "Catálogo",
   "Needed": "Hace falta",
   "Provider": "Proveedor",
-  "This package names Telegram getFile. This page does not download it.": "Este paquete nombra Telegram getFile. Esta página no lo descarga."
+  "This package names Telegram getFile. This page does not download it.": "Este paquete nombra Telegram getFile. Esta página no lo descarga.",
+  "Not uploaded": "No subido",
+  "Ciphertext in this tab": "Cifrado en esta pestaña",
+  "This catalog is not uploaded. Nothing was fetched.": "Este catálogo no está subido. No se descargó nada.",
+  "Retrieval is not configured.": "La recuperación no está configurada."
 });

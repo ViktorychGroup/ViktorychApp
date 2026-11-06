@@ -6397,5 +6397,9 @@ SI18n.addPack("en", {
   "Catalog": "Catalog",
   "Needed": "Needed",
   "Provider": "Provider",
-  "This package names Telegram getFile. This page does not download it.": "This package names Telegram getFile. This page does not download it."
+  "This package names Telegram getFile. This page does not download it.": "This package names Telegram getFile. This page does not download it.",
+  "Not uploaded": "Not uploaded",
+  "Ciphertext in this tab": "Ciphertext in this tab",
+  "This catalog is not uploaded. Nothing was fetched.": "This catalog is not uploaded. Nothing was fetched.",
+  "Retrieval is not configured.": "Retrieval is not configured."
 });
