@@ -4,7 +4,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { sharedStaticServer } from "./smoke_runtime.mjs";
-import { likelyMime } from "../shared/storage-mp4.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shots = process.env.STORAGE_SHOTS || "/opt/cursor/artifacts";
@@ -93,8 +92,12 @@ async function main() {
   const server = await startServer();
   const port = server.address().port;
   const browser = await (await loadPlaywright()).launch({ headless: true, channel: "chrome" });
-  const initB64 = b64(fs.readFileSync(path.join(root, "scripts/fixtures/storage-init.mp4")));
-  const segB64 = b64(fs.readFileSync(path.join(root, "scripts/fixtures/storage-seg.mp4")));
+  const fixDir = path.join(root, "scripts/fixtures/vsr-playback-2");
+  const identity = fs.readFileSync(path.join(fixDir, "TEST-ONLY-identity.txt"), "utf8").split(/\r?\n/).map((line) => line.trim()).find((line) => line.startsWith("AGE-SECRET-KEY-"));
+  const filesB64 = {};
+  for (const name of fs.readdirSync(path.join(fixDir, "package"))) {
+    if (name.endsWith(".age")) filesB64[name] = b64(fs.readFileSync(path.join(fixDir, "package", name)));
+  }
   try {
     const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await desktop.newPage();
@@ -139,49 +142,17 @@ async function main() {
     await page.locator("header.nav a.nav-item[href='#/storage']").first().scrollIntoViewIfNeeded();
     await shot(page, "storage-desktop.png");
 
-    const initBytes = Buffer.from(initB64, "base64");
-    const expectedMime = likelyMime(initBytes);
-    if (!expectedMime.startsWith("video/mp4; codecs=\"avc1.")) fail("fixture codec " + expectedMime);
-    const cryptoResult = await page.evaluate(async ({ initB64, segB64, expectedMime }) => {
-      const age = await window.ViktorychRecordings.loadAge();
-      const identity = await age.generateX25519Identity();
-      const wrong = await age.generateX25519Identity();
-      const recipient = await age.identityToRecipient(identity);
-      async function seal(bytes) {
-        const enc = new age.Encrypter();
-        enc.addRecipient(recipient);
-        return new Uint8Array(await enc.encrypt(bytes));
-      }
+    const cryptoResult = await page.evaluate(async ({ identity, filesB64 }) => {
       function fromB64(text) {
         const bin = atob(text);
         const out = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
         return out;
       }
-      async function hex(bytes) {
-        const digest = await crypto.subtle.digest("SHA-256", bytes);
-        return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      }
-      const initPlain = fromB64(initB64);
-      const segPlain = fromB64(segB64);
-      const initCipher = await seal(initPlain);
-      const segCipher = await seal(segPlain);
-      const initSha = await hex(initCipher);
-      const segSha = await hex(segCipher);
-      const body = {
-        format: "vsr-playback-2",
-        requires_init: true,
-        independently_playable: false,
-        init: initSha,
-        title: "Example clip",
-        fragments: [{ sha256: segSha, start: 0, duration: 1 }]
-      };
-      const manifestCipher = await seal(new TextEncoder().encode(JSON.stringify(body)));
-      const files = {};
-      files["manifest.age"] = manifestCipher;
-      files[initSha + ".age"] = initCipher;
-      files[segSha + ".age"] = segCipher;
-      files["manifest.json"] = new TextEncoder().encode(JSON.stringify(Object.assign({ codec: "avc1.42E01E" }, body)));
+      const files = { "manifest.json": new TextEncoder().encode("{\"codec\":\"avc1.42E01E\"}") };
+      Object.keys(filesB64).forEach(function (name) { files[name] = fromB64(filesB64[name]); });
+      const age = await window.ViktorychRecordings.loadAge();
+      const wrong = await age.generateX25519Identity();
       window.ViktorychRecordings.unlock(wrong);
       const wrongOut = await window.ViktorychRecordings.openPackage({ files: files });
       window.ViktorychRecordings.lock();
@@ -191,7 +162,17 @@ async function main() {
       await new Promise((resolve) => setTimeout(resolve, 50));
       const mime = opened.manifest && opened.manifest.mime;
       const supported = !!(mime && window.MediaSource && MediaSource.isTypeSupported && MediaSource.isTypeSupported(mime));
-      let play = { supported: supported, mime: mime };
+      let play = { supported: supported, mime: mime, error: opened.error || "" };
+      async function landed(seconds) {
+        const video = document.getElementById("rec-video");
+        if (!video) return { time: -1, index: -1, width: 0, ready: 0 };
+        video.currentTime = seconds;
+        await new Promise((resolve) => {
+          video.addEventListener("seeked", () => resolve(), { once: true });
+          setTimeout(resolve, 3000);
+        });
+        return { time: video.currentTime, index: window.ViktorychRecordings.fragmentIndex(), width: video.videoWidth, ready: video.readyState };
+      }
       if (supported) {
         play = Object.assign(play, await window.ViktorychRecordings.playSegments());
         const video = document.getElementById("rec-video");
@@ -200,25 +181,22 @@ async function main() {
           else if (video) video.addEventListener("loadeddata", () => resolve(), { once: true });
           setTimeout(resolve, 4000);
         });
-        play.width = video ? video.videoWidth : 0;
-        play.ready = video ? video.readyState : 0;
-        if (video) video.currentTime = 0.4;
-        await new Promise((resolve) => {
-          if (!video) { resolve(); return; }
-          video.addEventListener("seeked", () => resolve(), { once: true });
-          setTimeout(resolve, 2000);
-        });
-        play.time = video ? video.currentTime : 0;
+        play.start = { index: window.ViktorychRecordings.fragmentIndex(), width: video ? video.videoWidth : 0, ready: video ? video.readyState : 0 };
+        play.at1 = await landed(1);
+        play.at2 = await landed(2);
       } else {
         play.plan = window.ViktorychRecordings.plan().mode;
       }
-      const bad = initCipher.slice();
+      const mediaName = Object.keys(files).find((name) => name !== "manifest.age" && name !== "manifest.json" && name.endsWith(".age"));
+      const bad = files[mediaName].slice();
       bad[bad.length - 3] ^= 9;
       const tampered = Object.assign({}, files);
-      tampered[initSha + ".age"] = bad;
+      tampered[mediaName] = bad;
       const tamper = await window.ViktorychRecordings.openPackage({ files: tampered });
-      const legacyPlain = new TextEncoder().encode("hello storage");
-      const legacyCipher = await seal(legacyPlain);
+      const recipient = await age.identityToRecipient(identity);
+      const enc = new age.Encrypter();
+      enc.addRecipient(recipient);
+      const legacyCipher = new Uint8Array(await enc.encrypt(new TextEncoder().encode("hello storage")));
       const legacy = await window.ViktorychRecordings.openLegacy(legacyCipher, "note.age");
       const legacyBytes = await window.ViktorychRecordings.decryptLegacy();
       const legacyPlan = window.ViktorychRecordings.plan().mode;
@@ -242,24 +220,21 @@ async function main() {
         play: play,
         recorder: document.querySelector("[data-recorder-status]").getAttribute("data-recorder-status")
       };
-    }, { initB64, segB64, expectedMime });
+    }, { identity: identity, filesB64: filesB64 });
     if (cryptoResult.wrong !== "key") fail("wrong key " + cryptoResult.wrong);
     if (cryptoResult.locked !== "locked") fail("locked " + cryptoResult.locked);
-    if (cryptoResult.mime !== expectedMime) fail("codec " + cryptoResult.mime + " expected " + expectedMime);
-    if (cryptoResult.invented) fail("used a codec from manifest.json");
+    if (!cryptoResult.mime || cryptoResult.mime.indexOf("avc1.64000A") < 0 || cryptoResult.mime.indexOf("mp4a.40.2") < 0) fail("derived codec " + cryptoResult.mime);
+    if (cryptoResult.mime.indexOf("42E01E") >= 0 || cryptoResult.mime.indexOf("not probed") >= 0) fail("invented codec " + cryptoResult.mime);
     if (cryptoResult.tamper !== "tamper") fail("tamper " + cryptoResult.tamper);
     if (cryptoResult.legacy !== "hello storage") fail("legacy " + cryptoResult.legacy);
     if (cryptoResult.withdrawn !== "withdrawn") fail("v1 " + cryptoResult.withdrawn);
     if (!cryptoResult.held) fail("identity was dropped before lock");
     if (cryptoResult.leaked) fail("plaintext persisted");
     if (cryptoResult.recorder !== "unlinked") fail("recorder status " + cryptoResult.recorder);
-    if (cryptoResult.play.supported) {
-      if (!cryptoResult.play.ok) fail("play failed " + JSON.stringify(cryptoResult.play));
-      if (cryptoResult.play.width !== 64) fail("video width " + cryptoResult.play.width);
-      if (!(cryptoResult.play.time > 0.05)) fail("seek " + cryptoResult.play.time);
-    } else if (cryptoResult.play.plan === "mse") {
-      fail("plan claimed mse without support");
-    }
+    if (!cryptoResult.play.supported || !cryptoResult.play.ok) fail("play failed " + JSON.stringify(cryptoResult.play));
+    if (cryptoResult.play.start.index !== 0 || cryptoResult.play.start.width < 2) fail("start " + JSON.stringify(cryptoResult.play.start));
+    if (cryptoResult.play.at1.index !== 1 || Math.abs(cryptoResult.play.at1.time - 1) > 0.3) fail("seek 1s " + JSON.stringify(cryptoResult.play.at1));
+    if (cryptoResult.play.at2.index !== 2 || Math.abs(cryptoResult.play.at2.time - 2) > 0.3) fail("seek 2s " + JSON.stringify(cryptoResult.play.at2));
     if (logs.some((line) => line.includes("AGE-SECRET-KEY-") || line.includes("hello storage"))) fail("logged secret");
     console.log("playback " + JSON.stringify(cryptoResult.play));
     await page.locator("header.nav a.nav-item[href='#/storage']").first().scrollIntoViewIfNeeded();

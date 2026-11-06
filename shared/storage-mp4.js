@@ -101,13 +101,39 @@ export function avc1Codec(bytes) {
   return "avc1." + hexByte(bytes[at + 1]) + hexByte(bytes[at + 2]) + hexByte(bytes[at + 3]);
 }
 
+function readDescLen(bytes, index) {
+  let len = 0;
+  let i = index;
+  for (let n = 0; n < 4 && i < bytes.length; n++) {
+    const b = bytes[i++];
+    len = (len << 7) | (b & 0x7f);
+    if ((b & 0x80) === 0) return { len: len, index: i };
+  }
+  return null;
+}
+
+/* esds uses expandable lengths. AAC-LC is object type 2 after an MPEG-4 audio
+   decoder config (object type indication 0x40). */
 function aacLc(payload) {
   let indication = false;
   let objectType = 0;
-  for (let i = 0; i + 3 < payload.length; i++) {
-    if (payload[i] === 0x04 && payload[i + 1] > 0 && payload[i + 1] < 128 && payload[i + 2] === 0x40) indication = true;
-    if (payload[i] === 0x05 && payload[i + 1] > 1 && payload[i + 1] < 32) objectType = payload[i + 2] >> 3;
+  function walk(start, end) {
+    let i = start;
+    while (i < end) {
+      const tag = payload[i++];
+      const size = readDescLen(payload, i);
+      if (!size || size.index + size.len > end) break;
+      const body = size.index;
+      const bodyEnd = size.index + size.len;
+      if (tag === 0x04 && payload[body] === 0x40) indication = true;
+      if (tag === 0x05 && bodyEnd > body) objectType = payload[body] >> 3;
+      if (tag === 0x03 && bodyEnd > body + 3) walk(body + 3, bodyEnd);
+      else if (tag === 0x04 && bodyEnd > body + 13) walk(body + 13, bodyEnd);
+      i = bodyEnd;
+    }
   }
+  const start = payload.length >= 4 && payload[0] === 0 ? 4 : 0;
+  walk(start, payload.length);
   return indication && objectType === 2;
 }
 
@@ -117,7 +143,7 @@ export function audioKind(bytes) {
   const types = boxTypes(bytes);
   const otherAudio = types.has("ac-3") || types.has("ec-3") || types.has("Opus") || types.has("fLaC") || types.has("alac");
   if (otherAudio) return "other";
-  if (!types.has("mp4a")) return "none";
+  if (!findBox(bytes, "mp4a")) return "none";
   const esds = findBox(bytes, "esds");
   if (!esds) return "other";
   const payload = bytes.subarray(esds.start + esds.header, esds.start + esds.size);

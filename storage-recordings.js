@@ -12,8 +12,7 @@ import {
   parsePlainCatalog,
   parsePlaybackManifest,
   playbackPlan,
-  sha256Hex,
-  shaName
+  sha256Hex
 } from "./shared/storage-contract.js";
 import { decryptBytes } from "./shared/storage-age.js";
 import { classifyMp4, likelyMime } from "./shared/storage-mp4.js";
@@ -225,35 +224,27 @@ async function readNamed(name) {
   if (src instanceof Uint8Array) return src;
   return new Uint8Array(await src.arrayBuffer());
 }
-async function decryptNamed(sha) {
+async function decryptPart(part) {
   if (!identity) {
     errorCode = "locked";
     throw new Error("locked");
   }
-  const name = shaName(sha);
-  const bytes = await readNamed(name);
-  if (bytes.byteLength > MEMORY_CAP + 65536) {
-    errorCode = "too-large";
-    throw new Error("too-large");
+  const bytes = await readNamed(part.objectName);
+  if (bytes.byteLength !== part.ciphertextBytes || bytes.byteLength > MEMORY_CAP + 65536) {
+    errorCode = bytes.byteLength > MEMORY_CAP + 65536 ? "too-large" : "tamper";
+    throw new Error(errorCode);
   }
   const hash = await sha256Hex(bytes);
-  if (hash !== sha) {
+  if (hash !== part.sha256) {
     errorCode = "tamper";
     throw new Error("tamper");
   }
-  try {
-    const age = await loadAge();
-    const plain = await decryptBytes(age, identity, bytes);
-    if (plain.byteLength > MEMORY_CAP) {
-      errorCode = "too-large";
-      throw new Error("too-large");
-    }
-    errorCode = "";
-    return plain;
-  } catch (err) {
-    if (errorCode !== "too-large" && errorCode !== "tamper") errorCode = "key";
-    throw err;
+  const plain = await decryptCipher(bytes);
+  if (plain.byteLength !== part.plaintextBytes || plain.byteLength > MEMORY_CAP) {
+    errorCode = plain.byteLength > MEMORY_CAP ? "too-large" : "tamper";
+    throw new Error(errorCode);
   }
+  return plain;
 }
 function rememberFiles(list) {
   sources = new Map();
@@ -261,7 +252,7 @@ function rememberFiles(list) {
   for (let i = 0; i < rows.length; i++) {
     const file = rows[i];
     const name = String(file.name || "").split("/").pop();
-    if (!name || name === "manifest.json") return;
+    if (!name || name === "manifest.json") continue;
     const hash = name.match(/^([a-fA-F0-9]{64})\.age$/);
     sources.set(hash ? hash[1].toLowerCase() + ".age" : name, file);
   }
@@ -328,7 +319,24 @@ export async function openPackage(pkg) {
   }
   manifest = parsed.manifest;
   try {
-    const initPlain = await decryptNamed(manifest.init);
+    const parts = [manifest.init].concat(manifest.chunks);
+    for (let i = 0; i < parts.length; i++) {
+      const bytes = await readNamed(parts[i].objectName);
+      if (bytes.byteLength !== parts[i].ciphertextBytes) {
+        manifest = null;
+        errorCode = "tamper";
+        paint();
+        return { error: "tamper" };
+      }
+      const hash = await sha256Hex(bytes);
+      if (hash !== parts[i].sha256) {
+        manifest = null;
+        errorCode = "tamper";
+        paint();
+        return { error: "tamper" };
+      }
+    }
+    const initPlain = await decryptPart(manifest.init);
     if (classifyMp4(initPlain) !== "init") {
       manifest = null;
       errorCode = "boxes";
@@ -336,8 +344,9 @@ export async function openPackage(pkg) {
       return { error: "boxes" };
     }
     const mime = likelyMime(initPlain);
-    manifest.mime = mime;
-    manifest.likely = !!mime;
+    const derivedOk = manifest.vcodec === "h264" && manifest.acodec === "aac" && !!mime && mime.indexOf("avc1.") > 0 && mime.indexOf("mp4a.40.2") > 0;
+    manifest.mime = derivedOk ? mime : "";
+    manifest.likely = manifest.markedLikely && derivedOk;
     slots.init = null;
   } catch (err) {
     manifest = null;
@@ -422,8 +431,8 @@ async function showAt(sourceBuffer, time) {
     throw new Error("boxes");
   }
   if (fragment.index === shownIndex) return;
-  const initPlain = await decryptNamed(manifest.init);
-  const mediaPlain = await decryptNamed(fragment.sha256);
+  const initPlain = await decryptPart(manifest.init);
+  const mediaPlain = await decryptPart(fragment);
   if (classifyMp4(initPlain) !== "init" || classifyMp4(mediaPlain) !== "fragment") {
     errorCode = "boxes";
     throw new Error("boxes");
@@ -545,5 +554,6 @@ window.ViktorychRecordings = {
   plan: plan,
   loadAge: loadAge,
   error: function () { return errorCode; },
+  fragmentIndex: function () { return shownIndex; },
   rememberFiles: rememberFiles
 };

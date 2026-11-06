@@ -41,6 +41,22 @@ export function parsePlainCatalog(value) {
   return { error: "withdrawn" };
 }
 
+function shaOk(value) {
+  return SHA_RE.test(String(value || "").toLowerCase());
+}
+
+function objectPart(raw, role) {
+  if (!raw || typeof raw !== "object" || raw.role !== role) return null;
+  const sha = String(raw.ciphertext_sha256 || "").toLowerCase();
+  const name = String(raw.object_name || "");
+  if (!shaOk(sha) || name !== sha + ".age") return null;
+  const cipherBytes = Number(raw.ciphertext_bytes);
+  const plainBytes = Number(raw.plaintext_bytes);
+  if (!Number.isInteger(cipherBytes) || cipherBytes < 0 || !Number.isInteger(plainBytes) || plainBytes < 0) return null;
+  return { sha256: sha, objectName: name, ciphertextBytes: cipherBytes, plaintextBytes: plainBytes };
+}
+
+/* Accepts only the decrypted vsr-playback-2 document. codecs_parameter is ignored. */
 export function parsePlaybackManifest(value, opts) {
   if (!opts || opts.authenticated !== true) return { error: "unauthenticated" };
   let data = value;
@@ -48,34 +64,52 @@ export function parsePlaybackManifest(value, opts) {
     try { data = JSON.parse(value); } catch (err) { return { error: "manifest" }; }
   }
   if (!data || typeof data !== "object" || Array.isArray(data)) return { error: "manifest" };
-  if (data.v === 1 || data.kind === "age-byte-chunks" || data.kind === "age-file" || data.kind === "age-media-segments" || data.chunks) {
+  if (data.v === 1 || data.kind === "age-byte-chunks" || data.kind === "age-file" || data.kind === "age-media-segments" || data.format === "vsr-playback-1") {
     return { error: "withdrawn" };
   }
   if (data.format !== PLAYBACK_FORMAT) return { error: "manifest" };
-  if (data.requires_init !== true || data.independently_playable !== false) return { error: "manifest" };
-  const init = String(data.init || "").toLowerCase();
-  if (!SHA_RE.test(init)) return { error: "manifest" };
-  if (!Array.isArray(data.fragments) || data.fragments.length < 1 || data.fragments.length > MAX_FRAGMENTS) return { error: "manifest" };
-  const fragments = [];
-  const seen = new Set();
-  for (let i = 0; i < data.fragments.length; i++) {
-    const raw = data.fragments[i];
-    if (!raw || typeof raw !== "object") return { error: "manifest" };
-    const sha = String(raw.sha256 || "").toLowerCase();
-    if (!SHA_RE.test(sha) || sha === init || seen.has(sha)) return { error: "manifest" };
-    const start = Number(raw.start);
-    const duration = Number(raw.duration);
-    if (!Number.isFinite(start) || start < 0 || !Number.isFinite(duration) || duration <= 0) return { error: "manifest" };
-    seen.add(sha);
-    fragments.push({ sha256: sha, start: start, duration: duration, index: i });
+  if (data.encryption !== "age-chunk-v1" || data.container !== "fmp4" || data.segment_model !== "init-plus-media") return { error: "manifest" };
+  if (data.authenticated_by !== "age" || data.age_byte_range !== false || data.backup !== "whole_file_age_unchanged") return { error: "manifest" };
+  const cap = data.capability;
+  if (!cap || cap.media_independently_playable !== false || cap.lossy_transcode !== false || cap.age_byte_range !== false || cap.mime !== "video/mp4") {
+    return { error: "manifest" };
   }
+  const init = objectPart(data.init, "init");
+  if (!init) return { error: "manifest" };
+  if (!Array.isArray(data.chunks) || data.chunks.length < 1 || data.chunks.length > MAX_FRAGMENTS) return { error: "manifest" };
+  const chunks = [];
+  let cursor = 0;
+  for (let i = 0; i < data.chunks.length; i++) {
+    const raw = data.chunks[i];
+    const part = objectPart(raw, "media");
+    if (!part || raw.independently_playable !== false || raw.requires_init !== true) return { error: "manifest" };
+    if (raw.index !== i) return { error: "manifest" };
+    const duration = Number(raw.duration_ms);
+    if (!Number.isInteger(duration) || duration <= 0) return { error: "manifest" };
+    chunks.push({
+      index: i,
+      sha256: part.sha256,
+      objectName: part.objectName,
+      ciphertextBytes: part.ciphertextBytes,
+      plaintextBytes: part.plaintextBytes,
+      durationMs: duration,
+      startMs: cursor,
+      requiresInit: true,
+      independentlyPlayable: false
+    });
+    cursor += duration;
+  }
+  const marked = cap.browser_mse_likely === true && data.vcodec === "h264" && data.acodec === "aac";
   return {
     manifest: {
       format: PLAYBACK_FORMAT,
-      requires_init: true,
-      independently_playable: false,
+      vcodec: data.vcodec,
+      acodec: data.acodec,
+      containerMime: "video/mp4",
+      markedLikely: marked,
       init: init,
-      fragments: fragments,
+      chunks: chunks,
+      durationMs: cursor,
       title: cleanText(data.title, 180),
       legacy: false,
       likely: false,
@@ -84,33 +118,27 @@ export function parsePlaybackManifest(value, opts) {
   };
 }
 
-export function fragmentForTime(manifest, time) {
-  const rows = manifest && manifest.fragments || [];
+export function fragmentForTime(manifest, timeSeconds) {
+  const rows = manifest && manifest.chunks || [];
   if (!rows.length) return null;
-  const at = Number(time) || 0;
+  const at = Math.round((Number(timeSeconds) || 0) * 1000);
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (at >= row.start && at < row.start + row.duration) return row;
+    if (at >= row.startMs && at < row.startMs + row.durationMs) return row;
   }
   return rows[rows.length - 1];
 }
 
 export function durationOf(manifest) {
-  let end = 0;
-  (manifest && manifest.fragments || []).forEach(function (row) {
-    end = Math.max(end, row.start + row.duration);
-  });
-  return end;
+  return ((manifest && manifest.durationMs) || 0) / 1000;
 }
 
 export function playbackPlan(manifest, isTypeSupported) {
   if (!manifest) return { mode: "none", playable: false, reason: "none", mime: "" };
   if (manifest.legacy) return { mode: "legacy", playable: false, reason: "whole-file", mime: "" };
-  if (manifest.format !== PLAYBACK_FORMAT || manifest.requires_init !== true || manifest.independently_playable !== false) {
-    return { mode: "unsupported", playable: false, reason: "manifest", mime: "" };
-  }
+  if (manifest.format !== PLAYBACK_FORMAT) return { mode: "unsupported", playable: false, reason: "manifest", mime: "" };
   const mime = manifest.mime || "";
-  if (!manifest.likely || !mime) return { mode: "unsupported", playable: false, reason: "codec", mime: mime };
+  if (!manifest.markedLikely || !manifest.likely || !mime) return { mode: "unsupported", playable: false, reason: "codec", mime: mime };
   let supported = false;
   try { supported = typeof isTypeSupported === "function" && !!isTypeSupported(mime); } catch (err) { supported = false; }
   if (!supported) return { mode: "unsupported", playable: false, reason: "codec", mime: mime };

@@ -1,28 +1,13 @@
 # Storage recordings
 
-Playback follows `vsr-playback-2`. Version 1, a plaintext catalog of arbitrary byte chunks with a hash the catalog declares itself, is withdrawn and is refused.
+Playback follows the producer contract in `scripts/fixtures/vsr-playback-2/contracts/`. That copy is the `vsr-playback-2` document from recorder commit `ee8fb93e9c8945d6668911d694c3740ee2fb615a`. `vsr-playback-1` plaintext byte-chunk catalogs are withdrawn.
 
-The recorder commit `bc57b92f616a97d175ab238cded81710bdb9a051` was not readable from this environment (the repository answers HTTP 404). The page therefore accepts only a decrypted `manifest.age` with this shape, and ignores `manifest.json`.
+On disk a package has `manifest.age` and one `<sha256>.age` object per init segment and media fragment. `manifest.json` is ignored. The age identity stays in the tab and is not stored or sent.
 
-```json
-{
-  "format": "vsr-playback-2",
-  "requires_init": true,
-  "independently_playable": false,
-  "init": "<sha256 of the init ciphertext>",
-  "title": "Example clip",
-  "fragments": [{ "sha256": "<sha256 of the fragment ciphertext>", "start": 0, "duration": 1 }]
-}
-```
+After `manifest.age` decrypts, every media chunk must have `requires_init: true` and `independently_playable: false`. Seeking decrypts the init object and the one fragment whose `duration_ms` window covers that time, then appends those two plaintext buffers, init first. The manifest leaves `codecs_parameter` as `not probed`. The SourceBuffer codecs string is read from the init segment's avcC and esds. It is not taken from the JSON and it is not a stand-in value. If those boxes are not H.264 and AAC-LC, or the browser will not play that exact string, nothing plays and nothing is re-encoded.
 
-`requires_init` must be true and `independently_playable` must be false. Each media object is an age file named `<sha256>.age`. The hash is of the ciphertext. A file whose bytes do not match its name is not decrypted.
+A single age file that is not this package is a download. It is not played. `telegram_getfile` is not a connection: this page does not fetch those objects.
 
-The plaintext init segment is an ffmpeg `-c copy` fragmented MP4 init (`ftyp` and `moov`, no media data). Each fragment is `styp` plus `moof` and `mdat`, and has no `moov`. Seeking decrypts the init segment and the fragment that covers that time, then Media Source appends the init segment and that fragment. At most those two plaintext pieces are held.
+The disposable fixture key under `scripts/fixtures/vsr-playback-2/` is for that test package only. It is not a user key and it is not used for anything else.
 
-The codec is read from the init segment. H.264 is `avc1` plus the three avcC bytes. AAC-LC is added only when the esds says so (`mp4a.40.2`). Anything else is not offered to the browser and is not re-encoded.
-
-A single age file that is not this package is a download. It is not played.
-
-The age identity stays in the tab. It is not stored or sent. No provider is connected from this page.
-
-Code: `shared/storage-contract.js`, `shared/storage-mp4.js`, `shared/storage-age.js`, `storage-recordings.js`. Tests: `scripts/storage_recordings_test.mjs`, `scripts/storage_page_test.mjs`.
+Tests: `scripts/storage_recordings_test.mjs`, `scripts/storage_page_test.mjs`.
