@@ -26,6 +26,7 @@ import {
   isMediaFile,
   scrubFromGroups
 } from "./shared/drive-photos.js";
+import { bindRecordings, recordingsHtml } from "./storage-recordings.js";
 
 var master = null;
 var lastTg = 0;
@@ -1197,6 +1198,12 @@ async function withPicked(work) {
     state.picked = {};
   });
 }
+function recordingsHere() {
+  if (section() === "photos") return false;
+  if (state.route && state.route.trash) return false;
+  if (state.route && state.route.folder) return false;
+  return true;
+}
 function readyHtml() {
   if (section() === "photos" && !(state.route && state.route.trash)) return photosReady();
   var rows = visibleItems();
@@ -1208,7 +1215,7 @@ function readyHtml() {
     var label = state.transfer.kind === "download" ? tr("Downloading {name}", { name: state.transfer.name }) : state.transfer.kind === "backup" ? tr("Backing up {name}", { name: state.transfer.name }) : tr("Uploading {name}", { name: state.transfer.name });
     transfer = '<div class="drive-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><p>' + esc(label) + '</p><div class="drive-progress-bar"><i style="width:' + pct + '%"></i></div></div>';
   }
-  return warnBlock() +
+  return (recordingsHere() ? recordingsHtml(state.mode, previewOn()) : "") + warnBlock() +
     '<div class="drive-bar"><button class="save" type="button" data-act="stop" data-drive="pick"' + (state.busy ? " disabled" : "") + ">" + esc(tr("Upload files")) + '</button><button class="outline" type="button" data-act="stop" data-drive="ask-folder"' + (state.busy ? " disabled" : "") + ">" + esc(tr("New folder")) + '</button><label class="drive-search">' + svg(ICO.search) + '<input id="drive-q" type="search" value="' + esc(state.query) + '" placeholder="' + esc(tr("Search by name")) + '" aria-label="' + esc(tr("Search by name")) + '"></label><div class="drive-views"><button class="icon-btn' + (state.view === "grid" ? " on" : "") + '" type="button" data-act="stop" data-drive="grid" aria-label="' + esc(tr("Grid view")) + '">' + svg(ICO.grid) + '</button><button class="icon-btn' + (state.view === "list" ? " on" : "") + '" type="button" data-act="stop" data-drive="list" aria-label="' + esc(tr("List view")) + '">' + svg(ICO.rows) + '</button></div><a class="outline" href="' + ((state.route && state.route.trash) ? "#/storage" : "#/storage/trash") + '" data-act="stop">' + esc((state.route && state.route.trash) ? tr("Back to Drive") : tr("Trash")) + '</a><span class="drive-used">' + esc(tr("Storage used {size}", { size: formatSize(state.stored) })) + "</span></div>" +
     (state.error ? '<p class="drive-error" style="padding:0 16px">' + esc(state.error) + "</p>" : "") +
     '<input id="drive-file" type="file" multiple hidden>' +
@@ -1253,8 +1260,8 @@ function page(route) {
     "</div>" + sectionTabs() + "</div>";
   var main = "";
   if (state.mode === "loading") main = '<div class="drive-empty"></div>';
-  else if (state.mode === "offline") main = '<div class="drive-empty"><h2>' + esc(tr("ViktorychStorage is not available on this copy.")) + "</h2></div>";
-  else if (state.mode === "setup" || state.mode === "locked") main = lockHtml();
+  else if (state.mode === "offline") main = '<div class="drive-empty"><h2>' + esc(tr("ViktorychStorage is not available on this copy.")) + "</h2></div>" + (recordingsHere() ? recordingsHtml(state.mode, previewOn()) : "");
+  else if (state.mode === "setup" || state.mode === "locked") main = lockHtml() + (recordingsHere() ? recordingsHtml(state.mode, previewOn()) : "");
   else main = readyHtml();
   return '<div class="drive' + (photos ? " drive-photos" : " drive-files") + (state.drag ? " is-drag" : "") + '" data-drop="' + esc(photos ? tr("Drop photos to back up") : tr("Drop files to upload")) + '">' + head + main + "</div>";
 }
@@ -1632,6 +1639,7 @@ function mount(route) {
   if (!root || root.dataset.bound === "1") return;
   root.dataset.bound = "1";
   bind(root);
+  bindRecordings(root);
   var box = document.getElementById("drive-q");
   if (box && document.activeElement && document.activeElement.id === "drive-q") {
     var n = box.value.length;
