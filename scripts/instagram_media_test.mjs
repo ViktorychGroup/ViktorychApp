@@ -74,15 +74,16 @@ function startServer() {
 }
 
 async function loadChromium() {
-  const candidates = [
+  const specs = [
     process.env.PLAYWRIGHT_CORE,
+    process.env.SMOKE_PLAYWRIGHT_CORE,
     "/tmp/pw/node_modules/playwright-core/index.js",
-    "/workspace/pwcore/node_modules/playwright-core/index.js"
+    "playwright-core"
   ].filter(Boolean);
-  for (const core of candidates) {
-    const entry = /\.m?js$/.test(core) ? core : path.join(core, "index.mjs");
+  for (const spec of specs) {
+    const href = spec.startsWith("/") ? pathToFileURL(spec).href : spec;
     try {
-      const mod = await import(core.startsWith("/") ? pathToFileURL(entry).href : core);
+      const mod = await import(href);
       const chromium = mod.chromium || (mod.default && mod.default.chromium);
       if (chromium) return chromium;
     } catch (err) { /* try the next copy */ }
