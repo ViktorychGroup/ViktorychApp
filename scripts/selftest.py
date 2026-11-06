@@ -646,6 +646,24 @@ def main() -> None:
     ])
     check(len(collapsed) == 1 and collapsed[0]["id"] == "Abcd1234" and "cdninstagram.com" in collapsed[0]["media"][0]["url"] and collapsed[0]["text"] == "Building something new", "a numeric id and a URL id collapse to the CDN copy")
     check(instagram_pages("Abcd1234")[0].endswith("/reel/Abcd1234/embed/captioned/"), "Instagram media tries the reel embed first")
+    import meta_media as meta_media_mod
+    def fake_ig_fetch(url, timeout=20, sniff_redirect=False):
+        if "/oembed" in url:
+            return '{"thumbnail_url":"https://scontent.cdninstagram.com/v/cover.jpg?oe=7FFFFFFF"}', url
+        if "/embed" in url:
+            return '<html>"pageID":"httpErrorPage" https://static.cdninstagram.com/rsrc.php/x.js</html>', url
+        if "/media/" in url:
+            return "", "https://scontent.cdninstagram.com/v/from-media.jpg?oe=7FFFFFFF"
+        return "", ""
+    original_fetch = meta_media_mod._fetch
+    meta_media_mod._fetch = fake_ig_fetch
+    try:
+        refreshed = meta_media_mod.instagram_media_urls("Abcd1234")
+    finally:
+        meta_media_mod._fetch = original_fetch
+    check(refreshed and refreshed[0].endswith("from-media.jpg?oe=7FFFFFFF") and any(item.endswith("cover.jpg?oe=7FFFFFFF") for item in refreshed) and all("rsrc.php" not in item for item in refreshed), "an Instagram embed error page is skipped and the public media file is kept")
+    app_text = (ROOT / "app.js").read_text(encoding="utf-8")
+    check("function instagramFreshMediaUrl(" in app_text and "X-Frame-Options: DENY" in app_text and 'post.platform === "instagram") return tryInstagramCover(img)' in app_text, "instagram cards use the public media file instead of a framed embed")
     thread_pages = threads_pages({"platform": "threads", "statusId": "Abcd1234", "handle": "birchlane", "url": "https://www.threads.net/t/Abcd1234"})
     check(thread_pages[0] == "https://www.threads.net/t/Abcd1234/embed", "Threads media tries the official embed first")
     check(thumbnail_from_oembed((FIX / "own" / "ig_oembed.json").read_text(encoding="utf-8")).endswith("example.jpg"), "Instagram oEmbed keeps the thumbnail")

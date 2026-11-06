@@ -2854,6 +2854,20 @@ function publicMediaHostOk(hostname) {
   return PUBLIC_MEDIA_HOST.test(String(hostname || ""));
 }
 
+// Instagram's public media redirect. The browser cannot paint the JPEG it
+// returns (Cross-Origin-Resource-Policy: same-origin unless the referrer is
+// Instagram itself). This route follows that one redirect and returns the
+// image bytes. Profile pages, embeds and login HTML are not accepted.
+const INSTAGRAM_MEDIA_PATH = /^\/(?:p|reel|tv)\/[A-Za-z0-9_-]{5,40}\/media\/?$/;
+
+function instagramPublicMedia(parsed) {
+  if (!parsed || parsed.username || parsed.password || parsed.protocol !== "https:") return false;
+  const host = String(parsed.hostname || "").toLowerCase();
+  if (host !== "www.instagram.com" && host !== "instagram.com") return false;
+  if (parsed.port && parsed.port !== "443") return false;
+  return INSTAGRAM_MEDIA_PATH.test(parsed.pathname || "");
+}
+
 function twimgVideoHost(hostname) {
   return /(^|\.)video\.twimg\.com$/i.test(String(hostname || ""));
 }
@@ -2893,7 +2907,8 @@ async function handlePublicMediaProxy(request, env, url) {
   const target = url.searchParams.get("url") || "";
   let parsed = null;
   try { parsed = new URL(target); } catch (err) { parsed = null; }
-  if (!parsed || parsed.protocol !== "https:" || parsed.username || parsed.password || !publicMediaHostOk(parsed.hostname)) {
+  const igMedia = instagramPublicMedia(parsed);
+  if (!parsed || parsed.protocol !== "https:" || parsed.username || parsed.password || !(publicMediaHostOk(parsed.hostname) || igMedia)) {
     return json(400, { error: "bad_url" });
   }
   const policy = publicMediaPolicy(parsed.hostname);
@@ -2920,6 +2935,11 @@ async function handlePublicMediaProxy(request, env, url) {
   if (!publicMediaHostOk(finalHost)) {
     dropBody(upstream);
     return json(400, { error: "bad_url" });
+  }
+  const rawType = String(upstream.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (igMedia && (!rawType.startsWith("image/") || (upstream.status !== 200 && upstream.status !== 206))) {
+    dropBody(upstream);
+    return json(502, { error: "upstream" });
   }
   const respHeaders = new Headers();
   const ctype = passiveMediaType(upstream.headers.get("content-type") || "image/jpeg");
