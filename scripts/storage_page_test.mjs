@@ -65,6 +65,16 @@ function b64(bytes) {
   return Buffer.from(bytes).toString("base64");
 }
 
+async function scrollNav(page) {
+  for (let i = 0; i < 4; i++) {
+    try {
+      await page.locator("header.nav a.nav-item[href='#/storage']").first().scrollIntoViewIfNeeded({ timeout: 3000 });
+      return;
+    } catch (err) {
+      if (i === 3) throw err;
+    }
+  }
+}
 async function shot(page, name) {
   fs.mkdirSync(shots, { recursive: true });
   await page.screenshot({ path: path.join(shots, name), fullPage: false });
@@ -149,7 +159,7 @@ async function main() {
     const pageText = await page.locator("#rec-root").innerText();
     if (/Google Drive|OneDrive|Cryptomator|Telegram/.test(pageText)) fail("provider names on the page");
     if (nav.recordingNav && nav.recordingNav.length) fail("recordings became a sidebar tool");
-    await page.locator("header.nav a.nav-item[href='#/storage']").first().scrollIntoViewIfNeeded();
+    await scrollNav(page);
     await shot(page, "storage-desktop.png");
 
     const cryptoResult = await page.evaluate(async ({ identity, filesB64 }) => {
@@ -276,7 +286,7 @@ async function main() {
     if (remote.length) fail("telegram request " + remote[0]);
     if (logs.some((line) => line.includes("AGE-SECRET-KEY-") || line.includes("hello storage"))) fail("logged secret");
     console.log("playback " + JSON.stringify(cryptoResult.play));
-    await page.locator("header.nav a.nav-item[href='#/storage']").first().scrollIntoViewIfNeeded();
+    await scrollNav(page);
     await shot(page, "storage-desktop-playing.png");
     const locked = await page.evaluate(() => {
       window.ViktorychRecordings.lock();
