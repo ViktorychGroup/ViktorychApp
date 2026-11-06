@@ -204,7 +204,9 @@ async function main() {
       const card = document.querySelector('.rd-launch[data-url="' + story + '"]');
       const link = document.querySelector('a[href="' + story + '"]');
       if (!card || !link) return null;
-      return { outside: !link.contains(card), blank: link.target === "_blank", rel: link.rel || "", youtube: document.body.innerText.includes("Clip") && !document.querySelector('.rd-launch[data-url*="youtube.com"]') };
+      const state = { outside: !link.contains(card), blank: link.target === "_blank", rel: link.rel || "", youtube: document.body.innerText.includes("Clip") && !document.querySelector('.rd-launch[data-url*="youtube.com"]') };
+      if (!(state.outside && state.blank && /noopener/.test(state.rel) && state.youtube)) return null;
+      return state;
     }, STORY), 50);
     check(!!ready && ready.outside && ready.blank && /noopener/.test(ready.rel) && ready.youtube, "Read sits outside the link, which still opens in a new tab");
     await page.locator('.rd-launch[data-url="' + STORY + '"]').first().click();

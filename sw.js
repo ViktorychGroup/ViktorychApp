@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-05T17:36:00.000Z-article-reader
+// cache-bust: 2026-11-06T15:30:00.000Z-playback-fixture
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -331,7 +331,7 @@ let peerOn = false;
 const armedClients = new Set();
 const reloadingClients = new Set();
 const PRECACHE_TRIES = 6;
-const LAZY_FILES = ["./hls-1.7.3.min.js", "./mpegts-1.8.0.min.js", "./fonts/inter-400.woff2", "./fonts/inter-900.woff2", "./onboarding.js", "./onboarding.css"];
+const LAZY_FILES = ["./hls-1.7.3.min.js", "./mpegts-1.8.0.min.js", "./fonts/inter-400.woff2", "./fonts/inter-900.woff2", "./onboarding.js", "./onboarding.css", "./vendor/age-0.3.1.min.js"];
 
 function versionSha(version) {
   const text = String(version || "");

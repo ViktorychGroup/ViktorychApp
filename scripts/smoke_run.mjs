@@ -193,6 +193,13 @@ const PAGE_STEPS = [
   step("live", "node scripts/live_page_test.mjs", {
     weight: 25, needs: ["pw", "browser"],
     paths: [file("live_page_test.mjs"), ...APP]
+  }),
+  step("storage-recordings", "node scripts/storage_recordings_test.mjs", {
+    paths: [file("storage_recordings_test.mjs"), /^storage-recordings\.js$/, /^shared\/storage-/, /^vendor\/age-/]
+  }),
+  step("storage-page", "node scripts/storage_page_test.mjs", {
+    weight: 45, needs: ["pw", "browser"],
+    paths: [file("storage_page_test.mjs"), /^storage-recordings\.js$/, /^drive\.(js|css)$/, /^shared\/storage-/, ...APP]
   })
 ];
 
@@ -232,9 +239,9 @@ const NAV_STEPS = [
 ];
 
 const SHARDS = {
-  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you"],
+  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings"],
   site: ["about-layout", "points-layout", "stories-layout", "assemble-site", "smoke-site", "smoke-mirror", "yt-embed", "x-video", "ios", "live"],
-  "ui-fast": ["notifications", "pill-fit", "sidebar", "privacy", "title-privacy", "desktop-squares"],
+  "ui-fast": ["notifications", "pill-fit", "sidebar", "privacy", "title-privacy", "desktop-squares", "storage-page"],
   sw: ["sw-update"],
   "ui-profile": ["profile"],
   "ui-drawer": ["drawer"],
@@ -265,7 +272,8 @@ const REQUIRED_PAGE = [
   "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
   "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name",
-  "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares"
+  "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares",
+  "storage-recordings", "storage-page"
 ];
 
 export function stepsFor(suite) {

@@ -1,0 +1,32 @@
+{
+  "format": "vsr-playback-2",
+  "producer": "vsr.playback.package_media_file",
+  "git": "ee8fb93e9c8945d6668911d694c3740ee2fb615a",
+  "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+  "source": "synthetic lavfi testsrc + sine, not a user recording",
+  "identity": "TEST-ONLY-identity.txt is a disposable fixture key, not a user secret",
+  "on_disk_manifest": "package/manifest.age",
+  "decrypted_manifest_from_load_manifest": "package/manifest.decrypted.json",
+  "placeholder_example_not_this_package": "contracts/vsr-playback-2.manifest.example.json",
+  "seek_0_objects": [
+    {
+      "role": "init",
+      "object_name": "09a4e1bd75d721c5cdf5df7675ae85f1437dde61fca37c6bc53803c9371ef61b.age",
+      "ciphertext_sha256": "09a4e1bd75d721c5cdf5df7675ae85f1437dde61fca37c6bc53803c9371ef61b"
+    },
+    {
+      "role": "media",
+      "object_name": "e47d88928371e165bac660d05f4395f2d0260715fa46c6f2531c39fb7318e4ee.age",
+      "ciphertext_sha256": "e47d88928371e165bac660d05f4395f2d0260715fa46c6f2531c39fb7318e4ee",
+      "index": 0
+    }
+  ],
+  "chunk_count": 3,
+  "vcodec": "h264",
+  "acodec": "aac",
+  "browser_append": [
+    "init",
+    "media"
+  ],
+  "independently_playable": false
+}

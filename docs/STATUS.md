@@ -20,7 +20,13 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
-**Current state.** Main includes #604, #608, #609, #611, #610, #607, #623 (`tiktok_auto_record`), #624 (`ai_tools`), #625 (`x_broadcast`), #626 (`ai_device_setup`), #627 (automatic updates), #628 (Auto model), #632 and #633 (the Pixel status-bar fixes). This branch adds a reading view for public article links (`article_reader`). Broadcasts, Auto model, automatic updates, device setup, the Pixel header fixes, and `ai_tools` stay as they are on main. Still parked: #571 custom-tab swipe. Voice-first accessibility stays last. X-style replies and quotes wait for the owner's go.
+**Current state.** Main includes #604, #608, #609, #611, #610, #607, #623 (`tiktok_auto_record`), #624 (`ai_tools`), #625 (`x_broadcast`), #626 (`ai_device_setup`), #627 (automatic updates), #628 (Auto model), #632 and #633 (the Pixel status-bar fixes). This branch adds Storage recordings (`storage_recordings`) on the existing Storage page. Broadcasts, Auto model, automatic updates, device setup, the Pixel header fixes, article reader, and `ai_tools` stay as they are on main. Still parked: #571 custom-tab swipe. Voice-first accessibility stays last. X-style replies and quotes wait for the owner's go.
+
+## Storage recordings
+
+The sidebar row stays the cloud icon and reads Storage. `#/drive` still opens `#/storage`. Recordings, provider rows and recorder status are inside that page. Vault stays separate. Files and photos are unchanged.
+
+An age identity (age-encryption 0.3.1) stays in the tab. It is not stored or sent. Playback is only a vsr-playback-2 package: `manifest.age` is decrypted first, `manifest.json` is ignored, and version 1 byte-chunk catalogs are refused. Seeking decrypts the init segment and the fragment for that time, then the player appends the init segment and that fragment. The codec is read from the file. Only H.264, with AAC-LC when the file has it, is offered to the browser. A single age file can be downloaded and is not played. No provider is connected from this page. Tests: `scripts/storage_recordings_test.mjs`, `scripts/storage_page_test.mjs`.
 
 ## Article reader
 

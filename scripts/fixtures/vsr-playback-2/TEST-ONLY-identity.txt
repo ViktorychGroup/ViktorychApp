@@ -1,0 +1,5 @@
+# TEST-ONLY FIXTURE. NOT A USER SECRET. NOT FOR PRODUCTION.
+# Generated in this export for interoperability. Discard after the app agent verifies decrypt.
+# Do not set this as a recorder identity and do not put the secret line in VSR_AGE_RECIPIENT.
+# public key: age12f8c063yclpdqxza7vryv40rcccvwqy2krl8mlhclaz76nn835gq09y9tx
+AGE-SECRET-KEY-1ZG6WR0JW75QU795R30DPLHUM2VYJDXMDH2G56QCLA7359HC9SD8QUZXSDE

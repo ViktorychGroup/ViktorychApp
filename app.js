@@ -2081,7 +2081,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2201,7 +2201,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       owner_user_settings: [tr("Manage member settings"), tr("In Accounts you can change a member's settings and lock them so they can't change them. Off gives every choice back to members.")],
       tiktok_auto_record: [tr("Automatic TikTok recorder"), tr("Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.")],
       x_broadcast: [tr("X broadcasts"), tr("Public X broadcasts play in the feed when a public stream is available. Otherwise the card opens the broadcast on X.")],
-      article_reader: [tr("Article reader"), tr("A reading view for public article links in posts. Off leaves those links opening on their own sites.")]
+      article_reader: [tr("Article reader"), tr("A reading view for public article links in posts. Off leaves those links opening on their own sites.")],
+      storage_recordings: [tr("Storage recordings"), tr("Encrypted recordings open on this device. The key stays in this tab. Off hides that part of Storage.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);

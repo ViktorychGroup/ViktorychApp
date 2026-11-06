@@ -116,7 +116,10 @@ export const FEATURES = {
   x_broadcast: { paths: ["/v1/x-broadcast"] },
   // Reading view for a public article link. On by default. Off: the endpoint
   // answers empty and clients do not offer Read.
-  article_reader: { paths: ["/v1/reader"] }
+  article_reader: { paths: ["/v1/reader"] },
+  // Encrypted recordings on the Storage page. Decryption stays in the tab.
+  // No server route and no stored identity. Off hides that part of Storage.
+  storage_recordings: { paths: [] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 

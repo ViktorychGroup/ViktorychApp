@@ -78,6 +78,8 @@ test("the owner can turn heavy features fully off", async () => {
   let pub = await call("/v1/features");
   assert.equal(pub.status, 200);
   assert.deepEqual(pub.body.off, ["nostr", "nft"], "Nostr and gift NFTs start off until the owner turns them on");
+  assert.equal(pub.body.features.includes("storage_recordings"), true);
+  assert.equal(pub.body.off.includes("storage_recordings"), false);
   assert.equal((await call("/v1/nft/config")).status, 204, "gift NFTs are off by default");
   assert.ok(pub.body.features.includes("nostr"));
   for (const path of ["/.well-known/nostr.json?name=member_test", "/v1/nostr/posts/" + "a".repeat(32)]) {

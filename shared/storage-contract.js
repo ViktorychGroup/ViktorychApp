@@ -1,0 +1,146 @@
+/* vsr-playback-2. Version 1 byte-chunk catalogs are withdrawn.
+   A playback manifest is accepted only after manifest.age has been
+   decrypted. manifest.json is not a manifest. The codec string is not
+   read from this JSON. */
+
+export const PLAYBACK_FORMAT = "vsr-playback-2";
+export const MEMORY_CAP = 8 * 1024 * 1024;
+export const DOWNLOAD_CAP = 32 * 1024 * 1024;
+export const SEGMENT_SLOTS = 2;
+export const MAX_FRAGMENTS = 4096;
+const SHA_RE = /^[a-f0-9]{64}$/;
+
+export function looksLikeIdentity(value) {
+  const text = String(value || "").replace(/\s+/g, "");
+  return text.startsWith("AGE-SECRET-KEY-1") || text.startsWith("AGE-SECRET-KEY-PQ-1");
+}
+
+export function shaName(sha) {
+  return String(sha || "").toLowerCase() + ".age";
+}
+
+export async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const view = new Uint8Array(digest);
+  let hex = "";
+  for (let i = 0; i < view.length; i++) hex += view[i].toString(16).padStart(2, "0");
+  return hex;
+}
+
+function cleanText(value, max) {
+  return String(value || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, max);
+}
+
+/* Plaintext JSON is never a playback package. Version 1 is withdrawn. */
+export function parsePlainCatalog(value) {
+  let data = value;
+  if (typeof value === "string") {
+    try { data = JSON.parse(value); } catch (err) { return { error: "withdrawn" }; }
+  }
+  if (!data || typeof data !== "object") return { error: "withdrawn" };
+  return { error: "withdrawn" };
+}
+
+function shaOk(value) {
+  return SHA_RE.test(String(value || "").toLowerCase());
+}
+
+function objectPart(raw, role) {
+  if (!raw || typeof raw !== "object" || raw.role !== role) return null;
+  const sha = String(raw.ciphertext_sha256 || "").toLowerCase();
+  const name = String(raw.object_name || "");
+  if (!shaOk(sha) || name !== sha + ".age") return null;
+  const cipherBytes = Number(raw.ciphertext_bytes);
+  const plainBytes = Number(raw.plaintext_bytes);
+  if (!Number.isInteger(cipherBytes) || cipherBytes < 0 || !Number.isInteger(plainBytes) || plainBytes < 0) return null;
+  return { sha256: sha, objectName: name, ciphertextBytes: cipherBytes, plaintextBytes: plainBytes };
+}
+
+/* Accepts only the decrypted vsr-playback-2 document. codecs_parameter is ignored. */
+export function parsePlaybackManifest(value, opts) {
+  if (!opts || opts.authenticated !== true) return { error: "unauthenticated" };
+  let data = value;
+  if (typeof value === "string") {
+    try { data = JSON.parse(value); } catch (err) { return { error: "manifest" }; }
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return { error: "manifest" };
+  if (data.v === 1 || data.kind === "age-byte-chunks" || data.kind === "age-file" || data.kind === "age-media-segments" || data.format === "vsr-playback-1") {
+    return { error: "withdrawn" };
+  }
+  if (data.format !== PLAYBACK_FORMAT) return { error: "manifest" };
+  if (data.encryption !== "age-chunk-v1" || data.container !== "fmp4" || data.segment_model !== "init-plus-media") return { error: "manifest" };
+  if (data.authenticated_by !== "age" || data.age_byte_range !== false || data.backup !== "whole_file_age_unchanged") return { error: "manifest" };
+  const cap = data.capability;
+  if (!cap || cap.media_independently_playable !== false || cap.lossy_transcode !== false || cap.age_byte_range !== false || cap.mime !== "video/mp4") {
+    return { error: "manifest" };
+  }
+  const init = objectPart(data.init, "init");
+  if (!init) return { error: "manifest" };
+  if (!Array.isArray(data.chunks) || data.chunks.length < 1 || data.chunks.length > MAX_FRAGMENTS) return { error: "manifest" };
+  const chunks = [];
+  let cursor = 0;
+  for (let i = 0; i < data.chunks.length; i++) {
+    const raw = data.chunks[i];
+    const part = objectPart(raw, "media");
+    if (!part || raw.independently_playable !== false || raw.requires_init !== true) return { error: "manifest" };
+    if (raw.index !== i) return { error: "manifest" };
+    const duration = Number(raw.duration_ms);
+    if (!Number.isInteger(duration) || duration <= 0) return { error: "manifest" };
+    chunks.push({
+      index: i,
+      sha256: part.sha256,
+      objectName: part.objectName,
+      ciphertextBytes: part.ciphertextBytes,
+      plaintextBytes: part.plaintextBytes,
+      durationMs: duration,
+      startMs: cursor,
+      requiresInit: true,
+      independentlyPlayable: false
+    });
+    cursor += duration;
+  }
+  const marked = cap.browser_mse_likely === true && data.vcodec === "h264" && data.acodec === "aac";
+  return {
+    manifest: {
+      format: PLAYBACK_FORMAT,
+      vcodec: data.vcodec,
+      acodec: data.acodec,
+      containerMime: "video/mp4",
+      markedLikely: marked,
+      init: init,
+      chunks: chunks,
+      durationMs: cursor,
+      title: cleanText(data.title, 180),
+      legacy: false,
+      likely: false,
+      mime: ""
+    }
+  };
+}
+
+export function fragmentForTime(manifest, timeSeconds) {
+  const rows = manifest && manifest.chunks || [];
+  if (!rows.length) return null;
+  const at = Math.round((Number(timeSeconds) || 0) * 1000);
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (at >= row.startMs && at < row.startMs + row.durationMs) return row;
+  }
+  return rows[rows.length - 1];
+}
+
+export function durationOf(manifest) {
+  return ((manifest && manifest.durationMs) || 0) / 1000;
+}
+
+export function playbackPlan(manifest, isTypeSupported) {
+  if (!manifest) return { mode: "none", playable: false, reason: "none", mime: "" };
+  if (manifest.legacy) return { mode: "legacy", playable: false, reason: "whole-file", mime: "" };
+  if (manifest.format !== PLAYBACK_FORMAT) return { mode: "unsupported", playable: false, reason: "manifest", mime: "" };
+  const mime = manifest.mime || "";
+  if (!manifest.markedLikely || !manifest.likely || !mime) return { mode: "unsupported", playable: false, reason: "codec", mime: mime };
+  let supported = false;
+  try { supported = typeof isTypeSupported === "function" && !!isTypeSupported(mime); } catch (err) { supported = false; }
+  if (!supported) return { mode: "unsupported", playable: false, reason: "codec", mime: mime };
+  return { mode: "mse", playable: true, reason: "fragments", mime: mime, slots: SEGMENT_SLOTS };
+}
