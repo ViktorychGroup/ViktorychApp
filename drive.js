@@ -49,13 +49,19 @@ var state = {
   note: "",
   busy: false,
   route: { trash: false, folder: "" },
-  routeKey: ""
+  routeKey: "",
+  sort: { field: "name", dir: "asc" }
 };
 
 try {
   var savedView = localStorage.getItem("viktorych-drive-layout");
   if (savedView === "list" || savedView === "grid") state.view = savedView;
-} catch (err) { /* the default grid stays */ }
+  var savedSort = String(localStorage.getItem("viktorych-drive-sort") || "");
+  var sortBits = savedSort.split(":");
+  if ((sortBits[0] === "name" || sortBits[0] === "size" || sortBits[0] === "modified") && (sortBits[1] === "asc" || sortBits[1] === "desc")) {
+    state.sort = { field: sortBits[0], dir: sortBits[1] };
+  }
+} catch (err) { /* the default name order stays */ }
 
 function tr(key, vars) {
   return window.t ? window.t(key, vars) : key;
@@ -185,11 +191,40 @@ function visibleItems() {
     if (trash) return trashRoot(item);
     return (item.parentId || "") === folder;
   });
+  var field = state.sort && state.sort.field || "name";
+  var dir = state.sort && state.sort.dir === "desc" ? -1 : 1;
   rows.sort(function (a, b) {
     if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
-    return String(a.meta.name || "").localeCompare(String(b.meta.name || ""));
+    var av;
+    var bv;
+    if (field === "size") {
+      av = Number(a.meta && a.meta.size) || 0;
+      bv = Number(b.meta && b.meta.size) || 0;
+    } else if (field === "modified") {
+      av = itemTime(a);
+      bv = itemTime(b);
+    } else {
+      av = String(a.meta && a.meta.name || "").toLowerCase();
+      bv = String(b.meta && b.meta.name || "").toLowerCase();
+    }
+    var cmp = av < bv ? -1 : (av > bv ? 1 : 0);
+    if (!cmp) cmp = String(a.meta && a.meta.name || "").toLowerCase().localeCompare(String(b.meta && b.meta.name || "").toLowerCase());
+    return cmp * dir;
   });
   return rows;
+}
+function itemTime(item) {
+  return Number(item.updatedAt || item.createdAt || (item.meta && item.meta.created)) || 0;
+}
+function itemStamp(item) {
+  var when = itemTime(item);
+  if (when < 100000000000) return "";
+  try { return new Date(when).toLocaleDateString(lang(), { month: "short", day: "numeric", year: "numeric" }); }
+  catch (err) { return ""; }
+}
+function sizeLabel(item) {
+  if (item.kind === "folder") return tr("Folder");
+  return formatSize(item.meta && item.meta.size);
 }
 function section() {
   return state.route && state.route.section === "photos" ? "photos" : "files";
@@ -375,6 +410,8 @@ async function openRow(row) {
     meta: meta,
     chunks: row.chunks || [],
     deletedAt: row.deletedAt || 0,
+    createdAt: Number(row.createdAt) || Number(meta && meta.created) || 0,
+    updatedAt: Number(row.updatedAt) || Number(row.createdAt) || Number(meta && meta.created) || 0,
     key: key,
     thumbUrl: thumbUrl
   };
@@ -418,15 +455,27 @@ function previewShot(id, name, mime, size, month, day, favorite, albums, sky, hi
     thumbUrl: colorThumb(sky, hill)
   };
 }
+function previewAt(month, day) {
+  return Date.UTC(2026, month - 1, day, 15, 4);
+}
+function previewFile(id, name, mime, size, month, day, parentId) {
+  var when = previewAt(month, day);
+  return { id: id, parentId: parentId || "", kind: "file", meta: { name: name, mime: mime, size: size, created: when }, chunks: [{ index: 0, size: 1, iv: "" }], deletedAt: 0, createdAt: when, updatedAt: when, thumbUrl: "" };
+}
 function previewItems() {
   var thumb = sampleThumb();
+  var shore = previewFile("previewfile000001", "Shore.jpg", "image/jpeg", 2400000, 10, 22);
+  shore.thumbUrl = thumb;
   return [
-    { id: "previewfolder0001", parentId: "", kind: "folder", meta: { name: "Maps", mime: "folder", size: 0, created: 1 }, chunks: [], deletedAt: 0, thumbUrl: "" },
-    { id: "previewfile000001", parentId: "", kind: "file", meta: { name: "Shore.jpg", mime: "image/jpeg", size: 2400000, created: 2 }, chunks: [{ index: 0, size: 1, iv: "" }], deletedAt: 0, thumbUrl: thumb },
-    { id: "previewfile000002", parentId: "", kind: "file", meta: { name: "Brief.pdf", mime: "application/pdf", size: 840000, created: 3 }, chunks: [{ index: 0, size: 1, iv: "" }], deletedAt: 0, thumbUrl: "" },
-    { id: "previewfile000003", parentId: "", kind: "file", meta: { name: "Clip.mp4", mime: "video/mp4", size: 18000000, created: 4 }, chunks: [{ index: 0, size: 1, iv: "" }], deletedAt: 0, thumbUrl: "" },
-    { id: "previewfile000004", parentId: "", kind: "file", meta: { name: "Voice.m4a", mime: "audio/mp4", size: 1600000, created: 5 }, chunks: [{ index: 0, size: 1, iv: "" }], deletedAt: 0, thumbUrl: "" },
-    { id: "previewfile000005", parentId: "", kind: "file", meta: { name: "Notes.txt", mime: "text/plain", size: 4096, created: 6 }, chunks: [{ index: 0, size: 1, iv: "" }], deletedAt: 0, thumbUrl: "" },
+    { id: "previewfolder0001", parentId: "", kind: "folder", meta: { name: "Maps", mime: "folder", size: 0, created: previewAt(10, 2) }, chunks: [], deletedAt: 0, createdAt: previewAt(10, 2), updatedAt: previewAt(10, 2), thumbUrl: "" },
+    { id: "previewfolder0002", parentId: "previewfolder0001", kind: "folder", meta: { name: "Coast", mime: "folder", size: 0, created: previewAt(10, 20) }, chunks: [], deletedAt: 0, createdAt: previewAt(10, 20), updatedAt: previewAt(10, 20), thumbUrl: "" },
+    shore,
+    previewFile("previewfile000002", "Brief.pdf", "application/pdf", 840000, 10, 11),
+    previewFile("previewfile000003", "Clip.mp4", "video/mp4", 18000000, 10, 18),
+    previewFile("previewfile000004", "Voice.m4a", "audio/mp4", 1600000, 9, 2),
+    previewFile("previewfile000005", "Notes.txt", "text/plain", 4096, 8, 14),
+    previewFile("previewfile000006", "Legend.pdf", "application/pdf", 120000, 10, 21, "previewfolder0001"),
+    { id: "previewtrash00001", parentId: "", kind: "file", meta: { name: "Old.txt", mime: "text/plain", size: 128, created: previewAt(9, 1) }, chunks: [{ index: 0, size: 1, iv: "" }], deletedAt: previewAt(10, 1), createdAt: previewAt(9, 1), updatedAt: previewAt(10, 1), thumbUrl: "" },
     previewShot("previewphoto00001", "Shore.jpg", "image/jpeg", 2400000, 10, 22, true, ["previewalbum00001"], "#7eb6d9", "#2f6b4f"),
     previewShot("previewphoto00002", "Market.jpg", "image/jpeg", 3100000, 10, 22, false, [], "#d98a4a", "#6b4a2f"),
     previewShot("previewphoto00003", "Clip.mp4", "video/mp4", 18000000, 10, 18, false, [], "#1d3a5f", "#3d7a5a"),
@@ -914,11 +963,15 @@ function itemMeta(item) {
   var need = partCount(item.meta && item.meta.size);
   if (item.kind === "file" && (item.chunks || []).length < need) return esc(tr("Upload did not finish."));
   if (item.kind === "folder") return esc(tr("Folder"));
-  return esc(formatSize(item.meta && item.meta.size));
+  var when = itemStamp(item);
+  var size = formatSize(item.meta && item.meta.size);
+  return esc(when ? size + " · " + when : size);
 }
 function itemOpen(item) {
   var name = esc(item.meta && item.meta.name || tr("File"));
-  var inner = itemFace(item) + '<span class="drive-copy"><span class="drive-name">' + name + '</span><span class="drive-meta">' + itemMeta(item) + "</span></span>";
+  var unfinished = item.kind === "file" && (item.chunks || []).length < partCount(item.meta && item.meta.size);
+  var meta = state.view === "list" ? (unfinished ? esc(tr("Upload did not finish.")) : "") : itemMeta(item);
+  var inner = itemFace(item) + '<span class="drive-copy"><span class="drive-name">' + name + "</span>" + (meta ? '<span class="drive-meta">' + meta + "</span>" : "") + "</span>";
   if (item.kind === "folder" && !(state.route && state.route.trash)) {
     return '<a class="drive-open" href="#/storage/folder/' + encodeURIComponent(item.id) + '" data-act="stop">' + inner + "</a>";
   }
@@ -926,8 +979,104 @@ function itemOpen(item) {
 }
 function itemCard(item) {
   var more = '<button class="icon-btn drive-more" type="button" data-act="stop" data-drive="menu" data-id="' + esc(item.id) + '" aria-label="' + esc(tr("More")) + '">' + svg(ICO.more) + "</button>";
-  if (state.view === "list") return '<div class="drive-row" data-drive-name="' + esc(item.meta.name || "") + '">' + itemOpen(item) + more + "</div>";
+  if (state.view === "list") {
+    return '<div class="drive-row" data-drive-name="' + esc(item.meta.name || "") + '">' + itemOpen(item) +
+      '<span class="drive-col drive-col-size">' + esc(sizeLabel(item)) + "</span>" +
+      '<span class="drive-col drive-col-when">' + esc(itemStamp(item)) + "</span>" + more + "</div>";
+  }
   return '<div class="drive-card" data-drive-name="' + esc(item.meta.name || "") + '">' + itemOpen(item) + more + "</div>";
+}
+function childFolders(parent) {
+  return state.items.filter(function (item) {
+    return item.kind === "folder" && !Number(item.deletedAt) && (item.parentId || "") === (parent || "");
+  }).sort(function (a, b) {
+    return String(a.meta && a.meta.name || "").localeCompare(String(b.meta && b.meta.name || ""));
+  });
+}
+function placeItem(href, label, on, act) {
+  var cls = "drive-place" + (on ? " on" : "");
+  if (act) return '<button class="' + cls + '" type="button" data-act="stop" data-drive="' + act + '">' + esc(label) + "</button>";
+  return '<a class="' + cls + '" href="' + href + '" data-act="stop">' + esc(label) + "</a>";
+}
+function treeItem(href, label, on, depth, icon, act) {
+  var cls = "drive-tree-row" + (on ? " on" : "");
+  var pad = ' style="--depth:' + String(depth || 0) + '"';
+  var inner = (icon ? svg(icon) : "") + '<span class="drive-tree-name">' + esc(label) + "</span>";
+  if (act) return '<button class="' + cls + '" type="button" data-act="stop" data-drive="' + act + '"' + pad + ">" + inner + "</button>";
+  return '<a class="' + cls + '" href="' + href + '" data-act="stop"' + pad + ">" + inner + "</a>";
+}
+function placesHtml(showRec) {
+  if (section() === "photos") return "";
+  var trash = !!(state.route && state.route.trash);
+  var folder = (!trash && state.route && state.route.folder) || "";
+  var html = placeItem("#/storage", tr("My Drive"), !trash && !folder, "");
+  childFolders(folder).forEach(function (item) {
+    html += placeItem("#/storage/folder/" + encodeURIComponent(item.id), item.meta.name || tr("Folder"), false, "");
+  });
+  html += placeItem("#/storage/trash", tr("Trash"), trash, "");
+  if (showRec) html += placeItem("", tr("Recordings"), false, "show-recordings");
+  return '<nav class="drive-places" aria-label="' + esc(tr("Folders")) + '">' + html + "</nav>";
+}
+function treeHtml(showRec) {
+  if (section() === "photos") return "";
+  var trash = !!(state.route && state.route.trash);
+  var current = (!trash && state.route && state.route.folder) || "";
+  function walk(parent, depth) {
+    return childFolders(parent).map(function (item) {
+      var href = "#/storage/folder/" + encodeURIComponent(item.id);
+      return treeItem(href, item.meta.name || tr("Folder"), item.id === current, depth, ICO.folder, "") + walk(item.id, depth + 1);
+    }).join("");
+  }
+  return '<nav class="drive-tree" aria-label="' + esc(tr("Folders")) + '">' +
+    treeItem("#/storage", tr("My Drive"), !trash && !current, 0, "", "") +
+    walk("", 1) +
+    treeItem("#/storage/trash", tr("Trash"), trash, 0, ICO.trash, "") +
+    (showRec ? treeItem("", tr("Recordings"), false, 0, "", "show-recordings") : "") +
+    "</nav>";
+}
+function crumbSep() {
+  return '<span class="drive-sep" aria-hidden="true">' + svg(ICO.chevR) + "</span>";
+}
+function crumbLink(href, label, current) {
+  if (current) return '<span class="here" aria-current="page">' + esc(label) + "</span>";
+  return '<a href="' + href + '" data-act="stop">' + esc(label) + "</a>";
+}
+function crumbsHtml() {
+  var parts = [];
+  if (section() === "photos") {
+    if (photoView() !== "album") return "";
+    var album = byId(state.route && state.route.album);
+    var albumName = (album && album.meta && album.meta.name) || tr("Album");
+    parts = [crumbLink("#/storage/photos", tr("Photos"), false), crumbSep(), crumbLink("#/storage/photos/albums", tr("Albums"), false), crumbSep(), crumbLink("", albumName, true)];
+  } else if (state.route && state.route.trash) {
+    parts = [crumbLink("#/storage", tr("brand.storage"), false), crumbSep(), crumbLink("", tr("Trash"), true)];
+  } else {
+    var chain = crumbs();
+    parts = [crumbLink("#/storage", tr("brand.storage"), !chain.length)];
+    chain.forEach(function (row, index) {
+      var last = index === chain.length - 1;
+      parts.push(crumbSep());
+      parts.push(crumbLink("#/storage/folder/" + encodeURIComponent(row.id), row.meta.name || tr("Folder"), last));
+    });
+  }
+  return '<nav class="drive-crumbs" aria-label="' + esc(tr("Folder path")) + '">' + parts.join("") + "</nav>";
+}
+function sortMark(field) {
+  if (!state.sort || state.sort.field !== field) return "";
+  return state.sort.dir === "desc" ? " ↓" : " ↑";
+}
+function sortBtn(field, label, aria) {
+  var on = state.sort && state.sort.field === field;
+  var dir = on ? (state.sort.dir === "desc" ? "descending" : "ascending") : "none";
+  var extra = field === "modified" ? " drive-col-when" : "";
+  return '<button class="drive-sort' + extra + '" type="button" role="columnheader" data-act="stop" data-drive="sort" data-sort="' + field + '" aria-label="' + esc(aria) + '" aria-sort="' + dir + '">' + esc(label) + '<span aria-hidden="true">' + sortMark(field) + "</span></button>";
+}
+function colsHtml() {
+  return '<div class="drive-cols" data-sort-field="' + esc(state.sort.field) + '" data-sort-dir="' + esc(state.sort.dir) + '">' +
+    sortBtn("name", tr("Name"), tr("Sort by name")) +
+    sortBtn("size", tr("Size"), tr("Sort by size")) +
+    sortBtn("modified", tr("Modified"), tr("Sort by date modified")) +
+    '<span class="drive-col-more"></span></div>';
 }
 function folderChoices(item) {
   var blocked = {};
@@ -1147,7 +1296,7 @@ function transferHtml() {
 }
 function photosReady() {
   var body = photoView() === "albums" ? albumCards() : timelineHtml(libraryPhotos());
-  return warnBlock() + photoTools() +
+  return warnBlock() + crumbsHtml() + photoTools() +
     '<p class="drive-note">' + esc(tr("Originals stay at full quality.")) + " " + esc(tr("Thumbnails leave out location.")) + "</p>" +
     (state.note ? '<p class="drive-note">' + esc(state.note) + "</p>" : "") +
     (state.error ? '<p class="drive-error" style="padding:0 16px">' + esc(state.error) + "</p>" : "") +
@@ -1204,22 +1353,29 @@ function recordingsHere() {
   if (state.route && state.route.folder) return false;
   return true;
 }
+function fileBar() {
+  var busy = state.busy ? " disabled" : "";
+  return '<div class="drive-bar"><button class="save" type="button" data-act="stop" data-drive="pick"' + busy + ">" + esc(tr("Upload files")) + '</button><button class="outline" type="button" data-act="stop" data-drive="ask-folder"' + busy + ">" + esc(tr("New folder")) + '</button><label class="drive-search">' + svg(ICO.search) + '<input id="drive-q" type="search" value="' + esc(state.query) + '" placeholder="' + esc(tr("Search by name")) + '" aria-label="' + esc(tr("Search by name")) + '"></label><div class="drive-views"><button class="icon-btn' + (state.view === "grid" ? " on" : "") + '" type="button" data-act="stop" data-drive="grid" aria-label="' + esc(tr("Grid view")) + '">' + svg(ICO.grid) + '</button><button class="icon-btn' + (state.view === "list" ? " on" : "") + '" type="button" data-act="stop" data-drive="list" aria-label="' + esc(tr("List view")) + '">' + svg(ICO.rows) + '</button></div><span class="drive-used">' + esc(tr("Storage used {size}", { size: formatSize(state.stored) })) + "</span></div>";
+}
 function readyHtml() {
   if (section() === "photos" && !(state.route && state.route.trash)) return photosReady();
   var rows = visibleItems();
   var empty = state.route && state.route.trash ? tr("The trash is empty.") : (state.query.trim() ? tr("No matching files.") : tr("This folder is empty."));
-  var body = rows.length ? '<div class="' + (state.view === "list" ? "drive-list" : "drive-grid") + '">' + rows.map(itemCard).join("") + "</div>" : '<div class="drive-empty"><h2>' + esc(empty) + "</h2></div>";
+  var list = state.view === "list";
+  var body = rows.length ? '<div class="' + (list ? "drive-list" : "drive-grid") + '" data-view="' + (list ? "list" : "grid") + '">' + (list ? colsHtml() : "") + rows.map(itemCard).join("") + "</div>" : '<div class="drive-empty"><h2>' + esc(empty) + "</h2></div>";
   var transfer = "";
   if (state.transfer) {
     var pct = state.transfer.total ? Math.max(4, Math.round(100 * state.transfer.done / state.transfer.total)) : 4;
     var label = state.transfer.kind === "download" ? tr("Downloading {name}", { name: state.transfer.name }) : state.transfer.kind === "backup" ? tr("Backing up {name}", { name: state.transfer.name }) : tr("Uploading {name}", { name: state.transfer.name });
     transfer = '<div class="drive-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><p>' + esc(label) + '</p><div class="drive-progress-bar"><i style="width:' + pct + '%"></i></div></div>';
   }
-  return (recordingsHere() ? recordingsHtml(state.mode, previewOn()) : "") + warnBlock() +
-    '<div class="drive-bar"><button class="save" type="button" data-act="stop" data-drive="pick"' + (state.busy ? " disabled" : "") + ">" + esc(tr("Upload files")) + '</button><button class="outline" type="button" data-act="stop" data-drive="ask-folder"' + (state.busy ? " disabled" : "") + ">" + esc(tr("New folder")) + '</button><label class="drive-search">' + svg(ICO.search) + '<input id="drive-q" type="search" value="' + esc(state.query) + '" placeholder="' + esc(tr("Search by name")) + '" aria-label="' + esc(tr("Search by name")) + '"></label><div class="drive-views"><button class="icon-btn' + (state.view === "grid" ? " on" : "") + '" type="button" data-act="stop" data-drive="grid" aria-label="' + esc(tr("Grid view")) + '">' + svg(ICO.grid) + '</button><button class="icon-btn' + (state.view === "list" ? " on" : "") + '" type="button" data-act="stop" data-drive="list" aria-label="' + esc(tr("List view")) + '">' + svg(ICO.rows) + '</button></div><a class="outline" href="' + ((state.route && state.route.trash) ? "#/storage" : "#/storage/trash") + '" data-act="stop">' + esc((state.route && state.route.trash) ? tr("Back to Drive") : tr("Trash")) + '</a><span class="drive-used">' + esc(tr("Storage used {size}", { size: formatSize(state.stored) })) + "</span></div>" +
+  var rec = recordingsHere() ? recordingsHtml(state.mode, previewOn()) : "";
+  return warnBlock() +
+    '<div class="drive-layout">' + treeHtml(!!rec) +
+    '<div class="drive-main">' + placesHtml(!!rec) + crumbsHtml() + fileBar() +
     (state.error ? '<p class="drive-error" style="padding:0 16px">' + esc(state.error) + "</p>" : "") +
     '<input id="drive-file" type="file" multiple hidden>' +
-    '<div class="drive-drop">' + body + "</div>" + transfer + dialogHtml();
+    '<div class="drive-drop">' + body + "</div></div></div>" + transfer + dialogHtml() + rec;
 }
 function tabLink(href, on, label) {
   return '<a class="tab' + (on ? " on" : "") + '" href="' + href + '" role="tab" data-act="stop" aria-selected="' + (on ? "true" : "false") + '"><span>' + esc(label) + "</span></a>";
@@ -1338,6 +1494,20 @@ function bind(root) {
       state.view = act;
       try { localStorage.setItem("viktorych-drive-layout", act); } catch (err) { /* keep it for this visit */ }
       paint();
+      return;
+    }
+    if (act === "sort") {
+      var field = el.getAttribute("data-sort") || "name";
+      if (field !== "name" && field !== "size" && field !== "modified") field = "name";
+      if (state.sort.field === field) state.sort.dir = state.sort.dir === "asc" ? "desc" : "asc";
+      else state.sort = { field: field, dir: field === "name" ? "asc" : "desc" };
+      try { localStorage.setItem("viktorych-drive-sort", state.sort.field + ":" + state.sort.dir); } catch (err) { /* this visit still sorts */ }
+      paint();
+      return;
+    }
+    if (act === "show-recordings") {
+      var rec = document.getElementById("rec-root");
+      if (rec && rec.scrollIntoView) rec.scrollIntoView({ block: "start" });
       return;
     }
     if (act === "lock") {
@@ -1503,6 +1673,17 @@ function bind(root) {
       else uploadFiles(event.dataTransfer.files);
     }
   });
+  root.addEventListener("contextmenu", function (event) {
+    var card = event.target.closest(".drive-row, .drive-card");
+    if (!card || !root.contains(card) || state.mode !== "ready") return;
+    var opener = card.querySelector("[data-id]");
+    var id = opener ? opener.getAttribute("data-id") : "";
+    if (!id || !byId(id)) return;
+    event.preventDefault();
+    state.dialog = null;
+    state.menu = id;
+    paint();
+  });
   root.addEventListener("click", function (event) {
     var jump = event.target.closest("[data-photo-jump]");
     if (!jump || !root.contains(jump)) return;
@@ -1640,6 +1821,8 @@ function mount(route) {
   root.dataset.bound = "1";
   bind(root);
   bindRecordings(root);
+  var path = root.querySelector(".drive-crumbs");
+  if (path) path.scrollLeft = path.scrollWidth;
   var box = document.getElementById("drive-q");
   if (box && document.activeElement && document.activeElement.id === "drive-q") {
     var n = box.value.length;

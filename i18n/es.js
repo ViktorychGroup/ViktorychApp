@@ -6400,5 +6400,10 @@ SI18n.addPack("es", {
   "Catalog": "Catálogo",
   "Needed": "Hace falta",
   "Provider": "Proveedor",
-  "This package names Telegram getFile. This page does not download it.": "Este paquete nombra Telegram getFile. Esta página no lo descarga."
+  "This package names Telegram getFile. This page does not download it.": "Este paquete nombra Telegram getFile. Esta página no lo descarga.",
+  "Modified": "Modificado",
+  "Folder path": "Ruta de la carpeta",
+  "Folders": "Carpetas",
+  "Sort by size": "Ordenar por tamaño",
+  "Sort by date modified": "Ordenar por fecha de modificación"
 });

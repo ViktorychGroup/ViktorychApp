@@ -6399,5 +6399,10 @@ SI18n.addPack("ru", {
   "Catalog": "Каталог",
   "Needed": "Нужен",
   "Provider": "Провайдер",
-  "This package names Telegram getFile. This page does not download it.": "В этом пакете указан Telegram getFile. Эта страница его не скачивает."
+  "This package names Telegram getFile. This page does not download it.": "В этом пакете указан Telegram getFile. Эта страница его не скачивает.",
+  "Modified": "Изменён",
+  "Folder path": "Путь к папке",
+  "Folders": "Папки",
+  "Sort by size": "Сортировать по размеру",
+  "Sort by date modified": "Сортировать по дате изменения"
 });

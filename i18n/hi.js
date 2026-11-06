@@ -6387,5 +6387,10 @@ SI18n.addPack("hi", {
   "Catalog": "सूची",
   "Needed": "चाहिए",
   "Provider": "प्रदाता",
-  "This package names Telegram getFile. This page does not download it.": "इस पैकेज में Telegram getFile लिखा है। यह पेज उसे डाउनलोड नहीं करता।"
+  "This package names Telegram getFile. This page does not download it.": "इस पैकेज में Telegram getFile लिखा है। यह पेज उसे डाउनलोड नहीं करता।",
+  "Modified": "बदला गया",
+  "Folder path": "फ़ोल्डर का पथ",
+  "Folders": "फ़ोल्डर",
+  "Sort by size": "आकार से क्रम",
+  "Sort by date modified": "बदलाव की तिथि से क्रम"
 });
