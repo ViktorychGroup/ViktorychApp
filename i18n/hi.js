@@ -6382,5 +6382,10 @@ SI18n.addPack("hi", {
   "This age file can only be downloaded.": "यह age फ़ाइल केवल डाउनलोड हो सकती है।",
   "No provider is connected from this page.": "इस पेज से कोई प्रदाता जुड़ा नहीं है।",
   "Playback uses the init segment and one fragment.": "चलाने के लिए आरंभिक खंड और एक टुकड़ा चाहिए।",
-  "The pieces in this package cannot be played.": "इस पैकेज के टुकड़े नहीं चलाए जा सकते।"
+  "The pieces in this package cannot be played.": "इस पैकेज के टुकड़े नहीं चलाए जा सकते।",
+  "Backup recipient": "बैकअप प्राप्तकर्ता",
+  "Catalog": "सूची",
+  "Needed": "चाहिए",
+  "Provider": "प्रदाता",
+  "This package names Telegram getFile. This page does not download it.": "इस पैकेज में Telegram getFile लिखा है। यह पेज उसे डाउनलोड नहीं करता।"
 });

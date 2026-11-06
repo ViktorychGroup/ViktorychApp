@@ -6,12 +6,15 @@ import path from "node:path";
 import { createContext, runInContext } from "node:vm";
 import { fileURLToPath } from "node:url";
 import {
+  BACKUP_RECIPIENT,
   PLAYBACK_FORMAT,
   fragmentForTime,
   looksLikeIdentity,
+  looksLikeRecipient,
   parsePlainCatalog,
   parsePlaybackManifest,
-  playbackPlan
+  playbackPlan,
+  storageReadiness
 } from "../shared/storage-contract.js";
 import { decryptBytes, encryptBytes } from "../shared/storage-age.js";
 import { audioKind, avc1Codec, classifyMp4, likelyMime } from "../shared/storage-mp4.js";
@@ -43,9 +46,25 @@ function testIdentity() {
 const age = loadAge();
 const identity = testIdentity();
 assert.equal(looksLikeIdentity(identity), true);
+assert.equal(looksLikeRecipient(BACKUP_RECIPIENT), true);
+assert.equal(looksLikeRecipient(identity), false);
+assert.equal(looksLikeIdentity(BACKUP_RECIPIENT), false);
+const ready = storageReadiness({ identityHeld: false, telegramGetFile: true });
+assert.equal(ready.recipient.state, "ready");
+assert.equal(ready.recipient.value, BACKUP_RECIPIENT);
+assert.equal(ready.identity.state, "needed");
+assert.equal(ready.recorder.state, "unlinked");
+assert.equal(ready.catalog.state, "local");
+assert.equal(ready.catalog.telegramGetFile, true);
+assert.equal(ready.provider.state, "absent");
+assert.equal(storageReadiness({ identityHeld: true }).identity.state, "ready");
 const other = await age.generateX25519Identity();
 const recipient = await age.identityToRecipient(identity);
 const plain = new TextEncoder().encode("hello storage");
+const forOwner = await encryptBytes(age, BACKUP_RECIPIENT, plain);
+let ownerKey = "";
+try { await decryptBytes(age, identity, forOwner); } catch (err) { ownerKey = "key"; }
+assert.equal(ownerKey, "key");
 const cipher = await encryptBytes(age, recipient, plain);
 assert.equal(new TextDecoder().decode(await decryptBytes(age, identity, cipher)), "hello storage");
 let wrong = "";
@@ -72,6 +91,10 @@ assert.equal(fragmentForTime(parsed.manifest, 1.5).index, 1);
 assert.equal(fragmentForTime(parsed.manifest, 2).index, 2);
 assert.equal(fragmentForTime(parsed.manifest, 2.2).index, 2);
 assert.equal(parsed.manifest.markedLikely, true);
+assert.equal(parsed.manifest.telegramGetFile, true);
+const badFlag = JSON.parse(decrypted);
+badFlag.chunks[1].telegram_getfile = "yes";
+assert.equal(parsePlaybackManifest(badFlag, { authenticated: true }).error, "manifest");
 assert.equal(parsed.manifest.init.objectName, parsed.manifest.init.sha256 + ".age");
 const example = parsePlaybackManifest(fs.readFileSync(path.join(fix, "contracts/vsr-playback-2.manifest.example.json"), "utf8"), { authenticated: true });
 assert.equal(example.manifest.format, PLAYBACK_FORMAT);
@@ -108,7 +131,8 @@ assert.equal(playbackPlan(parsed.manifest, () => true).mode, "unsupported");
 
 const ui = fs.readFileSync(path.join(root, "storage-recordings.js"), "utf8");
 assert.equal(ui.includes("manifest.json"), true);
-assert.equal(ui.includes("telegram"), false);
+assert.equal(/api\.telegram|telegram\.org/.test(ui), false);
+assert.equal(ui.includes("fetch("), false);
 assert.equal(ui.includes("codecs_parameter"), false);
 
 console.log("storage recordings ok");

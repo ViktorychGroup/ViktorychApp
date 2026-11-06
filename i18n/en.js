@@ -6392,5 +6392,10 @@ SI18n.addPack("en", {
   "This age file can only be downloaded.": "This age file can only be downloaded.",
   "No provider is connected from this page.": "No provider is connected from this page.",
   "Playback uses the init segment and one fragment.": "Playback uses the init segment and one fragment.",
-  "The pieces in this package cannot be played.": "The pieces in this package cannot be played."
+  "The pieces in this package cannot be played.": "The pieces in this package cannot be played.",
+  "Backup recipient": "Backup recipient",
+  "Catalog": "Catalog",
+  "Needed": "Needed",
+  "Provider": "Provider",
+  "This package names Telegram getFile. This page does not download it.": "This package names Telegram getFile. This page does not download it."
 });

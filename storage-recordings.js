@@ -3,6 +3,7 @@
    only: decrypt manifest.age, then the init segment and the fragment for
    the current time. A whole age file is a download. manifest.json is ignored. */
 import {
+  BACKUP_RECIPIENT,
   DOWNLOAD_CAP,
   MEMORY_CAP,
   SEGMENT_SLOTS,
@@ -12,7 +13,8 @@ import {
   parsePlainCatalog,
   parsePlaybackManifest,
   playbackPlan,
-  sha256Hex
+  sha256Hex,
+  storageReadiness
 } from "./shared/storage-contract.js";
 import { decryptBytes } from "./shared/storage-age.js";
 import { classifyMp4, likelyMime } from "./shared/storage-mp4.js";
@@ -135,10 +137,18 @@ function noteText() {
   return "";
 }
 
+function readyRow(name, state, label, value) {
+  return '<div class="rec-row" data-ready="' + esc(name) + '" data-ready-state="' + esc(state) + '"><b>' + esc(label) + '</b><span>' + esc(value) + "</span></div>";
+}
 export function recordingsHtml() {
   if (!recordingsEnabled()) return "";
   const current = plan();
   const locked = !identity;
+  const ready = storageReadiness({
+    recipient: BACKUP_RECIPIENT,
+    identityHeld: !locked,
+    telegramGetFile: !!(manifest && manifest.telegramGetFile)
+  });
   const title = manifest ? (manifest.title || tr("Recording")) : "";
   const kind = manifest ? (manifest.legacy ? "legacy" : manifest.format) : "";
   const actions = [];
@@ -154,15 +164,24 @@ export function recordingsHtml() {
   const item = title
     ? '<article class="rec-item" data-rec-kind="' + esc(kind) + '"><h3>' + esc(title) + '</h3><p class="rec-note">' + esc(noteText()) + "</p>" + (actions.length ? '<div class="rec-actions">' + actions.join("") + "</div>" : "") + (!manifest.legacy && current.mode === "mse" ? '<video id="rec-video" class="rec-video" controls playsinline muted></video>' : "") + "</article>"
     : "";
-  return '<section class="rec-block" id="rec-root" data-recorder="unlinked">' +
+  const telegramNote = ready.catalog.telegramGetFile
+    ? '<p class="rec-note" data-telegram-getfile="named">' + esc(tr("This package names Telegram getFile. This page does not download it.")) + "</p>"
+    : "";
+  return '<section class="rec-block" id="rec-root" data-recorder="unlinked" data-telegram-getfile="' + (ready.catalog.telegramGetFile ? "named" : "no") + '">' +
     '<h2>' + esc(tr("Recordings")) + "</h2>" +
     '<p class="rec-note">' + esc(tr("No recorder is linked. Recordings open from a catalog on this device. Nothing is uploaded.")) + "</p>" +
-    '<div class="rec-row" data-recorder-status="unlinked"><b>' + esc(tr("Recorder")) + '</b><span>' + esc(tr("Not linked")) + "</span></div>" +
+    readyRow("recipient", ready.recipient.state, tr("Backup recipient"), tr("Ready")) +
+    '<p class="rec-recipient" data-backup-recipient="' + esc(ready.recipient.value) + '">' + esc(ready.recipient.value) + "</p>" +
+    readyRow("identity", ready.identity.state, tr("Recording key"), ready.identity.state === "ready" ? tr("In this tab") : tr("Needed")) +
+    '<div class="rec-row" data-recorder-status="unlinked" data-ready="recorder" data-ready-state="unlinked"><b>' + esc(tr("Recorder")) + '</b><span>' + esc(tr("Not linked")) + "</span></div>" +
+    readyRow("catalog", ready.catalog.state, tr("Catalog"), tr("On this device")) +
+    readyRow("provider", ready.provider.state, tr("Provider"), tr("Not connected")) +
     form +
     '<div class="rec-actions"><label class="outline">' + esc(tr("Choose the folder of chunk files")) + '<input id="rec-folder" type="file" webkitdirectory multiple hidden></label>' +
     '<label class="outline">' + esc(tr("Open an age file")) + '<input id="rec-legacy" type="file" accept=".age,application/octet-stream" hidden></label></div>' +
     (errorCode ? '<p class="rec-error" data-rec-error="' + esc(errorCode) + '">' + esc(errorText()) + "</p>" : "") +
     item +
+    telegramNote +
     '<p class="rec-note">' + esc(tr("No provider is connected from this page.")) + "</p>" +
     "</section>";
 }
@@ -354,7 +373,7 @@ export async function openPackage(pkg) {
     return { error: errorCode || "key" };
   }
   paint();
-  return { manifest: { format: manifest.format, mime: manifest.mime, likely: manifest.likely } };
+  return { manifest: { format: manifest.format, mime: manifest.mime, likely: manifest.likely, telegramGetFile: manifest.telegramGetFile === true } };
 }
 
 export async function openLegacy(bytes, name) {
