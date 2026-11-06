@@ -1,0 +1,115 @@
+{
+  "kind": "vsr-sealed-export",
+  "packages": [
+    {
+      "manifest": "manifest.age",
+      "objects": [
+        "manifest.age",
+        "e79d5907b28f528ad1c8ab14fe1ba5af41355af7e98a0a86b8363c0c0cf03884.age",
+        "f3da57d7373b52bd14464e01cc235c99ffc6a17209784571b001d8c4cad0118f.age",
+        "4060ea724605d481ad3abf61079c2c471507e9de18d8f7eeb016b8ea1ba9f5d0.age",
+        "8cf0dff3d80eaf92fbfec1b5ed4df517d9ca3d443b7f94d4aefe7b652f7f52e2.age"
+      ],
+      "package": "package",
+      "playback_format": "vsr-playback-2",
+      "rows": [
+        {
+          "duration": 0,
+          "encrypted": 1,
+          "file_id": "",
+          "kind": "age",
+          "message_id": 0,
+          "mime": "application/octet-stream",
+          "object_key": "vsr/manifest.age",
+          "object_name": "manifest.age",
+          "part_index": 0,
+          "role": "manifest",
+          "serve": 1,
+          "sha256": "e3e73ed0de42fe49a4347d67146641b4954f3c9c2c46e9f0f4aab181afd7edef",
+          "size": 2599,
+          "uploaded": false
+        },
+        {
+          "duration": 0,
+          "encrypted": 1,
+          "file_id": "",
+          "kind": "age",
+          "message_id": 0,
+          "mime": "application/octet-stream",
+          "object_key": "vsr/e79d5907b28f528ad1c8ab14fe1ba5af41355af7e98a0a86b8363c0c0cf03884.age",
+          "object_name": "e79d5907b28f528ad1c8ab14fe1ba5af41355af7e98a0a86b8363c0c0cf03884.age",
+          "part_index": -1,
+          "role": "init",
+          "serve": 1,
+          "sha256": "e79d5907b28f528ad1c8ab14fe1ba5af41355af7e98a0a86b8363c0c0cf03884",
+          "size": 1711,
+          "uploaded": false
+        },
+        {
+          "duration": 1.0,
+          "encrypted": 1,
+          "file_id": "",
+          "kind": "age",
+          "message_id": 0,
+          "mime": "application/octet-stream",
+          "object_key": "vsr/f3da57d7373b52bd14464e01cc235c99ffc6a17209784571b001d8c4cad0118f.age",
+          "object_name": "f3da57d7373b52bd14464e01cc235c99ffc6a17209784571b001d8c4cad0118f.age",
+          "part_index": 0,
+          "role": "media",
+          "serve": 1,
+          "sha256": "f3da57d7373b52bd14464e01cc235c99ffc6a17209784571b001d8c4cad0118f",
+          "size": 12995,
+          "uploaded": false
+        },
+        {
+          "duration": 1.0,
+          "encrypted": 1,
+          "file_id": "",
+          "kind": "age",
+          "message_id": 0,
+          "mime": "application/octet-stream",
+          "object_key": "vsr/4060ea724605d481ad3abf61079c2c471507e9de18d8f7eeb016b8ea1ba9f5d0.age",
+          "object_name": "4060ea724605d481ad3abf61079c2c471507e9de18d8f7eeb016b8ea1ba9f5d0.age",
+          "part_index": 1,
+          "role": "media",
+          "serve": 1,
+          "sha256": "4060ea724605d481ad3abf61079c2c471507e9de18d8f7eeb016b8ea1ba9f5d0",
+          "size": 13171,
+          "uploaded": false
+        },
+        {
+          "duration": 0.4,
+          "encrypted": 1,
+          "file_id": "",
+          "kind": "age",
+          "message_id": 0,
+          "mime": "application/octet-stream",
+          "object_key": "vsr/8cf0dff3d80eaf92fbfec1b5ed4df517d9ca3d443b7f94d4aefe7b652f7f52e2.age",
+          "object_name": "8cf0dff3d80eaf92fbfec1b5ed4df517d9ca3d443b7f94d4aefe7b652f7f52e2.age",
+          "part_index": 2,
+          "role": "media",
+          "serve": 1,
+          "sha256": "8cf0dff3d80eaf92fbfec1b5ed4df517d9ca3d443b7f94d4aefe7b652f7f52e2",
+          "size": 8444,
+          "uploaded": false
+        }
+      ]
+    }
+  ],
+  "playback_format": "vsr-playback-2",
+  "retrieval": {
+    "age_encrypted": 1,
+    "age_kind": "age",
+    "auth": "signed-in owner session",
+    "cleartext_filter": "encrypted = 0",
+    "destination_secret_name": "TELEGRAM_CHANNEL_ID",
+    "mime": "application/octet-stream",
+    "recorder_alias": "TELEGRAM_CHAT_ID",
+    "table": "telegram_files",
+    "token_in_browser": false,
+    "worker_route": "/tg/vsr/{object_name}",
+    "worker_secret_name": "TELEGRAM_BOT_TOKEN"
+  },
+  "sealed": "catalog",
+  "version": 1
+}

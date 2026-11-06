@@ -11,6 +11,7 @@ import { cleanRepostKey, cleanRepostWrite } from "../../shared/reposts.js";
 import { socialKeysForPost } from "../../shared/social-keys.js";
 import { buildPlaylist, keptVideoKey, parseRange, safeTelegramPath } from "./telegram.js";
 import { handleDrive, DRIVE_SCHEMA } from "./drive.js";
+import { handleVsrRoute } from "./vsr-retrieve.js";
 import { handleCommunityRoute, COMMUNITY_SCHEMA } from "./communities.js";
 import { handleFederationRoute, FEDERATION_SCHEMA, isPublicFederationRoute } from "./federation.js";
 import { usageReport } from "./usage.js";
@@ -5933,6 +5934,9 @@ async function route(request, env, ctx) {
   }
   if (path === "/v1/health" && request.method === "GET") {
     return json(200, { ok: true, ready: !!env.ACCOUNT_PEPPER, data: !!env.DATA, turnstile: !!env.TURNSTILE_SECRET, telegram: !!env.TELEGRAM_BOT_TOKEN });
+  }
+  if (path.startsWith("/tg/vsr/") && (request.method === "GET" || request.method === "HEAD")) {
+    return handleVsrRoute(request, env, path, { json, sessionAccount, rateHit, limited });
   }
   if ((path === "/tg" || path.startsWith("/tg/")) && (request.method === "GET" || request.method === "HEAD")) {
     return handleTelegram(request, env, path, ctx);

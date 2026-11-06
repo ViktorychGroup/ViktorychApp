@@ -1,0 +1,67 @@
+{
+  "acodec": "aac",
+  "age_byte_range": false,
+  "authenticated_by": "age",
+  "backup": "whole_file_age_unchanged",
+  "capability": {
+    "age_byte_range": false,
+    "browser_mse_likely": true,
+    "codecs_parameter": "not probed",
+    "lossy_transcode": false,
+    "media_independently_playable": false,
+    "mime": "video/mp4",
+    "note": "Append the decrypted init segment, then this fragment, as video/mp4. The codecs parameter is not invented here.",
+    "within_fragment_seek": "after init and this fragment are decrypted"
+  },
+  "chunks": [
+    {
+      "ciphertext_bytes": 12995,
+      "ciphertext_sha256": "f3da57d7373b52bd14464e01cc235c99ffc6a17209784571b001d8c4cad0118f",
+      "duration_ms": 1000,
+      "independently_playable": false,
+      "index": 0,
+      "object_name": "f3da57d7373b52bd14464e01cc235c99ffc6a17209784571b001d8c4cad0118f.age",
+      "plaintext_bytes": 12655,
+      "requires_init": true,
+      "role": "media",
+      "telegram_getfile": true
+    },
+    {
+      "ciphertext_bytes": 13171,
+      "ciphertext_sha256": "4060ea724605d481ad3abf61079c2c471507e9de18d8f7eeb016b8ea1ba9f5d0",
+      "duration_ms": 1000,
+      "independently_playable": false,
+      "index": 1,
+      "object_name": "4060ea724605d481ad3abf61079c2c471507e9de18d8f7eeb016b8ea1ba9f5d0.age",
+      "plaintext_bytes": 12903,
+      "requires_init": true,
+      "role": "media",
+      "telegram_getfile": true
+    },
+    {
+      "ciphertext_bytes": 8444,
+      "ciphertext_sha256": "8cf0dff3d80eaf92fbfec1b5ed4df517d9ca3d443b7f94d4aefe7b652f7f52e2",
+      "duration_ms": 400,
+      "independently_playable": false,
+      "index": 2,
+      "object_name": "8cf0dff3d80eaf92fbfec1b5ed4df517d9ca3d443b7f94d4aefe7b652f7f52e2.age",
+      "plaintext_bytes": 8102,
+      "requires_init": true,
+      "role": "media",
+      "telegram_getfile": true
+    }
+  ],
+  "container": "fmp4",
+  "encryption": "age-chunk-v1",
+  "format": "vsr-playback-2",
+  "init": {
+    "ciphertext_bytes": 1711,
+    "ciphertext_sha256": "e79d5907b28f528ad1c8ab14fe1ba5af41355af7e98a0a86b8363c0c0cf03884",
+    "object_name": "e79d5907b28f528ad1c8ab14fe1ba5af41355af7e98a0a86b8363c0c0cf03884.age",
+    "plaintext_bytes": 1374,
+    "role": "init",
+    "telegram_getfile": true
+  },
+  "segment_model": "init-plus-media",
+  "vcodec": "h264"
+}

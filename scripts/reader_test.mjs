@@ -215,7 +215,7 @@ async function main() {
       if (!box) return null;
       const body = box.querySelector(".rd-body");
       const text = body ? body.textContent : "";
-      return {
+      const state = {
         title: (box.querySelector(".rd-title") || {}).textContent || "",
         byline: (box.querySelector(".rd-byline") || {}).textContent || "",
         note: (box.querySelector(".rd-note") || {}).textContent || "",
@@ -230,6 +230,8 @@ async function main() {
         modal: box.getAttribute("aria-modal") === "true",
         progress: !!box.querySelector("[role=progressbar]")
       };
+      if (state.title !== "Harbour lights return after the storm" || !/Ada Fixture/.test(state.byline) || !state.calm || state.script !== 0 || state.js || state.onerror || !state.dialog || !state.modal || !state.progress) return null;
+      return state;
     }));
     check(opened && opened.title === "Harbour lights return after the storm" && /Ada Fixture/.test(opened.byline), "the reader shows the title and byline");
     check(opened && /not the publisher/.test(opened.note) && opened.blank === "_blank" && /noopener/.test(opened.rel) && opened.open === STORY, "the reader names itself and links out to the original");

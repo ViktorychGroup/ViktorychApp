@@ -117,9 +117,10 @@ export const FEATURES = {
   // Reading view for a public article link. On by default. Off: the endpoint
   // answers empty and clients do not offer Read.
   article_reader: { paths: ["/v1/reader"] },
-  // Encrypted recordings on the Storage page. Decryption stays in the tab.
-  // No server route and no stored identity. Off hides that part of Storage.
-  storage_recordings: { paths: [] }
+  // Encrypted recordings on the Storage page. The owner route returns
+  // ciphertext only. The age identity stays in the tab. Off hides Storage
+  // recordings and this route.
+  storage_recordings: { paths: ["/tg/vsr"] }
 };
 export const FEATURE_NAMES = Object.keys(FEATURES);
 
@@ -172,12 +173,17 @@ export async function readFlags(env, now) {
 
 export function featureFor(path) {
   const text = String(path || "");
+  let found = "";
+  let length = -1;
   for (const name of FEATURE_NAMES) {
     for (const prefix of FEATURES[name].paths) {
-      if (text === prefix || text.startsWith(prefix + "/")) return name;
+      if ((text === prefix || text.startsWith(prefix + "/")) && prefix.length > length) {
+        found = name;
+        length = prefix.length;
+      }
     }
   }
-  return "";
+  return found;
 }
 
 export function offResponse(request) {

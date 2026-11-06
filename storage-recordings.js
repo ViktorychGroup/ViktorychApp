@@ -12,6 +12,7 @@ import {
   looksLikeIdentity,
   parsePlainCatalog,
   parsePlaybackManifest,
+  parseSealedCatalog,
   playbackPlan,
   sha256Hex,
   storageReadiness
@@ -24,6 +25,8 @@ const OFF_KEY = "viktorychapp-server-off";
 
 let identity = "";
 let manifest = null;
+let catalog = null;
+let fetched = false;
 let sources = new Map();
 let legacyCipher = null;
 let legacyName = "recording.age";
@@ -126,6 +129,7 @@ function errorText() {
   if (errorCode === "boxes") return tr("The pieces in this package cannot be played.");
   if (errorCode === "codec") return tr("This format cannot play in this browser. Nothing is re-encoded.");
   if (errorCode === "manifest" || errorCode === "catalog") return tr("Could not read that catalog.");
+  if (errorCode === "not_configured") return tr("Retrieval is not configured.");
   return "";
 }
 function noteText() {
@@ -137,6 +141,16 @@ function noteText() {
   return "";
 }
 
+function providerView() {
+  if (!catalog) return { state: "absent", label: tr("Not connected"), note: "" };
+  const rows = [];
+  catalog.packages.forEach(function (item) { item.rows.forEach(function (row) { rows.push(row); }); });
+  if (!rows.length || rows.some(function (row) { return !row.uploaded; })) {
+    return { state: "not_uploaded", label: tr("Not uploaded"), note: tr("This catalog is not uploaded. Nothing was fetched.") };
+  }
+  if (fetched) return { state: "retrieved", label: tr("Ciphertext in this tab"), note: "" };
+  return { state: "not_uploaded", label: tr("Not uploaded"), note: tr("This catalog is not uploaded. Nothing was fetched.") };
+}
 function readyRow(name, state, label, value) {
   return '<div class="rec-row" data-ready="' + esc(name) + '" data-ready-state="' + esc(state) + '"><b>' + esc(label) + '</b><span>' + esc(value) + "</span></div>";
 }
@@ -144,6 +158,7 @@ export function recordingsHtml() {
   if (!recordingsEnabled()) return "";
   const current = plan();
   const locked = !identity;
+  const provider = providerView();
   const ready = storageReadiness({
     recipient: BACKUP_RECIPIENT,
     identityHeld: !locked,
@@ -175,9 +190,11 @@ export function recordingsHtml() {
     readyRow("identity", ready.identity.state, tr("Recording key"), ready.identity.state === "ready" ? tr("In this tab") : tr("Needed")) +
     '<div class="rec-row" data-recorder-status="unlinked" data-ready="recorder" data-ready-state="unlinked"><b>' + esc(tr("Recorder")) + '</b><span>' + esc(tr("Not linked")) + "</span></div>" +
     readyRow("catalog", ready.catalog.state, tr("Catalog"), tr("On this device")) +
-    readyRow("provider", ready.provider.state, tr("Provider"), tr("Not connected")) +
+    readyRow("provider", provider.state, tr("Provider"), provider.label) +
+    (provider.note ? '<p class="rec-note" data-provider-note="' + esc(provider.state) + '">' + esc(provider.note) + "</p>" : "") +
     form +
     '<div class="rec-actions"><label class="outline">' + esc(tr("Choose the folder of chunk files")) + '<input id="rec-folder" type="file" webkitdirectory multiple hidden></label>' +
+    '<label class="outline">' + esc(tr("Open a catalog")) + '<input id="rec-catalog" type="file" accept=".age,application/octet-stream" hidden></label>' +
     '<label class="outline">' + esc(tr("Open an age file")) + '<input id="rec-legacy" type="file" accept=".age,application/octet-stream" hidden></label></div>' +
     (errorCode ? '<p class="rec-error" data-rec-error="' + esc(errorCode) + '">' + esc(errorText()) + "</p>" : "") +
     item +
@@ -204,6 +221,10 @@ function dropPlayer() {
 export function lockRecordings() {
   identity = "";
   legacyCipher = null;
+  catalog = null;
+  fetched = false;
+  sources = new Map();
+  manifest = null;
   dropPlayer();
   errorCode = "";
 }
@@ -537,6 +558,104 @@ function onClick(event) {
     });
   }
 }
+function apiRoot() {
+  if (window.ViktorychAccounts && window.ViktorychAccounts.currentApi) {
+    const cur = window.ViktorychAccounts.currentApi();
+    if (cur) return String(cur).replace(/\/$/, "");
+  }
+  const cfg = window.VIKTORYCH_ACCOUNTS || {};
+  return String(cfg.api || cfg.backupApi || "").replace(/\/$/, "");
+}
+function sessionToken() {
+  return window.ViktorychAccounts && window.ViktorychAccounts.token ? window.ViktorychAccounts.token() : "";
+}
+export async function fetchAgeObject(objectName, sha, size) {
+  const name = String(objectName || "");
+  if (!/^(?:manifest|[a-f0-9]{64})\.age$/.test(name)) return { error: "name" };
+  const root = apiRoot();
+  const token = sessionToken();
+  if (!root || !token) return { error: "signed-out" };
+  const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 20000) : 0;
+  let res;
+  try {
+    res = await fetch(root + "/tg/vsr/" + name, {
+      method: "GET",
+      headers: { Authorization: "Bearer " + token },
+      credentials: "omit",
+      cache: "no-store",
+      signal: ctrl ? ctrl.signal : undefined
+    });
+  } catch (err) {
+    return { error: "unavailable" };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  if (res.status === 503) return { error: "not_configured" };
+  if (res.status === 404) {
+    let code = "not_found";
+    try {
+      const body = await res.json();
+      if (body && body.error === "not_uploaded") code = "not_uploaded";
+    } catch (err) { code = "not_found"; }
+    return { error: code };
+  }
+  if (!res.ok) return { error: "unavailable" };
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (Number(size) > 0 && bytes.byteLength !== Number(size)) return { error: "mismatch" };
+  const hash = await sha256Hex(bytes);
+  if (sha && hash !== String(sha).toLowerCase()) return { error: "mismatch" };
+  sources.set(name, bytes);
+  return { bytes: bytes };
+}
+export async function openCatalog(bytes) {
+  if (!identity) {
+    errorCode = "locked";
+    paint();
+    return { error: "locked" };
+  }
+  catalog = null;
+  fetched = false;
+  let text = "";
+  try {
+    const plain = await decryptCipher(bytes);
+    text = new TextDecoder().decode(plain);
+  } catch (err) {
+    paint();
+    return { error: errorCode || "key" };
+  }
+  const parsed = parseSealedCatalog(text, { authenticated: true });
+  if (!parsed.catalog) {
+    errorCode = parsed.error || "catalog";
+    paint();
+    return parsed;
+  }
+  catalog = parsed.catalog;
+  const pending = [];
+  catalog.packages.forEach(function (item) {
+    item.rows.forEach(function (row) { if (row.uploaded) pending.push(row); });
+  });
+  if (!pending.length) {
+    errorCode = "";
+    paint();
+    return { catalog: catalog, fetched: false };
+  }
+  for (let i = 0; i < pending.length; i++) {
+    const got = await fetchAgeObject(pending[i].objectName, pending[i].sha256, pending[i].size);
+    if (!got.bytes) {
+      errorCode = got.error || "unavailable";
+      paint();
+      return { error: errorCode };
+    }
+  }
+  fetched = true;
+  const opened = await openPackage({ keep: true });
+  return { catalog: catalog, fetched: true, manifest: opened.manifest, error: opened.error };
+}
+async function onCatalog(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  await openCatalog(bytes);
+}
 async function onLegacy(file) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   await openLegacy(bytes, file.name);
@@ -549,6 +668,7 @@ function onChange(event) {
     openPackage({ keep: true });
   }
   if (input.id === "rec-legacy" && input.files && input.files[0]) onLegacy(input.files[0]);
+  if (input.id === "rec-catalog" && input.files && input.files[0]) onCatalog(input.files[0]);
 }
 
 export function bindRecordings(root) {
@@ -567,6 +687,8 @@ window.ViktorychRecordings = {
   lock: lockRecordings,
   held: function () { return identity.length > 0; },
   openPackage: openPackage,
+  openCatalog: openCatalog,
+  fetchAgeObject: fetchAgeObject,
   openLegacy: openLegacy,
   decryptLegacy: decryptLegacy,
   playSegments: playSegments,

@@ -13,6 +13,7 @@ import {
   looksLikeRecipient,
   parsePlainCatalog,
   parsePlaybackManifest,
+  parseSealedCatalog,
   playbackPlan,
   storageReadiness
 } from "../shared/storage-contract.js";
@@ -21,6 +22,7 @@ import { audioKind, avc1Codec, classifyMp4, likelyMime } from "../shared/storage
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fix = path.join(root, "scripts/fixtures/vsr-playback-2");
+const cat = path.join(root, "scripts/fixtures/vsr-catalog");
 
 function loadAge() {
   const code = fs.readFileSync(path.join(root, "vendor/age-0.3.1.min.js"), "utf8");
@@ -132,7 +134,19 @@ assert.equal(playbackPlan(parsed.manifest, () => true).mode, "unsupported");
 const ui = fs.readFileSync(path.join(root, "storage-recordings.js"), "utf8");
 assert.equal(ui.includes("manifest.json"), true);
 assert.equal(/api\.telegram|telegram\.org/.test(ui), false);
-assert.equal(ui.includes("fetch("), false);
+assert.equal(ui.includes("/tg/vsr/"), true);
 assert.equal(ui.includes("codecs_parameter"), false);
 
+const catalogKey = fs.readFileSync(path.join(cat, "TEST-ONLY-identity.txt"), "utf8").split(/\r?\n/).map((line) => line.trim()).find((line) => line.startsWith("AGE-SECRET-KEY-"));
+const catalogText = new TextDecoder().decode(await decryptBytes(age, catalogKey, fs.readFileSync(path.join(cat, "catalog.age"))));
+const catalogExpected = fs.readFileSync(path.join(cat, "catalog.decrypted.json"), "utf8");
+assert.deepEqual(JSON.parse(catalogText), JSON.parse(catalogExpected));
+assert.equal(parseSealedCatalog(catalogText, {}).error, "unauthenticated");
+const sealed = parseSealedCatalog(catalogText, { authenticated: true });
+assert.equal(sealed.catalog.packages.length, 1);
+assert.equal(sealed.catalog.packages[0].rows.every((row) => row.uploaded === false), true);
+assert.equal(JSON.stringify(sealed).includes("file_id"), false);
+const lied = JSON.parse(catalogText);
+lied.packages[0].rows[0].uploaded = true;
+assert.equal(parseSealedCatalog(lied, { authenticated: true }).error, "catalog");
 console.log("storage recordings ok");

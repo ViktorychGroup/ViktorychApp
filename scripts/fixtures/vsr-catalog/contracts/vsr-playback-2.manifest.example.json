@@ -1,0 +1,43 @@
+{
+  "acodec": "aac",
+  "age_byte_range": false,
+  "authenticated_by": "age",
+  "backup": "whole_file_age_unchanged",
+  "capability": {
+    "age_byte_range": false,
+    "browser_mse_likely": true,
+    "codecs_parameter": "not probed",
+    "lossy_transcode": false,
+    "media_independently_playable": false,
+    "mime": "video/mp4",
+    "note": "Append the decrypted init segment, then this fragment, as video/mp4. The codecs parameter is not invented here.",
+    "within_fragment_seek": "after init and this fragment are decrypted"
+  },
+  "chunks": [
+    {
+      "ciphertext_bytes": 0,
+      "ciphertext_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "duration_ms": 1000,
+      "independently_playable": false,
+      "index": 0,
+      "object_name": "0000000000000000000000000000000000000000000000000000000000000000.age",
+      "plaintext_bytes": 0,
+      "requires_init": true,
+      "role": "media",
+      "telegram_getfile": false
+    }
+  ],
+  "container": "fmp4",
+  "encryption": "age-chunk-v1",
+  "format": "vsr-playback-2",
+  "init": {
+    "ciphertext_bytes": 0,
+    "ciphertext_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "object_name": "1111111111111111111111111111111111111111111111111111111111111111.age",
+    "plaintext_bytes": 0,
+    "role": "init",
+    "telegram_getfile": false
+  },
+  "segment_model": "init-plus-media",
+  "vcodec": "h264"
+}

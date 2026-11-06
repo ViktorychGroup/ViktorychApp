@@ -1,0 +1,45 @@
+{
+  "kind": "vsr-sealed-export",
+  "packages": [
+    {
+      "manifest": "manifest.age",
+      "objects": ["<sha256>.age"],
+      "package": "tiktok/<numeric-id>/playback/part-0001",
+      "playback_format": "vsr-playback-2",
+      "rows": [
+        {
+          "duration": 0,
+          "encrypted": 1,
+          "file_id": "",
+          "kind": "age",
+          "message_id": 0,
+          "mime": "application/octet-stream",
+          "object_key": "vsr/manifest.age",
+          "object_name": "manifest.age",
+          "part_index": 0,
+          "role": "manifest",
+          "serve": 1,
+          "sha256": "<sha256 of manifest.age>",
+          "size": 0,
+          "uploaded": false
+        }
+      ]
+    }
+  ],
+  "playback_format": "vsr-playback-2",
+  "retrieval": {
+    "age_encrypted": 1,
+    "age_kind": "age",
+    "auth": "signed-in owner session",
+    "cleartext_filter": "encrypted = 0",
+    "destination_secret_name": "TELEGRAM_CHANNEL_ID",
+    "mime": "application/octet-stream",
+    "recorder_alias": "TELEGRAM_CHAT_ID",
+    "table": "telegram_files",
+    "token_in_browser": false,
+    "worker_route": "/tg/vsr/{object_name}",
+    "worker_secret_name": "TELEGRAM_BOT_TOKEN"
+  },
+  "sealed": "catalog",
+  "version": 1
+}
