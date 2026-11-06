@@ -191,8 +191,12 @@ async function main() {
     check(!imageLoads.some((u) => /name=800x419/.test(u)), "X card images load in original size");
     const before = unfurlCalls;
     await page.reload();
-    await page.waitForTimeout(3000);
-    const again = await read();
+    let again = {};
+    for (let i = 0; i < 24; i++) {
+      await page.waitForTimeout(250);
+      again = await read();
+      if (again["Big one"] && again["Big one"].large) break;
+    }
     check(again["Big one"] && again["Big one"].large && unfurlCalls === before, "a reload reads cards from the browser cache (" + (unfurlCalls - before) + " new unfurl calls)");
     // Data saving: no card images load at all. Leave the app first so its
     // pagehide save cannot undo the switch, then edit storage from a plain page.
@@ -220,8 +224,12 @@ async function main() {
       page = await ctx.newPage();
       await page.goto(base + "#/", { waitUntil: "domcontentloaded" });
     }
-    await page.waitForTimeout(3000);
-    const saving = await read();
+    let saving = {};
+    for (let i = 0; i < 24; i++) {
+      await page.waitForTimeout(250);
+      saving = await read();
+      if (saving["Big one"] && !saving["Big one"].img && (saving["Big one"].text || saving["Big one"].small)) break;
+    }
     if (process.env.DEBUG) console.log(JSON.stringify(saving["Big one"]), imageLoads);
     check(saving["Big one"] && !saving["Big one"].img && (saving["Big one"].text || saving["Big one"].small) && !imageLoads.some((u) => /big\.jpg|small\.png|ytimg/.test(u)), "with data saving on, cards show text only and load no image");
   } finally {
