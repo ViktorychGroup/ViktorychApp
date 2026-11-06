@@ -6,7 +6,9 @@ On disk a package has `manifest.age` and one `<sha256>.age` object per init segm
 
 After `manifest.age` decrypts, every media chunk must have `requires_init: true` and `independently_playable: false`. Seeking decrypts the init object and the one fragment whose `duration_ms` window covers that time, then appends those two plaintext buffers, init first. The manifest leaves `codecs_parameter` as `not probed`. The SourceBuffer codecs string is read from the init segment's avcC and esds. It is not taken from the JSON and it is not a stand-in value. If those boxes are not H.264 and AAC-LC, or the browser will not play that exact string, nothing plays and nothing is re-encoded.
 
-A single age file that is not this package is a download. It is not played. `telegram_getfile` is not a connection: this page does not fetch those objects.
+A single age file that is not this package is a download. It is not played. `telegram_getfile` is a field on the decrypted manifest. When it is true, Storage says so and does not download the object. There is no Telegram client on this page.
+
+`BACKUP_RECIPIENT` in `shared/storage-contract.js` is the public age recipient. The private identity is typed into the tab and is not saved or sent. The page does not ask a server for it. Recorder status stays unlinked, and the provider row stays not connected, until a recorder catalog contract is actually available to this app.
 
 The disposable fixture key under `scripts/fixtures/vsr-playback-2/` is for that test package only. It is not a user key and it is not used for anything else.
 

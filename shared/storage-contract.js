@@ -8,11 +8,33 @@ export const MEMORY_CAP = 8 * 1024 * 1024;
 export const DOWNLOAD_CAP = 32 * 1024 * 1024;
 export const SEGMENT_SLOTS = 2;
 export const MAX_FRAGMENTS = 4096;
+/* Public age recipient only. The matching identity is typed in the tab and
+   is not stored or sent. */
+export const BACKUP_RECIPIENT = "age13y4w4mthz0ezlkm5a3jlh2f3xka7374ykdr566dqtlu8dz74eqqq7wx8gy";
 const SHA_RE = /^[a-f0-9]{64}$/;
+const RECIPIENT_RE = /^age1[02-9ac-hj-np-z]{40,90}$/;
 
 export function looksLikeIdentity(value) {
   const text = String(value || "").replace(/\s+/g, "");
   return text.startsWith("AGE-SECRET-KEY-1") || text.startsWith("AGE-SECRET-KEY-PQ-1");
+}
+
+export function looksLikeRecipient(value) {
+  return RECIPIENT_RE.test(String(value || "").trim());
+}
+
+/* What this page can honestly say. A live recorder catalog is not loaded.
+   telegram_getfile on a local package is not a download. */
+export function storageReadiness(opts) {
+  const recipient = String((opts && opts.recipient) || BACKUP_RECIPIENT).trim();
+  const recipientReady = looksLikeRecipient(recipient);
+  return {
+    recipient: { state: recipientReady ? "ready" : "needed", value: recipientReady ? recipient : "" },
+    identity: { state: opts && opts.identityHeld ? "ready" : "needed" },
+    recorder: { state: "unlinked" },
+    catalog: { state: "local", telegramGetFile: !!(opts && opts.telegramGetFile) },
+    provider: { state: "absent" }
+  };
 }
 
 export function shaName(sha) {
@@ -45,6 +67,13 @@ function shaOk(value) {
   return SHA_RE.test(String(value || "").toLowerCase());
 }
 
+function telegramFlag(raw) {
+  if (!raw || typeof raw !== "object" || !Object.prototype.hasOwnProperty.call(raw, "telegram_getfile")) return false;
+  if (raw.telegram_getfile === true) return true;
+  if (raw.telegram_getfile === false) return false;
+  return null;
+}
+
 function objectPart(raw, role) {
   if (!raw || typeof raw !== "object" || raw.role !== role) return null;
   const sha = String(raw.ciphertext_sha256 || "").toLowerCase();
@@ -75,14 +104,16 @@ export function parsePlaybackManifest(value, opts) {
     return { error: "manifest" };
   }
   const init = objectPart(data.init, "init");
-  if (!init) return { error: "manifest" };
+  const initTelegram = telegramFlag(data.init);
+  if (!init || initTelegram === null) return { error: "manifest" };
   if (!Array.isArray(data.chunks) || data.chunks.length < 1 || data.chunks.length > MAX_FRAGMENTS) return { error: "manifest" };
   const chunks = [];
   let cursor = 0;
   for (let i = 0; i < data.chunks.length; i++) {
     const raw = data.chunks[i];
     const part = objectPart(raw, "media");
-    if (!part || raw.independently_playable !== false || raw.requires_init !== true) return { error: "manifest" };
+    const named = telegramFlag(raw);
+    if (!part || named === null || raw.independently_playable !== false || raw.requires_init !== true) return { error: "manifest" };
     if (raw.index !== i) return { error: "manifest" };
     const duration = Number(raw.duration_ms);
     if (!Number.isInteger(duration) || duration <= 0) return { error: "manifest" };
@@ -95,7 +126,8 @@ export function parsePlaybackManifest(value, opts) {
       durationMs: duration,
       startMs: cursor,
       requiresInit: true,
-      independentlyPlayable: false
+      independentlyPlayable: false,
+      telegramGetFile: named === true
     });
     cursor += duration;
   }
@@ -111,6 +143,7 @@ export function parsePlaybackManifest(value, opts) {
       chunks: chunks,
       durationMs: cursor,
       title: cleanText(data.title, 180),
+      telegramGetFile: initTelegram === true || chunks.some((row) => row.telegramGetFile),
       legacy: false,
       likely: false,
       mime: ""

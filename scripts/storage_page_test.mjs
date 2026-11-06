@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { sharedStaticServer } from "./smoke_runtime.mjs";
+import { BACKUP_RECIPIENT } from "../shared/storage-contract.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shots = process.env.STORAGE_SHOTS || "/opt/cursor/artifacts";
@@ -132,6 +133,15 @@ async function main() {
     if (!nav.path.startsWith("M12 5c3.2")) fail("storage icon is not the cloud");
     if (!nav.heading.includes("Storage")) fail("heading " + nav.heading);
     if (nav.recorder !== "unlinked") fail("recorder " + nav.recorder);
+    const ready = await page.evaluate(() => ({
+      recipient: document.querySelector("[data-ready=recipient]").getAttribute("data-ready-state"),
+      value: document.querySelector("[data-backup-recipient]").getAttribute("data-backup-recipient"),
+      identity: document.querySelector("[data-ready=identity]").getAttribute("data-ready-state"),
+      provider: document.querySelector("[data-ready=provider]").getAttribute("data-ready-state"),
+      catalog: document.querySelector("[data-ready=catalog]").getAttribute("data-ready-state")
+    }));
+    if (ready.recipient !== "ready" || ready.value !== BACKUP_RECIPIENT) fail("recipient " + JSON.stringify(ready));
+    if (ready.identity !== "needed" || ready.provider !== "absent" || ready.catalog !== "local") fail("readiness " + JSON.stringify(ready));
     if (nav.providers.length) fail("provider rows " + nav.providers.join(","));
     if (nav.connect.length) fail("connect buttons");
     if (nav.vaultInRec) fail("vault mixed into storage");
@@ -184,6 +194,7 @@ async function main() {
         play.start = { index: window.ViktorychRecordings.fragmentIndex(), width: video ? video.videoWidth : 0, ready: video ? video.readyState : 0 };
         play.at1 = await landed(1);
         play.at2 = await landed(2);
+        play.telegram = document.querySelector("[data-telegram-getfile]") ? document.querySelector("[data-telegram-getfile]").getAttribute("data-telegram-getfile") : "";
       } else {
         play.plan = window.ViktorychRecordings.plan().mode;
       }
@@ -218,7 +229,9 @@ async function main() {
         held: window.ViktorychRecordings.held(),
         leaked: dump.includes("AGE-SECRET-KEY-") || dump.includes("hello storage") || idb.includes("AGE-SECRET-KEY-"),
         play: play,
-        recorder: document.querySelector("[data-recorder-status]").getAttribute("data-recorder-status")
+        recorder: document.querySelector("[data-recorder-status]").getAttribute("data-recorder-status"),
+        telegram: play.telegram || "",
+        openedFlag: !!(opened.manifest && opened.manifest.telegramGetFile)
       };
     }, { identity: identity, filesB64: filesB64 });
     if (cryptoResult.wrong !== "key") fail("wrong key " + cryptoResult.wrong);
@@ -235,6 +248,8 @@ async function main() {
     if (cryptoResult.play.start.index !== 0 || cryptoResult.play.start.width < 2) fail("start " + JSON.stringify(cryptoResult.play.start));
     if (cryptoResult.play.at1.index !== 1 || Math.abs(cryptoResult.play.at1.time - 1) > 0.3) fail("seek 1s " + JSON.stringify(cryptoResult.play.at1));
     if (cryptoResult.play.at2.index !== 2 || Math.abs(cryptoResult.play.at2.time - 2) > 0.3) fail("seek 2s " + JSON.stringify(cryptoResult.play.at2));
+    if (cryptoResult.telegram !== "named") fail("telegram flag " + cryptoResult.telegram + " opened " + cryptoResult.openedFlag);
+    if (await page.locator("[data-ready=provider]").getAttribute("data-ready-state") !== "absent") fail("provider became connected");
     if (logs.some((line) => line.includes("AGE-SECRET-KEY-") || line.includes("hello storage"))) fail("logged secret");
     console.log("playback " + JSON.stringify(cryptoResult.play));
     await page.locator("header.nav a.nav-item[href='#/storage']").first().scrollIntoViewIfNeeded();

@@ -6394,5 +6394,10 @@ SI18n.addPack("ru", {
   "This age file can only be downloaded.": "Этот файл age можно только скачать.",
   "No provider is connected from this page.": "С этой страницы не подключён ни один провайдер.",
   "Playback uses the init segment and one fragment.": "Воспроизведение использует начальный сегмент и один фрагмент.",
-  "The pieces in this package cannot be played.": "Части этого пакета нельзя воспроизвести."
+  "The pieces in this package cannot be played.": "Части этого пакета нельзя воспроизвести.",
+  "Backup recipient": "Получатель копии",
+  "Catalog": "Каталог",
+  "Needed": "Нужен",
+  "Provider": "Провайдер",
+  "This package names Telegram getFile. This page does not download it.": "В этом пакете указан Telegram getFile. Эта страница его не скачивает."
 });
