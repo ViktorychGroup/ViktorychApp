@@ -24,9 +24,11 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 ## Storage recordings
 
-The sidebar row stays the cloud icon and reads Storage. `#/drive` still opens `#/storage`. Recordings, provider rows and recorder status are inside that page. Vault stays separate. Files and photos are unchanged.
+The sidebar row stays the cloud icon and reads Storage. `#/drive` still opens `#/storage`. Recordings, provider rows and recorder status are inside that page. Vault stays separate. Files use the folder list, path, and list or grid on this page. Photos stay in their tabs.
 
 An age identity (age-encryption 0.3.1) stays in the tab. It is not stored or sent. Playback is only a vsr-playback-2 package: `manifest.age` is decrypted first, `manifest.json` is ignored, and version 1 byte-chunk catalogs are refused. Seeking decrypts the init segment and the fragment for that time, then the player appends the init segment and that fragment. The codec is read from the file. Only H.264, with AAC-LC when the file has it, is offered to the browser. A single age file can be downloaded and is not played. No provider is connected from this page. Tests: `scripts/storage_recordings_test.mjs`, `scripts/storage_page_test.mjs`.
+
+The same `#/storage` page browses files in the app's own layout: a folder list on a wide screen, a scrolling folder row on a phone, a breadcrumb path, search, and list or grid. List columns sort by name, size, or modified time. Modified time is the item's saved update time. Recordings, the player, and the provider row stay on this page. A provider that is not connected stays not connected, and there is no sign-in for another company's drive. A sealed catalog that is not uploaded is not fetched. A missing token fails closed. Nothing is uploaded or recorded from this page.
 
 ## Article reader
 

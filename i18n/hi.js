@@ -6391,5 +6391,10 @@ SI18n.addPack("hi", {
   "Not uploaded": "अपलोड नहीं",
   "Ciphertext in this tab": "सिफर इस टैब में",
   "This catalog is not uploaded. Nothing was fetched.": "यह सूची अपलोड नहीं है। कुछ नहीं लाया गया।",
-  "Retrieval is not configured.": "पुनर्प्राप्ति सेट नहीं है।"
+  "Retrieval is not configured.": "पुनर्प्राप्ति सेट नहीं है।",
+  "Modified": "बदला गया",
+  "Folder path": "फ़ोल्डर का पथ",
+  "Folders": "फ़ोल्डर",
+  "Sort by size": "आकार से क्रम",
+  "Sort by date modified": "बदलाव की तिथि से क्रम"
 });

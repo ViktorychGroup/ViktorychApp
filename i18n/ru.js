@@ -6403,5 +6403,10 @@ SI18n.addPack("ru", {
   "Not uploaded": "Не отправлено",
   "Ciphertext in this tab": "Шифр в этой вкладке",
   "This catalog is not uploaded. Nothing was fetched.": "Этот каталог не отправлен. Ничего не загружалось.",
-  "Retrieval is not configured.": "Получение не настроено."
+  "Retrieval is not configured.": "Получение не настроено.",
+  "Modified": "Изменён",
+  "Folder path": "Путь к папке",
+  "Folders": "Папки",
+  "Sort by size": "Сортировать по размеру",
+  "Sort by date modified": "Сортировать по дате изменения"
 });

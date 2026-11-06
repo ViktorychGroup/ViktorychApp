@@ -6404,5 +6404,10 @@ SI18n.addPack("es", {
   "Not uploaded": "No subido",
   "Ciphertext in this tab": "Cifrado en esta pestaña",
   "This catalog is not uploaded. Nothing was fetched.": "Este catálogo no está subido. No se descargó nada.",
-  "Retrieval is not configured.": "La recuperación no está configurada."
+  "Retrieval is not configured.": "La recuperación no está configurada.",
+  "Modified": "Modificado",
+  "Folder path": "Ruta de la carpeta",
+  "Folders": "Carpetas",
+  "Sort by size": "Ordenar por tamaño",
+  "Sort by date modified": "Ordenar por fecha de modificación"
 });

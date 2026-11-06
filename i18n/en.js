@@ -6401,5 +6401,10 @@ SI18n.addPack("en", {
   "Not uploaded": "Not uploaded",
   "Ciphertext in this tab": "Ciphertext in this tab",
   "This catalog is not uploaded. Nothing was fetched.": "This catalog is not uploaded. Nothing was fetched.",
-  "Retrieval is not configured.": "Retrieval is not configured."
+  "Retrieval is not configured.": "Retrieval is not configured.",
+  "Modified": "Modified",
+  "Folder path": "Folder path",
+  "Folders": "Folders",
+  "Sort by size": "Sort by size",
+  "Sort by date modified": "Sort by date modified"
 });

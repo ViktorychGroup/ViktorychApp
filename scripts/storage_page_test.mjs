@@ -152,6 +152,82 @@ async function main() {
     }));
     if (ready.recipient !== "ready" || ready.value !== BACKUP_RECIPIENT) fail("recipient " + JSON.stringify(ready));
     if (ready.identity !== "needed" || ready.provider !== "absent" || ready.catalog !== "local") fail("readiness " + JSON.stringify(ready));
+    const browserUi = await page.evaluate(() => {
+      const crumbs = document.querySelector(".drive-crumbs");
+      const tree = document.querySelector(".drive-tree");
+      const treeBox = tree ? tree.getBoundingClientRect() : { width: 0, height: 0 };
+      const names = [...document.querySelectorAll(".drive-card, .drive-row")].map((el) => el.getAttribute("data-drive-name"));
+      return {
+        crumbs: crumbs ? crumbs.innerText.replace(/\s+/g, " ").trim() : "",
+        tree: !!(treeBox.width > 20 && treeBox.height > 20),
+        places: document.querySelector(".drive-places") ? getComputedStyle(document.querySelector(".drive-places")).display : "missing",
+        names,
+        grid: !!document.querySelector(".drive-grid"),
+        recJump: [...document.querySelectorAll("[data-drive=show-recordings]")].map((el) => el.textContent.trim()),
+        connect: [...document.querySelectorAll("button")].map((el) => el.textContent.trim()).filter((text) => /^connect/i.test(text))
+      };
+    });
+    if (!browserUi.crumbs.includes("Storage")) fail("crumbs " + browserUi.crumbs);
+    if (!browserUi.tree) fail("desktop folder tree hidden");
+    if (browserUi.places !== "none") fail("places shown beside the tree " + browserUi.places);
+    if (browserUi.names[0] !== "Maps") fail("root order " + browserUi.names.join(","));
+    if (!browserUi.grid) fail("grid missing");
+    if (browserUi.recJump.indexOf("Recordings") < 0) fail("recordings jump missing");
+    if (browserUi.connect.length) fail("connect buttons " + browserUi.connect.join(","));
+    await page.locator("[data-drive=list]").click();
+    await page.waitForSelector(".drive-cols");
+    await page.locator("[data-drive=sort][data-sort=size]").click();
+    await page.waitForFunction(() => {
+      const cols = document.querySelector(".drive-cols");
+      return cols && cols.getAttribute("data-sort-field") === "size" && cols.getAttribute("data-sort-dir") === "desc";
+    });
+    const bySize = await page.locator(".drive-row").evaluateAll((els) => els.map((el) => el.getAttribute("data-drive-name")));
+    if (bySize.join("|") !== "Maps|Clip.mp4|Shore.jpg|Voice.m4a|Brief.pdf|Notes.txt") fail("size sort " + bySize.join("|"));
+    const sortState = await page.locator(".drive-cols").getAttribute("data-sort-field");
+    if (sortState !== "size") fail("sort field " + sortState);
+    await shot(page, "storage-desktop-list.png");
+    await page.locator(".drive-tree a", { hasText: "Maps" }).click();
+    await page.waitForFunction(() => {
+      const crumbs = document.querySelector(".drive-crumbs");
+      return crumbs && crumbs.textContent.indexOf("Maps") >= 0;
+    });
+    const folder = await page.evaluate(() => ({
+      crumbs: document.querySelector(".drive-crumbs").innerText.replace(/\s+/g, " ").trim(),
+      names: [...document.querySelectorAll(".drive-row")].map((el) => el.getAttribute("data-drive-name")),
+      rec: !!document.querySelector("#rec-root")
+    }));
+    if (!folder.crumbs.includes("Maps")) fail("folder crumbs " + folder.crumbs);
+    if (folder.names.join("|") !== "Coast|Legend.pdf") fail("folder rows " + folder.names.join("|"));
+    if (folder.rec) fail("recordings followed into a folder");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await shot(page, "storage-desktop-folder.png");
+    await page.locator(".drive-tree a", { hasText: "Coast" }).click();
+    await page.waitForFunction(() => {
+      const crumbs = document.querySelector(".drive-crumbs");
+      return crumbs && crumbs.textContent.indexOf("Coast") >= 0;
+    });
+    const emptyFolder = await page.locator(".drive-empty h2").innerText();
+    if (emptyFolder !== "This folder is empty.") fail("empty folder " + emptyFolder);
+    await page.locator(".drive-row, .drive-card").first().waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+    await page.locator(".drive-tree a", { hasText: "My Drive" }).click();
+    await page.waitForFunction(() => {
+      const here = document.querySelector(".drive-crumbs .here");
+      return here && here.textContent.trim() === "Storage" && location.hash.indexOf("folder/") < 0;
+    });
+    const notes = page.locator(".drive-row", { hasText: "Notes.txt" });
+    await notes.waitFor();
+    await notes.click({ button: "right" });
+    await page.waitForSelector(".drive-modal");
+    const menuText = await page.locator(".drive-modal").innerText();
+    if (!/Download/.test(menuText) || !/Rename/.test(menuText) || !/Move/.test(menuText) || !/Delete/.test(menuText)) fail("menu " + menuText);
+    await page.locator(".drive-modal [data-drive=dismiss]").first().click();
+    await page.locator("[data-drive=sort][data-sort=name]").click();
+    await page.locator("[data-drive=grid]").click();
+    await page.waitForSelector(".drive-grid");
+    await page.locator(".drive-tree [data-drive=show-recordings]").click();
+    await page.locator("#rec-root").scrollIntoViewIfNeeded();
+    await shot(page, "storage-desktop-recordings.png");
+    await page.evaluate(() => window.scrollTo(0, 0));
     if (nav.providers.length) fail("provider rows " + nav.providers.join(","));
     if (nav.connect.length) fail("connect buttons");
     if (nav.vaultInRec) fail("vault mixed into storage");
@@ -160,6 +236,7 @@ async function main() {
     if (/Google Drive|OneDrive|Cryptomator|Telegram/.test(pageText)) fail("provider names on the page");
     if (nav.recordingNav && nav.recordingNav.length) fail("recordings became a sidebar tool");
     await scrollNav(page);
+    await page.evaluate(() => window.scrollTo(0, 0));
     await shot(page, "storage-desktop.png");
 
     const cryptoResult = await page.evaluate(async ({ identity, filesB64 }) => {
@@ -228,6 +305,11 @@ async function main() {
         const dbs = await indexedDB.databases();
         idb = JSON.stringify(dbs.map((row) => row.name));
       }
+      const shown = await window.ViktorychRecordings.openPackage({ files: files });
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      if (shown.manifest && shown.manifest.mime && window.MediaSource && MediaSource.isTypeSupported && MediaSource.isTypeSupported(shown.manifest.mime)) {
+        await window.ViktorychRecordings.playSegments();
+      }
       return {
         wrong: wrongOut.error,
         locked: lockedOut.error,
@@ -287,6 +369,10 @@ async function main() {
     if (logs.some((line) => line.includes("AGE-SECRET-KEY-") || line.includes("hello storage"))) fail("logged secret");
     console.log("playback " + JSON.stringify(cryptoResult.play));
     await scrollNav(page);
+    await page.evaluate(() => {
+      const video = document.getElementById("rec-video");
+      if (video) video.scrollIntoView({ block: "center", inline: "nearest" });
+    });
     await shot(page, "storage-desktop-playing.png");
     const locked = await page.evaluate(() => {
       window.ViktorychRecordings.lock();
@@ -313,9 +399,42 @@ async function main() {
     const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
     const mobile = await phone.newPage();
     await openStorage(mobile, port, "#/storage?preview=1");
-    const phoneNav = await mobile.evaluate(() => (document.querySelector(".drive h1") || {}).textContent || "");
-    if (!phoneNav.includes("Storage")) fail("phone heading " + phoneNav);
+    const phoneNav = await mobile.evaluate(() => {
+      const tree = document.querySelector(".drive-tree");
+      const treeBox = tree ? tree.getBoundingClientRect() : { width: 0 };
+      const places = document.querySelector(".drive-places");
+      return {
+        heading: (document.querySelector(".drive h1") || {}).textContent || "",
+        tree: treeBox.width,
+        places: places ? getComputedStyle(places).display : "missing",
+        crumbs: document.querySelector(".drive-crumbs") ? document.querySelector(".drive-crumbs").innerText : "",
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      };
+    });
+    if (!phoneNav.heading.includes("Storage")) fail("phone heading " + phoneNav.heading);
+    if (phoneNav.tree > 0) fail("phone tree width " + phoneNav.tree);
+    if (phoneNav.places === "none") fail("phone places hidden");
+    if (!phoneNav.crumbs.includes("Storage")) fail("phone crumbs " + phoneNav.crumbs);
+    if (phoneNav.overflow > 2) fail("phone overflow " + phoneNav.overflow);
     await shot(mobile, "storage-mobile.png");
+    await mobile.locator("[data-drive=list]").click();
+    await mobile.waitForSelector(".drive-row");
+    const phoneCols = await mobile.evaluate(() => {
+      const when = document.querySelector(".drive-col-when");
+      const box = when ? when.getBoundingClientRect() : { width: 0, height: 0 };
+      return { width: box.width, height: box.height, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+    });
+    if (phoneCols.width > 0 && phoneCols.height > 0) fail("phone modified column " + JSON.stringify(phoneCols));
+    if (phoneCols.overflow > 2) fail("phone list overflow " + phoneCols.overflow);
+    await shot(mobile, "storage-mobile-list.png");
+    await mobile.locator(".drive-places [data-drive=show-recordings]").click();
+    await mobile.locator("#rec-root").scrollIntoViewIfNeeded();
+    const phoneRec = await mobile.evaluate(() => ({
+      provider: document.querySelector("[data-ready=provider]").getAttribute("data-ready-state"),
+      recorder: document.querySelector("[data-recorder-status]").getAttribute("data-recorder-status")
+    }));
+    if (phoneRec.provider !== "absent" || phoneRec.recorder !== "unlinked") fail("phone provider " + JSON.stringify(phoneRec));
+    await shot(mobile, "storage-mobile-recordings.png");
     await phone.close();
     console.log("storage page ok");
   } finally {
