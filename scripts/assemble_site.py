@@ -53,7 +53,8 @@ LAZY_ARRAY = re.compile(r"LAZY_FILES\s*=\s*\[(.*?)\]", re.S)
 IMPORT_SCRIPTS = re.compile(r"importScripts\s*\((.*?)\)", re.S)
 LAZY_SCRIPTS = re.compile(r"scripts\s*:\s*\[([^\]]*)\]")
 MODULE_SPEC = re.compile(
-    r"""(?:^|[^\w$])(?:import|export)\s+(?:[^'"\n;]*?\sfrom\s*)?['"](\.[^'"]+)['"]|import\(\s*['"](\.[^'"]+)['"]\s*\)"""
+    r"""(?:^|[^\w$])(?:import|export)\s+(?:[^'";]*?\sfrom\s*)?['"](\.[^'"]+)['"]|import\(\s*['"](\.[^'"]+)['"]\s*\)""",
+    re.S,
 )
 
 
@@ -351,6 +352,7 @@ def selftest() -> int:
         "index.html",
         "sw.js",
         "logo/v.svg",
+        "shared/storage-contract.js",
     )
     missing = [name for name in needed if name not in published]
     if missing:
@@ -370,10 +372,13 @@ def selftest() -> int:
             'var REGISTRY = { tv: { scripts: ["tv.js", "tv.css"] } };\n',
             encoding="utf-8",
         )
-        (root / "app.js").write_text('import "./shared/dep.js";\n', encoding="utf-8")
+        (root / "app.js").write_text(
+            'import {\n  n\n} from "./shared/dep.js";\nimport "./shared/side.js";\n',
+            encoding="utf-8",
+        )
         (root / "app.css").write_text("body{}\n", encoding="utf-8")
         listed = shell_files(root)
-        for name in ("missing.js", "tv.js", "tv.css", "shared/dep.js"):
+        for name in ("missing.js", "tv.js", "tv.css", "shared/dep.js", "shared/side.js"):
             if name not in listed:
                 print("fixture did not name " + name)
                 return 1
@@ -381,7 +386,7 @@ def selftest() -> int:
             copy_shell(root, site)
         except SystemExit as exc:
             text = str(exc)
-            if "missing.js" not in text or "tv.js" not in text or "shared/dep.js" not in text:
+            if "missing.js" not in text or "tv.js" not in text or "shared/dep.js" not in text or "shared/side.js" not in text:
                 print(text)
                 return 1
         else:
@@ -392,6 +397,7 @@ def selftest() -> int:
             ("tv.js", "/* tv */\n"),
             ("tv.css", "/* tv */\n"),
             ("shared/dep.js", "export const n = 1;\n"),
+            ("shared/side.js", "export const side = 1;\n"),
         ):
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
