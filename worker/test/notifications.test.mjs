@@ -24,6 +24,11 @@ function workerOptions() {
       ALLOWED_ORIGINS: "https://viktorychgroup.github.io,http://127.0.0.1:8080",
       PBKDF2_ITERATIONS: "1000",
       PUSH_SINK: "d1"
+    },
+    async outboundService(request) {
+      const url = new URL(request.url);
+      if (url.hostname === "push.example") return new Response("ok", { status: 201 });
+      return new Response("no", { status: 404 });
     }
   };
 }

@@ -10,6 +10,7 @@ let mf;
 let alpha;
 let bravo;
 let charlie;
+let pushStatus = 201;
 
 function workerOptions() {
   return {
@@ -29,6 +30,11 @@ function workerOptions() {
       ALLOWED_ORIGINS: "https://viktorychgroup.github.io,http://127.0.0.1:8080",
       PBKDF2_ITERATIONS: "1000",
       PUSH_SINK: "d1"
+    },
+    async outboundService(request) {
+      const url = new URL(request.url);
+      if (url.hostname === "push.example") return new Response("ok", { status: pushStatus });
+      return new Response("no", { status: 404 });
     }
   };
 }
@@ -603,6 +609,7 @@ test("discord alerts preview, dedupe, mutes, and quiet hours stay on already loa
     body: { endpoint: "https://push.example/alpha-phone", keys, expirationTime: 0 }
   });
   assert.equal(sub.status, 200);
+  pushStatus = 500;
   await run("UPDATE notification_outbox SET attempts = 5, next_at = 1 WHERE public_id = ? AND note_id = ?", alpha.account.publicId, "discord:" + sample.id);
   const drained = await call("/v1/notifications", { ip: "203.0.113.124", token: alpha.token });
   assert.equal(drained.status, 200);
@@ -612,4 +619,5 @@ test("discord alerts preview, dedupe, mutes, and quiet hours stay on already loa
   assert.equal(String(dead.public_hash).length, 16);
   assert.notEqual(dead.public_hash, alpha.account.publicId);
   assert.notEqual(dead.public_hash, alpha.account.handle);
+  pushStatus = 201;
 });
