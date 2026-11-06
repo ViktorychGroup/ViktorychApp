@@ -8,6 +8,8 @@ const OWNER = "ownerlock";
 const READER = "readerlock";
 
 let mf;
+const pushes = [];
+let failOpenOnce = true;
 
 function workerOptions() {
   return {
@@ -28,6 +30,16 @@ function workerOptions() {
       ALLOWED_ORIGINS: "https://viktorychgroup.github.io,http://127.0.0.1:8080",
       PBKDF2_ITERATIONS: "1000",
       PUSH_SINK: "d1"
+    },
+    async outboundService(request) {
+      const url = new URL(request.url);
+      if (url.hostname !== "push.example") return new Response("no", { status: 404 });
+      pushes.push(url.pathname);
+      if (failOpenOnce && url.pathname === "/device-open") {
+        failOpenOnce = false;
+        return new Response("down", { status: 500 });
+      }
+      return new Response("ok", { status: 201 });
     }
   };
 }
@@ -204,6 +216,16 @@ test("locked account notifications stay hidden until the account is unlocked", a
   assert.equal(hasId(shown.body, lockedId), true);
   const stillOne = await one("SELECT COUNT(*) AS n FROM push_log WHERE public_id = ? AND note_id = ?", owner.account.publicId, lockedId);
   assert.equal(Number(stillOne.n), 1);
+  // The open device's first push failed. After the backoff the outbox retries
+  // that device only. The locked device, which hid this note, is not added
+  // when the account is unlocked.
+  await new Promise((resolve) => setTimeout(resolve, 2200));
+  const drained = await call("/v1/notifications?locked=1", { ip: "203.0.113.94", token: owner.token });
+  assert.equal(hasId(drained.body, lockedId), true);
+  assert.equal(pushes.filter((path) => path === "/device-locked").length, 1);
+  assert.equal(pushes.filter((path) => path === "/device-open").length, 3);
+  const retried = await one("SELECT COUNT(*) AS n FROM push_log WHERE public_id = ? AND note_id = ?", owner.account.publicId, lockedId);
+  assert.equal(Number(retried.n), 2);
   const readerStill = await call("/v1/notifications?locked=0", { ip: "203.0.113.91", token: reader.token });
   assert.equal(hasId(readerStill.body, readerId), false);
 

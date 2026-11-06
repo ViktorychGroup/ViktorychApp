@@ -176,7 +176,8 @@ async function addLockColumns(env) {
   const alters = [
     "ALTER TABLE push_subscriptions ADD COLUMN shorts_locked INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE push_subscriptions ADD COLUMN push_fmt INTEGER NOT NULL DEFAULT 1",
-    "ALTER TABLE notification_state ADD COLUMN shorts_locked INTEGER NOT NULL DEFAULT 1"
+    "ALTER TABLE notification_state ADD COLUMN shorts_locked INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE notification_outbox ADD COLUMN audience TEXT NOT NULL DEFAULT ''"
   ];
   for (let i = 0; i < alters.length; i++) {
     try { await env.DB.prepare(alters[i]).run(); }
@@ -812,7 +813,43 @@ async function tabRuleFor(env, publicId, item) {
   }
 }
 
-async function sendPush(env, publicId, item, viewer) {
+function deviceSeesNote(sub, item, base) {
+  const deviceLocked = sub.shorts_locked == null || sub.shorts_locked === "" ? true : Number(sub.shorts_locked) !== 0;
+  return !tiktokNoteHidden(item, Object.assign({}, base, { locked: deviceLocked }));
+}
+
+/* The first attempt records the devices that could see the note. A later
+   retry, including one after the unlock list changes, stays inside that
+   set. A buzz skipped while the account was locked is not sent later. */
+async function audienceFor(env, deliveryId, chosen) {
+  if (!deliveryId) return chosen;
+  const saved = await env.DB.prepare(
+    "SELECT audience FROM notification_outbox WHERE delivery_id = ?"
+  ).bind(deliveryId).first();
+  if (saved && saved.audience) {
+    let allowed = [];
+    try { allowed = JSON.parse(saved.audience); }
+    catch (err) { allowed = []; }
+    const keep = new Set(Array.isArray(allowed) ? allowed : []);
+    return chosen.filter((sub) => keep.has(sub.endpoint_hash));
+  }
+  const hashes = JSON.stringify(chosen.map((sub) => sub.endpoint_hash));
+  const wrote = await env.DB.prepare(
+    "UPDATE notification_outbox SET audience = ? WHERE delivery_id = ? AND (audience IS NULL OR audience = '')"
+  ).bind(hashes, deliveryId).run();
+  if (wrote && wrote.meta && wrote.meta.changes) return chosen;
+  const again = await env.DB.prepare(
+    "SELECT audience FROM notification_outbox WHERE delivery_id = ?"
+  ).bind(deliveryId).first();
+  if (!again || !again.audience) return chosen;
+  let allowed = [];
+  try { allowed = JSON.parse(again.audience); }
+  catch (err) { allowed = []; }
+  const keep = new Set(Array.isArray(allowed) ? allowed : []);
+  return chosen.filter((sub) => keep.has(sub.endpoint_hash));
+}
+
+async function sendPush(env, publicId, item, viewer, deliveryId) {
   const account = await accountRow(env, publicId) || {};
   try {
     const presence = await env.DB.prepare("SELECT preference FROM account_presence WHERE public_id = ?").bind(publicId).first();
@@ -852,11 +889,14 @@ async function sendPush(env, publicId, item, viewer) {
     feedId: /^app:\d{12}$/.test(String(item.feedId || "")) ? "" : (item.feedId || ""),
     quiet: !rule.sound
   }));
-  let failed = false;
+  const visible = [];
   for (let i = 0; i < rows.length; i++) {
-    const sub = rows[i];
-    const deviceLocked = sub.shorts_locked == null || sub.shorts_locked === "" ? true : Number(sub.shorts_locked) !== 0;
-    if (tiktokNoteHidden(item, Object.assign({}, base, { locked: deviceLocked }))) continue;
+    if (deviceSeesNote(rows[i], item, base)) visible.push(rows[i]);
+  }
+  const targets = await audienceFor(env, deliveryId, visible);
+  let failed = false;
+  for (let i = 0; i < targets.length; i++) {
+    const sub = targets[i];
     try {
       const jwt = await vapidJwt(sub.endpoint, keys.publicKey, keys.privateJwk);
       const body = await encryptPush(Number(sub.push_fmt) === 2 ? compact : payload, sub.p256dh, sub.auth);
@@ -1225,7 +1265,7 @@ export async function finishDeliveries(env, deliveries, request) {
       });
     } catch (err) { logSafe("channel_failed"); }
     if (delivery.mode !== "push") continue;
-    const result = await sendPush(env, delivery.publicId, item, viewer);
+    const result = await sendPush(env, delivery.publicId, item, viewer, delivery.deliveryId);
     if (result && result.ok) {
       await env.DB.prepare(
         "UPDATE notifications SET pushed_at = ? WHERE public_id = ? AND note_id = ?"
