@@ -6376,5 +6376,11 @@ SI18n.addPack("hi", {
   "Providers": "प्रदाता",
   "This page does not sign in to Telegram, Google Drive, OneDrive or Cryptomator.": "यह पेज Telegram, गूगल ड्राइव, OneDrive या Cryptomator में साइन इन नहीं करता।",
   "Encrypted files on this device": "इस डिवाइस पर एन्क्रिप्टेड फ़ाइलें",
-  "Stopped": "रुका हुआ"
+  "Stopped": "रुका हुआ",
+  "This catalog cannot be played.": "यह सूची नहीं चलाई जा सकती।",
+  "Open an age file": "age फ़ाइल खोलें",
+  "This age file can only be downloaded.": "यह age फ़ाइल केवल डाउनलोड हो सकती है।",
+  "No provider is connected from this page.": "इस पेज से कोई प्रदाता जुड़ा नहीं है।",
+  "Playback uses the init segment and one fragment.": "चलाने के लिए आरंभिक खंड और एक टुकड़ा चाहिए।",
+  "The pieces in this package cannot be played.": "इस पैकेज के टुकड़े नहीं चलाए जा सकते।"
 });

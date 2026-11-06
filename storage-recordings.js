@@ -1,24 +1,22 @@
-/* Recordings on the Storage page. The age identity lives in this module's
-   memory for the tab and is never written, sent, or logged. Playback uses
-   Media Source only for age-media-segments whose codec the browser accepts.
-   Byte-chunk packages stay on the whole-file decrypt path. */
+/* Recordings on the Storage page. The age identity lives in this module
+   for the tab and is never written, sent, or logged. Playback is vsr-playback-2
+   only: decrypt manifest.age, then the init segment and the fragment for
+   the current time. A whole age file is a download. manifest.json is ignored. */
 import {
   DOWNLOAD_CAP,
   MEMORY_CAP,
   SEGMENT_SLOTS,
-  b64ToBytes,
-  bytesToB64,
-  chunkForTime,
   durationOf,
-  filesFromInline,
+  fragmentForTime,
   looksLikeIdentity,
-  parseManifest,
+  parsePlainCatalog,
+  parsePlaybackManifest,
   playbackPlan,
-  providerRows,
-  recorderStatus,
-  sha256Hex
+  sha256Hex,
+  shaName
 } from "./shared/storage-contract.js";
 import { decryptBytes } from "./shared/storage-age.js";
+import { classifyMp4, likelyMime } from "./shared/storage-mp4.js";
 
 const AGE_SRC = "vendor/age-0.3.1.min.js";
 const OFF_KEY = "viktorychapp-server-off";
@@ -26,17 +24,16 @@ const OFF_KEY = "viktorychapp-server-off";
 let identity = "";
 let manifest = null;
 let sources = new Map();
-let deviceMode = "offline";
-let preview = false;
+let legacyCipher = null;
+let legacyName = "recording.age";
 let errorCode = "";
-let busy = false;
 let playerUrl = "";
 let agePromise = null;
 let shownIndex = -1;
 const slots = { init: null, media: null };
 
-function tr(key, vars) {
-  return window.t ? window.t(key, vars) : key;
+function tr(key) {
+  return window.t ? window.t(key) : key;
 }
 function esc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
@@ -111,37 +108,11 @@ function paint() {
   if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
 }
 function plan() {
-  const supported = (mime) => {
+  const supported = function (mime) {
     try { return !!(window.MediaSource && MediaSource.isTypeSupported && MediaSource.isTypeSupported(mime)); }
     catch (err) { return false; }
   };
   return playbackPlan(manifest, supported);
-}
-function canPlayFile(mime) {
-  if (!mime || typeof document === "undefined") return false;
-  const el = document.createElement(mime.indexOf("audio/") === 0 ? "audio" : "video");
-  const answer = el.canPlayType ? el.canPlayType(mime) : "";
-  return answer === "probably" || answer === "maybe";
-}
-function stateLabel(state) {
-  if (state === "ready") return tr("Ready");
-  if (state === "locked") return tr("Locked");
-  if (state === "local") return tr("On this device");
-  if (state === "idle") return tr("Idle");
-  if (state === "recording") return tr("Recording");
-  if (state === "stopped") return tr("Stopped");
-  if (state === "unknown") return tr("Unknown");
-  if (state === "unlinked") return tr("Not linked");
-  return tr("Not connected");
-}
-function providerName(id) {
-  if (id === "device") return tr("This device");
-  if (id === "recordings") return tr("Recordings");
-  if (id === "telegram") return tr("Telegram");
-  if (id === "gdrive") return tr("Google Drive");
-  if (id === "onedrive") return tr("OneDrive");
-  if (id === "cryptomator") return tr("Cryptomator");
-  return id;
 }
 function errorText() {
   if (errorCode === "key") return tr("That key did not decrypt this recording.");
@@ -150,69 +121,50 @@ function errorText() {
   if (errorCode === "identity") return tr("Use an age identity. It starts with AGE-SECRET-KEY-1.");
   if (errorCode === "too-large") return tr("This recording is too large to decrypt in this tab.");
   if (errorCode === "missing") return tr("Chunk files are missing from the folder you chose.");
-  if (errorCode === "catalog" || errorCode === "kind" || errorCode === "chunk") return tr("Could not read that catalog.");
+  if (errorCode === "withdrawn" || errorCode === "unauthenticated") return tr("This catalog cannot be played.");
+  if (errorCode === "boxes") return tr("The pieces in this package cannot be played.");
   if (errorCode === "codec") return tr("This format cannot play in this browser. Nothing is re-encoded.");
+  if (errorCode === "manifest" || errorCode === "catalog") return tr("Could not read that catalog.");
   return "";
 }
 function noteText() {
-  if (!manifest && preview) return tr("This recording is stored as encrypted byte chunks, not playable video segments.");
-  if (!manifest) return tr("No recorder is linked. Recordings open from a catalog on this device. Nothing is uploaded.");
+  if (manifest && manifest.legacy) return tr("This age file can only be downloaded.");
   const current = plan();
-  if (manifest.kind === "age-byte-chunks" || current.reason === "byte-chunks") {
-    return tr("This recording is stored as encrypted byte chunks, not playable video segments.");
-  }
-  if (current.mode === "unsupported") return tr("This format cannot play in this browser. Nothing is re-encoded.");
-  if (current.mode === "too-large") return tr("This recording is too large to decrypt in this tab.");
-  if (current.mode === "file" || current.wholeFile) return tr("This plays the whole decrypted file. It is not streamed by segment.");
+  if (current.mode === "mse") return tr("Playback uses the init segment and one fragment.");
+  if (current.mode === "unsupported" && current.reason === "codec") return tr("This format cannot play in this browser. Nothing is re-encoded.");
+  if (current.mode === "unsupported") return tr("The pieces in this package cannot be played.");
   return "";
 }
 
-export function recordingsHtml(mode, isPreview) {
-  deviceMode = mode || "offline";
-  preview = !!isPreview;
+export function recordingsHtml() {
   if (!recordingsEnabled()) return "";
-  const rows = providerRows(deviceMode).map(function (row) {
-    return '<div class="rec-row" data-provider="' + esc(row.id) + '" data-provider-state="' + esc(row.state) + '"><b>' + esc(providerName(row.id)) + '</b><span>' + esc(stateLabel(row.state)) + "</span></div>";
-  }).join("");
-  const rec = manifest ? recorderStatus(manifest) : { state: "unlinked", detail: "" };
   const current = plan();
   const locked = !identity;
-  const title = manifest ? manifest.title : (preview ? tr("Example recording") : "");
-  const kind = manifest ? manifest.kind : (preview ? "age-byte-chunks" : "");
+  const title = manifest ? (manifest.title || tr("Recording")) : "";
+  const kind = manifest ? (manifest.legacy ? "legacy" : manifest.format) : "";
   const actions = [];
-  if (manifest && !locked && (current.mode === "download" || current.mode === "file" || current.mode === "unsupported" || current.wholeFile)) {
-    actions.push('<button class="outline" type="button" data-act="stop" data-rec="download">' + esc(tr("Download and decrypt")) + "</button>");
+  if (manifest && manifest.legacy && !locked) {
+    actions.push('<button class="outline" type="button" data-act="stop" data-rec="download-legacy">' + esc(tr("Download and decrypt")) + "</button>");
   }
-  if (manifest && !locked && current.mode === "file" && canPlayFile(current.mime)) {
-    actions.push('<button class="save" type="button" data-act="stop" data-rec="play-file">' + esc(tr("Play decrypted file")) + "</button>");
-  }
-  if (manifest && !locked && current.wholeFile && canPlayFile(current.mime)) {
-    actions.push('<button class="save" type="button" data-act="stop" data-rec="play-file">' + esc(tr("Play decrypted file")) + "</button>");
-  }
-  if (manifest && !locked && current.mode === "mse") {
+  if (manifest && !manifest.legacy && !locked && current.mode === "mse") {
     actions.push('<button class="save" type="button" data-act="stop" data-rec="play">' + esc(tr("Play")) + "</button>");
   }
   const form = locked
     ? '<form data-rec-form="unlock"><label class="field"><span>' + esc(tr("Recording key")) + '</span><input id="rec-key" type="password" autocomplete="off" spellcheck="false"></label><p class="rec-note">' + esc(tr("The key stays in this tab. It is not saved or sent.")) + '</p><button class="save" type="submit">' + esc(tr("Unlock recordings")) + "</button></form>"
     : '<button class="outline" type="button" data-act="stop" data-rec="lock">' + esc(tr("Lock recordings")) + "</button>";
   const item = title
-    ? '<article class="rec-item" data-rec-kind="' + esc(kind) + '" data-rec-example="' + (manifest ? "0" : "1") + '"><h3>' + esc(title) + "</h3><p class=\"rec-note\">" + esc(noteText()) + "</p>" + (actions.length ? '<div class="rec-actions">' + actions.join("") + "</div>" : "") + (manifest ? '<video id="rec-video" class="rec-video" controls playsinline muted></video>' : "") + "</article>"
+    ? '<article class="rec-item" data-rec-kind="' + esc(kind) + '"><h3>' + esc(title) + '</h3><p class="rec-note">' + esc(noteText()) + "</p>" + (actions.length ? '<div class="rec-actions">' + actions.join("") + "</div>" : "") + (!manifest.legacy && current.mode === "mse" ? '<video id="rec-video" class="rec-video" controls playsinline muted></video>' : "") + "</article>"
     : "";
-  const linked = rec.state !== "unlinked";
-  return '<section class="rec-block" id="rec-root" data-recorder="' + esc(rec.state) + '">' +
+  return '<section class="rec-block" id="rec-root" data-recorder="unlinked">' +
     '<h2>' + esc(tr("Recordings")) + "</h2>" +
-    (linked ? "" : '<p class="rec-note">' + esc(tr("No recorder is linked. Recordings open from a catalog on this device. Nothing is uploaded.")) + "</p>") +
-    '<div class="rec-row" data-recorder-status="' + esc(rec.state) + '"><b>' + esc(tr("Recorder")) + "</b><span>" + esc(stateLabel(rec.state)) + "</span></div>" +
-    (rec.detail ? '<p class="rec-note">' + esc(rec.detail) + "</p>" : "") +
+    '<p class="rec-note">' + esc(tr("No recorder is linked. Recordings open from a catalog on this device. Nothing is uploaded.")) + "</p>" +
+    '<div class="rec-row" data-recorder-status="unlinked"><b>' + esc(tr("Recorder")) + '</b><span>' + esc(tr("Not linked")) + "</span></div>" +
     form +
-    '<div class="rec-actions"><label class="outline">' + esc(tr("Open a catalog")) + '<input id="rec-catalog" type="file" accept="application/json,.json" hidden></label>' +
-    '<label class="outline">' + esc(tr("Choose the folder of chunk files")) + '<input id="rec-folder" type="file" webkitdirectory multiple hidden></label></div>' +
+    '<div class="rec-actions"><label class="outline">' + esc(tr("Choose the folder of chunk files")) + '<input id="rec-folder" type="file" webkitdirectory multiple hidden></label>' +
+    '<label class="outline">' + esc(tr("Open an age file")) + '<input id="rec-legacy" type="file" accept=".age,application/octet-stream" hidden></label></div>' +
     (errorCode ? '<p class="rec-error" data-rec-error="' + esc(errorCode) + '">' + esc(errorText()) + "</p>" : "") +
     item +
-    '<h2>' + esc(tr("Providers")) + "</h2>" +
-    rows +
-    '<p class="rec-note">' + esc(tr("This page does not sign in to Telegram, Google Drive, OneDrive or Cryptomator.")) + "</p>" +
-    '<p class="rec-note">' + esc(tr("Encrypted files on this device")) + "</p>" +
+    '<p class="rec-note">' + esc(tr("No provider is connected from this page.")) + "</p>" +
     "</section>";
 }
 
@@ -233,6 +185,7 @@ function dropPlayer() {
 }
 export function lockRecordings() {
   identity = "";
+  legacyCipher = null;
   dropPlayer();
   errorCode = "";
 }
@@ -272,21 +225,60 @@ async function readNamed(name) {
   if (src instanceof Uint8Array) return src;
   return new Uint8Array(await src.arrayBuffer());
 }
-async function openChunk(chunk) {
+async function decryptNamed(sha) {
   if (!identity) {
     errorCode = "locked";
     throw new Error("locked");
   }
-  const bytes = await readNamed(chunk.name);
+  const name = shaName(sha);
+  const bytes = await readNamed(name);
+  if (bytes.byteLength > MEMORY_CAP + 65536) {
+    errorCode = "too-large";
+    throw new Error("too-large");
+  }
   const hash = await sha256Hex(bytes);
-  if (hash !== chunk.sha256) {
+  if (hash !== sha) {
     errorCode = "tamper";
     throw new Error("tamper");
   }
   try {
     const age = await loadAge();
     const plain = await decryptBytes(age, identity, bytes);
-    if (plain.byteLength > MEMORY_CAP && plain.byteLength > chunk.plainBytes) {
+    if (plain.byteLength > MEMORY_CAP) {
+      errorCode = "too-large";
+      throw new Error("too-large");
+    }
+    errorCode = "";
+    return plain;
+  } catch (err) {
+    if (errorCode !== "too-large" && errorCode !== "tamper") errorCode = "key";
+    throw err;
+  }
+}
+function rememberFiles(list) {
+  sources = new Map();
+  const rows = list || [];
+  for (let i = 0; i < rows.length; i++) {
+    const file = rows[i];
+    const name = String(file.name || "").split("/").pop();
+    if (!name || name === "manifest.json") return;
+    const hash = name.match(/^([a-fA-F0-9]{64})\.age$/);
+    sources.set(hash ? hash[1].toLowerCase() + ".age" : name, file);
+  }
+}
+async function decryptCipher(bytes) {
+  if (!identity) {
+    errorCode = "locked";
+    throw new Error("locked");
+  }
+  if (bytes.byteLength > DOWNLOAD_CAP) {
+    errorCode = "too-large";
+    throw new Error("too-large");
+  }
+  try {
+    const age = await loadAge();
+    const plain = await decryptBytes(age, identity, bytes);
+    if (plain.byteLength > DOWNLOAD_CAP) {
       errorCode = "too-large";
       throw new Error("too-large");
     }
@@ -297,45 +289,93 @@ async function openChunk(chunk) {
     throw err;
   }
 }
-function orderedChunks() {
-  return (manifest.chunks || []).slice().sort(function (a, b) { return a.index - b.index; });
-}
-export async function decryptPackage() {
-  if (!manifest) return { error: "catalog" };
-  if (!identity) {
-    errorCode = "locked";
-    return { error: "locked" };
+
+export async function openPackage(pkg) {
+  errorCode = "";
+  dropPlayer();
+  legacyCipher = null;
+  manifest = null;
+  if (!(pkg && pkg.keep)) {
+    const files = pkg && pkg.files || {};
+    sources = new Map();
+    Object.keys(files).forEach(function (name) {
+      if (name === "manifest.json") return;
+      const base = String(name).split("/").pop();
+      const hash = base && base.match(/^([a-fA-F0-9]{64})\.age$/);
+      const key = hash ? hash[1].toLowerCase() + ".age" : base;
+      if (files[name] instanceof Uint8Array && key) sources.set(key, files[name]);
+    });
   }
-  const total = orderedChunks().reduce(function (sum, chunk) { return sum + chunk.plainBytes; }, 0);
-  if (total > DOWNLOAD_CAP) {
-    errorCode = "too-large";
-    return { error: "too-large" };
+  if (!sources.has("manifest.age")) {
+    errorCode = sources.size ? "missing" : "withdrawn";
+    if (pkg && pkg.plainCatalog) errorCode = parsePlainCatalog(pkg.plainCatalog).error;
+    paint();
+    return { error: errorCode };
   }
-  const parts = [];
-  let held = 0;
+  let text = "";
   try {
-    const chunks = orderedChunks();
-    for (let i = 0; i < chunks.length; i++) {
-      const plain = await openChunk(chunks[i]);
-      held += plain.byteLength;
-      if (held > DOWNLOAD_CAP) {
-        errorCode = "too-large";
-        return { error: "too-large" };
-      }
-      parts.push(plain);
+    const plain = await decryptCipher(await readNamed("manifest.age"));
+    text = new TextDecoder().decode(plain);
+  } catch (err) {
+    paint();
+    return { error: errorCode || "key" };
+  }
+  const parsed = parsePlaybackManifest(text, { authenticated: true });
+  if (!parsed.manifest) {
+    errorCode = parsed.error || "manifest";
+    paint();
+    return parsed;
+  }
+  manifest = parsed.manifest;
+  try {
+    const initPlain = await decryptNamed(manifest.init);
+    if (classifyMp4(initPlain) !== "init") {
+      manifest = null;
+      errorCode = "boxes";
+      paint();
+      return { error: "boxes" };
     }
+    const mime = likelyMime(initPlain);
+    manifest.mime = mime;
+    manifest.likely = !!mime;
+    slots.init = null;
+  } catch (err) {
+    manifest = null;
+    paint();
+    return { error: errorCode || "key" };
+  }
+  paint();
+  return { manifest: { format: manifest.format, mime: manifest.mime, likely: manifest.likely } };
+}
+
+export async function openLegacy(bytes, name) {
+  errorCode = "";
+  dropPlayer();
+  manifest = null;
+  legacyCipher = bytes instanceof Uint8Array ? bytes : null;
+  legacyName = name || "recording.age";
+  if (!legacyCipher) {
+    errorCode = "catalog";
+    paint();
+    return { error: "catalog" };
+  }
+  manifest = { legacy: true, title: legacyName.replace(/\.age$/i, "") || tr("Recording") };
+  paint();
+  return { legacy: true };
+}
+
+export async function decryptLegacy() {
+  if (!manifest || !manifest.legacy || !legacyCipher) return { error: "catalog" };
+  try {
+    const plain = await decryptCipher(legacyCipher);
+    return { bytes: plain };
   } catch (err) {
     return { error: errorCode || "key" };
   }
-  let size = 0;
-  parts.forEach(function (part) { size += part.byteLength; });
-  const all = new Uint8Array(size);
-  let at = 0;
-  parts.forEach(function (part) { all.set(part, at); at += part.byteLength; });
-  return { bytes: all };
 }
-function saveBlob(bytes, name, mime) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: mime || "application/octet-stream" }));
+
+function saveBlob(bytes, name) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
   const link = document.createElement("a");
   link.href = url;
   link.download = name || "recording";
@@ -359,23 +399,59 @@ function appendBuffer(sourceBuffer, bytes) {
     sourceBuffer.appendBuffer(bytes);
   });
 }
-function hold(kind, bytes) {
-  slots[kind] = bytes;
-  const kept = (slots.init ? 1 : 0) + (slots.media ? 1 : 0);
-  if (kept > SEGMENT_SLOTS) slots.media = null;
-  return bytes;
+async function clearBuffer(sourceBuffer) {
+  if (!sourceBuffer.buffered || !sourceBuffer.buffered.length) return;
+  if (sourceBuffer.updating) {
+    await new Promise(function (resolve) {
+      sourceBuffer.addEventListener("updateend", function () { resolve(); }, { once: true });
+    });
+  }
+  await new Promise(function (resolve, reject) {
+    function done() {
+      sourceBuffer.removeEventListener("updateend", done);
+      resolve();
+    }
+    sourceBuffer.addEventListener("updateend", done);
+    try { sourceBuffer.remove(0, 1e9); } catch (err) { sourceBuffer.removeEventListener("updateend", done); reject(err); }
+  });
+}
+async function showAt(sourceBuffer, time) {
+  const fragment = fragmentForTime(manifest, time);
+  if (!fragment) {
+    errorCode = "boxes";
+    throw new Error("boxes");
+  }
+  if (fragment.index === shownIndex) return;
+  const initPlain = await decryptNamed(manifest.init);
+  const mediaPlain = await decryptNamed(fragment.sha256);
+  if (classifyMp4(initPlain) !== "init" || classifyMp4(mediaPlain) !== "fragment") {
+    errorCode = "boxes";
+    throw new Error("boxes");
+  }
+  if (slots.init || slots.media) {
+    slots.init = null;
+    slots.media = null;
+  }
+  if (shownIndex >= 0) await clearBuffer(sourceBuffer);
+  slots.init = initPlain;
+  slots.media = mediaPlain;
+  if ((slots.init ? 1 : 0) + (slots.media ? 1 : 0) > SEGMENT_SLOTS) slots.media = null;
+  await appendBuffer(sourceBuffer, initPlain);
+  await appendBuffer(sourceBuffer, mediaPlain);
+  slots.init = null;
+  slots.media = null;
+  shownIndex = fragment.index;
 }
 export async function playSegments() {
   const current = plan();
   if (current.mode !== "mse") {
-    errorCode = current.reason === "codec" || current.mode === "unsupported" ? "codec" : current.reason;
+    errorCode = current.reason === "codec" ? "codec" : (current.reason || "boxes");
     paint();
-    return { error: errorCode || "codec" };
+    return { error: errorCode };
   }
   const video = document.getElementById("rec-video");
   if (!video) return { error: "catalog" };
   dropPlayer();
-  const initChunk = manifest.chunks.filter(function (chunk) { return chunk.init; })[0];
   const mediaSource = new MediaSource();
   playerUrl = URL.createObjectURL(mediaSource);
   video.src = playerUrl;
@@ -386,10 +462,7 @@ export async function playSegments() {
   let sourceBuffer;
   try {
     sourceBuffer = mediaSource.addSourceBuffer(current.mime);
-    const initPlain = await openChunk(initChunk);
-    await appendBuffer(sourceBuffer, hold("init", initPlain));
-    slots.init = null;
-    await showSegment(sourceBuffer, 0);
+    await showAt(sourceBuffer, 0);
     const duration = durationOf(manifest);
     if (duration > 0 && mediaSource.readyState === "open") mediaSource.duration = duration;
   } catch (err) {
@@ -398,78 +471,12 @@ export async function playSegments() {
     return { error: errorCode };
   }
   video.onseeking = function () {
-    showSegment(sourceBuffer, video.currentTime).catch(function () {
+    showAt(sourceBuffer, video.currentTime).catch(function () {
       errorCode = errorCode || "codec";
     });
   };
   try { await video.play(); } catch (err) { /* a gesture may still be required */ }
-  return { ok: true };
-}
-async function showSegment(sourceBuffer, time) {
-  const chunk = chunkForTime(manifest, time);
-  if (!chunk || chunk.index === shownIndex) return;
-  const plain = await openChunk(chunk);
-  if (sourceBuffer.updating) {
-    await new Promise(function (resolve) {
-      sourceBuffer.addEventListener("updateend", function () { resolve(); }, { once: true });
-    });
-  }
-  await appendBuffer(sourceBuffer, hold("media", plain));
-  slots.media = null;
-  shownIndex = chunk.index;
-}
-export async function playWholeFile() {
-  const current = plan();
-  if (!(current.mode === "file" || current.wholeFile)) return { error: "codec" };
-  if ((manifest.bytes || 0) > MEMORY_CAP) {
-    errorCode = "too-large";
-    paint();
-    return { error: "too-large" };
-  }
-  const opened = await decryptPackage();
-  if (!opened.bytes) return opened;
-  const video = document.getElementById("rec-video");
-  if (!video) return { error: "catalog" };
-  dropPlayer();
-  playerUrl = URL.createObjectURL(new Blob([opened.bytes], { type: current.mime || "application/octet-stream" }));
-  video.src = playerUrl;
-  try { await video.play(); } catch (err) { /* autoplay can be blocked */ }
-  return { ok: true, bytes: opened.bytes.byteLength };
-}
-function takeFiles(list) {
-  sources = new Map();
-  for (let i = 0; i < list.length; i++) {
-    const file = list[i];
-    const name = String(file.name || "").split("/").pop();
-    if (name) sources.set(name, file);
-  }
-}
-export async function openPackage(pkg) {
-  errorCode = "";
-  dropPlayer();
-  const parsed = parseManifest(pkg && pkg.manifest ? pkg.manifest : pkg);
-  if (!parsed.manifest) {
-    manifest = null;
-    errorCode = parsed.error || "catalog";
-    paint();
-    return parsed;
-  }
-  manifest = parsed.manifest;
-  sources = new Map();
-  const inline = filesFromInline(manifest);
-  if (inline.error) {
-    manifest = null;
-    errorCode = inline.error;
-    paint();
-    return inline;
-  }
-  Object.keys(inline.files).forEach(function (name) { sources.set(name, inline.files[name]); });
-  const extra = pkg && pkg.files || {};
-  Object.keys(extra).forEach(function (name) {
-    if (extra[name] instanceof Uint8Array) sources.set(name, extra[name]);
-  });
-  paint();
-  return { manifest: { id: manifest.id, kind: manifest.kind } };
+  return { ok: true, mime: current.mime };
 }
 
 function onSubmit(event) {
@@ -482,10 +489,6 @@ function onSubmit(event) {
   unlockRecordings(value);
   paint();
 }
-async function onCatalog(file) {
-  const text = await file.text();
-  await openPackage(text);
-}
 function onClick(event) {
   const el = event.target && event.target.closest ? event.target.closest("[data-rec]") : null;
   if (!el) return;
@@ -495,24 +498,29 @@ function onClick(event) {
     paint();
     return;
   }
-  if (act === "download") {
-    decryptPackage().then(function (opened) {
+  if (act === "play") playSegments();
+  if (act === "download-legacy") {
+    decryptLegacy().then(function (opened) {
       if (!opened.bytes) {
         paint();
         return;
       }
-      saveBlob(opened.bytes, (manifest && manifest.title) || "recording", manifest && manifest.media && manifest.media.mime);
+      saveBlob(opened.bytes, legacyName.replace(/\.age$/i, "") || "recording");
     });
-    return;
   }
-  if (act === "play") playSegments();
-  if (act === "play-file") playWholeFile();
+}
+async function onLegacy(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  await openLegacy(bytes, file.name);
 }
 function onChange(event) {
   const input = event.target;
   if (!input) return;
-  if (input.id === "rec-catalog" && input.files && input.files[0]) onCatalog(input.files[0]);
-  if (input.id === "rec-folder" && input.files) takeFiles(input.files);
+  if (input.id === "rec-folder" && input.files) {
+    rememberFiles(input.files);
+    openPackage({ keep: true });
+  }
+  if (input.id === "rec-legacy" && input.files && input.files[0]) onLegacy(input.files[0]);
 }
 
 export function bindRecordings(root) {
@@ -531,12 +539,11 @@ window.ViktorychRecordings = {
   lock: lockRecordings,
   held: function () { return identity.length > 0; },
   openPackage: openPackage,
-  decryptPackage: decryptPackage,
+  openLegacy: openLegacy,
+  decryptLegacy: decryptLegacy,
   playSegments: playSegments,
-  playWholeFile: playWholeFile,
   plan: plan,
   loadAge: loadAge,
   error: function () { return errorCode; },
-  bytesToB64: bytesToB64,
-  b64ToBytes: b64ToBytes
+  rememberFiles: rememberFiles
 };

@@ -26,7 +26,7 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 The sidebar row stays the cloud icon and reads Storage. `#/drive` still opens `#/storage`. Recordings, provider rows and recorder status are inside that page. Vault stays separate. Files and photos are unchanged.
 
-An age identity (age-encryption 0.3.1) stays in the tab. It is not stored or sent. A package of encrypted byte chunks can be decrypted and downloaded. It is not played as a stream. Timed fMP4, MPEG-TS or WebM segments play with seeking only when the browser accepts that codec, with at most two decrypted pieces kept. Anything else says it cannot play and is not re-encoded. Telegram, Google Drive, OneDrive and Cryptomator are shown as not connected, with no connect button. The recorder repository was not readable here, so `docs/STORAGE-RECORDER.md` is the contract. Tests: `scripts/storage_recordings_test.mjs`, `scripts/storage_page_test.mjs`.
+An age identity (age-encryption 0.3.1) stays in the tab. It is not stored or sent. Playback is only a vsr-playback-2 package: `manifest.age` is decrypted first, `manifest.json` is ignored, and version 1 byte-chunk catalogs are refused. Seeking decrypts the init segment and the fragment for that time, then the player appends the init segment and that fragment. The codec is read from the file. Only H.264, with AAC-LC when the file has it, is offered to the browser. A single age file can be downloaded and is not played. No provider is connected from this page. Tests: `scripts/storage_recordings_test.mjs`, `scripts/storage_page_test.mjs`.
 
 ## Article reader
 

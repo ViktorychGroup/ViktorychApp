@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { sharedStaticServer } from "./smoke_runtime.mjs";
+import { likelyMime } from "../shared/storage-mp4.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shots = process.env.STORAGE_SHOTS || "/opt/cursor/artifacts";
@@ -97,9 +98,12 @@ async function main() {
   try {
     const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await desktop.newPage();
-    const logs = [];
-    page.on("console", (msg) => logs.push(msg.text()));
-    await openStorage(page, port, "#/storage?preview=1");
+  const logs = [];
+  const pageErrors = [];
+  page.on("console", (msg) => logs.push(msg.text()));
+  page.on("pageerror", (err) => pageErrors.push(String(err && err.stack || err)));
+  await openStorage(page, port, "#/storage?preview=1");
+  if (pageErrors.length) fail("page error " + pageErrors[0].slice(0, 500));
     const nav = await page.evaluate(() => {
       const links = [...document.querySelectorAll("header.nav a.nav-item[href='#/storage']")].filter((el) => el.getClientRects().length);
       const side = links[0];
@@ -111,12 +115,13 @@ async function main() {
         labels,
         path,
         heading: (document.querySelector(".drive h1") || {}).textContent || "",
-        recorder: (document.querySelector("[data-recorder-status]") || {}).getAttribute("data-recorder-status"),
+        recorder: document.querySelector("[data-recorder-status]") ? document.querySelector("[data-recorder-status]").getAttribute("data-recorder-status") : "missing",
+        rec: (document.querySelector("#rec-root") || { outerHTML: "" }).outerHTML.slice(0, 240),
         providers: [...document.querySelectorAll("[data-provider]")].map((el) => el.getAttribute("data-provider") + ":" + el.getAttribute("data-provider-state")),
         connect: [...document.querySelectorAll("#rec-root button")].map((el) => el.textContent.trim()).filter((text) => /connect/i.test(text)),
         vaultInRec: !!document.querySelector("#rec-root a[href='#/vault']"),
-        kind: (document.querySelector("[data-rec-kind]") || {}).getAttribute("data-rec-kind"),
-        note: (document.querySelector(".rec-item .rec-note") || {}).textContent || ""
+        kind: document.querySelector("[data-rec-kind]") ? document.querySelector("[data-rec-kind]").getAttribute("data-rec-kind") : "",
+        note: document.querySelector(".rec-item .rec-note") ? document.querySelector(".rec-item .rec-note").textContent : ""
       };
     });
     if (nav.count !== 1) fail("storage sidebar count " + nav.count + " " + JSON.stringify(nav));
@@ -124,16 +129,20 @@ async function main() {
     if (!nav.path.startsWith("M12 5c3.2")) fail("storage icon is not the cloud");
     if (!nav.heading.includes("Storage")) fail("heading " + nav.heading);
     if (nav.recorder !== "unlinked") fail("recorder " + nav.recorder);
-    if (nav.providers.join(",") !== "device:ready,recordings:local,telegram:unavailable,gdrive:unavailable,onedrive:unavailable,cryptomator:unavailable") fail("providers " + nav.providers.join(","));
+    if (nav.providers.length) fail("provider rows " + nav.providers.join(","));
     if (nav.connect.length) fail("connect buttons");
     if (nav.vaultInRec) fail("vault mixed into storage");
-    if (nav.kind !== "age-byte-chunks") fail("example kind");
-    if (!nav.note.includes("byte chunks")) fail("byte chunk note");
+    if (nav.kind) fail("example package " + nav.kind);
+    const pageText = await page.locator("#rec-root").innerText();
+    if (/Google Drive|OneDrive|Cryptomator|Telegram/.test(pageText)) fail("provider names on the page");
     if (nav.recordingNav && nav.recordingNav.length) fail("recordings became a sidebar tool");
     await page.locator("header.nav a.nav-item[href='#/storage']").first().scrollIntoViewIfNeeded();
     await shot(page, "storage-desktop.png");
 
-    const cryptoResult = await page.evaluate(async ({ initB64, segB64 }) => {
+    const initBytes = Buffer.from(initB64, "base64");
+    const expectedMime = likelyMime(initBytes);
+    if (!expectedMime.startsWith("video/mp4; codecs=\"avc1.")) fail("fixture codec " + expectedMime);
+    const cryptoResult = await page.evaluate(async ({ initB64, segB64, expectedMime }) => {
       const age = await window.ViktorychRecordings.loadAge();
       const identity = await age.generateX25519Identity();
       const wrong = await age.generateX25519Identity();
@@ -153,83 +162,67 @@ async function main() {
         const digest = await crypto.subtle.digest("SHA-256", bytes);
         return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
       }
-      const plain = new TextEncoder().encode("hello storage");
-      const cipher = await seal(plain);
-      const hash = await hex(cipher);
-      const bad = cipher.slice();
-      bad[bad.length - 3] ^= 9;
-      window.ViktorychRecordings.unlock(wrong);
-      await window.ViktorychRecordings.openPackage({
-        manifest: {
-          v: 1,
-          kind: "age-byte-chunks",
-          id: "example-note",
-          title: "Example recording",
-          bytes: plain.byteLength,
-          chunks: [{ name: "000.age", index: 0, plainBytes: plain.byteLength, sha256: hash }]
-        },
-        files: { "000.age": cipher }
-      });
-      const wrongOut = await window.ViktorychRecordings.decryptPackage();
-      window.ViktorychRecordings.lock();
-      const lockedOut = await window.ViktorychRecordings.decryptPackage();
-      window.ViktorychRecordings.unlock(identity);
-      const good = await window.ViktorychRecordings.decryptPackage();
-      await window.ViktorychRecordings.openPackage({
-        manifest: {
-          v: 1,
-          kind: "age-byte-chunks",
-          id: "example-tamper",
-          title: "Example recording",
-          bytes: plain.byteLength,
-          chunks: [{ name: "000.age", index: 0, plainBytes: plain.byteLength, sha256: hash }]
-        },
-        files: { "000.age": bad }
-      });
-      const tamper = await window.ViktorychRecordings.decryptPackage();
       const initPlain = fromB64(initB64);
       const segPlain = fromB64(segB64);
       const initCipher = await seal(initPlain);
       const segCipher = await seal(segPlain);
-      const mime = "video/mp4; codecs=\"avc1.42C01E\"";
-      await window.ViktorychRecordings.openPackage({
-        manifest: {
-          v: 1,
-          kind: "age-media-segments",
-          id: "example-clip",
-          title: "Example clip",
-          bytes: initPlain.byteLength + segPlain.byteLength,
-          media: { container: "fmp4", mime: mime, duration: 1 },
-          chunks: [
-            { name: "init.age", index: 0, plainBytes: initPlain.byteLength, sha256: await hex(initCipher), init: true },
-            { name: "seg0.age", index: 1, plainBytes: segPlain.byteLength, sha256: await hex(segCipher), start: 0, duration: 1 }
-          ],
-          recorder: { state: "idle", detail: "Idle on this device." }
-        },
-        files: { "init.age": initCipher, "seg0.age": segCipher }
-      });
+      const initSha = await hex(initCipher);
+      const segSha = await hex(segCipher);
+      const body = {
+        format: "vsr-playback-2",
+        requires_init: true,
+        independently_playable: false,
+        init: initSha,
+        title: "Example clip",
+        fragments: [{ sha256: segSha, start: 0, duration: 1 }]
+      };
+      const manifestCipher = await seal(new TextEncoder().encode(JSON.stringify(body)));
+      const files = {};
+      files["manifest.age"] = manifestCipher;
+      files[initSha + ".age"] = initCipher;
+      files[segSha + ".age"] = segCipher;
+      files["manifest.json"] = new TextEncoder().encode(JSON.stringify(Object.assign({ codec: "avc1.42E01E" }, body)));
+      window.ViktorychRecordings.unlock(wrong);
+      const wrongOut = await window.ViktorychRecordings.openPackage({ files: files });
+      window.ViktorychRecordings.lock();
+      const lockedOut = await window.ViktorychRecordings.openPackage({ files: files });
+      window.ViktorychRecordings.unlock(identity);
+      const opened = await window.ViktorychRecordings.openPackage({ files: files });
       await new Promise((resolve) => setTimeout(resolve, 50));
-      const supported = !!(window.MediaSource && MediaSource.isTypeSupported && MediaSource.isTypeSupported(mime));
-      let play = { supported: supported };
+      const mime = opened.manifest && opened.manifest.mime;
+      const supported = !!(mime && window.MediaSource && MediaSource.isTypeSupported && MediaSource.isTypeSupported(mime));
+      let play = { supported: supported, mime: mime };
       if (supported) {
         play = Object.assign(play, await window.ViktorychRecordings.playSegments());
         const video = document.getElementById("rec-video");
         await new Promise((resolve) => {
-          if (video.readyState >= 2) resolve();
-          else video.addEventListener("loadeddata", () => resolve(), { once: true });
+          if (video && video.readyState >= 2) resolve();
+          else if (video) video.addEventListener("loadeddata", () => resolve(), { once: true });
           setTimeout(resolve, 4000);
         });
-        play.width = video.videoWidth;
-        play.ready = video.readyState;
-        video.currentTime = 0.4;
+        play.width = video ? video.videoWidth : 0;
+        play.ready = video ? video.readyState : 0;
+        if (video) video.currentTime = 0.4;
         await new Promise((resolve) => {
+          if (!video) { resolve(); return; }
           video.addEventListener("seeked", () => resolve(), { once: true });
           setTimeout(resolve, 2000);
         });
-        play.time = video.currentTime;
+        play.time = video ? video.currentTime : 0;
       } else {
         play.plan = window.ViktorychRecordings.plan().mode;
       }
+      const bad = initCipher.slice();
+      bad[bad.length - 3] ^= 9;
+      const tampered = Object.assign({}, files);
+      tampered[initSha + ".age"] = bad;
+      const tamper = await window.ViktorychRecordings.openPackage({ files: tampered });
+      const legacyPlain = new TextEncoder().encode("hello storage");
+      const legacyCipher = await seal(legacyPlain);
+      const legacy = await window.ViktorychRecordings.openLegacy(legacyCipher, "note.age");
+      const legacyBytes = await window.ViktorychRecordings.decryptLegacy();
+      const legacyPlan = window.ViktorychRecordings.plan().mode;
+      const withdrawn = await window.ViktorychRecordings.openPackage({ plainCatalog: "{\"v\":1,\"kind\":\"age-byte-chunks\"}" });
       const dump = JSON.stringify(localStorage) + JSON.stringify(sessionStorage);
       let idb = "";
       if (indexedDB.databases) {
@@ -239,22 +232,27 @@ async function main() {
       return {
         wrong: wrongOut.error,
         locked: lockedOut.error,
-        good: good.bytes ? new TextDecoder().decode(good.bytes) : good.error,
+        mime: mime,
+        invented: mime && mime.indexOf("avc1.42E01E") >= 0,
         tamper: tamper.error,
+        legacy: legacy.legacy === true && legacyPlan === "legacy" && legacyBytes.bytes ? new TextDecoder().decode(legacyBytes.bytes) : (legacyBytes.error || legacyPlan),
+        withdrawn: withdrawn.error,
         held: window.ViktorychRecordings.held(),
         leaked: dump.includes("AGE-SECRET-KEY-") || dump.includes("hello storage") || idb.includes("AGE-SECRET-KEY-"),
         play: play,
-        recorder: document.querySelector("[data-recorder-status]").getAttribute("data-recorder-status"),
-        logs: ""
+        recorder: document.querySelector("[data-recorder-status]").getAttribute("data-recorder-status")
       };
-    }, { initB64, segB64 });
+    }, { initB64, segB64, expectedMime });
     if (cryptoResult.wrong !== "key") fail("wrong key " + cryptoResult.wrong);
     if (cryptoResult.locked !== "locked") fail("locked " + cryptoResult.locked);
-    if (cryptoResult.good !== "hello storage") fail("decrypt " + cryptoResult.good);
+    if (cryptoResult.mime !== expectedMime) fail("codec " + cryptoResult.mime + " expected " + expectedMime);
+    if (cryptoResult.invented) fail("used a codec from manifest.json");
     if (cryptoResult.tamper !== "tamper") fail("tamper " + cryptoResult.tamper);
+    if (cryptoResult.legacy !== "hello storage") fail("legacy " + cryptoResult.legacy);
+    if (cryptoResult.withdrawn !== "withdrawn") fail("v1 " + cryptoResult.withdrawn);
     if (!cryptoResult.held) fail("identity was dropped before lock");
     if (cryptoResult.leaked) fail("plaintext persisted");
-    if (cryptoResult.recorder !== "idle") fail("recorder status " + cryptoResult.recorder);
+    if (cryptoResult.recorder !== "unlinked") fail("recorder status " + cryptoResult.recorder);
     if (cryptoResult.play.supported) {
       if (!cryptoResult.play.ok) fail("play failed " + JSON.stringify(cryptoResult.play));
       if (cryptoResult.play.width !== 64) fail("video width " + cryptoResult.play.width);

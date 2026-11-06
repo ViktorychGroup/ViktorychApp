@@ -6386,5 +6386,11 @@ SI18n.addPack("en", {
   "Providers": "Providers",
   "This page does not sign in to Telegram, Google Drive, OneDrive or Cryptomator.": "This page does not sign in to Telegram, Google Drive, OneDrive or Cryptomator.",
   "Encrypted files on this device": "Encrypted files on this device",
-  "Stopped": "Stopped"
+  "Stopped": "Stopped",
+  "This catalog cannot be played.": "This catalog cannot be played.",
+  "Open an age file": "Open an age file",
+  "This age file can only be downloaded.": "This age file can only be downloaded.",
+  "No provider is connected from this page.": "No provider is connected from this page.",
+  "Playback uses the init segment and one fragment.": "Playback uses the init segment and one fragment.",
+  "The pieces in this package cannot be played.": "The pieces in this package cannot be played."
 });

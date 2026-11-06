@@ -1,47 +1,28 @@
-# Storage recordings contract
+# Storage recordings
 
-Contract id: `viktorych.storage.recordings/1`.
+Playback follows `vsr-playback-2`. Version 1, a plaintext catalog of arbitrary byte chunks with a hash the catalog declares itself, is withdrawn and is refused.
 
-The recorder repository `ViktorychBackup/ViktorychStream-Recorder` pull request 1 (`cursor/tiktok-live-recorder-41c0`) and its `docs/APP-STORAGE.md` were not readable from this change. Unauthenticated GitHub and this app's token both received HTTP 404, and a repository search returned no public copy. This document is the format the app implements. It does not claim the recorder package is ready to stream.
-
-## What the page does
-
-Storage stays one page (`#/storage`, with `#/drive` redirected here). The sidebar row stays the existing cloud icon and is labelled Storage. Recordings, provider rows and recorder status sit inside that page. Vault stays its own page. The existing encrypted files and photos stay as they are.
-
-Decryption uses age-encryption 0.3.1 (Filippo Valsorda, BSD-3-Clause), vendored as `vendor/age-0.3.1.min.js`. The release file hash is `112306e7bc83bf28f47e45f632c5989c0ea979cdc7d0e5c71823b3eae7f086ae`. The age identity is held in the tab's memory only. It is not sent to the Worker, not written to localStorage, sessionStorage, IndexedDB or cookies, and not written to logs or analytics. Lock drops the reference. The owner switch is `storage_recordings` (on by default, no server route).
-
-Nothing on this page signs in to Telegram, Google Drive, OneDrive or Cryptomator. Those rows say not connected and have no connect button. Google Drive and Telegram backups that already run as owner jobs are unchanged and are not a browser session. No live credential, private file or real recording is used.
-
-## Package
-
-A catalog is JSON the person opens on this device, or files they pick with it. The page does not fetch a remote recording URL.
+The recorder commit `bc57b92f616a97d175ab238cded81710bdb9a051` was not readable from this environment (the repository answers HTTP 404). The page therefore accepts only a decrypted `manifest.age` with this shape, and ignores `manifest.json`.
 
 ```json
 {
-  "v": 1,
-  "contract": "viktorych.storage.recordings/1",
-  "kind": "age-byte-chunks",
-  "id": "example-clip",
-  "title": "Example recording",
-  "bytes": 12,
-  "media": { "container": "file", "mime": "", "duration": 0 },
-  "recorder": { "state": "idle", "detail": "" },
-  "chunks": [
-    { "name": "000.age", "index": 0, "plainBytes": 12, "sha256": "<sha256 of the age ciphertext>" }
-  ]
+  "format": "vsr-playback-2",
+  "requires_init": true,
+  "independently_playable": false,
+  "init": "<sha256 of the init ciphertext>",
+  "title": "Example clip",
+  "fragments": [{ "sha256": "<sha256 of the fragment ciphertext>", "start": 0, "duration": 1 }]
 }
 ```
 
-`kind`:
+`requires_init` must be true and `independently_playable` must be false. Each media object is an age file named `<sha256>.age`. The hash is of the ciphertext. A file whose bytes do not match its name is not decrypted.
 
-| Kind | Meaning | Playback |
-| --- | --- | --- |
-| `age-byte-chunks` | Ordered slices of one file. Not independently playable media. | No segmented player. Whole-file decrypt and download when the plaintext is within 32 MB. A file within 8 MB whose type the browser can play can be played only after the whole file is decrypted. The page says these are not video segments. |
-| `age-file` | One legacy age ciphertext. | Same whole-file path. No re-encoding. |
-| `age-media-segments` | One init chunk plus timed media chunks (`start`, `duration`) in `fmp4`, `mpegts` or `webm`. | Media Source only when `MediaSource.isTypeSupported` accepts `media.mime`. Otherwise the page says the format cannot play here and offers whole-file decrypt. Nothing is transcoded. |
+The plaintext init segment is an ffmpeg `-c copy` fragmented MP4 init (`ftyp` and `moov`, no media data). Each fragment is `styp` plus `moof` and `mdat`, and has no `moov`. Seeking decrypts the init segment and the fragment that covers that time, then Media Source appends the init segment and that fragment. At most those two plaintext pieces are held.
 
-Each chunk's `sha256` is the ciphertext. Age then authenticates the payload. A hash mismatch is shown as a changed file. A matching hash with the wrong identity is shown as the wrong key. At most two decrypted pieces are kept while a segmented player is running (the init piece and the piece for the current time). A segment larger than 8 MB is not appended. Seeking loads the piece that covers that time when the package really has timed media segments.
+The codec is read from the init segment. H.264 is `avc1` plus the three avcC bytes. AAC-LC is added only when the esds says so (`mp4a.40.2`). Anything else is not offered to the browser and is not re-encoded.
 
-`recorder.state` may be `idle`, `recording`, `stopped` or `unknown`. With no catalog the status is not linked.
+A single age file that is not this package is a download. It is not played.
 
-Code: `shared/storage-contract.js`, `shared/storage-age.js`, `storage-recordings.js`. Tests: `scripts/storage_recordings_test.mjs`, `scripts/storage_page_test.mjs`.
+The age identity stays in the tab. It is not stored or sent. No provider is connected from this page.
+
+Code: `shared/storage-contract.js`, `shared/storage-mp4.js`, `shared/storage-age.js`, `storage-recordings.js`. Tests: `scripts/storage_recordings_test.mjs`, `scripts/storage_page_test.mjs`.

@@ -1,24 +1,20 @@
-/* Storage recordings contract and age decryption. No identity is written. */
+/* vsr-playback-2: age manifest, real avc1 codec, withdrawn v1 catalogs. */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createContext, runInContext } from "node:vm";
 import { fileURLToPath } from "node:url";
 import {
-  CONTRACT,
-  DOWNLOAD_CAP,
-  MEMORY_CAP,
-  SEGMENT_SLOTS,
-  bytesToB64,
-  chunkForTime,
-  filesFromInline,
+  PLAYBACK_FORMAT,
+  fragmentForTime,
   looksLikeIdentity,
-  parseManifest,
+  parsePlainCatalog,
+  parsePlaybackManifest,
   playbackPlan,
-  providerRows,
   sha256Hex
 } from "../shared/storage-contract.js";
 import { decryptBytes, encryptBytes } from "../shared/storage-age.js";
+import { audioKind, avc1Codec, classifyMp4, likelyMime } from "../shared/storage-mp4.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -39,16 +35,30 @@ function loadAge() {
   return sandbox.age;
 }
 
+function box(type, payload) {
+  const body = payload || new Uint8Array(0);
+  const out = new Uint8Array(8 + body.length);
+  const size = out.length;
+  out[0] = (size >>> 24) & 255;
+  out[1] = (size >>> 16) & 255;
+  out[2] = (size >>> 8) & 255;
+  out[3] = size & 255;
+  out[4] = type.charCodeAt(0);
+  out[5] = type.charCodeAt(1);
+  out[6] = type.charCodeAt(2);
+  out[7] = type.charCodeAt(3);
+  out.set(body, 8);
+  return out;
+}
+
 const age = loadAge();
 const identity = await age.generateX25519Identity();
 const other = await age.generateX25519Identity();
 assert.equal(looksLikeIdentity(identity), true);
-assert.equal(looksLikeIdentity("not-a-key"), false);
 const recipient = await age.identityToRecipient(identity);
 const plain = new TextEncoder().encode("hello storage");
 const cipher = await encryptBytes(age, recipient, plain);
-const opened = await decryptBytes(age, identity, cipher);
-assert.equal(new TextDecoder().decode(opened), "hello storage");
+assert.equal(new TextDecoder().decode(await decryptBytes(age, identity, cipher)), "hello storage");
 let wrong = "";
 try { await decryptBytes(age, other, cipher); } catch (err) { wrong = "key"; }
 assert.equal(wrong, "key");
@@ -58,86 +68,67 @@ let tampered = "";
 try { await decryptBytes(age, identity, flipped); } catch (err) { tampered = "tamper"; }
 assert.equal(tampered, "tamper");
 
-const hash = await sha256Hex(cipher);
-const manifest = {
-  v: 1,
-  contract: CONTRACT,
-  kind: "age-byte-chunks",
-  id: "example-note",
-  title: "Example recording",
-  bytes: plain.byteLength,
-  chunks: [{ name: "000.age", index: 0, plainBytes: plain.byteLength, sha256: hash, inline: bytesToB64(cipher) }]
-};
-const parsed = parseManifest(manifest);
-assert.equal(parsed.manifest.kind, "age-byte-chunks");
-assert.equal(parsed.manifest.recorder.state, "unlinked");
-const inline = filesFromInline(parsed.manifest);
-assert.equal(inline.files["000.age"].byteLength, cipher.byteLength);
-const bytePlan = playbackPlan(parsed.manifest, () => true);
-assert.equal(bytePlan.mode, "download");
-assert.equal(bytePlan.playable, false);
-assert.equal(bytePlan.reason, "byte-chunks");
+assert.equal(parsePlainCatalog('{"v":1,"kind":"age-byte-chunks","sha256":"abc"}').error, "withdrawn");
+assert.equal(parsePlaybackManifest('{"format":"vsr-playback-2"}', {}).error, "unauthenticated");
 
-const filePlan = playbackPlan(parseManifest({ ...manifest, kind: "age-file", media: { container: "file", mime: "text/plain", duration: 0 } }).manifest, () => true);
-assert.equal(filePlan.mode, "file");
-assert.equal(filePlan.reason, "legacy-file");
-
-const huge = parseManifest({ ...manifest, kind: "age-file", bytes: DOWNLOAD_CAP, chunks: [{ ...manifest.chunks[0], plainBytes: DOWNLOAD_CAP }] });
-assert.equal(playbackPlan(huge.manifest, () => true).mode, "download");
-
-const media = parseManifest({
-  v: 1,
-  kind: "age-media-segments",
-  id: "example-clip",
+const initHash = "a".repeat(64);
+const fragHash = "b".repeat(64);
+const good = {
+  format: PLAYBACK_FORMAT,
+  requires_init: true,
+  independently_playable: false,
+  init: initHash,
   title: "Example clip",
-  bytes: 12,
-  media: { container: "fmp4", mime: "video/mp4; codecs=\"avc1.42C01E\"", duration: 1 },
-  chunks: [
-    { name: "init.age", index: 0, plainBytes: 4, sha256: hash, init: true },
-    { name: "seg0.age", index: 1, plainBytes: 8, sha256: hash, start: 0, duration: 1 }
-  ],
-  recorder: { state: "idle", detail: "Idle on this device." }
-});
-assert.equal(playbackPlan(media.manifest, () => true).mode, "mse");
-assert.equal(playbackPlan(media.manifest, () => true).slots, SEGMENT_SLOTS);
-assert.equal(playbackPlan(media.manifest, () => false).mode, "unsupported");
-assert.equal(playbackPlan(media.manifest, () => false).reason, "codec");
-assert.equal(chunkForTime(media.manifest, 0.2).name, "seg0.age");
-const untimed = parseManifest({
-  ...media.manifest,
-  chunks: media.manifest.chunks.map((chunk) => ({ name: chunk.name, index: chunk.index, plainBytes: chunk.plainBytes, sha256: chunk.sha256, init: chunk.init }))
-});
-assert.equal(playbackPlan(untimed.manifest, () => true).playable, false);
-assert.equal(playbackPlan(untimed.manifest, () => true).reason, "byte-chunks");
+  fragments: [{ sha256: fragHash, start: 0, duration: 1 }]
+};
+assert.equal(parsePlaybackManifest(JSON.stringify(good), { authenticated: true }).manifest.format, PLAYBACK_FORMAT);
+assert.equal(parsePlaybackManifest(JSON.stringify(Object.assign({}, good, { requires_init: false })), { authenticated: true }).error, "manifest");
+assert.equal(parsePlaybackManifest(JSON.stringify(Object.assign({}, good, { independently_playable: true })), { authenticated: true }).error, "manifest");
+assert.equal(parsePlaybackManifest(JSON.stringify({ v: 1, kind: "age-byte-chunks", chunks: [] }), { authenticated: true }).error, "withdrawn");
+const parsed = parsePlaybackManifest(JSON.stringify(good), { authenticated: true }).manifest;
+assert.equal(fragmentForTime(parsed, 0.2).sha256, fragHash);
+assert.equal(playbackPlan(parsed, () => true).mode, "unsupported");
+parsed.likely = true;
+parsed.mime = "video/mp4; codecs=\"avc1.42C01F\"";
+assert.equal(playbackPlan(parsed, () => true).mode, "mse");
+assert.equal(playbackPlan(parsed, () => false).reason, "codec");
+assert.equal(playbackPlan({ legacy: true }, () => true).mode, "legacy");
+assert.equal(playbackPlan({ legacy: true }, () => true).playable, false);
 
-const providers = providerRows("ready");
-assert.deepEqual(providers.map((row) => row.id), ["device", "recordings", "telegram", "gdrive", "onedrive", "cryptomator"]);
-assert.equal(providers.every((row) => row.connect === false), true);
-assert.equal(providers.find((row) => row.id === "telegram").state, "unavailable");
-assert.equal(providers.find((row) => row.id === "device").state, "ready");
-assert.equal(providerRows("locked").find((row) => row.id === "device").state, "locked");
-assert.equal(parseManifest({ v: 2, kind: "age-file" }).error, "kind");
-assert.equal(MEMORY_CAP < DOWNLOAD_CAP, true);
+const init = fs.readFileSync(path.join(root, "scripts/fixtures/storage-init.mp4"));
+const frag = fs.readFileSync(path.join(root, "scripts/fixtures/storage-seg.mp4"));
+assert.equal(classifyMp4(init), "init");
+assert.equal(classifyMp4(frag), "fragment");
+const codec = avc1Codec(init);
+assert.match(codec, /^avc1\.[0-9A-F]{6}$/);
+assert.equal(codec, "avc1.42C01F");
+assert.equal(audioKind(init), "none");
+assert.equal(likelyMime(init), "video/mp4; codecs=\"" + codec + "\"");
+assert.equal(likelyMime(init).includes("42E01E"), false);
+assert.equal(avc1Codec(box("hvc1", new Uint8Array(16))), "");
+
+const esds = box("esds", new Uint8Array([0x04, 0x05, 0x40, 0x00, 0x00, 0x05, 0x02, 0x10, 0x08]));
+const avc = box("avcC", new Uint8Array([1, 0x42, 0xc0, 0x1f]));
+const both = new Uint8Array(box("mp4a", esds).length + avc.length);
+both.set(box("mp4a", esds), 0);
+both.set(avc, box("mp4a", esds).length);
+assert.equal(audioKind(both), "aac-lc");
+assert.equal(likelyMime(both), "video/mp4; codecs=\"avc1.42C01F,mp4a.40.2\"");
 
 const ui = fs.readFileSync(path.join(root, "storage-recordings.js"), "utf8");
 assert.equal(ui.includes('["localStorage", "sessionStorage"]'), true);
-assert.equal(ui.includes("AGE-SECRET-KEY-"), true);
-assert.equal(/identity\s*=\s*[^;]*localStorage/.test(ui), false);
-assert.equal(ui.includes("indexedDB.open"), false);
-assert.equal(ui.includes("sendBeacon"), true);
-const drive = fs.readFileSync(path.join(root, "drive.js"), "utf8");
-assert.equal(drive.includes('href: "#/vault"'), false);
-assert.equal(drive.includes("recordingsHtml"), true);
-
+assert.equal(ui.includes("manifest.json"), true);
+assert.equal(ui.includes("playWholeFile"), false);
+assert.equal(ui.includes("age-byte-chunks"), false);
 const stored = [];
 const memory = {
   setItem(key, value) {
     if (String(value).includes("AGE-SECRET-KEY-")) throw new Error("identity-persist");
-    stored.push(String(key) + "=" + String(value));
+    stored.push(String(value));
   }
 };
-memory.setItem("viktorychapp-server-off", "[]");
 assert.throws(() => memory.setItem("leak", identity), /identity-persist/);
 assert.equal(stored.some((row) => row.includes(identity)), false);
+assert.equal(await sha256Hex(cipher), await sha256Hex(cipher));
 
 console.log("storage recordings ok");

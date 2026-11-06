@@ -6388,5 +6388,11 @@ SI18n.addPack("ru", {
   "Providers": "Источники",
   "This page does not sign in to Telegram, Google Drive, OneDrive or Cryptomator.": "Эта страница не входит в Telegram, Google Диск, OneDrive и Cryptomator.",
   "Encrypted files on this device": "Зашифрованные файлы на этом устройстве",
-  "Stopped": "Остановлено"
+  "Stopped": "Остановлено",
+  "This catalog cannot be played.": "Этот каталог нельзя воспроизвести.",
+  "Open an age file": "Открыть файл age",
+  "This age file can only be downloaded.": "Этот файл age можно только скачать.",
+  "No provider is connected from this page.": "С этой страницы не подключён ни один провайдер.",
+  "Playback uses the init segment and one fragment.": "Воспроизведение использует начальный сегмент и один фрагмент.",
+  "The pieces in this package cannot be played.": "Части этого пакета нельзя воспроизвести."
 });
