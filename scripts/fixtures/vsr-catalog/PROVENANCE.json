@@ -1,0 +1,9 @@
+{
+  "app_contract_commit": "982b6d4fe9a54fc09a12187aedf76bd2e78cde2d",
+  "catalog_kind": "vsr-sealed-export",
+  "label": "test-only",
+  "owner_identity_included": false,
+  "playback_format": "vsr-playback-2",
+  "recorder_head": "08be1eac49a776a13a3077b7c68bcd07b3125300",
+  "uploaded": false
+}
