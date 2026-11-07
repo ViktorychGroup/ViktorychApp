@@ -12851,6 +12851,8 @@ const here = parseRoute();
   const WELCOME_KEY = "viktorychapp-welcome-v1";
   let publicPosts = [];
   let publicStamp = 0;
+  let publicGen = 0;
+  let publicOwner = "";
   let welcomePhoto = "";
   const welcomeFollows = {};
 
@@ -12878,20 +12880,31 @@ const here = parseRoute();
     return !!(window.ViktorychGames && window.ViktorychGames.busy && window.ViktorychGames.busy());
   }
 
+  function viewerScope() {
+    const now = sessionNow();
+    return now.id + "\n" + String(now.gen || 0);
+  }
+  function visiblePublicPosts() {
+    return publicOwner === viewerScope() ? publicPosts : [];
+  }
   function schedulePublicPosts() {
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
     if (!accountToken()) return;
     const now = Date.now();
     if (now - publicStamp < 20000) return;
+    const sender = sessionNow();
+    const gen = ++publicGen;
     publicStamp = now;
     accountCall("/v1/posts").then((res) => {
+      if (gen !== publicGen || !sameSession(sender)) return;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
       if (typeof res.communitiesHome === "boolean") STATE.settings.communitiesHome = res.communitiesHome;
       if (res.communityPrefs) cmFyPrefs(res.communityPrefs);
       const merged = keepOwnPosts(res.posts);
-      if (samePublicPosts(merged)) return;
+      if (samePublicPosts(merged) && publicOwner === viewerScope()) return;
       publicPosts = merged;
+      publicOwner = viewerScope();
       render();
     }).catch(() => {});
   }
@@ -12971,9 +12984,11 @@ const here = parseRoute();
     const current = mine ? String(mine.publicId || "") : "";
     if (ownerId && current !== String(ownerId)) return;
     ownSent[post.id] = { post: post, at: Date.now() };
+    if (publicOwner !== viewerScope()) publicPosts = [];
+    publicOwner = viewerScope();
     publicPosts = [post].concat(publicPosts.filter((item) => item && item.id !== post.id));
     const cache = current ? authorPostCache[current] : null;
-    if (cache) cache.posts = [post].concat(cache.posts.filter((item) => item && item.id !== post.id));
+    if (cache && cache.scope === viewerScope()) cache.posts = [post].concat((cache.posts || []).filter((item) => item && item.id !== post.id));
   }
   function forgetOwnPost(id) {
     delete ownSent[id];
@@ -13056,35 +13071,58 @@ const here = parseRoute();
     const name = key.slice(1);
     return (item) => item && String(item.authorHandle || "").replace(/^@/, "").toLowerCase() === name;
   }
+  function authorLive(key, entry, gen, sender) {
+    return !!(entry && authorPostCache[key] === entry && entry.gen === gen && entry.scope === viewerScope() && sameSession(sender));
+  }
+  function startAuthorLoad(key) {
+    const sender = sessionNow();
+    const scope = viewerScope();
+    const prev = authorPostCache[key];
+    const keep = prev && prev.scope === scope ? prev : null;
+    const entry = {
+      at: Date.now(),
+      posts: keep ? (keep.posts || []).slice() : [],
+      more: keep ? !!keep.more : false,
+      before: keep ? (keep.before || 0) : 0,
+      loading: true,
+      loadingMore: false,
+      scope: scope,
+      gen: (keep ? (keep.gen || 0) : 0) + 1,
+      sender: sender
+    };
+    authorPostCache[key] = entry;
+    const gen = entry.gen;
+    accountCall("/v1/posts?" + authorQuery(key)).then((res) => {
+      if (!authorLive(key, entry, gen, sender)) return;
+      entry.loading = false;
+      if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
+      const mine = signedAccount();
+      const next = mine && String(mine.publicId) === key ? keepOwnPosts(res.posts).filter((item) => String(item.authorId) === key) : res.posts;
+      const sig = (list) => list.map((item) => [item.id, item.replyCount, item.quoteCount, item.likes, item.reposts, item.editedAt, item.body].join("|")).join(",");
+      const before = sig(entry.posts);
+      const edge = Number(res.before) || 0;
+      const older = (entry.posts || []).filter((item) => edge && (Number(item.createdAt) || 0) < edge && !next.some((row) => row.id === item.id));
+      if (!authorLive(key, entry, gen, sender)) return;
+      if (!older.length) { entry.more = !!res.more; entry.before = edge; }
+      entry.posts = next.concat(older);
+      if (before !== sig(entry.posts)) render();
+    }).catch(() => {
+      if (authorPostCache[key] === entry) entry.loading = false;
+    });
+  }
   function authorPosts(publicId) {
     const key = String(publicId || "");
     if (!/^\d{12}$/.test(key) && !/^@[^\s/?#]{1,64}$/.test(key)) return [];
+    const scope = viewerScope();
     const cache = authorPostCache[key];
+    const live = cache && cache.scope === scope ? cache : null;
     const now = Date.now();
-    if ((!cache || now - cache.at > 30000) && accountToken() && !(cache && cache.loading)) {
-      const entry = authorPostCache[key] = cache || { at: 0, posts: [] };
-      entry.loading = true;
-      entry.at = now;
-      accountCall("/v1/posts?" + authorQuery(key)).then((res) => {
-        entry.loading = false;
-        if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
-        const mine = signedAccount();
-        const next = mine && String(mine.publicId) === key ? keepOwnPosts(res.posts).filter((item) => String(item.authorId) === key) : res.posts;
-        const sig = (list) => list.map((item) => [item.id, item.replyCount, item.quoteCount, item.likes, item.reposts, item.editedAt, item.body].join("|")).join(",");
-        const before = sig(entry.posts);
-        // Keep pages already read further back; the first page replaces only its own span.
-        const edge = Number(res.before) || 0;
-        const older = (entry.posts || []).filter((item) => edge && (Number(item.createdAt) || 0) < edge && !next.some((row) => row.id === item.id));
-        if (!older.length) { entry.more = !!res.more; entry.before = edge; }
-        entry.posts = next.concat(older);
-        if (before !== sig(entry.posts)) render();
-      }).catch(() => { entry.loading = false; });
-    }
-    // Local first: posts already on this device (Home) paint before the server answers.
-    const have = (authorPostCache[key] && authorPostCache[key].posts) || [];
+    if ((!live || now - live.at > 30000) && accountToken() && !(live && live.loading)) startAuthorLoad(key);
+    const shown = authorPostCache[key];
+    const have = shown && shown.scope === scope ? (shown.posts || []) : [];
     const ids = new Set(have.map((item) => item.id));
     const own = byAuthorKey(key);
-    const extra = publicPosts.filter((item) => own(item) && !ids.has(item.id));
+    const extra = visiblePublicPosts().filter((item) => own(item) && !ids.has(item.id));
     return have.concat(extra);
   }
 
@@ -13092,19 +13130,25 @@ const here = parseRoute();
   function loadOlderAuthorPosts(publicId) {
     const key = String(publicId || "");
     const entry = authorPostCache[key];
-    if (!entry || !entry.more || entry.loadingMore || !entry.before) return;
+    if (!entry || entry.scope !== viewerScope() || !entry.more || entry.loadingMore || !entry.before) return;
+    const sender = sessionNow();
+    const gen = entry.gen || 0;
     entry.loadingMore = true;
     accountCall("/v1/posts?" + authorQuery(key) + "&before=" + entry.before).then((res) => {
+      if (!authorLive(key, entry, gen, sender)) return;
       entry.loadingMore = false;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
       const ids = new Set((entry.posts || []).map((item) => item.id));
       const own = byAuthorKey(key);
       const add = res.posts.filter((item) => item && !ids.has(item.id) && own(item));
+      if (!authorLive(key, entry, gen, sender)) return;
       entry.posts = (entry.posts || []).concat(add);
       entry.before = Number(res.before) || 0;
       entry.more = !!res.more && add.length > 0 && !!entry.before;
       render();
-    }).catch(() => { entry.loadingMore = false; });
+    }).catch(() => {
+      if (authorPostCache[key] === entry) entry.loadingMore = false;
+    });
   }
 
   function hydratePublicMedia() {
@@ -13698,12 +13742,15 @@ const here = parseRoute();
   var appThreadItems = {};
   function findAppItem(id) {
     if (!id) return null;
-    const hit = publicPosts.find((item) => item && item.id === id);
+    const hit = visiblePublicPosts().find((item) => item && item.id === id);
     if (hit) return hit;
     if (appThreadItems[id]) return appThreadItems[id];
+    const scope = viewerScope();
     const keys = Object.keys(authorPostCache);
     for (let i = 0; i < keys.length; i++) {
-      const found = (authorPostCache[keys[i]].posts || []).find((item) => item && item.id === id);
+      const bag = authorPostCache[keys[i]];
+      if (!bag || bag.scope !== scope) continue;
+      const found = (bag.posts || []).find((item) => item && item.id === id);
       if (found) return found;
     }
     return null;
@@ -13774,7 +13821,7 @@ const here = parseRoute();
       const cacheKey = authorCacheKey(ids[i]);
       if (cacheKey) {
         const entry = authorPostCache[cacheKey];
-        if (entry && entry.loading && now - (entry.at || 0) < 8000) return true;
+        if (entry && entry.scope === viewerScope() && entry.loading && now - (entry.at || 0) < 8000) return true;
       }
       const text = String(ids[i] || "");
       const cut = text.indexOf(":");
@@ -13800,7 +13847,7 @@ const here = parseRoute();
       seen[item.id] = true;
       items.push(item);
     };
-    publicPosts.forEach(take);
+    visiblePublicPosts().forEach(take);
     if (onTab) {
       members.forEach((id) => {
         const cacheKey = authorCacheKey(id);
@@ -13823,17 +13870,22 @@ const here = parseRoute();
       const parent = byId[post.parentId];
       post.replyingTo = { id: post.parentId, handle: parent ? parent.handle : ((post.replyingTo && post.replyingTo.handle) || "") };
     });
-    // A parent shown above its reply (as a thread) is not listed again on its own.
-    const threaded = {};
-    list.forEach((post) => { if (post.parentId && byId[post.parentId] && !post.spamHidden) threaded[post.parentId] = true; });
-    return list.filter((post) => {
-      if (threaded[post.id] || hiddenPost(post)) return false;
+    const eligible = list.filter((post) => {
+      if (hiddenPost(post)) return false;
       if (onTab) return memberPostHit(post, members);
       if (tab === "foryou") return true;
       if (meId && post.authorId === meId) return true;
       if (post.community) return true;
       return !!post.feedId && isFollowed(post.feedId);
     });
+    const eligibleIds = {};
+    eligible.forEach((post) => { eligibleIds[post.id] = true; });
+    /* A reply that will not be shown must not remove its parent. */
+    const threaded = {};
+    eligible.forEach((post) => {
+      if (post.parentId && eligibleIds[post.parentId] && !post.spamHidden) threaded[post.parentId] = true;
+    });
+    return eligible.filter((post) => !threaded[post.id]);
   }
 
   function mergeAppPosts(list, extra) {
@@ -15945,8 +15997,16 @@ const here = parseRoute();
   function statusView(route) {
     if (route.platform === "app" && !STATE.shared[String(route.id)]) {
       const sameId = (item) => item && String(item.id) === String(route.id);
-      let sent = publicPosts.find(sameId);
-      if (!sent) Object.keys(authorPostCache).some((key) => { sent = (authorPostCache[key].posts || []).find(sameId); return !!sent; });
+      let sent = visiblePublicPosts().find(sameId);
+      if (!sent) {
+        const scope = viewerScope();
+        Object.keys(authorPostCache).some((key) => {
+          const bag = authorPostCache[key];
+          if (!bag || bag.scope !== scope) return false;
+          sent = (bag.posts || []).find(sameId);
+          return !!sent;
+        });
+      }
       if (sent) STATE.shared[String(route.id)] = appCardPost(sent);
     }
     if (route.platform === "tiktok" && isShortsLocked() && !isTiktokUnlocked(route.handle)) {
@@ -20457,7 +20517,7 @@ if (STATE.histClear) {
     else if (tab === "media") shown = postList.filter((post) => (post.media || []).length || post.appMediaCount);
     else if (tab === "posts" || !tab) shown = postList.filter((post) => post.kind !== "reply");
     const entry = ownKey ? authorPostCache[ownKey] : null;
-    const more = entry && entry.more ? `<div id="author-more" class="reply-empty" data-id="${esc(ownKey)}"><button type="button" class="link-btn" data-act="author-more" data-id="${esc(ownKey)}">${tr("Show more")}</button></div>` : "";
+    const more = entry && entry.scope === viewerScope() && entry.more ? `<div id="author-more" class="reply-empty" data-id="${esc(ownKey)}"><button type="button" class="link-btn" data-act="author-more" data-id="${esc(ownKey)}">${tr("Show more")}</button></div>` : "";
     /* Optional platform filters: All, Posts, X, Instagram… The default is the mixed timeline. */
     const pills = lpMod ? lpMod.filterHtml(account, postList) : "";
     if (pills) shown = shown.filter((post) => lpMod.filterPost(post, account));
