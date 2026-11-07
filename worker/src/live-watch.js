@@ -155,6 +155,23 @@ export function uploaderStale(beat, nowMs, ms = 5 * 60 * 1000) {
   return !fresh(beat.at, nowMs, ms);
 }
 
+// The always-on recorder writes owner/live-runner.json. While that beat is
+// under five minutes old, this cron does not start another capture or upload.
+// A clock a couple of minutes ahead still counts. A far-future stamp does not,
+// so a bad clock cannot silence the fallback forever.
+export const ALWAYS_ON_FRESH_MS = 5 * 60 * 1000;
+
+export function alwaysOnFresh(doc, nowMs, ms = ALWAYS_ON_FRESH_MS) {
+  const row = doc && typeof doc === "object" ? doc : {};
+  if (String(row.runner || "") !== "always-on") return false;
+  const at = Date.parse(String(row.at || ""));
+  const now = Number(nowMs) || 0;
+  if (!Number.isFinite(at) || at <= 0) return false;
+  const delta = now - at;
+  const window = Math.max(1, Number(ms) || 0);
+  return delta < window && delta > -2 * 60 * 1000;
+}
+
 // Persist a detection the cron already paid for. Viewer and title changes
 // count; nothing here contacts TikTok.
 export function shouldRememberLive(prev, info, nowMs) {

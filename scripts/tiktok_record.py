@@ -78,6 +78,27 @@ CHANNEL_RE = re.compile(r"^-100\d{4,16}$")
 KEY_RE = re.compile(r"^tiktok/[A-Za-z0-9._]{2,24}/[1-9][0-9]{5,24}/live$")
 RANK = ["origin", "origion", "uhd", "full_hd1", "hd", "hd1", "sd", "sd2", "ld", "sd1"]
 ROOM_URL = "https://webcast.tiktok.com/webcast/room/info/?aid=1988&room_id="
+# The always-on recorder (docker/tiktok-live, for example a Hugging Face
+# Space) writes this heartbeat. While it is fresh, the Actions poller,
+# recorder and uploader leave the work to it, so the two never copy or
+# send the same live twice. Actions takes over again when it goes quiet.
+RUNNER_KEY = "owner/live-runner.json"
+RUNNER_FRESH_SECONDS = 5 * 60
+ALWAYS_ON = "always-on"
+
+
+def env_seconds(name: str, default: int, low: int, high: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    try:
+        value = int(raw) if raw else int(default)
+    except ValueError:
+        value = int(default)
+    return max(int(low), min(int(high), value))
+
+
+# Actions stops a job at six hours, so a part ends at five and a half.
+# An always-on host has no such cap and may set TIKTOK_PART_SECONDS higher.
+PART_SECONDS = env_seconds("TIKTOK_PART_SECONDS", PART_SECONDS, 30 * 60, 48 * 60 * 60)
 
 
 def log(message: str) -> None:
@@ -105,6 +126,61 @@ def fresh_iso(value: str, now: str, seconds: int) -> bool:
     if left is None or right is None:
         return False
     return (right - left).total_seconds() < seconds
+
+
+def run_identity() -> str:
+    return str(os.environ.get("TIKTOK_RUN_ID") or os.environ.get("GITHUB_RUN_ID") or "")
+
+
+def is_always_on() -> bool:
+    return (os.environ.get("TIKTOK_RUNNER") or "").strip().lower() == ALWAYS_ON
+
+
+def runner_fresh(doc: dict | None, now: str, seconds: int = RUNNER_FRESH_SECONDS) -> bool:
+    row = doc if isinstance(doc, dict) else {}
+    if str(row.get("runner") or "") != ALWAYS_ON:
+        return False
+    return fresh_iso(str(row.get("at") or ""), now, seconds)
+
+
+def yield_to_always_on(what: str) -> bool:
+    """True when an always-on recorder is running and this Actions step should stand down."""
+    if is_always_on():
+        return False
+    try:
+        doc = load_json_bytes(r2_get(RUNNER_KEY))
+    except Exception:
+        return False
+    if runner_fresh(doc, now_iso()):
+        log("always-on recorder is running; %s left to it" % what)
+        return True
+    return False
+
+
+def recording_allowed(job: dict | None, pref: dict | None) -> bool:
+    """The Worker rule in worker/src/live-watch.js: server recording is opt-in."""
+    if isinstance(pref, dict) and pref.get("server") is True:
+        return True
+    if not isinstance(job, dict):
+        return False
+    if job.get("auto") is True or job.get("record") is True:
+        return True
+    active = job.get("active") if isinstance(job.get("active"), dict) else {}
+    return active.get("manual") is True
+
+
+def gate_lives(lives: list, jobs: dict, pref: dict | None, record_all: bool = False) -> list:
+    """Lives the owner allowed, plus any handle whose capture is already underway."""
+    kept = []
+    for item in lives or []:
+        if not isinstance(item, dict):
+            continue
+        handle = str(item.get("handle") or "").lower()
+        job = (jobs or {}).get(handle)
+        active = job.get("active") if isinstance(job, dict) and isinstance(job.get("active"), dict) else {}
+        if record_all or active or recording_allowed(job, pref):
+            kept.append(item)
+    return kept
 
 
 def cap_of() -> int:
@@ -755,13 +831,16 @@ def upload_heartbeats(slots: int) -> dict:
     return found
 
 
-def cmd_plan(dispatch: bool) -> int:
-    token, account = cloudflare_env()
-    if not token or not account:
-        log("Cloudflare credentials are not set; skipping")
-        return 0
+def plan_once(gated: bool = False, record_all: bool = False, use_local: bool = True) -> dict:
+    """One planning pass. Saves job state and returns what should start.
+
+    The Actions poller dispatches workflows from the result. The always-on
+    recorder starts local processes from the same result instead, and
+    passes gated=True so it follows the owner's server-recording switch
+    the same way the Worker watcher does.
+    """
     local = ROOT / "owner" / "tiktok.json"
-    if local.is_file():
+    if use_local and local.is_file():
         doc = load_json_bytes(local.read_bytes())
     else:
         doc = load_json_bytes(r2_get("owner/tiktok.json"))
@@ -769,6 +848,9 @@ def cmd_plan(dispatch: bool) -> int:
     added = [str(row.get("handle") or "") for row in (accounts.get("added") or []) if isinstance(row, dict)]
     lives = lives_from_doc(doc, accounts)
     jobs = load_jobs([item["handle"] for item in lives])
+    if gated:
+        pref = load_json_bytes(r2_get("owner/live-record.json"))
+        lives = gate_lives(lives, jobs, pref, record_all)
     channels = 1 + extra_channel_count()
     cap = cap_of()
     moment = now_iso()
@@ -778,10 +860,32 @@ def cmd_plan(dispatch: bool) -> int:
             save_job(job)
     write_index(decided["jobs"], cap)
     beats = upload_heartbeats(channels)
-    uploads = plan_uploads(decided["jobs"], beats, channels, moment)[:1]
+    uploads = plan_uploads(decided["jobs"], beats, channels, moment)
     numbers = capacity(channels, cap)
     log("cap %s active %s queued %s channels %s kept-up %s" % (
         cap, decided["active"], len(decided["queued"]), channels, numbers["highLivesKeptUp"]))
+    return {
+        "dispatch": decided["dispatch"],
+        "upload": uploads,
+        "capacity": numbers,
+        "active": decided["active"],
+        "queued": len(decided["queued"]),
+        "channels": channels,
+        "lives": sum(1 for item in lives if item.get("live")),
+    }
+
+
+def cmd_plan(dispatch: bool) -> int:
+    token, account = cloudflare_env()
+    if not token or not account:
+        log("Cloudflare credentials are not set; skipping")
+        return 0
+    if dispatch and yield_to_always_on("dispatch"):
+        return 0
+    result = plan_once()
+    decided = {"dispatch": result["dispatch"]}
+    uploads = result["upload"][:1]
+    numbers = result["capacity"]
     if not dispatch:
         print(json.dumps({"dispatch": decided["dispatch"], "upload": uploads, "capacity": numbers}, ensure_ascii=False))
         return 0
@@ -1055,6 +1159,61 @@ def init_ready(blob: bytes) -> bool:
     return 0 <= ftyp <= 32 and data.find(b"moov") > ftyp
 
 
+def keep_folder(meta: dict) -> Path | None:
+    """Where an always-on host keeps a local copy for the full-length Telegram video.
+
+    Unset (the Actions default) keeps nothing. Low disk stops the copy and
+    leaves a gap marker, so the full video is labelled partial instead of
+    filling the disk.
+    """
+    root = (os.environ.get("TIKTOK_KEEP_DIR") or "").strip()
+    if not root:
+        return None
+    handle = str(meta.get("handle") or "").lower()
+    room = str(meta.get("room") or "")
+    part = str(meta.get("objectKey") or "").rsplit("/", 1)[-1]
+    run = str(meta.get("keepRun") or "0")
+    if not HANDLE_RE.fullmatch(handle) or not re.fullmatch(r"[1-9][0-9]{5,24}", room):
+        return None
+    if not re.fullmatch(r"[1-9][0-9]{0,3}", part) or not re.fullmatch(r"[0-9]{1,20}", run):
+        return None
+    folder = Path(root) / handle / room / part / run
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(str(folder)).free
+    except OSError:
+        return None
+    if free < DISK_FLOOR * 2:
+        try:
+            (folder / ".gap").write_text(now_iso(), encoding="utf-8")
+        except OSError:
+            pass
+        return None
+    return folder
+
+
+def keep_copy(meta: dict, path: Path, name: str, move: bool) -> None:
+    folder = keep_folder(meta)
+    if folder is None:
+        if move:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        return
+    try:
+        if move:
+            shutil.move(str(path), str(folder / name))
+        else:
+            shutil.copyfile(str(path), str(folder / name))
+    except OSError:
+        if move:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
+
 def publish_local(dest: Path, sent: set, meta: dict, closed: bool = False) -> int:
     """Store finished segments and drop the local files.
 
@@ -1084,6 +1243,7 @@ def publish_local(dest: Path, sent: set, meta: dict, closed: bool = False) -> in
             if store_piece(snap, meta["buf"] + "/init.mp4", piece):
                 sent.add("init.mp4")
                 stored += 1
+                keep_copy(meta, snap, "init.mp4", move=False)
     paths = sorted(dest.glob("seg*.m4s"))
     if not closed and paths:
         paths = paths[:-1]
@@ -1121,10 +1281,7 @@ def publish_local(dest: Path, sent: set, meta: dict, closed: bool = False) -> in
         meta["addedBytes"] = int(meta.get("addedBytes") or 0) + piece_bytes
         stored += wrote
         sent.add(path.name)
-        try:
-            path.unlink()
-        except OSError:
-            pass
+        keep_copy(meta, path, path.name, move=True)
         shutil.rmtree(dest / ("split-" + path.stem), ignore_errors=True)
     return stored
 
@@ -1335,6 +1492,8 @@ def cmd_record(handle: str, part: str, room: str) -> int:
     if not HANDLE_RE.fullmatch(name):
         log("bad handle")
         return 0
+    if yield_to_always_on("recording"):
+        return 0
     job = load_job(name)
     active = job.get("active") if isinstance(job.get("active"), dict) else {}
     part_n = int(part or active.get("part") or 1)
@@ -1343,7 +1502,7 @@ def cmd_record(handle: str, part: str, room: str) -> int:
         # A queued duplicate must not restart at part 1 after the first part
         # already wrote its segments.
         part_n = max(part_n, int(active.get("part") or 1))
-    run_id = str(os.environ.get("GITHUB_RUN_ID") or "")
+    run_id = run_identity()
     if active.get("capturing") and str(active.get("runId") or "") not in {"", run_id} and fresh_iso(str(active.get("heartbeat") or ""), now_iso(), HEARTBEAT_SECONDS):
         # The per-handle queue starts the next part only after this job
         # exits. A second runner must not copy the same live.
@@ -1498,6 +1657,8 @@ def cmd_record(handle: str, part: str, room: str) -> int:
             "seconds": seconds,
             "handle": name,
             "room": room_id,
+            # One folder per ffmpeg start: a restart writes a new init.mp4.
+            "keepRun": "%013d" % int(time.time() * 1000),
         }
         before = int(active.get("segments") or 0)
         last_live = 0.0
@@ -1671,6 +1832,8 @@ def cmd_upload(slot: str) -> int:
     bot = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
     if not token or not account or not bot:
         log("upload credentials are not set; skipping")
+        return 0
+    if yield_to_always_on("upload"):
         return 0
     try:
         index = int(slot or "0")
@@ -2156,6 +2319,57 @@ def selftest() -> int:
             shutil.rmtree(folder, ignore_errors=True)
     else:
         check(True, "ffmpeg is not installed here; the copy command was still checked")
+
+    # Always-on host: heartbeat, owner switch and local keep copies.
+    beat = {"runner": ALWAYS_ON, "at": "2026-01-01T00:00:00Z"}
+    check(runner_fresh(beat, "2026-01-01T00:04:00Z"), "a fresh always-on heartbeat is honoured")
+    check(not runner_fresh(beat, "2026-01-01T00:06:00Z"), "a stale heartbeat lets Actions record again")
+    check(not runner_fresh({"runner": "other", "at": "2026-01-01T00:00:00Z"}, "2026-01-01T00:01:00Z"), "only the always-on runner counts")
+    saved_env = {name: os.environ.get(name) for name in ("TIKTOK_RUNNER", "TIKTOK_KEEP_DIR", "TIKTOK_PART_SECONDS")}
+    try:
+        os.environ["TIKTOK_RUNNER"] = ALWAYS_ON
+        check(yield_to_always_on("recording") is False, "the always-on host never yields to itself")
+        os.environ["TIKTOK_PART_SECONDS"] = "60"
+        check(env_seconds("TIKTOK_PART_SECONDS", 100, 1800, 3600) == 1800, "the part length cannot go below its floor")
+        os.environ["TIKTOK_PART_SECONDS"] = "43200"
+        check(env_seconds("TIKTOK_PART_SECONDS", 100, 1800, 172800) == 43200, "an always-on host can run long parts")
+        os.environ["TIKTOK_PART_SECONDS"] = "x"
+        check(env_seconds("TIKTOK_PART_SECONDS", 100, 1, 200) == 100, "a bad part length falls back to the default")
+        check(recording_allowed({}, {"server": True}), "the owner's server switch allows recording")
+        check(not recording_allowed({}, {}), "server recording stays opt-in")
+        check(recording_allowed({"auto": True}, {}) and recording_allowed({"active": {"manual": True}}, None), "per-account and manual recording are allowed")
+        lives = [{"handle": "demo.one"}, {"handle": "demo.two"}, {"handle": "demo.three"}]
+        jobs = {"demo.two": {"record": True}, "demo.three": {"active": {"roomId": "7000000000000000003"}}}
+        check([row["handle"] for row in gate_lives(lives, jobs, {})] == ["demo.two", "demo.three"], "only allowed or running lives are planned")
+        check(len(gate_lives(lives, jobs, {}, True)) == 3, "record-all plans every live")
+        os.environ.pop("TIKTOK_KEEP_DIR", None)
+        meta = {"handle": "demo.one", "room": "7000000000000000001", "objectKey": "tiktok/demo.one/7000000000000000001/live/1", "keepRun": "0000000000001"}
+        check(keep_folder(meta) is None, "nothing is kept when no keep folder is set")
+        keep_root = Path(tempfile.mkdtemp(prefix="tiktok-keep-"))
+        try:
+            os.environ["TIKTOK_KEEP_DIR"] = str(keep_root)
+            folder = keep_folder(meta)
+            check(folder == keep_root / "demo.one" / "7000000000000000001" / "1" / "0000000000001", "a kept copy goes to handle/room/part/run")
+            check(keep_folder(dict(meta, handle="../x")) is None and keep_folder(dict(meta, keepRun="../1")) is None, "keep paths are validated")
+            sample = keep_root / "piece.m4s"
+            sample.write_bytes(b"demo")
+            keep_copy(meta, sample, "seg00001.m4s", True)
+            check(not sample.exists() and (folder / "seg00001.m4s").is_file(), "a published segment is moved into the keep folder")
+        finally:
+            shutil.rmtree(keep_root, ignore_errors=True)
+    finally:
+        for name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    live_test = Path(__file__).resolve().parents[1] / "docker" / "tiktok-live" / "tiktok_live_selftest.py"
+    if live_test.is_file():
+        ran = subprocess.run([sys.executable, str(live_test)], capture_output=True, check=False, timeout=600)
+        if ran.returncode != 0:
+            print(ran.stdout.decode("utf-8", "replace")[-4000:])
+        check(ran.returncode == 0, "the always-on recorder package passes its own checks")
 
     if failed:
         print("%s failed" % failed)
