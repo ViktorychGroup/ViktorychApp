@@ -1850,7 +1850,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         queueOffline({ type: "follow", id: item, on: !!on, snapshot: followSnapshot(item) });
         if (accounts && accounts.releaseFollow) accounts.releaseFollow(item);
       });
-      render();
+      if (unfollowHidesVisiblePosts(ready, on)) render();
+      else paintFollowButtons(ready, on);
       return;
     }
     if (accounts && accounts.changeFollow) {
@@ -1862,12 +1863,42 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
             reverted = true;
           }
         });
-        if (reverted) saveSettings();
+        if (reverted) {
+          saveSettings();
+          render();
+        }
         if (accounts.syncFollows) accounts.syncFollows();
-        render();
       });
     } else ready.forEach((item) => { if (accounts && accounts.releaseFollow) accounts.releaseFollow(item); });
-    render();
+    if (unfollowHidesVisiblePosts(ready, on)) render();
+    else paintFollowButtons(ready, on);
+  }
+  function paintFollowButtons(ids, on) {
+    const want = {};
+    (ids || []).forEach((id) => { want[String(id)] = true; });
+    const buttons = document.querySelectorAll('button[data-act="follow"]');
+    for (let i = 0; i < buttons.length; i++) {
+      const btn = buttons[i];
+      const id = btn.dataset.id || "";
+      const many = String(btn.dataset.ids || "").split(",").map((part) => part.trim());
+      if (!want[id] && !many.some((item) => want[item])) continue;
+      btn.classList.toggle("following", !!on);
+      btn.classList.remove("pending");
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      btn.removeAttribute("aria-busy");
+    }
+  }
+  function unfollowHidesVisiblePosts(ids, on) {
+    if (on) return false;
+    const nodes = document.querySelectorAll("article[data-post]");
+    for (let i = 0; i < nodes.length; i++) {
+      const post = findAnyPost(nodes[i].getAttribute("data-post"));
+      if (!post) continue;
+      const feedId = String(post.feedId || "");
+      const appId = post.authorId ? "app:" + post.authorId : "";
+      if ((ids || []).some((id) => sameFollowId(id, feedId) || (appId && sameFollowId(id, appId)))) return true;
+    }
+    return false;
   }
   function followSnapshot(id) {
     if (!id || String(id).indexOf("app:") === 0) return null;
@@ -12861,6 +12892,17 @@ const here = parseRoute();
      drop the new post, so it vanished from Home and its profile. Own posts are
      kept until the server lists them, for ten minutes at most. */
   const ownSent = {};
+  const localPostPreview = {};
+  function revokePostPreview(id) {
+    const list = localPostPreview[id];
+    if (!list) return;
+    list.forEach((item) => {
+      if (item && item.local && item.url) {
+        try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ }
+      }
+    });
+    delete localPostPreview[id];
+  }
   function rememberOwnPost(post) {
     if (!post || !post.id) return;
     ownSent[post.id] = { post: post, at: Date.now() };
@@ -12891,7 +12933,15 @@ const here = parseRoute();
     const now = Date.now();
     Object.keys(ownSent).forEach((id) => {
       const entry = ownSent[id];
-      if (ids.has(id) || now - entry.at > 600000) { delete ownSent[id]; return; }
+      if (ids.has(id) || now - entry.at > 600000) {
+        if (now - entry.at > 600000) revokePostPreview(id);
+        else if (ids.has(id) && localPostPreview[id]) {
+          const kept = next.find((item) => item && item.id === id);
+          if (kept && !(kept.media && kept.media[0] && kept.media[0].local)) kept.media = localPostPreview[id];
+        }
+        delete ownSent[id];
+        return;
+      }
       if (String(id).indexOf("tmp-") === 0) return;
       next.unshift(entry.post);
     });
@@ -12900,14 +12950,21 @@ const here = parseRoute();
     });
     return next.sort((a, b) => (Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
   }
-  function optimisticOwnPost(text, parentId, quoteId, extParent) {
+  function optimisticOwnPost(text, parentId, quoteId, extParent, media) {
     const mine = signedAccount();
     if (!mine || !mine.publicId) return "";
     const id = "tmp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const previews = (media || []).filter((item) => item && item.url && String(item.url).indexOf("blob:") === 0).map((item) => ({
+      mime: item.type || item.mime || "image/jpeg",
+      url: item.url,
+      alt: item.alt || "",
+      local: true
+    }));
+    if (previews.length) localPostPreview[id] = previews;
     rememberOwnPost({
       id: id, body: String(text || ""), parentId: parentId || "", quoteId: quoteId || "", createdAt: Date.now(),
       authorId: String(mine.publicId), authorHandle: String(mine.handle || ""), authorName: String(mine.displayName || mine.handle || ""),
-      authorAvatar: String(mine.avatar || ""), pending: true, likes: 0, replyCount: 0, media: [], extParent: extParent || null
+      authorAvatar: String(mine.avatar || ""), pending: true, likes: 0, replyCount: 0, media: previews, extParent: extParent || null
     });
     return id;
   }
@@ -13028,6 +13085,9 @@ const here = parseRoute();
     const tag = mime.indexOf("video/") === 0 ? "video" : mime.indexOf("audio/") === 0 ? "audio" : mime.indexOf("image/") === 0 ? "img" : "";
     if (!tag) return "";
     const extra = tag === "img" ? ` alt="${esc(item.alt || "")}"` : " controls";
+    if (item.local || String(item.url || "").indexOf("blob:") === 0) {
+      return `<${tag}${extra} src="${esc(item.url || "")}" data-local-preview="1"></${tag}>`;
+    }
     return `<${tag}${extra} data-public-media="${esc(item.url || "")}"></${tag}>`;
   }
 
@@ -13162,16 +13222,22 @@ const here = parseRoute();
       const parent = index === 0 ? (payload.parentId || "") : parentId;
       const quote = index === 0 ? (payload.quoteId || "") : "";
       const later = !!part.scheduleAt;
-      const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null);
+      const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null, part.media);
       if (tempId) render();
       const done = (res) => {
+        const previews = tempId ? localPostPreview[tempId] : null;
+        if (tempId) delete localPostPreview[tempId];
         if (tempId) forgetOwnPost(tempId);
         if (res && res.status === 201 && res.post) {
           if (!(res.scheduled || part.scheduleAt) && res.post.id) {
+            if (previews && previews.length) {
+              localPostPreview[res.post.id] = previews;
+              res.post.media = previews;
+            }
             rememberOwnPost(res.post);
             nostrMirror(res.post, index === 0 ? payload.extParent : null);
             if (!firstSent) firstSent = res.post;
-          }
+          } else if (previews) previews.forEach((item) => { if (item && item.url) { try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ } } });
           if (res.post.community && res.post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(res.post.community.name);
           publicStamp = Date.now();
           sendAt(index + 1, res.post.id);
@@ -13179,6 +13245,7 @@ const here = parseRoute();
         }
         const text = posts.slice(index).map((item) => item.text).filter(Boolean).join("\n\n");
         if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
+        if (previews) previews.forEach((item) => { if (item && item.url) { try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ } } });
         toast(res && res.error === "reply_limited" ? tr("Replies are limited on that post.") : tr("Could not send that post. It is still saved on this device."));
         if (tempId) render();
       };
@@ -20014,8 +20081,52 @@ if (STATE.histClear) {
       if (navigator.onLine) sendAppLike(id, on);
       else queueOffline({ type: "app-like", id: id, on: on });
     } else if (!navigator.onLine) queueOffline({ type: act === "bookmark" ? "bookmark" : "like", id: id, on: !!STATE.settings[bucket][id] });
-    if (parseRoute().name !== "shorts") render();
-    return !!STATE.settings[bucket][id];
+    const showing = !!STATE.settings[bucket][id];
+    const routeName = parseRoute().name;
+    /* The tapped control already flipped. History is a list of these
+       saves, so it still rebuilds. Everywhere else only the matching
+       buttons and counts change. */
+    if (routeName === "shorts") { /* the player paints its own control */ }
+    else if (routeName === "history" || routeName === "bookmarks") render();
+    else paintReaction(act, id, showing);
+    return showing;
+  }
+
+  function reactionBaseCount(act, id) {
+    const post = findAnyPost(id);
+    const stats = (post && post.stats) || {};
+    if (act === "bookmark") return Number(stats.bookmarks) || 0;
+    if (stats.likes != null) return Number(stats.likes) || 0;
+    const item = findAppItem(id);
+    return item && item.likes != null ? Number(item.likes) || 0 : 0;
+  }
+
+  function paintReaction(act, id, on) {
+    if (typeof document === "undefined") return false;
+    const want = String(id || "");
+    const text = shownCount(reactionBaseCount(act, want), on ? 1 : 0);
+    const glyph = act === "like" ? (on ? "heartOn" : "heart") : (on ? "bookmarkOn" : "bookmark");
+    const buttons = document.querySelectorAll('button[data-act="' + act + '"]');
+    let painted = 0;
+    for (let i = 0; i < buttons.length; i++) {
+      const btn = buttons[i];
+      if ((btn.dataset.id || "") !== want) continue;
+      btn.classList.toggle("on", !!on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      const iconEl = btn.querySelector(".ic");
+      if (iconEl) iconEl.innerHTML = icon(glyph);
+      let countEl = btn.querySelector(".count");
+      if (text) {
+        if (!countEl) {
+          countEl = document.createElement("span");
+          countEl.className = "count";
+          btn.appendChild(countEl);
+        }
+        countEl.textContent = text;
+      } else if (countEl) countEl.remove();
+      painted += 1;
+    }
+    return painted > 0;
   }
 
   function sendAppLike(id, on) {
@@ -33352,10 +33463,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       const sameList = (left, right) => left.length === right.length && left.every((id) => right.some((item) => sameFollowId(item, id)));
       const sameFeeds = sameList(prevFeeds, feeds);
       const sameApps = sameList(prevApps, apps);
-      if (sameFeeds && sameApps) return;
+      if (sameFeeds && sameApps) return false;
       STATE.settings.follows = feeds.slice();
       STATE.settings.accountFollows = apps.slice();
       saveSettings();
+      return true;
     };
     window.ViktorychAccounts.readHistory = readHistory;
     window.ViktorychAccounts.writeHistory = writeHistory;

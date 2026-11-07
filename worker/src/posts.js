@@ -676,12 +676,13 @@ async function createPost(request, env, deps) {
       return deps.json(400, { error: "bad_media" });
     }
     const alts = Array.isArray(input.fields.alts) ? input.fields.alts : [];
-    for (let i = 0; i < files.length; i++) {
+    const uploaded = await Promise.all(files.map(async (file, i) => {
       const id = randomId();
       const key = "post-media/" + id + "." + kinds[i].ext;
-      await env.DATA.put(key, files[i].body, { httpMetadata: { contentType: kinds[i].mime } });
-      stored.push({ id: id, key: key, mime: kinds[i].mime, size: files[i].body.length, alt: cleanAlt(alts[i] || ""), order: i });
-    }
+      await env.DATA.put(key, file.body, { httpMetadata: { contentType: kinds[i].mime } });
+      return { id: id, key: key, mime: kinds[i].mime, size: file.body.length, alt: cleanAlt(alts[i] || ""), order: i };
+    }));
+    uploaded.forEach((item) => stored.push(item));
   }
   const id = randomId();
   const now = Date.now();
@@ -693,11 +694,10 @@ async function createPost(request, env, deps) {
     id, session.public_id, body, parent, quote, created, audience, cleanReply(input.fields.replyControl), cleanLocation(input.fields.location), poll ? JSON.stringify(poll) : "", when, ext ? JSON.stringify(ext) : ""
   ).run();
   if (audience === "list") await setListGrants(env, session.public_id, "post", id, listIdsOf(input.fields));
-  for (let i = 0; i < stored.length; i++) {
-    const item = stored[i];
-    await env.DB.prepare("INSERT INTO public_post_media (id, post_id, object_key, mime, size, alt_text, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(
+  if (stored.length) {
+    await env.DB.batch(stored.map((item) => env.DB.prepare("INSERT INTO public_post_media (id, post_id, object_key, mime, size, alt_text, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(
       item.id, id, item.key, item.mime, item.size, item.alt, item.order
-    ).run();
+    )));
   }
   const row = await env.DB.prepare("SELECT p.id, p.author_id, p.body, p.parent_id, p.quote_id, p.created_at, p.audience, p.reply_control, p.location, p.poll_json, p.scheduled_at, p.ext_parent, a.handle, a.display_name, a.avatar FROM public_posts p JOIN accounts a ON a.public_id = p.author_id WHERE p.id = ?").bind(id).first();
   try {
