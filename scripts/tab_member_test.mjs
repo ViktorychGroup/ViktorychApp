@@ -83,7 +83,7 @@ async function arm(page, gate) {
         gate.cachedHits += 1;
         await gate.cached;
         gate.cachedDone = true;
-        return json(200, { posts: [post(CACHED_ID, B, "user_b", "User B", "Cached note from user b", { audience: "friends" })], ok: true });
+        return json(200, { posts: [post(CACHED_ID, B, "user_b", "User B", "Cached note from user b", { audience: "friends", authorAvatar: "https://example.com/a-only.png" })], ok: true });
       }
       if (by === C) {
         const started = Date.now();
@@ -103,7 +103,7 @@ async function arm(page, gate) {
       if (!mine) return json(200, { posts: [], ok: true });
       return json(200, {
         posts: [
-          post(CACHED_ID, B, "user_b", "User B", "Cached note from user b", { audience: "friends" }),
+          post(CACHED_ID, B, "user_b", "User B", "Cached note from user b", { audience: "friends", authorAvatar: "https://example.com/a-only.png" }),
           post(PARENT_ID, B, "user_b", "User B", "Member parent"),
           post(OUTSIDE_ID, E, "user_e", "User E", "Outside reply", { parentId: PARENT_ID }),
           post(MUTED_ID, B, "user_b", "User B", "zzzzzblocked reply", { parentId: PARENT_ID })
@@ -166,6 +166,8 @@ async function run(page, label, hang) {
   await page.goto(page.url().split("#")[0] + "#/cat/crew", { waitUntil: "domcontentloaded" });
   await page.locator("article", { hasText: "Cached note from user b" }).first().waitFor({ timeout: 8000 });
   if (await page.locator("article", { hasText: "Cached note from user b" }).count() !== 1) fail(label + " duplicate cards");
+  await page.evaluate((id) => { location.hash = "#/app/user_b/status/" + id; }, CACHED_ID);
+  await page.locator("body").getByText("Cached note from user b", { exact: false }).first().waitFor({ timeout: 8000 });
   await page.evaluate(() => {
     localStorage.setItem("viktorychapp-account-v1", JSON.stringify({
       token: "token-500000000005",
@@ -177,9 +179,26 @@ async function run(page, label, hang) {
   await page.evaluate(() => { location.hash = "#/cat/crew"; });
   await page.waitForTimeout(400);
   if (await page.locator("article", { hasText: "Cached note from user b" }).count()) fail(label + " the switched viewer still shows the restricted post");
+  await page.locator('button[data-act="manage-tabs"]').click();
+  await page.locator('button[data-act="feed-tab-edit"][data-id="crew"]').click();
+  await page.locator("#feed-tab-q").fill("user_b");
+  await page.waitForTimeout(200);
+  const rows = await page.locator(".feed-tab-sheet .acct-row").evaluateAll((els) => els.map((el) => el.innerText + "\n" + el.innerHTML));
+  if (rows.some((text) => text.indexOf("User B") >= 0 || text.indexOf("a-only.png") >= 0)) fail(label + " the tab editor still shows the previous viewer's account " + rows.join(" | "));
+  await page.evaluate((id) => { location.hash = "#/app/user_b/status/" + id; }, CACHED_ID);
+  await page.waitForTimeout(500);
+  if ((await page.locator("main.center").innerText()).indexOf("Cached note from user b") >= 0) fail(label + " the open post still shows after the switch");
   gateOf(page).releaseCached();
   await page.waitForTimeout(500);
-  if (await page.locator("article", { hasText: "Cached note from user b" }).count()) fail(label + " a late response from the previous viewer was applied");
+  if ((await page.locator("main.center").innerText()).indexOf("Cached note from user b") >= 0) fail(label + " a late response restored the open post");
+  await page.evaluate((id) => {
+    localStorage.removeItem("viktorychapp-account-v1");
+    location.hash = "#/following";
+  }, CACHED_ID);
+  await page.waitForTimeout(200);
+  await page.evaluate((id) => { location.hash = "#/app/user_b/status/" + id; }, CACHED_ID);
+  await page.waitForTimeout(400);
+  if ((await page.locator("main.center").innerText()).indexOf("Cached note from user b") >= 0) fail(label + " signing out left the restricted post open");
   console.log(label + " shownMs " + shownMs + " lateMs " + lateShown);
 }
 

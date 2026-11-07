@@ -2726,6 +2726,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const slim = slimPost(post);
     if (!slim || !slim.id) return;
     slim.kind = post.kind || "post";
+    if (post.platform === "app" || post.appPost) slim.viewerScope = post.viewerScope || viewerScope();
     if (post.repostedBy) slim.repostedBy = { handle: post.repostedBy.handle || "", name: post.repostedBy.name || "", avatar: post.repostedBy.avatar || "" };
     const list = openedList().filter((item) => item && item.id !== slim.id);
     list.unshift(slim);
@@ -2735,7 +2736,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
 
   function openedPost(id) {
     const key = String(id || "");
-    return openedList().find((item) => item && (item.id === key || String(item.statusId || "") === key)) || null;
+    const item = openedList().find((row) => row && (row.id === key || String(row.statusId || "") === key)) || null;
+    if (item && (item.platform === "app" || item.appPost) && item.viewerScope !== viewerScope()) return null;
+    return item;
   }
 
   function loadTimelineSnap() {
@@ -2774,7 +2777,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   }
 
   function findPost(platform, handle, id) {
-    const shared = STATE.shared[String(id)];
+    const shared = sharedForViewer(id);
     if (shared) return shared;
     const h = handle && handle !== "_" ? handle.toLowerCase() : "";
     const all = posts();
@@ -2788,9 +2791,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
     const buckets = Object.keys(STATE.replies);
     for (let i = 0; i < buckets.length; i++) {
-      const list = (STATE.replies[buckets[i]] && STATE.replies[buckets[i]].replies) || [];
+      const bucket = STATE.replies[buckets[i]];
+      if (bucket && bucket.scope && bucket.scope !== viewerScope()) continue;
+      const list = (bucket && bucket.replies) || [];
       for (let j = 0; j < list.length; j++) {
         const reply = list[j];
+        if ((reply.platform === "app" || reply.appPost) && reply.viewerScope && reply.viewerScope !== viewerScope()) continue;
         if (String(reply.statusId || reply.id) !== String(id)) continue;
         if (h && (reply.handle || "").toLowerCase() !== h) continue;
         if (platform && reply.platform && reply.platform !== platform) continue;
@@ -3386,7 +3392,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function playPost(el) {
     const id = el && el.dataset.pid;
     if (!id) return null;
-    const direct = posts().find((item) => item && (item.id === id || String(item.statusId || "") === id)) || STATE.shared[id] || null;
+    const direct = posts().find((item) => item && (item.id === id || String(item.statusId || "") === id)) || sharedForViewer(id) || null;
     if (direct) return direct;
     const list = posts();
     for (let i = 0; i < list.length; i++) {
@@ -8671,39 +8677,45 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function appReplyBucket(post, id, want) {
     const fresh = String(STATE.forceReply || "") === id;
     if (fresh) STATE.forceReply = "";
+    const sender = sessionNow();
+    const scope = viewerScope();
     const bucket = STATE.replies[id];
-    if (!fresh && bucket && (bucket.loading || (bucket.fetchedAt && Date.now() - bucket.fetchedAt < 30000))) return bucket;
-    STATE.replies[id] = { loading: true, replies: (bucket && bucket.replies) || [], missing: false, cap: want, fetchedAt: (bucket && bucket.fetchedAt) || 0 };
+    const owned = bucket && bucket.scope === scope;
+    if (!fresh && owned && (bucket.loading || (bucket.fetchedAt && Date.now() - bucket.fetchedAt < 30000))) return bucket;
+    STATE.replies[id] = { loading: true, replies: owned ? (bucket.replies || []) : [], missing: false, cap: want, fetchedAt: owned ? (bucket.fetchedAt || 0) : 0, scope: scope };
     accountCall("/v1/posts/thread?id=" + encodeURIComponent(id) + "&sort=" + replySortMode()).then((res) => {
+      if (!sameSession(sender)) return;
       if (res && res.status === 410) {
         dropAppItem(id);
-        STATE.replies[id] = { loading: false, replies: [], missing: true, cap: want, fetchedAt: Date.now(), settled: true, gone: true };
+        STATE.replies[id] = { loading: false, replies: [], missing: true, cap: want, fetchedAt: Date.now(), settled: true, gone: true, scope: viewerScope() };
         render();
         return;
       }
       if (!res || res.status !== 200 || !Array.isArray(res.replies)) {
-        STATE.replies[id] = { loading: false, replies: (bucket && bucket.replies) || [], missing: !(bucket && bucket.replies && bucket.replies.length), cap: want, fetchedAt: Date.now(), settled: true };
+        STATE.replies[id] = { loading: false, replies: owned ? (bucket.replies || []) : [], missing: !(owned && bucket.replies && bucket.replies.length), cap: want, fetchedAt: Date.now(), settled: true, scope: viewerScope() };
         render();
         return;
       }
       if (res.post && res.post.id) {
-        appThreadItems[res.post.id] = res.post;
+        appThreadItems[res.post.id] = { scope: viewerScope(), item: res.post };
         patchAppItem(res.post.id, res.post);
-        const card = appCardPost(res.post);
-        STATE.shared[card.id] = Object.assign(STATE.shared[card.id] || {}, card);
+        const card = stampAppCard(appCardPost(res.post));
+        const prev = sharedForViewer(card.id);
+        STATE.shared[card.id] = Object.assign(prev || {}, card);
       }
       const replies = res.replies.filter(notGone).map((item) => {
-        appThreadItems[item.id] = item;
-        const card = appCardPost(item);
+        appThreadItems[item.id] = { scope: viewerScope(), item: item };
+        const card = stampAppCard(appCardPost(item));
         card.replyingTo = { id: id, handle: post.handle || "" };
         STATE.shared[card.id] = card;
         return card;
       });
-      STATE.replies[id] = { loading: false, replies: replies.slice(0, want), missing: false, cap: want, fetchedAt: Date.now(), settled: true };
+      STATE.replies[id] = { loading: false, replies: replies.slice(0, want), missing: false, cap: want, fetchedAt: Date.now(), settled: true, scope: viewerScope() };
       addNostrReplies(id, post);
       render();
     }).catch(() => {
-      STATE.replies[id] = { loading: false, replies: (bucket && bucket.replies) || [], missing: true, cap: want, fetchedAt: Date.now(), settled: true };
+      if (!sameSession(sender)) return;
+      STATE.replies[id] = { loading: false, replies: owned ? (bucket.replies || []) : [], missing: true, cap: want, fetchedAt: Date.now(), settled: true, scope: viewerScope() };
       render();
     });
     return STATE.replies[id];
@@ -12887,6 +12899,19 @@ const here = parseRoute();
   function visiblePublicPosts() {
     return publicOwner === viewerScope() ? publicPosts : [];
   }
+  /* An app post was fetched for one signed-in account. Another account on
+     this page must not read that copy. Catalog posts from other networks
+     stay available. */
+  function stampAppCard(card) {
+    if (card && (card.platform === "app" || card.appPost)) card.viewerScope = viewerScope();
+    return card;
+  }
+  function sharedForViewer(id) {
+    const card = STATE.shared[String(id || "")];
+    if (!card) return null;
+    if ((card.platform === "app" || card.appPost) && card.viewerScope !== viewerScope()) return null;
+    return card;
+  }
   function schedulePublicPosts() {
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
@@ -13744,7 +13769,8 @@ const here = parseRoute();
     if (!id) return null;
     const hit = visiblePublicPosts().find((item) => item && item.id === id);
     if (hit) return hit;
-    if (appThreadItems[id]) return appThreadItems[id];
+    const thread = appThreadItems[id];
+    if (thread && thread.item && thread.scope === viewerScope()) return thread.item;
     const scope = viewerScope();
     const keys = Object.keys(authorPostCache);
     for (let i = 0; i < keys.length; i++) {
@@ -13761,8 +13787,15 @@ const here = parseRoute();
   function patchAppItem(id, change) {
     const apply = (item) => { if (item && item.id === id) Object.assign(item, change); };
     publicPosts.forEach(apply);
-    Object.keys(appThreadItems).forEach((key) => apply(appThreadItems[key]));
-    Object.keys(authorPostCache).forEach((key) => (authorPostCache[key].posts || []).forEach(apply));
+    const scope = viewerScope();
+    Object.keys(appThreadItems).forEach((key) => {
+      const bag = appThreadItems[key];
+      if (bag && bag.item && bag.scope === scope) apply(bag.item);
+    });
+    Object.keys(authorPostCache).forEach((key) => {
+      const bag = authorPostCache[key];
+      if (bag && bag.scope === scope) (bag.posts || []).forEach(apply);
+    });
   }
   function dropAppItem(id) {
     publicPosts = publicPosts.filter((item) => item && item.id !== id);
@@ -13863,6 +13896,7 @@ const here = parseRoute();
     const byId = {};
     list.forEach((post) => {
       byId[post.id] = post;
+      stampAppCard(post);
       STATE.shared[post.id] = post;
     });
     list.forEach((post) => {
@@ -14016,7 +14050,9 @@ const here = parseRoute();
 
   function rememberLive(post) {
     const id = String((post && (post.statusId || post.id)) || "");
-    if (id) STATE.shared[id] = post;
+    if (!id) return;
+    stampAppCard(post);
+    STATE.shared[id] = post;
   }
 
   function rememberedPerson(platform, handle) {
@@ -15995,7 +16031,7 @@ const here = parseRoute();
   }
 
   function statusView(route) {
-    if (route.platform === "app" && !STATE.shared[String(route.id)]) {
+    if (route.platform === "app" && !sharedForViewer(route.id)) {
       const sameId = (item) => item && String(item.id) === String(route.id);
       let sent = visiblePublicPosts().find(sameId);
       if (!sent) {
@@ -16007,7 +16043,7 @@ const here = parseRoute();
           return !!sent;
         });
       }
-      if (sent) STATE.shared[String(route.id)] = appCardPost(sent);
+      if (sent) STATE.shared[String(route.id)] = stampAppCard(appCardPost(sent));
     }
     if (route.platform === "tiktok" && isShortsLocked() && !isTiktokUnlocked(route.handle)) {
       return pageHead(tr("Post noun"), "", true) + emptyBlock(tr("Post unavailable"), tr("This post isn’t in the current snapshot."));
@@ -18487,12 +18523,19 @@ const here = parseRoute();
   function seenAppAccounts() {
     const out = [];
     const seen = {};
-    publicPosts.forEach((item) => {
+    const scope = viewerScope();
+    const take = (item) => {
       if (!item || !item.authorId) return;
       const id = "app:" + item.authorId;
       if (seen[id] || feeds().some((feed) => feed && feed.id === id)) return;
       seen[id] = true;
       out.push({ id: id, name: item.authorName || item.authorHandle || id, handle: item.authorHandle || "", platform: "app", avatar: item.authorAvatar || "" });
+    };
+    visiblePublicPosts().forEach(take);
+    Object.keys(authorPostCache).forEach((key) => {
+      const bag = authorPostCache[key];
+      if (!bag || bag.scope !== scope) return;
+      (bag.posts || []).forEach(take);
     });
     return out;
   }
@@ -20481,7 +20524,10 @@ if (STATE.histClear) {
       const post = lib.toProfilePost(row, account, { self: mine });
       if (!post) return;
       if (post.kind === "quote" && mine) post.ownQuote = true;
-      if (post.platform === "app" || !findAnyPost(post.id)) STATE.shared[String(post.id)] = post;
+      if (post.platform === "app" || !findAnyPost(post.id)) {
+        stampAppCard(post);
+        STATE.shared[String(post.id)] = post;
+      }
       addPost(post);
     });
     if (identities.length) {
@@ -20508,6 +20554,7 @@ if (STATE.histClear) {
       });
     }
     ownApp.forEach((post) => {
+      stampAppCard(post);
       STATE.shared[post.id] = post;
       addPost(post);
     });
@@ -21562,7 +21609,8 @@ if (STATE.histClear) {
   function findAnyPost(id) {
     const key = String(id || "");
     if (!key) return null;
-    if (STATE.shared[key]) return STATE.shared[key];
+    const shared = sharedForViewer(key);
+    if (shared) return shared;
     const direct = posts().find((item) => item.id === key || postKey(item) === key);
     if (direct) return direct;
     const buckets = Object.keys(STATE.replies);
@@ -22089,7 +22137,7 @@ if (STATE.histClear) {
       ensureLazy("tv");
       return lazySkeleton(tr("TV"));
     }
-    if (route.name === "status" && route.id && STATE.shared && STATE.shared[String(route.id)]) return statusView(route);
+    if (route.name === "status" && route.id && sharedForViewer(route.id)) return statusView(route);
     if (route.name === "notifications") {
       try {
         return notificationsView(route);
@@ -23122,7 +23170,8 @@ if (STATE.histClear) {
       document.documentElement.lang || "",
       document.documentElement.getAttribute("data-theme") || "",
       document.documentElement.getAttribute("data-fs") || "",
-      ARCHIVE.posts.length
+      ARCHIVE.posts.length,
+      viewerScope()
     ].join("|");
   }
   function parkKey(route) {
@@ -23135,7 +23184,7 @@ if (STATE.histClear) {
   function viewStamp(route) {
     if (route.name === "home") return homeStamp(route);
     const posts = STATE.data && STATE.data.posts ? STATE.data.posts.length : 0;
-    return [(location.hash || "#/"), STATE.loading ? 1 : 0, STATE.error ? 1 : 0, posts].join("|");
+    return [(location.hash || "#/"), STATE.loading ? 1 : 0, STATE.error ? 1 : 0, posts, viewerScope()].join("|");
   }
   function evictParks() {
     if (viewParks.size <= VIEW_PARK_MAX) return;
@@ -23348,6 +23397,7 @@ if (STATE.histClear) {
       const stamp = key ? viewStamp(route) : "";
       const slot = key ? viewParks.get(key) : null;
       decision = commitFrameDecision({ token: STATE.renderGen, builtHash: location.hash || "#/" }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
+      if (slot && slot.scope && slot.scope !== viewerScope()) slot.force = true;
       const parkedAway = !!(decision && decision.commit && slot && !slot.live && slot.root && !slot.force);
       if (parkedAway) parkLiveView();
       if (parkedAway && restoreView(slot)) {
@@ -23400,7 +23450,7 @@ if (STATE.histClear) {
           const prev = viewParks.get(key);
           if (prev && prev.root) prev.root.remove();
           const appNow = document.getElementById("app");
-          viewParks.set(key, { stamp: viewStamp(route), live: true, root: appNow ? wrapLive(appNow) : null, y: window.scrollY || 0, at: Date.now(), force: false, shown: false });
+          viewParks.set(key, { stamp: viewStamp(route), scope: viewerScope(), live: true, root: appNow ? wrapLive(appNow) : null, y: window.scrollY || 0, at: Date.now(), force: false, shown: false });
           evictParks();
         }
       }
