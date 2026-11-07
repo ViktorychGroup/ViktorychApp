@@ -2717,6 +2717,128 @@ var numberNote = form.passkey
     (local || []).forEach(function (item) { if (item && item.id) map[item.id] = item; });
     return Object.keys(map).map(function (key) { return map[key]; });
   }
+  /* Custom Home tabs. A newer rename wins. A newer drag wins the order.
+     Adding or removing an account sticks unless a later removal or add
+     says otherwise, so an older device cannot put a member back or drop
+     one. A deleted tab stays deleted. */
+  function feedMemberEvents(tab) {
+    var adds = {};
+    var drops = {};
+    var explicit = tab && (tab.memberAdds || tab.memberDrops);
+    if (tab && tab.memberAdds && typeof tab.memberAdds === "object") {
+      Object.keys(tab.memberAdds).forEach(function (id) {
+        var t = Number(tab.memberAdds[id]);
+        if (id && isFinite(t) && t > 0) adds[id] = t;
+      });
+    }
+    if (tab && tab.memberDrops && typeof tab.memberDrops === "object") {
+      Object.keys(tab.memberDrops).forEach(function (id) {
+        var t = Number(tab.memberDrops[id]);
+        if (id && isFinite(t) && t > 0) drops[id] = t;
+      });
+    }
+    if (!explicit) {
+      var when = Number(tab && tab.updatedAt) || 1;
+      (tab && tab.members || []).forEach(function (id) {
+        id = String(id || "");
+        if (id) adds[id] = Math.max(adds[id] || 0, when);
+      });
+    }
+    return { adds: adds, drops: drops };
+  }
+  function mergeFeedMembers(a, b) {
+    var left = feedMemberEvents(a);
+    var right = feedMemberEvents(b);
+    var ids = {};
+    function note(id) { if (id) ids[String(id)] = true; }
+    Object.keys(left.adds).forEach(note);
+    Object.keys(left.drops).forEach(note);
+    Object.keys(right.adds).forEach(note);
+    Object.keys(right.drops).forEach(note);
+    var order = [];
+    function pushOrder(tab) {
+      (tab && tab.members || []).forEach(function (id) {
+        id = String(id || "");
+        if (id && order.indexOf(id) < 0) order.push(id);
+      });
+    }
+    var aAt = Number(a && a.updatedAt) || 0;
+    var bAt = Number(b && b.updatedAt) || 0;
+    if (aAt >= bAt) { pushOrder(a); pushOrder(b); }
+    else { pushOrder(b); pushOrder(a); }
+    Object.keys(ids).forEach(function (id) { if (order.indexOf(id) < 0) order.push(id); });
+    var adds = {};
+    var drops = {};
+    var members = [];
+    order.forEach(function (id) {
+      var add = Math.max(left.adds[id] || 0, right.adds[id] || 0);
+      var drop = Math.max(left.drops[id] || 0, right.drops[id] || 0);
+      if (add) adds[id] = add;
+      if (drop) drops[id] = drop;
+      if (add > drop) members.push(id);
+    });
+    return { members: members, memberAdds: adds, memberDrops: drops };
+  }
+  function mergeOneFeedTab(a, b) {
+    var aAt = Number(a && a.updatedAt) || 0;
+    var bAt = Number(b && b.updatedAt) || 0;
+    var newer = aAt >= bAt ? a : b;
+    var next = {};
+    Object.keys(newer || {}).forEach(function (key) { next[key] = newer[key]; });
+    next.id = String((a && a.id) || (b && b.id) || "");
+    next.updatedAt = Math.max(aAt, bAt);
+    next.deletedAt = Math.max(Number(a && a.deletedAt) || 0, Number(b && b.deletedAt) || 0);
+    next.readAt = Math.max(Number(a && a.readAt) || 0, Number(b && b.readAt) || 0);
+    var aPos = Number(a && a.posAt) || 0;
+    var bPos = Number(b && b.posAt) || 0;
+    if (bPos > aPos && typeof b.pos === "number") { next.pos = b.pos; next.posAt = bPos; }
+    else if (aPos > 0 && typeof a.pos === "number") { next.pos = a.pos; next.posAt = aPos; }
+    else if (typeof newer.pos === "number") next.pos = newer.pos;
+    var members = mergeFeedMembers(a, b);
+    next.members = members.members;
+    next.memberAdds = members.memberAdds;
+    next.memberDrops = members.memberDrops;
+    return next;
+  }
+  function mergeFeedTabs(local, remote) {
+    var map = {};
+    function take(tab) {
+      if (!tab || !tab.id) return;
+      var id = String(tab.id);
+      map[id] = map[id] ? mergeOneFeedTab(map[id], tab) : tab;
+    }
+    (remote || []).forEach(take);
+    (local || []).forEach(take);
+    var tabs = Object.keys(map).map(function (id) { return map[id]; });
+    if (tabs.some(function (tab) { return Number(tab.posAt) > 0; })) {
+      return tabs.slice().sort(function (a, b) {
+        var ha = Number(a.posAt) > 0 && typeof a.pos === "number";
+        var hb = Number(b.posAt) > 0 && typeof b.pos === "number";
+        if (ha && hb && a.pos !== b.pos) return a.pos - b.pos;
+        if (ha !== hb) return ha ? -1 : 1;
+        return 0;
+      });
+    }
+    function maxAt(list) {
+      var n = 0;
+      (list || []).forEach(function (tab) { n = Math.max(n, Number(tab && tab.updatedAt) || 0); });
+      return n;
+    }
+    var first = maxAt(local) > maxAt(remote) ? local : remote;
+    var second = first === local ? remote : local;
+    var seen = {};
+    var out = [];
+    function push(list) {
+      (list || []).forEach(function (tab) {
+        if (!tab || !tab.id || seen[tab.id] || !map[tab.id]) return;
+        seen[tab.id] = true;
+        out.push(map[tab.id]);
+      });
+    }
+    push(first);
+    push(second);
+    return out;
+  }
   function historyCutOf(local, remote) {
     function n(src, key) {
       var value = src && src.historyCut ? Number(src.historyCut[key]) : 0;
@@ -2828,7 +2950,7 @@ var numberNote = form.passkey
       bookmarks: unionObjects(local.bookmarks, remote.bookmarks),
       reposts: unionObjects(local.reposts, remote.reposts),
       savedPosts: unionObjects(local.savedPosts, remote.savedPosts),
-      feedTabs: unionById(local.feedTabs, remote.feedTabs),
+      feedTabs: mergeFeedTabs(local.feedTabs, remote.feedTabs),
       communityTabs: pickCommunityTabs(local.communityTabs, remote.communityTabs),
       communityFolders: pickCommunityFolders(local.communityFolders, remote.communityFolders),
       noteTabs: mergeNoteTabs(local.noteTabs, remote.noteTabs),

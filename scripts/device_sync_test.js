@@ -107,6 +107,40 @@ tabsReg.setCatLocal("tabs", false);
 snap = accounts.snapshotFrom({ follows: ["x:a"], feedTabs: [{ id: "t1", name: "News" }] });
 assert.ok(Array.isArray(snap.feedTabs) && snap.feedTabs.length === 1, "tabs ride the account again");
 
+// Order, membership and deletion merge per account. An older device cannot
+// undo a newer drag, add, removal or delete. Two accounts never share a payload.
+const reordered = accounts.mergePayload(
+  { feedTabs: [
+    { id: "beta", name: "Beta", members: [], pos: 0, posAt: 100, updatedAt: 100 },
+    { id: "alpha", name: "Alpha", members: ["instagram:orbitfox"], pos: 1, posAt: 100, updatedAt: 100, memberAdds: { "instagram:orbitfox": 40 } }
+  ] },
+  { feedTabs: [
+    { id: "alpha", name: "Alpha", members: ["instagram:orbitfox"], pos: 0, posAt: 10, updatedAt: 10 },
+    { id: "beta", name: "Beta", members: ["x:north"], pos: 1, posAt: 10, updatedAt: 20, memberAdds: { "x:north": 20 } }
+  ] }
+);
+const orderIds = Array.from(reordered.feedTabs).map((tab) => tab.id).join(",");
+assert.equal(orderIds, "beta,alpha", "the newer drag is the order");
+assert.ok(Array.from(reordered.feedTabs[0].members).indexOf("x:north") >= 0, "an earlier add stays");
+assert.ok(Array.from(reordered.feedTabs[1].members).indexOf("instagram:orbitfox") >= 0, "the other device's add stays");
+const removed = accounts.mergePayload(
+  { feedTabs: [{ id: "alpha", name: "Alpha", members: ["instagram:orbitfox"], updatedAt: 10 }] },
+  { feedTabs: [{ id: "alpha", name: "Alpha", members: [], updatedAt: 40, memberDrops: { "instagram:orbitfox": 40 } }] }
+);
+assert.equal(Array.from(removed.feedTabs[0].members).length, 0, "a later removal stays removed");
+const afterRename = accounts.mergePayload(
+  { feedTabs: [{ id: "alpha", name: "Cedar", members: ["instagram:orbitfox"], updatedAt: 80, memberAdds: { "instagram:orbitfox": 10 }, pos: 1, posAt: 80 }] },
+  { feedTabs: [{ id: "alpha", name: "Alpha", members: [], updatedAt: 40, memberDrops: { "instagram:orbitfox": 40 }, pos: 0, posAt: 5 }] }
+);
+assert.equal(Array.from(afterRename.feedTabs[0].members).length, 0, "a rename does not bring a removed account back");
+assert.equal(afterRename.feedTabs[0].pos, 1, "the newer order survives that removal");
+const gone = accounts.mergePayload(
+  { feedTabs: [{ id: "alpha", name: "Old", members: [], updatedAt: 10 }, { id: "beta", name: "Beta", members: [], updatedAt: 10 }] },
+  { feedTabs: [{ id: "alpha", name: "Old", members: [], updatedAt: 50, deletedAt: 50 }] }
+);
+assert.equal(gone.feedTabs.find((tab) => tab.id === "alpha").deletedAt, 50, "a deleted tab stays deleted");
+assert.ok(gone.feedTabs.some((tab) => tab.id === "beta"), "the other tab stays");
+
 // Live updates ride the account channel.
 const presence = fs.readFileSync("presence.js", "utf8");
 assert.match(presence, /topics: \["presence", "notifications", "sync", "posts", "p2p", "srv", "games"\]/);
