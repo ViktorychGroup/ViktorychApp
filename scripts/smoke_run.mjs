@@ -173,6 +173,10 @@ const PAGE_STEPS = [
     needs: ["pw", "browser"],
     paths: [file("people_search_test.mjs"), /^app\.js$/, /^device-search\.js$/, /^accounts\.js$/]
   }),
+  step("emoji-text", "node scripts/emoji_text_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("emoji_text_test.mjs"), file("emoji.js"), /^styles\.css$/]
+  }),
   step("translate", "node scripts/translate_test.js", { paths: [file("translate_test.js")] }),
   step("ondevice-ai", "node scripts/ondevice_ai_test.js", { paths: [file("ondevice_ai_test.js")] }),
   step("dock", "node scripts/dock_test.js", { paths: [file("dock_test.js"), /^dock\.js$/, /^dock\.css$/] }),
@@ -257,7 +261,7 @@ const SHARDS = {
   "compose-core": ["compose-ai", "compose-page"],
   "compose-a": ["community-home", "communities-hub", "own-post", "author-marks", "post-page"],
   "compose-b": ["music-dock", "video-fallback", "ig-media", "device-guard", "usernames", "owner-user-settings"],
-  "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile", "people-search"],
+  "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile", "people-search", "emoji-text"],
   "compose-d": ["live-translate", "friend-p2p", "communities-instant", "routes-instant"],
   "compose-e": ["profile-by-name", "communities-rows", "friend-privacy", "foryou-communities"],
   "signup-flows": ["signup-flows"]
@@ -279,7 +283,7 @@ const REQUIRED_PAGE = [
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
   "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
-  "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name", "people-search",
+  "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name", "people-search", "emoji-text",
   "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares",
   "storage-recordings", "storage-page"
 ];

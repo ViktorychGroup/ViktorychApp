@@ -48,8 +48,13 @@ export function cleanStatusText(value) {
 
 export function cleanEmoji(value) {
   const text = String(value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim();
-  const chars = Array.from(text);
-  if (chars.length > 8) return chars.slice(0, 8).join("");
+  let parts;
+  try {
+    parts = Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (row) => row.segment);
+  } catch (err) {
+    parts = Array.from(text);
+  }
+  if (parts.length > 8) return parts.slice(0, 8).join("");
   return text;
 }
 

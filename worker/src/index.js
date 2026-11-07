@@ -1479,7 +1479,7 @@ function cleanDrawerMenuSync(raw) {
     const id = String(section.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
     if (!id) return;
     const name = String(section.name || "").replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 40) || "Folder";
-    const emoji = String(section.emoji || "").replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 8);
+    const emoji = Array.from(String(section.emoji || "").replace(/[\u0000-\u001F\u007F]/g, "").trim()).slice(0, 32).join("");
     const items = [];
     (Array.isArray(section.items) ? section.items : []).slice(0, 24).forEach((item) => {
       if (ids.indexOf(item) >= 0 && items.indexOf(item) < 0) items.push(item);

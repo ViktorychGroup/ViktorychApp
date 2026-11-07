@@ -3006,7 +3006,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       html += esc(src[i]);
       i += 1;
     }
-    return html;
+    return window.ViktorychEmoji ? window.ViktorychEmoji.mark(html) : html;
   }
 
   function discordEmojiHtml(html, emojis) {
@@ -3105,6 +3105,22 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
   }
 
+  /* Keep the preview on a grapheme boundary so a family, flag, or skin
+     tone is not cut in half. */
+  function clipPreview(text, maxUnits) {
+    const src = String(text || "");
+    if (src.length <= maxUnits) return src;
+    if (typeof Intl !== "undefined" && Intl.Segmenter) {
+      let out = "";
+      for (const part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(src)) {
+        if (out.length + part.segment.length > maxUnits) break;
+        out += part.segment;
+      }
+      if (out) return out;
+    }
+    return Array.from(src).slice(0, maxUnits).join("");
+  }
+
   function textHtml(post, key, full) {
     if (window.FeedsTranslate) {
       const swapped = window.FeedsTranslate.textFor(key);
@@ -3117,9 +3133,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
     const text = post.text || "";
     const rich = safeRich(post.html);
-    if (rich && (full || STATE.expanded[key] || text.length <= 280)) return rich;
+    const shownRich = rich && window.ViktorychEmoji ? window.ViktorychEmoji.mark(rich) : rich;
+    if (shownRich && (full || STATE.expanded[key] || text.length <= 280)) return shownRich;
     if (full || STATE.expanded[key] || text.length <= 280) return linkify(text, post.links, post.platform, post.handle);
-    let cut = text.slice(0, 280);
+    let cut = clipPreview(text, 280);
     const sp = cut.lastIndexOf(" ");
     if (sp > 220) cut = cut.slice(0, sp);
     return linkify(cut, post.links, post.platform, post.handle) + ` <button class="show-more" data-act="more" data-key="${esc(key)}">${tr("Show more")}</button>`;
@@ -12002,7 +12019,7 @@ const here = parseRoute();
         <div class="tabs" role="tablist" data-hscroll="home-tabs" aria-label="${tr("Home timeline")}">
           ${forYouOff() ? "" : tabWithMenu("foryou", tr("For you"))}
           ${tabWithMenu("following", tr("Following"))}
-          ${cats.map((item) => tabWithMenu("cat:" + item.id, item.name, item.emoji ? `<span class="tab-emoji">${esc(item.emoji)}</span>` : "", item.id)).join("")}
+          ${cats.map((item) => tabWithMenu("cat:" + item.id, item.name, item.emoji ? `<span class="tab-emoji emo">${window.ViktorychEmoji ? window.ViktorychEmoji.text(item.emoji) : esc(item.emoji)}</span>` : "", item.id)).join("")}
           ${lists.map((l) => tabWithMenu("list:" + l.id, l.name)).join("")}
           ${pinnedCm.map((item) => tabBtn("ctab:" + item.id, item.name, tab === "ctab:" + item.id)).join("")}
         </div>
@@ -17932,7 +17949,7 @@ const here = parseRoute();
 
   function noteMainTab(id, label, on, withBell, tab) {
     const bell = withBell ? `<span class="tab-bell">${icon("bell")}</span>` : "";
-    const emoji = tab && tab.emoji ? `<i class="note-tab-emoji" aria-hidden="true">${esc(tab.emoji)}</i>` : "";
+    const emoji = tab && tab.emoji ? `<i class="note-tab-emoji" aria-hidden="true">${window.ViktorychEmoji ? window.ViktorychEmoji.text(tab.emoji) : esc(tab.emoji)}</i>` : "";
     const count = tab && !on ? noteTabUnread(tab) : 0;
     const badge = count > 0 ? `<b class="note-tab-badge" aria-label="${esc(trn("unread", count))}">${count > 99 ? "99+" : count}</b>` : "";
     const color = tab && tab.color && on ? ` style="--note-tab-color:${esc(tab.color)}"` : "";
@@ -19331,13 +19348,14 @@ const here = parseRoute();
       if (!id || sectionIds.has(id)) return;
       sectionIds.add(id);
       const name = String(section.name || "").replace(/[\u0000-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim().slice(0, 40) || tr("Folder name");
-      const emoji = String(section.emoji || "").replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 8);
+      const emoji = String(section.emoji || "").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+      const emojiChars = Array.from(emoji).slice(0, 32).join("");
       const items = [];
       (Array.isArray(section.items) ? section.items : []).forEach((item) => {
         if (DRAWER_IDS.indexOf(item) < 0 || items.indexOf(item) >= 0) return;
         items.push(item);
       });
-      sections.push({ id: id, name: name, emoji: emoji, items: items });
+      sections.push({ id: id, name: name, emoji: emojiChars, items: items });
     });
     const popup = [];
     const popupSeen = new Set();
@@ -19545,7 +19563,7 @@ const here = parseRoute();
         return `<div class="drawer-section" data-drawer-key="section:${esc(section.id)}">
           <div class="drawer-section-head">
             <button class="drawer-grip" type="button" data-drag-drawer="section:${esc(section.id)}" aria-label="${esc(tr("Drag to reorder"))}">${bottomGripSvg()}</button>
-            <input class="drawer-section-emoji" data-section-id="${esc(section.id)}" value="${esc(section.emoji || "")}" maxlength="8" aria-label="${esc(tr("Emoji"))}" placeholder="${esc(tr("Emoji"))}">
+            <input class="drawer-section-emoji" data-section-id="${esc(section.id)}" value="${esc(section.emoji || "")}" maxlength="64" aria-label="${esc(tr("Emoji"))}" placeholder="${esc(tr("Emoji"))}">
             <input class="drawer-section-name" data-section-id="${esc(section.id)}" value="${esc(section.name)}" maxlength="40" aria-label="${esc(tr("Folder name"))}">
             <button class="icon-btn" type="button" data-act="drawer-drop-section" data-id="${esc(section.id)}" aria-label="${esc(tr("Delete"))}">${icon("trash")}</button>
           </div>
@@ -33932,7 +33950,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         const menu = getDrawerMenu();
         const section = (menu.sections || []).find((item) => item.id === el.dataset.sectionId);
         if (!section) return;
-        if (el.classList.contains("drawer-section-emoji")) section.emoji = String(el.value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 8);
+        if (el.classList.contains("drawer-section-emoji")) section.emoji = Array.from(String(el.value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim()).slice(0, 32).join("");
         else section.name = String(el.value || "").replace(/\s+/g, " ").trim().slice(0, 40) || tr("Folder name");
         saveDrawerMenu(menu);
         return;

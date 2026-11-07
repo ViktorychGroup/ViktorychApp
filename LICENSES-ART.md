@@ -38,4 +38,6 @@ Copyright (c) 2016 The Inter Project Authors; the full license is in
 
 ## Emoji picker data
 
-`data/emoji.json` lists emoji and their English names from the Unicode emoji test data (emoji-test.txt, Unicode 15.1 and earlier), used under the Unicode License (https://www.unicode.org/license.txt). The emoji are drawn by the device font; no image assets are shipped.
+`data/emoji.json` lists emoji and their English names from the Unicode emoji test data (emoji-test.txt), used under the Unicode License (https://www.unicode.org/license.txt). The characters are what is stored, copied, and read by a screen reader.
+
+When the device font cannot draw a sequence (a joined family or profession, a skin tone, a flag, a keycap, or a variation selector), the page uses Noto Color Emoji from `@fontsource/noto-color-emoji` 5.2.8 (`noto-color-emoji-emoji-400-normal.woff2`, about 5.5 MB, SIL Open Font License 1.1). The file is not in this repository. The browser requests it from jsDelivr only after that miss, then keeps its own copy. The face is whatever repertoire that package contains. Emoji added after it stay on the device font, which may leave a gap. Discord custom emoji and gift art are unchanged. A device that asks for less data keeps the system glyphs only.

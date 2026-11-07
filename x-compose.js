@@ -403,7 +403,7 @@
   function emojiHtml(slotName) {
     if (!slots[slotName].emoji) return "";
     return '<div class="xc-emoji">' + EMOJI.map(function (item, index) {
-      return '<button type="button" data-act="xc-emoji-add" data-slot="' + esc(slotName) + '" data-i="' + index + '" aria-label="' + esc(item) + '">' + item + "</button>";
+      return '<button type="button" class="emo" data-act="xc-emoji-add" data-slot="' + esc(slotName) + '" data-i="' + index + '" aria-label="' + esc(item) + '">' + item + "</button>";
     }).join("") + "</div>" + (window.ProfileGifts && window.ProfileGifts.stickerPicker ? window.ProfileGifts.stickerPicker(slotName) : "");
   }
   function threadHtml(slotName) {
