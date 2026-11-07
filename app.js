@@ -1850,7 +1850,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         queueOffline({ type: "follow", id: item, on: !!on, snapshot: followSnapshot(item) });
         if (accounts && accounts.releaseFollow) accounts.releaseFollow(item);
       });
-      render();
+      if (!on && accounts && accounts.clearFollowPending) ready.forEach((item) => accounts.clearFollowPending(item));
+      if (unfollowHidesVisiblePosts(ready, on)) render();
+      else paintFollowButtons(ready);
       return;
     }
     if (accounts && accounts.changeFollow) {
@@ -1862,12 +1864,41 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
             reverted = true;
           }
         });
-        if (reverted) saveSettings();
+        if (reverted) {
+          saveSettings();
+          render();
+        }
         if (accounts.syncFollows) accounts.syncFollows();
-        render();
       });
     } else ready.forEach((item) => { if (accounts && accounts.releaseFollow) accounts.releaseFollow(item); });
-    render();
+    if (!on && accounts && accounts.clearFollowPending) ready.forEach((item) => accounts.clearFollowPending(item));
+    if (unfollowHidesVisiblePosts(ready, on)) render();
+    else paintFollowButtons(ready);
+  }
+  function paintFollowButtons(ids) {
+    const want = {};
+    (ids || []).forEach((id) => { want[String(id)] = true; });
+    const buttons = Array.prototype.slice.call(document.querySelectorAll('button[data-act="follow"]'));
+    buttons.forEach((btn) => {
+      if (!btn.isConnected) return;
+      const id = btn.dataset.id || "";
+      const many = String(btn.dataset.ids || "").split(",").map((part) => part.trim()).filter(Boolean);
+      if (!want[id] && !many.some((item) => want[item])) return;
+      const html = followButtonClean(id || many[0], btn.classList.contains("lg"));
+      if (html) btn.outerHTML = html;
+    });
+  }
+  function unfollowHidesVisiblePosts(ids, on) {
+    if (on) return false;
+    const nodes = document.querySelectorAll("article[data-post]");
+    for (let i = 0; i < nodes.length; i++) {
+      const post = findAnyPost(nodes[i].getAttribute("data-post"));
+      if (!post) continue;
+      const feedId = String(post.feedId || "");
+      const appId = post.authorId ? "app:" + post.authorId : "";
+      if ((ids || []).some((id) => sameFollowId(id, feedId) || (appId && sameFollowId(id, appId)))) return true;
+    }
+    return false;
   }
   function followSnapshot(id) {
     if (!id || String(id).indexOf("app:") === 0) return null;
@@ -12861,12 +12892,78 @@ const here = parseRoute();
      drop the new post, so it vanished from Home and its profile. Own posts are
      kept until the server lists them, for ten minutes at most. */
   const ownSent = {};
-  function rememberOwnPost(post) {
+  const localPostPreview = {};
+  function revokePostPreview(id) {
+    const bag = localPostPreview[id];
+    if (!bag) return;
+    (bag.urls || []).forEach((item) => {
+      if (item && item.url && String(item.url).indexOf("blob:") === 0) {
+        try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ }
+      }
+    });
+    delete localPostPreview[id];
+  }
+  function previewOnScreen(id) {
+    if (typeof document === "undefined") return false;
+    const safe = String(id || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    try { return !!document.querySelector('article[data-post="' + safe + '"] [data-local-preview]'); }
+    catch (err) { return false; }
+  }
+  /* A local preview is not on a timer. It is checked when the page renders
+     or a post list is merged. One that is still on screen is kept, even after
+     ten minutes. One that belongs to another account, or is older than ten
+     minutes and no longer shown, is revoked on that check. */
+  function reconcilePostPreviews() {
+    const now = Date.now();
+    const mine = signedAccount();
+    const owner = mine ? String(mine.publicId || "") : "";
+    Object.keys(localPostPreview).forEach((id) => {
+      const bag = localPostPreview[id];
+      if (!bag) return;
+      const foreign = bag.ownerId !== owner;
+      const expired = now - (bag.at || 0) > 600000;
+      if (!foreign && !expired) return;
+      if (previewOnScreen(id)) return;
+      revokePostPreview(id);
+    });
+  }
+  function holdPostPreview(id, urls, ownerId) {
+    if (!id || !urls || !urls.length) return;
+    localPostPreview[id] = { urls: urls, at: Date.now(), ownerId: String(ownerId || "") };
+  }
+  function sessionNow() {
+    const mine = signedAccount();
+    const gen = window.ViktorychAccounts && window.ViktorychAccounts.sessionGeneration ? window.ViktorychAccounts.sessionGeneration() : 0;
+    return { id: mine ? String(mine.publicId || "") : "", gen: gen };
+  }
+  function sameSession(sender) {
+    const now = sessionNow();
+    return !!(sender && sender.id && now.id === sender.id && now.gen === sender.gen);
+  }
+  function revokeBlobList(urls) {
+    (urls || []).forEach((url) => {
+      if (url && String(url).indexOf("blob:") === 0) {
+        try { URL.revokeObjectURL(url); } catch (err) { /* already revoked */ }
+      }
+    });
+  }
+  function blobUrls(part) {
+    return ((part && part.media) || []).map((item) => item && item.url).filter((url) => url && String(url).indexOf("blob:") === 0);
+  }
+  function displayMediaItems(item) {
+    const mine = signedAccount();
+    const bag = item && localPostPreview[item.id];
+    if (bag && mine && bag.ownerId === String(mine.publicId || "") && bag.urls && bag.urls.length) return bag.urls;
+    return (item && item.media) || [];
+  }
+  function rememberOwnPost(post, ownerId) {
     if (!post || !post.id) return;
+    const mine = signedAccount();
+    const current = mine ? String(mine.publicId || "") : "";
+    if (ownerId && current !== String(ownerId)) return;
     ownSent[post.id] = { post: post, at: Date.now() };
     publicPosts = [post].concat(publicPosts.filter((item) => item && item.id !== post.id));
-    const mine = signedAccount();
-    const cache = mine && mine.publicId ? authorPostCache[String(mine.publicId)] : null;
+    const cache = current ? authorPostCache[current] : null;
     if (cache) cache.posts = [post].concat(cache.posts.filter((item) => item && item.id !== post.id));
   }
   function forgetOwnPost(id) {
@@ -12891,23 +12988,34 @@ const here = parseRoute();
     const now = Date.now();
     Object.keys(ownSent).forEach((id) => {
       const entry = ownSent[id];
-      if (ids.has(id) || now - entry.at > 600000) { delete ownSent[id]; return; }
+      if (ids.has(id) || now - entry.at > 600000) {
+        delete ownSent[id];
+        return;
+      }
       if (String(id).indexOf("tmp-") === 0) return;
       next.unshift(entry.post);
     });
     Object.keys(ownSent).forEach((id) => {
       if (String(id).indexOf("tmp-") === 0) next.unshift(ownSent[id].post);
     });
+    reconcilePostPreviews();
     return next.sort((a, b) => (Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
   }
-  function optimisticOwnPost(text, parentId, quoteId, extParent) {
+  function optimisticOwnPost(text, parentId, quoteId, extParent, media) {
     const mine = signedAccount();
     if (!mine || !mine.publicId) return "";
     const id = "tmp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const previews = (media || []).filter((item) => item && item.url && String(item.url).indexOf("blob:") === 0).map((item) => ({
+      mime: item.type || item.mime || "image/jpeg",
+      url: item.url,
+      alt: item.alt || "",
+      local: true
+    }));
+    if (previews.length) holdPostPreview(id, previews, mine.publicId);
     rememberOwnPost({
       id: id, body: String(text || ""), parentId: parentId || "", quoteId: quoteId || "", createdAt: Date.now(),
       authorId: String(mine.publicId), authorHandle: String(mine.handle || ""), authorName: String(mine.displayName || mine.handle || ""),
-      authorAvatar: String(mine.avatar || ""), pending: true, likes: 0, replyCount: 0, media: [], extParent: extParent || null
+      authorAvatar: String(mine.avatar || ""), pending: true, likes: 0, replyCount: 0, media: previews, extParent: extParent || null
     });
     return id;
   }
@@ -13028,6 +13136,9 @@ const here = parseRoute();
     const tag = mime.indexOf("video/") === 0 ? "video" : mime.indexOf("audio/") === 0 ? "audio" : mime.indexOf("image/") === 0 ? "img" : "";
     if (!tag) return "";
     const extra = tag === "img" ? ` alt="${esc(item.alt || "")}"` : " controls";
+    if (item.local || String(item.url || "").indexOf("blob:") === 0) {
+      return `<${tag}${extra} src="${esc(item.url || "")}" data-local-preview="1"></${tag}>`;
+    }
     return `<${tag}${extra} data-public-media="${esc(item.url || "")}"></${tag}>`;
   }
 
@@ -13126,6 +13237,7 @@ const here = parseRoute();
     if (!posts.length) return;
     const scheduled = !!(posts[0] && posts[0].scheduleAt);
     if (scheduled && (!navigator.onLine || !token || !root)) {
+      posts.forEach((part) => revokeBlobList(blobUrls(part)));
       writeDeviceSchedule(readDeviceSchedule().concat([{
         at: posts[0].scheduleAt, text: posts[0].text || "", audience: posts[0].audience || "everyone",
         replyControl: posts[0].replyControl || "everyone", location: posts[0].location || "", poll: posts[0].poll || null
@@ -13143,6 +13255,7 @@ const here = parseRoute();
       return;
     }
     if (!navigator.onLine || !token || !root) {
+      posts.forEach((part) => revokeBlobList(blobUrls(part)));
       const text = posts.map((part) => part.text).filter(Boolean).join("\n\n");
       if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
       if (!navigator.onLine && text) queueOffline({ type: "reply", id: "compose", on: true, body: text });
@@ -13162,16 +13275,30 @@ const here = parseRoute();
       const parent = index === 0 ? (payload.parentId || "") : parentId;
       const quote = index === 0 ? (payload.quoteId || "") : "";
       const later = !!part.scheduleAt;
-      const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null);
+      const sender = sessionNow();
+      const blobs = blobUrls(part);
+      const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null, part.media);
       if (tempId) render();
       const done = (res) => {
+        const stale = !sameSession(sender);
+        const kept = !stale && res && res.status === 201 && res.post && !later && !res.scheduled;
+        const previews = tempId && localPostPreview[tempId] ? localPostPreview[tempId].urls : null;
+        if (tempId) delete localPostPreview[tempId];
         if (tempId) forgetOwnPost(tempId);
+        if (stale) render();
+        if (!kept) revokeBlobList(blobs);
+        if (kept && res.post.id) {
+          if (previews && previews.length) holdPostPreview(res.post.id, previews, sender.id);
+          rememberOwnPost(res.post, sender.id);
+          nostrMirror(res.post, index === 0 ? payload.extParent : null);
+          if (!firstSent) firstSent = res.post;
+          if (res.post.community && res.post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(res.post.community.name);
+          publicStamp = Date.now();
+          sendAt(index + 1, res.post.id);
+          return;
+        }
+        if (stale) return;
         if (res && res.status === 201 && res.post) {
-          if (!(res.scheduled || part.scheduleAt) && res.post.id) {
-            rememberOwnPost(res.post);
-            nostrMirror(res.post, index === 0 ? payload.extParent : null);
-            if (!firstSent) firstSent = res.post;
-          }
           if (res.post.community && res.post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(res.post.community.name);
           publicStamp = Date.now();
           sendAt(index + 1, res.post.id);
@@ -13465,7 +13592,7 @@ const here = parseRoute();
     const created = Number(item.createdAt) || 0;
     const date = new Date(created || Date.now()).toISOString();
     const community = item.community && item.community.name ? { name: String(item.community.name), rootId: String(item.community.rootId || item.id || "") } : null;
-    const media = (item.media || []).map(publicMediaHtml).join("");
+    const media = displayMediaItems(item).map(publicMediaHtml).join("");
     const poll = appPollHtml(item);
     const place = item.location ? `<p class="phandle">${esc(item.location)}</p>` : "";
     const edited = Number(item.editedAt) > 0 ? `<p class="phandle app-edited">${esc(tr("Edited"))}</p>` : "";
@@ -20014,8 +20141,52 @@ if (STATE.histClear) {
       if (navigator.onLine) sendAppLike(id, on);
       else queueOffline({ type: "app-like", id: id, on: on });
     } else if (!navigator.onLine) queueOffline({ type: act === "bookmark" ? "bookmark" : "like", id: id, on: !!STATE.settings[bucket][id] });
-    if (parseRoute().name !== "shorts") render();
-    return !!STATE.settings[bucket][id];
+    const showing = !!STATE.settings[bucket][id];
+    const routeName = parseRoute().name;
+    /* The tapped control already flipped. History is a list of these
+       saves, so it still rebuilds. Everywhere else only the matching
+       buttons and counts change. */
+    if (routeName === "shorts") { /* the player paints its own control */ }
+    else if (routeName === "history" || routeName === "bookmarks") render();
+    else paintReaction(act, id, showing);
+    return showing;
+  }
+
+  function reactionBaseCount(act, id) {
+    const post = findAnyPost(id);
+    const stats = (post && post.stats) || {};
+    if (act === "bookmark") return Number(stats.bookmarks) || 0;
+    if (stats.likes != null) return Number(stats.likes) || 0;
+    const item = findAppItem(id);
+    return item && item.likes != null ? Number(item.likes) || 0 : 0;
+  }
+
+  function paintReaction(act, id, on) {
+    if (typeof document === "undefined") return false;
+    const want = String(id || "");
+    const text = shownCount(reactionBaseCount(act, want), on ? 1 : 0);
+    const glyph = act === "like" ? (on ? "heartOn" : "heart") : (on ? "bookmarkOn" : "bookmark");
+    const buttons = document.querySelectorAll('button[data-act="' + act + '"]');
+    let painted = 0;
+    for (let i = 0; i < buttons.length; i++) {
+      const btn = buttons[i];
+      if ((btn.dataset.id || "") !== want) continue;
+      btn.classList.toggle("on", !!on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      const iconEl = btn.querySelector(".ic");
+      if (iconEl) iconEl.innerHTML = icon(glyph);
+      let countEl = btn.querySelector(".count");
+      if (text) {
+        if (!countEl) {
+          countEl = document.createElement("span");
+          countEl.className = "count";
+          btn.appendChild(countEl);
+        }
+        countEl.textContent = text;
+      } else if (countEl) countEl.remove();
+      painted += 1;
+    }
+    return painted > 0;
   }
 
   function sendAppLike(id, on) {
@@ -22281,6 +22452,7 @@ if (STATE.histClear) {
     scheduleImageSweep();
     hscrollSettle({ reveal: true });
     if (window.ViktorychAccounts && window.ViktorychAccounts.bindProfileTabs) window.ViktorychAccounts.bindProfileTabs();
+    reconcilePostPreviews();
   }
 
   function hscrollRestoreSaved(retry) {
@@ -22897,6 +23069,8 @@ if (STATE.histClear) {
   }
 
   function renderNow(opts) {
+    /* Invocation count, including a call that returns before replacing the page. */
+    if (typeof window !== "undefined") window.__renderInvocations = (window.__renderInvocations || 0) + 1;
     if (document.documentElement.classList.contains("is-split-drag")) {
       STATE.splitRender = opts || STATE.splitRender || {};
       return;
@@ -33352,10 +33526,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       const sameList = (left, right) => left.length === right.length && left.every((id) => right.some((item) => sameFollowId(item, id)));
       const sameFeeds = sameList(prevFeeds, feeds);
       const sameApps = sameList(prevApps, apps);
-      if (sameFeeds && sameApps) return;
+      if (sameFeeds && sameApps) return false;
       STATE.settings.follows = feeds.slice();
       STATE.settings.accountFollows = apps.slice();
       saveSettings();
+      return true;
     };
     window.ViktorychAccounts.readHistory = readHistory;
     window.ViktorychAccounts.writeHistory = writeHistory;

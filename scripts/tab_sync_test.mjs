@@ -42,6 +42,9 @@ const CATALOG = {
   posts: []
 };
 const sync = {};
+let holdPut = false;
+let releasePut = null;
+let putStarted = null;
 
 function session(token, handle, publicId) {
   return `(() => {
@@ -67,6 +70,13 @@ async function arm(page) {
       return reply(route, 200, row);
     }
     if (url.pathname === "/v1/sync" && req.method() === "PUT") {
+      if (holdPut) {
+        holdPut = false;
+        const started = putStarted;
+        putStarted = null;
+        if (started) started();
+        await new Promise((resolve) => { releasePut = resolve; });
+      }
       let body = {};
       try { body = req.postDataJSON() || {}; } catch (err) { body = {}; }
       const row = sync[token] || { payload: null, updatedAt: 0 };
@@ -159,8 +169,11 @@ async function main() {
     if (alive.length < 2 || stamps.some((at) => !(at > 0)) || new Set(stamps).size !== 1) fail("a drag did not stamp the whole order " + JSON.stringify(alive.map((tab) => [tab.name, tab.pos, tab.posAt])));
     if (byPos.join(",") === namesBefore.join(",")) fail("drag did not change the saved order " + byPos.join(","));
 
+    holdPut = true;
+    const uploadStarted = new Promise((resolve) => { putStarted = resolve; });
     await first.goto("http://127.0.0.1:" + port + "/index.html#/", { waitUntil: "domcontentloaded" });
     await first.waitForSelector(".topbar, header.nav", { timeout: 15000 });
+    await Promise.race([uploadStarted, first.waitForTimeout(3000)]);
     await clickAct(first, "manage-tabs");
     await first.locator('.tab-manage-row:has-text("Cedar") [data-act="feed-tab-edit"]').click();
     await first.waitForSelector("#feed-tab-q", { timeout: 10000 }).catch(() => fail("the tab editor did not open"));
@@ -169,6 +182,7 @@ async function main() {
     await first.locator('[data-act="feed-tab-pick"][data-id="instagram:orbitfox"]').click();
     await first.click('[data-act="feed-tab-save"]');
     await first.waitForFunction(() => (localStorage.getItem("viktorychapp-settings-v1") || "").indexOf("instagram:orbitfox") >= 0, null, { timeout: 10000 }).catch(() => fail("the account was not added"));
+    if (releasePut) releasePut();
 
     await first.waitForTimeout(900);
     const saved = sync["token-a"];

@@ -112,6 +112,7 @@
     names(suffix).forEach(function (name) {
       try { localStorage.removeItem(name); } catch (err) { /* already gone */ }
     });
+    if (suffix === "account-v1") noteSession(null);
   }
   function readSession() {
     try {
@@ -124,8 +125,20 @@
       return null;
     }
   }
+  var sessionGeneration = 0;
+  var sessionSeen = null;
+  function sessionStampOf(session) {
+    if (!session || !session.token || !session.account) return "";
+    return String(session.account.publicId || "") + "\n" + String(session.token || "");
+  }
+  function noteSession(session) {
+    var stamp = sessionStampOf(session);
+    if (sessionSeen === null) { sessionSeen = stamp; sessionGeneration = 1; return; }
+    if (stamp !== sessionSeen) { sessionSeen = stamp; sessionGeneration += 1; }
+  }
   function writeSession(session) {
     writeStored("account-v1", JSON.stringify(session));
+    noteSession(session && session.token && session.account ? session : null);
   }
   function readPending() {
     try {
@@ -3188,12 +3201,12 @@ var numberNote = form.passkey
     if (!session || !hasApi()) return Promise.resolve();
     pushing = true;
     return api("/v1/sync", { method: "PUT", token: session.token, body: { payload: payload, baseUpdatedAt: base || 0, device: syncDeviceId() } }).then(function (body) {
-      pushing = false;
       if (body.status === 409 && body.payload) {
         var merged = mergePayload(localSnapshot(), body.payload);
         applySnapshot(merged);
         return pushPayload(merged, body.updatedAt);
       }
+      pushing = false;
       if (body.status === 200) {
         rememberLocks(body);
         rememberSync(body.updatedAt);
@@ -3204,7 +3217,11 @@ var numberNote = form.passkey
         var echoed = body.payload || payload;
         applySnapshot(mergePayload(localSnapshot(), echoed));
       }
-    }).catch(function () { pushing = false; });
+      return pushMissedEdit();
+    }).catch(function () {
+      pushing = false;
+      return pushMissedEdit();
+    });
   }
   function mergeSync(pullOnly) {
     var session = readSession();
@@ -3288,14 +3305,24 @@ var numberNote = form.passkey
     setTimeout(bindLiveSync, 3000);
     if (readSession()) mergeSync().then(function () { return syncFollows(); }, function () { return syncFollows(); });
   }
+  var pushAgain = false;
   function onLocalChange() {
-    if (!readSession() || !hasApi() || pushing) return;
+    if (!readSession() || !hasApi()) return;
+    if (pushing) { pushAgain = true; return; }
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () {
+      if (pushing) { pushAgain = true; return; }
       var session = readSession();
       if (!session) return;
       pushPayload(localSnapshot(), session.syncAt || 0);
     }, 700);
+  }
+  function pushMissedEdit() {
+    if (!pushAgain) return Promise.resolve();
+    pushAgain = false;
+    var session = readSession();
+    if (!session || !hasApi()) return Promise.resolve();
+    return pushPayload(localSnapshot(), session.syncAt || 0);
   }
   function commitSession(token, account) {
     clearPending();
@@ -4445,6 +4472,9 @@ function signupPayload() {
   function releaseFollow(id) {
     if (id) followInflight[id] = false;
   }
+  function clearFollowPending(id) {
+    if (id && graphCounts[id]) graphCounts[id].pending = false;
+  }
   function previewFollow(id, follow) {
     if (!id) return;
     graphCounts[id] = graphCounts[id] || {};
@@ -4501,7 +4531,9 @@ function signupPayload() {
       graphCounts[id].followers = Math.max(0, prevTarget + (follow ? 1 : -1));
       if (hadMine) graphCounts[me].following = Math.max(0, prevMine + (follow ? 1 : -1));
     }
-    if (follow) graphCounts[id].pending = false;
+    var optimisticFollowers = graphCounts[id].followers;
+    var optimisticFollowing = hadMine ? graphCounts[me].following : null;
+    graphCounts[id].pending = false;
     dirtyLists();
     var body = { id: id };
     if (profile && typeof profile === "object") body.profile = profile;
@@ -4511,6 +4543,7 @@ function signupPayload() {
       if (!res || res.status !== 200) {
         if (!skipCounts) rollbackCounts(id, me, hadTarget, prevTarget, hadMine, prevMine);
         else if (opts.replay) previewFollow(id, !follow);
+        if (!follow && wasPending) graphCounts[id].pending = true;
         if (window.ViktorychAccounts && window.ViktorychAccounts.toast) window.ViktorychAccounts.toast(followErrorText(res));
         if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
         return false;
@@ -4550,14 +4583,16 @@ function signupPayload() {
         graphCounts[me].fresh = true;
       }
       dirtyLists();
-      refreshProfileMedia();
-      if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+      var followersDrift = res.followersCount != null && res.followersCount !== optimisticFollowers;
+      var followingDrift = !!(me && res.followingCount != null && optimisticFollowing != null && res.followingCount !== optimisticFollowing);
+      if ((followersDrift || followingDrift) && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       return true;
     }).catch(function () {
       releaseFollow(id);
       if (epoch !== followEpoch) return false;
       if (!skipCounts) rollbackCounts(id, me, hadTarget, prevTarget, hadMine, prevMine);
       else if (opts.replay) previewFollow(id, !follow);
+      if (!follow && wasPending) graphCounts[id].pending = true;
       if (window.ViktorychAccounts && window.ViktorychAccounts.toast) window.ViktorychAccounts.toast(tr("Couldn’t update that follow. Try again."));
       if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       return false;
@@ -4607,6 +4642,8 @@ function signupPayload() {
       else if (res && res.status === 200) {
         var me = "app:" + session.account.publicId;
         graphCounts[me] = graphCounts[me] || {};
+        var prevFollowing = graphCounts[me].following;
+        var prevFollowers = graphCounts[me].followers;
         if (res.followingCount != null) graphCounts[me].following = res.followingCount;
         if (res.followersCount != null) graphCounts[me].followers = res.followersCount;
         if (res.requestsCount != null) graphCounts[me].requests = res.requestsCount;
@@ -4619,8 +4656,10 @@ function signupPayload() {
           graphCounts[oid] = graphCounts[oid] || {};
           graphCounts[oid].pending = true;
         });
-        if (window.ViktorychAccounts.onServerFollows) window.ViktorychAccounts.onServerFollows(Array.isArray(res.ids) ? res.ids : []);
-        if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+        var listChanged = false;
+        if (window.ViktorychAccounts.onServerFollows) listChanged = window.ViktorychAccounts.onServerFollows(Array.isArray(res.ids) ? res.ids : []) === true;
+        var countsDrift = (res.followingCount != null && res.followingCount !== prevFollowing) || (res.followersCount != null && res.followersCount !== prevFollowers);
+        if ((listChanged || countsDrift) && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       }
       if (syncAgain) {
         syncAgain = false;
@@ -4771,6 +4810,67 @@ function signupPayload() {
     return Promise.resolve();
   }
 
+  function countHandle(href, field) {
+    var hash = String(href || "");
+    if (hash.charAt(0) !== "#") return "";
+    var q = hash.indexOf("?");
+    var path = (q >= 0 ? hash.slice(0, q) : hash).replace(/^#/, "");
+    var parts = path.split("/").filter(Boolean);
+    if (!parts.length || parts[0].charAt(0) !== "@") return "";
+    var handle = "";
+    try { handle = decodeURIComponent(parts[0].slice(1)); } catch (err) { handle = parts[0].slice(1); }
+    if (field === "friends") {
+      if (parts.length !== 1) return "";
+      var tab = "";
+      (q >= 0 ? hash.slice(q + 1) : "").split("&").forEach(function (pair) {
+        var bits = pair.split("=");
+        if (bits[0] === "tab") tab = bits.slice(1).join("=");
+      });
+      try { tab = decodeURIComponent(tab); } catch (err) { /* keep the raw value */ }
+      return tab === "friends" ? handle : "";
+    }
+    return parts.length === 2 && parts[1] === field ? handle : "";
+  }
+  function paintStat(handle, field, value) {
+    if (!handle || value == null || typeof document === "undefined") return;
+    var want = String(handle).replace(/^@/, "");
+    var links = document.querySelectorAll(".counts a");
+    for (var i = 0; i < links.length; i++) {
+      if (countHandle(links[i].getAttribute("href") || "", field) !== want) continue;
+      var bold = links[i].querySelector("b");
+      if (!bold || bold.classList.contains("count-skel")) continue;
+      bold.textContent = formatNum(value);
+    }
+  }
+  function paintFriendCounts(handle, idKey, meHandle, meKey) {
+    paintStat(handle, "friends", graphCounts[idKey] && graphCounts[idKey].friends);
+    paintStat(meHandle, "friends", graphCounts[meKey] && graphCounts[meKey].friends);
+  }
+  function friendsSurfaceOpen() {
+    return !!(document.querySelector(".friends-grid, .friends-pills, [data-friend-sub]"));
+  }
+  function paintFriendButtons(idKey, handle) {
+    if (typeof document === "undefined") return false;
+    var bare = String(idKey || "").replace(/^app:/, "");
+    var html = friendButtonHtml({ handle: handle || "", publicId: bare });
+    if (!html) return false;
+    var keys = {};
+    keys[String(idKey)] = true;
+    keys[bare] = true;
+    keys["app:" + bare] = true;
+    var nodes = Array.prototype.slice.call(document.querySelectorAll("[data-friend-id]"));
+    var replaced = [];
+    var painted = false;
+    nodes.forEach(function (node) {
+      if (!node.isConnected || !keys[node.getAttribute("data-friend-id")]) return;
+      var wrap = node.parentElement && node.parentElement.classList.contains("friend-btn-group") ? node.parentElement : node;
+      if (replaced.indexOf(wrap) >= 0) return;
+      wrap.outerHTML = html;
+      replaced.push(wrap);
+      painted = true;
+    });
+    return painted;
+  }
   function doFriendAction(action, targetId, handle) {
     var session = readSession();
     if (!session || !hasApi() || !targetId) return;
@@ -4818,7 +4918,8 @@ function signupPayload() {
     }
 
     saveFriendReqs();
-    if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+    paintFriendCounts(reqHandle, idKey, session.account && session.account.handle, meKey);
+    if (!paintFriendButtons(idKey, reqHandle) && window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
 
     var ep = "/v1/friends/" + action;
     api(ep, { method: "POST", token: session.token, body: { targetId: tId } }).then(function (res) {
@@ -4845,10 +4946,18 @@ function signupPayload() {
         }
         return;
       }
-      if (friendWord(res)) graphCounts[idKey].friendStatus = friendWord(res);
+      var agreed = friendWord(res);
+      var statusDrift = !!(agreed && agreed !== graphCounts[idKey].friendStatus);
+      if (agreed) graphCounts[idKey].friendStatus = agreed;
+      var friendCountDrift = res.friendsCount != null && graphCounts[meKey] && res.friendsCount !== graphCounts[meKey].friends;
       if (res.friendsCount != null && graphCounts[meKey]) graphCounts[meKey].friends = res.friendsCount;
-      refreshFriends();
-      refreshProfileMedia();
+      paintFriendCounts(reqHandle, idKey, session.account && session.account.handle, meKey);
+      if (friendsSurfaceOpen()) refreshFriends();
+      else {
+        friendsCache = {};
+        friendsLoads = {};
+        friendsFailedAt = {};
+      }
       if (window.ViktorychAccounts && window.ViktorychAccounts.toast) {
         if (action === "request") window.ViktorychAccounts.toast(tr("Friend request sent"));
         else if (action === "accept") window.ViktorychAccounts.toast(tr("Friend request accepted"));
@@ -4856,7 +4965,7 @@ function signupPayload() {
         else if (action === "cancel") window.ViktorychAccounts.toast(tr("Friend request cancelled"));
         else if (action === "remove") window.ViktorychAccounts.toast(tr("Friend removed"));
       }
-      if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+      if ((statusDrift || friendCountDrift) && window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
     }).catch(function () {
       graphCounts[idKey].friendStatus = prevStatus;
       graphCounts[idKey].friendAt = 0;
@@ -7734,6 +7843,7 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     changeFollow: changeFollow,
     pressFollow: pressFollow,
     releaseFollow: releaseFollow,
+    clearFollowPending: clearFollowPending,
     previewFollow: previewFollow,
     followControlHtml: followControlHtml,
     graphListHtml: graphListHtml,
@@ -7767,6 +7877,10 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     account: function () {
       var session = readSession();
       return session && session.account ? session.account : null;
+    },
+    sessionGeneration: function () {
+      noteSession(readSession());
+      return sessionGeneration;
     },
     token: function () {
       var session = readSession();
