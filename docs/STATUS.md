@@ -26,7 +26,7 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 ## Past lives on Shorts
 
-A saved past live opens from `/tg/.../live/index.m3u8?saved=1`. That playlist is built from the stored segments only, so it does not list the upload buffer first. A recording that is still open keeps the buffer scan, and a segment that never reached storage is not in the saved playlist. The player starts reading a segment while it is still arriving, and a phone that will not play with sound starts muted instead of waiting for another tap. The bytes stay the original copy. A fixture proves the saved playlist omits a buffer-only segment and that a repeat read does not ask Telegram again. It does not prove a live Telegram channel. If `TELEGRAM_BOT_TOKEN` is missing, or a segment was never stored, the tile cannot play.
+A saved past live uses the same `/tg/.../live/index.m3u8` playlist as a recording that is still open. The playlist keeps every stored segment and every playable buffer segment, including an oversized piece that stayed in the buffer. The upload slots for one part are read together. A full segment response starts while Telegram is still sending it, and a phone that will not play with sound starts muted instead of waiting for another tap. The bytes stay the original copy. A fixture proves a saved request still lists and serves a buffer-only oversized segment, and that a repeat read does not ask Telegram again. It does not prove a live Telegram channel. If `TELEGRAM_BOT_TOKEN` is missing, a segment that is in neither storage nor the buffer cannot play.
 
 ## Storage recordings
 

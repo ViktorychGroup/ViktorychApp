@@ -3543,38 +3543,45 @@ async function liveBufferIndex(env, partKey) {
   if (hit && now - hit.at < 30000) return hit.rows;
   const rows = [];
   try {
-    for (let slot = 0; slot <= 8; slot++) {
+    // One part can sit in any upload slot. The slots are independent, so
+    // they are listed together. Every playable sidecar is kept, including
+    // an oversized piece that stays in the buffer.
+    const groups = await Promise.all([0, 1, 2, 3, 4, 5, 6, 7, 8].map(async (slot) => {
+      const found = [];
       const prefix = "live-buf/" + slot + "/" + part.handle + "/" + part.room + "/" + part.part + "/";
       let cursor = undefined;
       do {
         const listed = await env.DATA.list({ prefix, cursor, limit: 200 });
-        const objects = (listed && listed.objects) || [];
-        for (let i = 0; i < objects.length; i++) {
-          const object = objects[i];
-          if (!object || !object.key || !String(object.key).endsWith(".json")) continue;
-          const sidecar = await env.DATA.get(object.key);
-          if (!sidecar) continue;
+        const keys = ((listed && listed.objects) || [])
+          .map((object) => (object && object.key) || "")
+          .filter((objectKey) => objectKey.endsWith(".json"));
+        const parsed = await Promise.all(keys.map(async (objectKey) => {
+          const sidecar = await env.DATA.get(objectKey);
+          if (!sidecar) return null;
           let meta = null;
           try { meta = JSON.parse(await sidecar.text()); } catch (err) { meta = null; }
-          if (!meta || String(meta.objectKey || "") !== part.key) continue;
+          if (!meta || String(meta.objectKey || "") !== part.key) return null;
           const role = String(meta.role || "");
           const index = Number(meta.index);
-          if (role !== "init" && role !== "segment") continue;
-          if (role === "init" && index !== -1) continue;
-          if (role === "segment" && (!Number.isFinite(index) || index < 0)) continue;
-          rows.push({
+          if (role !== "init" && role !== "segment") return null;
+          if (role === "init" && index !== -1) return null;
+          if (role === "segment" && (!Number.isFinite(index) || index < 0)) return null;
+          return {
             kind: role,
             part_index: role === "init" ? -1 : index,
             size: Number(meta.size) || 0,
             duration: Number(meta.duration) || 0,
             mime: "video/mp4",
             object_key: part.key,
-            bufKey: String(object.key).replace(/\.json$/, "")
-          });
-        }
+            bufKey: objectKey.replace(/\.json$/, "")
+          };
+        }));
+        parsed.forEach((row) => { if (row) found.push(row); });
         cursor = listed && listed.truncated ? listed.cursor : "";
       } while (cursor);
-    }
+      return found;
+    }));
+    groups.forEach((group) => { group.forEach((row) => rows.push(row)); });
   } catch (err) {
     liveBufCache.set(part.key, { at: now, rows: [] });
     return [];
@@ -3583,14 +3590,13 @@ async function liveBufferIndex(env, partKey) {
   return rows;
 }
 
-async function partRows(env, key, skipBuffer) {
+async function partRows(env, key) {
   const d1 = await telegramRows(env, key);
   let merged = d1;
-  // A finished past live is already in D1. Listing the R2 buffer here
-  // walks every upload slot before the playlist can start. The tail that
-  // is still only in R2 matters while a recording is open, not after it
-  // is saved.
-  if (!skipBuffer && livePartKey(key)) {
+  // Saved and open recordings share this list. An oversized piece is held
+  // in the buffer and never gets a Telegram row, and a saved room can
+  // still contain one. Skipping the buffer would drop that media.
+  if (livePartKey(key)) {
     const extra = await liveBufferIndex(env, key);
     if (extra.length) {
       const seen = {};
@@ -3642,12 +3648,12 @@ async function cachedVod(key, build) {
   return text;
 }
 
-async function stitchedLivePlaylist(env, parent, origin, skipBuffer) {
+async function stitchedLivePlaylist(env, parent, origin) {
   const parts = [];
   let misses = 0;
   for (let n = 1; n <= 48; n++) {
     const key = parent + "/" + n;
-    const rows = await partRows(env, key, skipBuffer);
+    const rows = await partRows(env, key);
     const text = livePartPlayable(rows) ? buildPlaylist(rows, key, origin) : "";
     if (!text) {
       misses += 1;
@@ -3811,12 +3817,10 @@ async function handleTelegram(request, env, path, ctx) {
   }
   if (mode === "playlist") {
     const origin = new URL(request.url).origin;
-    const saved = new URL(request.url).searchParams.get("saved") === "1";
-    const cacheKey = saved ? key + ":saved" : key;
     let text = "";
-    if (isLiveParentKey(key)) text = await cachedVod(cacheKey, () => stitchedLivePlaylist(env, key, origin, saved));
-    else if (livePartKey(key)) text = await cachedVod(cacheKey, async () => {
-      const rows = await partRows(env, key, saved);
+    if (isLiveParentKey(key)) text = await cachedVod(key, () => stitchedLivePlaylist(env, key, origin));
+    else if (livePartKey(key)) text = await cachedVod(key, async () => {
+      const rows = await partRows(env, key);
       return livePartPlayable(rows) ? buildPlaylist(rows, key, origin) : "";
     });
     else text = buildPlaylist(await telegramRows(env, key), key, origin);
