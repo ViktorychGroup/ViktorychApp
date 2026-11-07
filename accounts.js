@@ -3201,12 +3201,12 @@ var numberNote = form.passkey
     if (!session || !hasApi()) return Promise.resolve();
     pushing = true;
     return api("/v1/sync", { method: "PUT", token: session.token, body: { payload: payload, baseUpdatedAt: base || 0, device: syncDeviceId() } }).then(function (body) {
-      pushing = false;
       if (body.status === 409 && body.payload) {
         var merged = mergePayload(localSnapshot(), body.payload);
         applySnapshot(merged);
         return pushPayload(merged, body.updatedAt);
       }
+      pushing = false;
       if (body.status === 200) {
         rememberLocks(body);
         rememberSync(body.updatedAt);
@@ -3217,7 +3217,11 @@ var numberNote = form.passkey
         var echoed = body.payload || payload;
         applySnapshot(mergePayload(localSnapshot(), echoed));
       }
-    }).catch(function () { pushing = false; });
+      return pushMissedEdit();
+    }).catch(function () {
+      pushing = false;
+      return pushMissedEdit();
+    });
   }
   function mergeSync(pullOnly) {
     var session = readSession();
@@ -3301,14 +3305,24 @@ var numberNote = form.passkey
     setTimeout(bindLiveSync, 3000);
     if (readSession()) mergeSync().then(function () { return syncFollows(); }, function () { return syncFollows(); });
   }
+  var pushAgain = false;
   function onLocalChange() {
-    if (!readSession() || !hasApi() || pushing) return;
+    if (!readSession() || !hasApi()) return;
+    if (pushing) { pushAgain = true; return; }
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () {
+      if (pushing) { pushAgain = true; return; }
       var session = readSession();
       if (!session) return;
       pushPayload(localSnapshot(), session.syncAt || 0);
     }, 700);
+  }
+  function pushMissedEdit() {
+    if (!pushAgain) return Promise.resolve();
+    pushAgain = false;
+    var session = readSession();
+    if (!session || !hasApi()) return Promise.resolve();
+    return pushPayload(localSnapshot(), session.syncAt || 0);
   }
   function commitSession(token, account) {
     clearPending();

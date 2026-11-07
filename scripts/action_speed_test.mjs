@@ -154,10 +154,19 @@ async function followAndFriend(page, label) {
   const follow = page.locator('button[data-act="follow"][data-id="app:200000000002"]').first();
   await follow.waitFor({ timeout: 15000 });
   const beforeProfiles = profiles;
+  const followSync = page.waitForResponse((res) => res.url().indexOf("/v1/follows") >= 0 && res.request().method() === "GET");
   await follow.click();
   await page.waitForFunction(() => {
     const btn = document.querySelector('button[data-act="follow"][data-id="app:200000000002"]');
     return btn && btn.getAttribute("aria-label") === "Pending" && btn.textContent.indexOf("Cancel request") >= 0;
+  }, null, { timeout: 8000 });
+  await followSync;
+  await page.waitForFunction(() => {
+    const btn = document.querySelector('button[data-act="follow"][data-id="app:200000000002"]');
+    const n = window.__renderInvocations || 0;
+    const slot = window.__followIdle || (window.__followIdle = { n: -1, t: 0 });
+    if (slot.n !== n) { window.__followIdle = { n: n, t: performance.now() }; return false; }
+    return !!(btn && btn.getAttribute("aria-label") === "Pending" && performance.now() - slot.t > 150);
   }, null, { timeout: 8000 });
   const dup = await page.evaluate(() => {
     const btn = document.querySelector('button[data-act="follow"][data-id="app:200000000002"]');
@@ -166,10 +175,20 @@ async function followAndFriend(page, label) {
     return true;
   });
   if (!dup) fail(label + " could not duplicate the follow button");
+  const cancelSync = page.waitForResponse((res) => res.url().indexOf("/v1/follows") >= 0 && res.request().method() === "GET");
   await page.locator('button.follow.pending').first().click();
   await page.waitForFunction(() => {
     const buttons = [...document.querySelectorAll('button[data-act="follow"][data-id="app:200000000002"]')];
     return buttons.length >= 2 && buttons.every((btn) => btn.textContent.indexOf("Pending") < 0 && btn.textContent.indexOf("Cancel request") < 0 && btn.getAttribute("aria-label") !== "Pending" && btn.textContent.indexOf("Follow") >= 0);
+  }, null, { timeout: 8000 });
+  await cancelSync;
+  await page.waitForFunction(() => {
+    const buttons = [...document.querySelectorAll('button[data-act="follow"][data-id="app:200000000002"]')];
+    const n = window.__renderInvocations || 0;
+    const slot = window.__cancelIdle || (window.__cancelIdle = { n: -1, t: 0 });
+    if (slot.n !== n) { window.__cancelIdle = { n: n, t: performance.now() }; return false; }
+    if (performance.now() - slot.t < 150) return false;
+    return buttons.length >= 1 && buttons.every((btn) => btn.textContent.indexOf("Pending") < 0 && btn.textContent.indexOf("Cancel request") < 0 && btn.getAttribute("aria-label") !== "Pending" && btn.textContent.indexOf("Follow") >= 0);
   }, null, { timeout: 8000 });
   if (profiles !== beforeProfiles) fail(label + " cancelling a follow reloaded profiles");
   const friendCount = page.locator('.counts a[href*="tab=friends"] b').first();
