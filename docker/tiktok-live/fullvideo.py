@@ -209,17 +209,45 @@ def split_to_limit(src: Path, work: Path, limit: int) -> list:
 
 
 def build(room_dir: Path, work: Path, limit: int, skip_parts: set | None = None) -> dict:
-    """Stitch every kept run into files under ``limit``. Returns files and the parts used."""
+    """Stitch kept runs into files under ``limit``.
+
+    A part is included only when every run in that part remuxes. A failed
+    run is left out of the file and out of ``parts``, so the caller can
+    keep that folder and try again. ``incomplete`` means at least one part
+    was left behind.
+    """
     runs = run_dirs(room_dir, skip_parts)
     if not runs:
-        return {"files": [], "parts": []}
+        return {"files": [], "parts": [], "incomplete": False}
     work.mkdir(parents=True, exist_ok=True)
+    grouped: dict[int, list] = {}
+    order: list[int] = []
+    for part, run in runs:
+        if part not in grouped:
+            order.append(part)
+            grouped[part] = []
+        grouped[part].append(run)
     joined = []
-    parts = sorted({part for part, _run in runs})
-    for number, (_part, run) in enumerate(runs):
-        dest = work / ("run%04d.mp4" % number)
-        if remux_run(run, dest):
-            joined.append(dest)
+    complete: list[int] = []
+    incomplete = False
+    number = 0
+    for part in order:
+        made = []
+        ok = True
+        for run in grouped[part]:
+            dest = work / ("run%04d.mp4" % number)
+            number += 1
+            if not remux_run(run, dest):
+                ok = False
+                break
+            made.append(dest)
+        if not ok:
+            incomplete = True
+            for item in made:
+                item.unlink(missing_ok=True)
+            continue
+        complete.append(part)
+        joined.extend(made)
     if not joined:
         raise RuntimeError("the kept pieces did not join")
     outputs = joined
@@ -239,7 +267,7 @@ def build(room_dir: Path, work: Path, limit: int, skip_parts: set | None = None)
         if cut != [item]:
             item.unlink(missing_ok=True)
         files.extend(cut)
-    return {"files": files, "parts": parts}
+    return {"files": files, "parts": complete, "incomplete": incomplete}
 
 
 def thumbnail(src: Path, dest: Path) -> bool:
@@ -266,6 +294,7 @@ def fmt_duration(seconds: float) -> str:
 
 
 def caption_for(handle: str, info: dict, index: int, count: int, duration: float, partial: bool) -> str:
+    """The account name is only for the private backup channel, not for /status."""
     title = str(info.get("title") or "").strip()[:200]
     started = str(info.get("startedAt") or "").replace("T", " ")[:16]
     bits = ["@%s LIVE" % handle]
@@ -392,16 +421,26 @@ def pick_sender(bot_token: str, env: dict | None = None):
     return BotApiSender(bot_token)
 
 
-def send_room(room_dir: Path, work: Path, sender, channel: str, handle: str, info: dict, skip_parts: set | None = None) -> dict:
-    """Build and send one live. Raises on a failed send so the caller retries later."""
+def send_room(room_dir: Path, work: Path, sender, channel: str, handle: str, info: dict, skip_parts: set | None = None, allow=None) -> dict:
+    """Build and send one live. Raises on a failed send so the caller retries later.
+
+    ``allow`` is checked before every file. When it returns false, nothing
+    already sent is treated as finished: ``parts`` stays empty so the caller
+    keeps the local folders.
+    """
     built = build(room_dir, work, sender.limit, skip_parts)
     files = built["files"]
+    paused = {"messages": [], "parts": [], "bytes": 0, "files": 0, "paused": True, "partial": True}
+    if allow is not None and not allow():
+        return paused
     if not files:
-        return {"messages": [], "parts": built["parts"], "bytes": 0, "files": 0}
-    partial = has_gap(room_dir) or bool(info.get("partial"))
+        return {"messages": [], "parts": built["parts"], "bytes": 0, "files": 0, "partial": bool(built.get("incomplete"))}
+    partial = has_gap(room_dir) or bool(info.get("partial")) or bool(built.get("incomplete"))
     messages = []
     total = 0
     for index, item in enumerate(files, start=1):
+        if allow is not None and not allow():
+            return paused
         meta = probe(item)
         thumb = work / ("thumb%03d.jpg" % index)
         if not thumbnail(item, thumb):

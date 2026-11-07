@@ -239,6 +239,100 @@ class FakeSender:
         return len(self.sent)
 
 
+def keep_run(folder: Path) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "init.mp4").write_bytes(b"init")
+    (folder / "seg00001.m4s").write_bytes(b"segment")
+
+
+def test_failed_remux_keeps_the_part() -> None:
+    """A failed remux is not marked sent and its folder stays."""
+    tmp = Path(tempfile.mkdtemp(prefix="tiktok-live-remux-"))
+    real_remux = fullvideo.remux_run
+    real_sleep = fullvideo.time.sleep
+    try:
+        room = tmp / "demo.creator" / "7000000000000000001"
+        keep_run(room / "1" / "0000000000001")
+        keep_run(room / "2" / "0000000000001")
+        keep_run(room / "2" / "0000000000002")
+
+        def remux(run: Path, dest: Path) -> bool:
+            if run.parent.name == "2":
+                return False
+            dest.write_bytes(b"demo-video")
+            return True
+
+        fullvideo.remux_run = remux
+        fullvideo.time.sleep = lambda _seconds: None
+        built = fullvideo.build(room, tmp / "work", fullvideo.MTPROTO_LIMIT)
+        check(built["parts"] == [1] and built["incomplete"] is True, "only the remuxed part is finished")
+        check((room / "2" / "0000000000001" / "init.mp4").is_file(), "a failed part is still on disk after the build")
+        sender = FakeSender(fullvideo.MTPROTO_LIMIT)
+        result = fullvideo.send_room(room, tmp / "sent", sender, DEMO_CHANNEL, "demo.creator", {"title": "Demo"})
+        check(result["parts"] == [1] and result["partial"] is True, "the send reports only the completed part")
+        for part in result["parts"]:
+            shutil.rmtree(room / str(part), ignore_errors=True)
+        check(not (room / "1").exists() and (room / "2" / "0000000000002" / "seg00001.m4s").is_file(), "the watcher would remove only the completed part")
+        check("partial" in sender.sent[0][2] and "demo.creator" in sender.sent[0][2], "the private caption says the video is partial")
+    finally:
+        fullvideo.remux_run = real_remux
+        fullvideo.time.sleep = real_sleep
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_pause_holds_full_video() -> None:
+    tmp = Path(tempfile.mkdtemp(prefix="tiktok-live-pause-"))
+    real_remux = fullvideo.remux_run
+    real_sleep = fullvideo.time.sleep
+    try:
+        room = tmp / "keep" / "demo.creator" / "7000000000000000002"
+        keep_run(room / "1" / "0000000000001")
+        fullvideo.remux_run = lambda run, dest: dest.write_bytes(b"demo-video") or True
+        fullvideo.time.sleep = lambda _seconds: None
+        rec = FakeRecord()
+        rec.store["owner/live-record.json"] = json.dumps({"server": True, "uploadsPaused": True}).encode("utf-8")
+        rec.jobs["demo.creator"] = {"handle": "demo.creator", "active": {}, "saved": [{"roomId": "7000000000000000002", "title": "Demo"}]}
+        w, _lines, _spawned = make_watcher({"TIKTOK_KEEP_DIR": str(tmp / "keep"), "TIKTOK_FULL_SETTLE_SECONDS": "30"}, record=rec)
+        w._sender = FakeSender(fullvideo.MTPROTO_LIMIT)
+        w.clock = lambda: time.time() + 3600
+        w.full_pass()
+        check(not w._sender.sent and room.is_dir(), "pause uploads holds the full video and keeps the local copy")
+        check(w.status()["uploadsPaused"] is True and "demo.creator" not in json.dumps(w.status()), "status says uploads are paused and names no account")
+        rec.store["owner/live-record.json"] = json.dumps({"server": True, "uploadsPaused": False}).encode("utf-8")
+        w.full_pass()
+        check(len(w._sender.sent) == 1 and not room.exists(), "turning pause off sends the kept copy once")
+
+        room2 = tmp / "keep" / "demo.creator" / "7000000000000000003"
+        keep_run(room2 / "1" / "0000000000001")
+        rec.jobs["demo.creator"]["saved"].append({"roomId": "7000000000000000003", "title": "Demo"})
+        flips = {"n": 0}
+
+        def allow() -> bool:
+            flips["n"] += 1
+            # The first check is before the loop, the second is the first file.
+            return flips["n"] <= 2
+
+        work = tmp / "mid"
+        work.mkdir()
+        (work / "a.mp4").write_bytes(b"a")
+        (work / "b.mp4").write_bytes(b"b")
+        real_build = fullvideo.build
+
+        def two_files(room_dir, work_dir, limit, skip_parts=None):
+            return {"files": [work / "a.mp4", work / "b.mp4"], "parts": [1], "incomplete": False}
+
+        fullvideo.build = two_files
+        try:
+            mid = fullvideo.send_room(room2, work, FakeSender(fullvideo.MTPROTO_LIMIT), DEMO_CHANNEL, "demo.creator", {}, allow=allow)
+        finally:
+            fullvideo.build = real_build
+        check(mid["paused"] is True and mid["parts"] == [] and room2.is_dir(), "a pause between files sends nothing as finished")
+    finally:
+        fullvideo.remux_run = real_remux
+        fullvideo.time.sleep = real_sleep
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_fullvideo() -> None:
     check(not fullvideo.copy_only(["ffmpeg", "-i", "a", "-c", "copy", "-c:v", "libx264", "b"]), "an encoder flag is refused")
     check(fullvideo.copy_only(fullvideo.concat_args(Path("l"), Path("o"))), "the join is a stream copy")
@@ -292,6 +386,8 @@ def test_fullvideo() -> None:
 def main() -> int:
     test_watcher()
     test_server()
+    test_failed_remux_keeps_the_part()
+    test_pause_holds_full_video()
     test_fullvideo()
     if failed:
         print("%s failed" % failed)

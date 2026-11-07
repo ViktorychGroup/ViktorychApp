@@ -414,7 +414,7 @@ class Watcher:
             self.start_record(item)
         for slot in result.get("upload") or []:
             self.start_upload(int(slot))
-        if self.configured()["fullVideo"]:
+        if self.configured()["fullVideo"] and not self.uploads_paused():
             self.kick_full()
         self.state["cycles"] += 1
         self.state["lastCycleAt"] = now_iso()
@@ -481,6 +481,14 @@ class Watcher:
             return active
         return {}
 
+    def uploads_paused(self) -> bool:
+        """The owner's Pause uploads switch. A failed read holds the send."""
+        try:
+            pref = self.record.load_json_bytes(self.record.r2_get("owner/live-record.json"))
+        except Exception:
+            return True
+        return bool(isinstance(pref, dict) and pref.get("uploadsPaused") is True)
+
     def sender(self):
         import fullvideo
 
@@ -514,13 +522,19 @@ class Watcher:
             if not self.room_ready(handle, room, room_dir, job):
                 pending += 1
                 continue
+            if self.uploads_paused():
+                pending += 1
+                continue
             marker_key = FULL_PREFIX + handle + "/" + room + ".json"
             marker = self.record.load_json_bytes(self.record.r2_get(marker_key))
             sent_parts = {str(item) for item in (marker.get("parts") or [])}
             work = room_dir.parent / (".work-" + room)
             shutil.rmtree(work, ignore_errors=True)
             try:
-                result = fullvideo.send_room(room_dir, work, self.sender(), channel, handle, self.room_info(job, room), sent_parts)
+                result = fullvideo.send_room(
+                    room_dir, work, self.sender(), channel, handle, self.room_info(job, room), sent_parts,
+                    allow=lambda: not self.uploads_paused(),
+                )
             except Exception as err:
                 self.state["fullFailed"] += 1
                 tries = int(marker.get("failures") or 0) + 1
@@ -578,6 +592,11 @@ class Watcher:
         }
 
     def status(self) -> dict:
+        """Counts and flags only. No account names, channel ids, or tokens.
+
+        The full-video caption does name the account. That text is posted
+        only in the private backup channel.
+        """
         code, health = self.health()
         doc = dict(self.state)
         doc.update({
@@ -592,6 +611,7 @@ class Watcher:
             "configured": self.configured(),
             "pollSeconds": self.poll_seconds,
             "syncSeconds": self.sync_seconds,
+            "uploadsPaused": self.uploads_paused(),
         })
         if self.keep_dir.exists():
             try:
