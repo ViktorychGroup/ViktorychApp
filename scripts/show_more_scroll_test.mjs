@@ -129,15 +129,29 @@ async function main() {
       }, TARGET);
       if (!focusInside) fail(size.name + " focus left the opened post");
       await page.evaluate((id) => {
-        const main = document.querySelector('article[data-post="' + id + '"] .post-main');
+        const post = document.querySelector('article[data-post="' + id + '"]');
+        const btn = post.querySelector('button.show-more[aria-expanded="true"]');
         const block = document.createElement("div");
         block.style.height = "480px";
-        main.appendChild(block);
+        btn.parentNode.insertBefore(block, btn);
       }, TARGET);
       await page.waitForTimeout(200);
       const afterMedia = await topOf(page);
       if (Math.abs(afterMedia - before) > 28) fail(size.name + " a late resize moved the post from " + before + " to " + afterMedia);
-      await card.locator('button.show-more[aria-expanded="true"]').click();
+      const hidden = await page.evaluate((id) => {
+        const btn = document.querySelector('article[data-post="' + id + '"] button.show-more[aria-expanded="true"]');
+        const box = btn.getBoundingClientRect();
+        return box.top >= window.innerHeight;
+      }, TARGET);
+      if (!hidden) fail(size.name + " Show less stayed on screen");
+      // A locator click scrolls an off-screen control into view before the
+      // page samples its position, which is the 748 to -20 jump. Press the
+      // focused control without moving the feed.
+      await page.evaluate((id) => {
+        const btn = document.querySelector('article[data-post="' + id + '"] button.show-more[aria-expanded="true"]');
+        btn.focus({ preventScroll: true });
+      }, TARGET);
+      await page.keyboard.press("Enter");
       await card.locator('button.show-more[aria-expanded="false"]').waitFor({ timeout: 10000 });
       await page.waitForTimeout(200);
       const closed = await topOf(page);
