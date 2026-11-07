@@ -155,7 +155,8 @@ async function main() {
     const stored = JSON.parse(await first.evaluate(() => localStorage.getItem("viktorychapp-settings-v1") || "{}"));
     const alive = (stored.feedTabs || []).filter((tab) => !tab.deletedAt);
     const byPos = alive.slice().sort((a, b) => Number(a.pos) - Number(b.pos)).map((tab) => tab.name);
-    if (alive.length < 2 || !(Number(alive[0].posAt) > 0)) fail("reorder did not save an order stamp " + JSON.stringify(alive.map((tab) => tab.name)));
+    const stamps = alive.map((tab) => Number(tab.posAt));
+    if (alive.length < 2 || stamps.some((at) => !(at > 0)) || new Set(stamps).size !== 1) fail("a drag did not stamp the whole order " + JSON.stringify(alive.map((tab) => [tab.name, tab.pos, tab.posAt])));
     if (byPos.join(",") === namesBefore.join(",")) fail("drag did not change the saved order " + byPos.join(","));
 
     await first.goto("http://127.0.0.1:" + port + "/index.html#/", { waitUntil: "domcontentloaded" });

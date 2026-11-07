@@ -1137,7 +1137,7 @@
   function cleanMemberTimes(bag) {
     const out = {};
     if (!bag || typeof bag !== "object" || Array.isArray(bag)) return out;
-    Object.keys(bag).slice(0, 500).forEach((key) => {
+    Object.keys(bag).slice(0, 1000).forEach((key) => {
       const id = String(key || "").trim().slice(0, 120);
       const at = Number(bag[key]);
       if (!id || !isFinite(at) || at <= 0) return;
@@ -1159,7 +1159,7 @@
       const members = [];
       (Array.isArray(item.members) ? item.members : []).forEach((member) => {
         const text = String(member || "").trim();
-        if (!text || text.length > 120 || members.indexOf(text) >= 0 || members.length >= 500) return;
+        if (!text || text.length > 120 || members.indexOf(text) >= 0 || members.length >= 1000) return;
         members.push(text);
       });
       out.push({
@@ -1183,6 +1183,7 @@
       const saved = out[out.length - 1];
       if (isFinite(Number(item.pos)) && item.pos !== null && item.pos !== undefined && item.pos !== "") saved.pos = Number(item.pos);
       if (isFinite(Number(item.posAt)) && Number(item.posAt) > 0) saved.posAt = Number(item.posAt);
+      if (isFinite(Number(item.restoredAt)) && Number(item.restoredAt) > 0) saved.restoredAt = Number(item.restoredAt);
       const adds = cleanMemberTimes(item.memberAdds);
       const drops = cleanMemberTimes(item.memberDrops);
       if (Object.keys(adds).length) saved.memberAdds = adds;
@@ -18084,9 +18085,10 @@ const here = parseRoute();
     const now = Date.now();
     const rank = {};
     ids.forEach((id, index) => { rank[id] = index; });
+    // One stamp for the whole order. A tab that stayed put still has to
+    // carry this drag, or an older drag can keep that tab's previous place.
     next.forEach((tab) => {
       if (!Object.prototype.hasOwnProperty.call(rank, tab.id) || !tabAlive(tab)) return;
-      if (tab.pos === rank[tab.id] && Number(tab.posAt) > 0) return;
       tab.pos = rank[tab.id];
       tab.posAt = now;
     });
@@ -18159,7 +18161,6 @@ const here = parseRoute();
         delete tab.memberAdds[id];
       });
       tab.updatedAt = now;
-      if (tab.deletedAt) tab.deletedAt = 0;
       if (!draft.id) {
         tab.pos = Math.max(0, feedTabs().filter(tabAlive).length - 1);
         tab.posAt = now;

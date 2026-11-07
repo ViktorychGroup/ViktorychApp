@@ -140,6 +140,59 @@ const gone = accounts.mergePayload(
 );
 assert.equal(gone.feedTabs.find((tab) => tab.id === "alpha").deletedAt, 50, "a deleted tab stays deleted");
 assert.ok(gone.feedTabs.some((tab) => tab.id === "beta"), "the other tab stays");
+const editedAfterDelete = accounts.mergePayload(
+  { feedTabs: [{ id: "alpha", name: "Edited offline", members: ["x:north"], updatedAt: 80, memberAdds: { "x:north": 80 } }] },
+  { feedTabs: [{ id: "alpha", name: "Old", members: [], updatedAt: 50, deletedAt: 50 }] }
+);
+const buried = editedAfterDelete.feedTabs.find((tab) => tab.id === "alpha");
+assert.equal(buried.deletedAt, 50, "an offline edit does not clear the delete");
+assert.ok(buried.deletedAt >= buried.updatedAt, "the delete stays newer than the edit");
+const restored = accounts.mergePayload(
+  { feedTabs: [{ id: "alpha", name: "Back", members: [], updatedAt: 90, restoredAt: 90 }] },
+  { feedTabs: [{ id: "alpha", name: "Old", members: [], updatedAt: 50, deletedAt: 50 }] }
+);
+assert.equal(restored.feedTabs.find((tab) => tab.id === "alpha").deletedAt, 0, "only a newer restore brings the tab back");
+
+// A drag is one version of the whole order. A tab that did not move on the
+// newer device must not keep the older device's place.
+const conflict = accounts.mergePayload(
+  { feedTabs: [
+    { id: "b", name: "B", members: [], pos: 0, posAt: 10, updatedAt: 10 },
+    { id: "a", name: "A", members: [], pos: 1, posAt: 10, updatedAt: 10 },
+    { id: "c", name: "C", members: [], pos: 2, posAt: 10, updatedAt: 10 }
+  ] },
+  { feedTabs: [
+    { id: "a", name: "A", members: [], pos: 0, posAt: 1, updatedAt: 1 },
+    { id: "c", name: "C", members: [], pos: 1, posAt: 20, updatedAt: 20 },
+    { id: "b", name: "B", members: [], pos: 2, posAt: 20, updatedAt: 20 }
+  ] }
+);
+assert.equal(Array.from(conflict.feedTabs).map((tab) => tab.id).join(","), "a,c,b", "the newer drag is the whole order");
+assert.equal(conflict.feedTabs[0].pos, 0, "the tab that stayed first keeps that place");
+
+// More than 500 accounts, with only some membership events recorded.
+const many = [];
+for (let i = 0; i < 600; i += 1) many.push("x:m" + i);
+const pulled = accounts.mergePayload(
+  { feedTabs: [] },
+  { feedTabs: [{ id: "big", name: "Big", members: many, updatedAt: 50, memberAdds: { "x:m0": 50 } }] }
+);
+const pulledMembers = Array.from(pulled.feedTabs[0].members);
+assert.equal(pulledMembers.length, 600, "a partial event map keeps every saved account");
+assert.ok(pulledMembers.indexOf("x:m599") >= 0, "an account past 500 is still a member");
+const mixed = accounts.mergePayload(
+  { feedTabs: [{ id: "big", name: "Big", members: many, updatedAt: 50, memberAdds: { "x:m0": 50 }, memberDrops: { "x:m10": 60 } }] },
+  { feedTabs: [{ id: "big", name: "Big", members: many, updatedAt: 10 }] }
+);
+const mixedMembers = Array.from(mixed.feedTabs[0].members);
+assert.equal(mixedMembers.indexOf("x:m10"), -1, "an explicit removal still wins in a large tab");
+assert.ok(mixedMembers.indexOf("x:m599") >= 0, "the rest of a legacy list stays");
+const appSrc = fs.readFileSync("app.js", "utf8");
+const cleanAt = appSrc.indexOf("function cleanFeedTabs");
+const cleanBody = appSrc.slice(cleanAt, appSrc.indexOf("function cleanNoteTypes", cleanAt));
+const timesBody = appSrc.slice(appSrc.indexOf("function cleanMemberTimes"), cleanAt);
+assert.ok(cleanBody.includes("members.length >= 1000"), "saving a tab keeps the 1000 accounts it accepts");
+assert.ok(timesBody.includes("slice(0, 1000)"), "membership times use that same limit");
 
 // Live updates ride the account channel.
 const presence = fs.readFileSync("presence.js", "utf8");

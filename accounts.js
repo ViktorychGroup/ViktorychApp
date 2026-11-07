@@ -2717,14 +2717,14 @@ var numberNote = form.passkey
     (local || []).forEach(function (item) { if (item && item.id) map[item.id] = item; });
     return Object.keys(map).map(function (key) { return map[key]; });
   }
-  /* Custom Home tabs. A newer rename wins. A newer drag wins the order.
-     Adding or removing an account sticks unless a later removal or add
-     says otherwise, so an older device cannot put a member back or drop
-     one. A deleted tab stays deleted. */
+  /* Custom Home tabs. A newer rename wins. A newer drag wins the whole
+     order. Adding or removing an account sticks unless a later removal or
+     add says otherwise. A listed account with no event is still a member.
+     A deleted tab stays deleted unless a newer restore says otherwise. */
   function feedMemberEvents(tab) {
     var adds = {};
     var drops = {};
-    var explicit = tab && (tab.memberAdds || tab.memberDrops);
+    var explicit = !!(tab && (tab.memberAdds || tab.memberDrops));
     if (tab && tab.memberAdds && typeof tab.memberAdds === "object") {
       Object.keys(tab.memberAdds).forEach(function (id) {
         var t = Number(tab.memberAdds[id]);
@@ -2737,13 +2737,14 @@ var numberNote = form.passkey
         if (id && isFinite(t) && t > 0) drops[id] = t;
       });
     }
-    if (!explicit) {
-      var when = Number(tab && tab.updatedAt) || 1;
-      (tab && tab.members || []).forEach(function (id) {
-        id = String(id || "");
-        if (id) adds[id] = Math.max(adds[id] || 0, when);
-      });
-    }
+    var when = Number(tab && tab.updatedAt) || 1;
+    (tab && tab.members || []).forEach(function (id) {
+      id = String(id || "");
+      if (!id || adds[id] || drops[id]) return;
+      // Time 1 is older than any real removal, so a partial event map
+      // cannot drop the accounts that were saved before events existed.
+      adds[id] = explicit ? 1 : when;
+    });
     return { adds: adds, drops: drops };
   }
   function mergeFeedMembers(a, b) {
@@ -2787,8 +2788,19 @@ var numberNote = form.passkey
     Object.keys(newer || {}).forEach(function (key) { next[key] = newer[key]; });
     next.id = String((a && a.id) || (b && b.id) || "");
     next.updatedAt = Math.max(aAt, bAt);
-    next.deletedAt = Math.max(Number(a && a.deletedAt) || 0, Number(b && b.deletedAt) || 0);
     next.readAt = Math.max(Number(a && a.readAt) || 0, Number(b && b.readAt) || 0);
+    var deleted = Math.max(Number(a && a.deletedAt) || 0, Number(b && b.deletedAt) || 0);
+    var restored = Math.max(Number(a && a.restoredAt) || 0, Number(b && b.restoredAt) || 0);
+    if (restored > deleted) {
+      next.deletedAt = 0;
+      next.restoredAt = restored;
+    } else {
+      next.deletedAt = deleted;
+      if (restored) next.restoredAt = restored;
+      else delete next.restoredAt;
+      // A later edit must not bring a deleted tab back.
+      if (deleted && next.updatedAt > deleted) next.updatedAt = deleted;
+    }
     var aPos = Number(a && a.posAt) || 0;
     var bPos = Number(b && b.posAt) || 0;
     if (bPos > aPos && typeof b.pos === "number") { next.pos = b.pos; next.posAt = bPos; }
@@ -2809,6 +2821,72 @@ var numberNote = form.passkey
     }
     (remote || []).forEach(take);
     (local || []).forEach(take);
+    function tombstone(tab) {
+      var deleted = Number(tab && tab.deletedAt) || 0;
+      return deleted > 0 && deleted >= (Number(tab && tab.restoredAt) || 0);
+    }
+    function dragGen(list) {
+      var n = 0;
+      (list || []).forEach(function (tab) {
+        if (!tab || tombstone(tab)) return;
+        var at = Number(tab.posAt) || 0;
+        if (at > n) n = at;
+      });
+      return n;
+    }
+    function bySavedPos(list) {
+      return (list || []).filter(function (tab) {
+        return tab && tab.id && map[String(tab.id)] && !tombstone(tab);
+      }).slice().sort(function (a, b) {
+        var ha = Number(a.posAt) > 0 && typeof a.pos === "number";
+        var hb = Number(b.posAt) > 0 && typeof b.pos === "number";
+        if (ha && hb && a.pos !== b.pos) return a.pos - b.pos;
+        if (ha !== hb) return ha ? -1 : 1;
+        return 0;
+      });
+    }
+    var lg = dragGen(local);
+    var rg = dragGen(remote);
+    if (lg !== rg) {
+      var winGen = lg > rg ? lg : rg;
+      var winner = lg > rg ? local : remote;
+      var loser = winner === local ? remote : local;
+      var seen = {};
+      var out = [];
+      var maxPos = -1;
+      bySavedPos(winner).forEach(function (tab) {
+        var id = String(tab.id);
+        if (seen[id]) return;
+        seen[id] = true;
+        var merged = map[id];
+        if (Number(tab.posAt) > 0 && typeof tab.pos === "number") {
+          merged.pos = tab.pos;
+          merged.posAt = winGen;
+          if (tab.pos > maxPos) maxPos = tab.pos;
+        }
+        out.push(merged);
+      });
+      bySavedPos(loser).forEach(function (tab) {
+        var id = String(tab.id);
+        if (seen[id]) return;
+        seen[id] = true;
+        maxPos += 1;
+        var merged = map[id];
+        merged.pos = maxPos;
+        merged.posAt = winGen;
+        out.push(merged);
+      });
+      function appendMissed(list) {
+        (list || []).forEach(function (tab) {
+          if (!tab || !tab.id || seen[String(tab.id)] || !map[String(tab.id)]) return;
+          seen[String(tab.id)] = true;
+          out.push(map[String(tab.id)]);
+        });
+      }
+      appendMissed(winner);
+      appendMissed(loser);
+      return out;
+    }
     var tabs = Object.keys(map).map(function (id) { return map[id]; });
     if (tabs.some(function (tab) { return Number(tab.posAt) > 0; })) {
       return tabs.slice().sort(function (a, b) {
