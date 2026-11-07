@@ -12864,7 +12864,7 @@ const here = parseRoute();
   const WELCOME_KEY = "viktorychapp-welcome-v1";
   let publicPosts = [];
   let publicStamp = 0;
-  let publicStampScope = "";
+  let publicStampId = "";
   let publicGen = 0;
   let publicOwner = "";
   let welcomePhoto = "";
@@ -12932,12 +12932,14 @@ const here = parseRoute();
     if (document.documentElement.getAttribute("data-wall") === "1") return;
     if (!accountToken()) return;
     const now = Date.now();
-    const scope = viewerScope();
-    if (scope === publicStampScope && now - publicStamp < 20000) return;
+    const viewerId = sessionNow().id;
+    // The session generation moves when the account module first reads the
+    // same account. Only a different account should fetch again inside the window.
+    if (viewerId === publicStampId && now - publicStamp < 20000) return;
     const sender = sessionNow();
     const gen = ++publicGen;
     publicStamp = now;
-    publicStampScope = scope;
+    publicStampId = viewerId;
     accountCall("/v1/posts").then((res) => {
       if (gen !== publicGen || !sameSession(sender)) return;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;

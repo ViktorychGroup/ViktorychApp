@@ -118,7 +118,12 @@ async function open(browser, origin, opts) {
   const inset = async (top) => { await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top, topMax: top } }); await sleep(250); };
   await inset(opts.inset == null ? 24 : opts.inset);
   const errors = [];
-  page.on("pageerror", (err) => { if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(String(err && err.message || err).slice(0, 200)); });
+  page.on("pageerror", (err) => {
+    const message = String(err && err.message || err);
+    // Chrome's extension activity logger throws this into the page. It is not the header.
+    if (message === "this.api.logApiCall is not a function") return;
+    if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(message.slice(0, 200));
+  });
   await page.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#app .topbar.tall.compact-head .mhead .m-ava", { timeout: 20000 });
   await page.waitForFunction(() => document.querySelectorAll("#app article").length > 2, null, { timeout: 20000 });
