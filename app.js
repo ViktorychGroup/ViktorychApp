@@ -15602,7 +15602,8 @@ const here = parseRoute();
     if (window.ViktorychAccounts && window.ViktorychAccounts.profileHtml) {
       const accountPage = window.ViktorychAccounts.profileHtml(route);
       if (accountPage) return accountPage;
-      if (window.ViktorychAccounts.profilePending && window.ViktorychAccounts.profilePending(route.handle) && !findFeed(route.platform, route.handle)) {
+      const internalProfile = !route.platform || route.platform === "x" || route.platform === "app";
+      if (internalProfile && window.ViktorychAccounts.profilePending && window.ViktorychAccounts.profilePending(route.handle) && !findFeed(route.platform, route.handle)) {
         return `<div class="reply-empty">${tr("Loading…")}</div>`;
       }
     }
@@ -18271,7 +18272,8 @@ const here = parseRoute();
     let description = "";
     let image = icon;
     let url = shareRoot();
-    if (route && route.name === "profile" && window.ViktorychAccounts && window.ViktorychAccounts.storedAccount) {
+    const internalProfile = !route || !route.platform || route.platform === "x" || route.platform === "app";
+    if (route && route.name === "profile" && internalProfile && window.ViktorychAccounts && window.ViktorychAccounts.storedAccount) {
       const account = window.ViktorychAccounts.storedAccount(route.handle);
       if (account && account.handle) {
         const name = account.displayName || account.handle;
@@ -18298,7 +18300,8 @@ const here = parseRoute();
     if (route.name === "explore") return (exploreQ ? tr("{q} - Explore", { q: exploreQ }) : tr("Explore")) + titleSuffix;
     if (route.name === "user") return (liveName || route.handle || tr("Profile")) + titleSuffix;
     if (route.name === "profile") {
-      const stored = window.ViktorychAccounts && window.ViktorychAccounts.storedAccount && window.ViktorychAccounts.storedAccount(route.handle);
+      const internalProfile = !route.platform || route.platform === "x" || route.platform === "app";
+      const stored = internalProfile && window.ViktorychAccounts && window.ViktorychAccounts.storedAccount && window.ViktorychAccounts.storedAccount(route.handle);
       if (stored && stored.handle) {
         const name = stored.displayName || stored.handle;
         return name + " (@" + stored.handle + ")" + titleSuffix;
