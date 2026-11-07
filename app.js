@@ -2791,12 +2791,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
     const buckets = Object.keys(STATE.replies);
     for (let i = 0; i < buckets.length; i++) {
-      const bucket = STATE.replies[buckets[i]];
-      if (bucket && bucket.scope && bucket.scope !== viewerScope()) continue;
-      const list = (bucket && bucket.replies) || [];
+      const bucket = replyBucketForViewer(STATE.replies[buckets[i]]);
+      if (!bucket) continue;
+      const list = bucket.replies || [];
       for (let j = 0; j < list.length; j++) {
-        const reply = list[j];
-        if ((reply.platform === "app" || reply.appPost) && reply.viewerScope && reply.viewerScope !== viewerScope()) continue;
+        const reply = replyCardForViewer(list[j]);
+        if (!reply) continue;
         if (String(reply.statusId || reply.id) !== String(id)) continue;
         if (h && (reply.handle || "").toLowerCase() !== h) continue;
         if (platform && reply.platform && reply.platform !== platform) continue;
@@ -8598,11 +8598,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       });
     };
     posts().forEach(touch);
-    Object.keys(STATE.shared).forEach((key) => touch(STATE.shared[key]));
+    Object.keys(STATE.shared).forEach((key) => { if (sharedForViewer(key)) touch(STATE.shared[key]); });
     Object.keys(STATE.replies).forEach((key) => {
-      const bucket = STATE.replies[key] || {};
-      (bucket.replies || []).forEach(touch);
-      commentRows(bucket.doc).forEach(touch);
+      const bucket = replyBucketForViewer(STATE.replies[key]);
+      if (!bucket) return;
+      (bucket.replies || []).forEach((row) => { if (replyCardForViewer(row)) touch(row); });
+      commentRows(bucket.doc).forEach((row) => { if (replyCardForViewer(row)) touch(row); });
     });
   }
 
@@ -10639,7 +10640,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function blockKeyLabel(key) {
     const text = String(key || "");
     if (text.indexOf("app:") === 0) {
-      const found = (publicPosts || []).find((item) => item && item.authorId === text.slice(4));
+      const found = visiblePublicPosts().find((item) => item && item.authorId === text.slice(4));
       return found && found.handle ? "@" + found.handle : tr("Account on this app");
     }
     const at = text.indexOf(":");
@@ -10691,7 +10692,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!key) return null;
     const found = findAnyPost(key);
     if (found) return found;
-    const pub = (publicPosts || []).find((item) => item && (item.id === key || postKey(item) === key));
+    const pub = visiblePublicPosts().find((item) => item && (item.id === key || postKey(item) === key));
     return pub || null;
   }
 
@@ -12863,6 +12864,7 @@ const here = parseRoute();
   const WELCOME_KEY = "viktorychapp-welcome-v1";
   let publicPosts = [];
   let publicStamp = 0;
+  let publicStampScope = "";
   let publicGen = 0;
   let publicOwner = "";
   let welcomePhoto = "";
@@ -12912,15 +12914,30 @@ const here = parseRoute();
     if ((card.platform === "app" || card.appPost) && card.viewerScope !== viewerScope()) return null;
     return card;
   }
+  /* A thread fetched for one account stays in STATE.replies. Lookups for
+     share, bookmarks, history and the media viewer have to use the same
+     rule as the thread itself. A bucket with no scope is a public source. */
+  function replyBucketForViewer(bucket) {
+    if (!bucket) return null;
+    if (bucket.scope && bucket.scope !== viewerScope()) return null;
+    return bucket;
+  }
+  function replyCardForViewer(reply) {
+    if (!reply) return null;
+    if ((reply.platform === "app" || reply.appPost) && reply.viewerScope && reply.viewerScope !== viewerScope()) return null;
+    return reply;
+  }
   function schedulePublicPosts() {
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
     if (!accountToken()) return;
     const now = Date.now();
-    if (now - publicStamp < 20000) return;
+    const scope = viewerScope();
+    if (scope === publicStampScope && now - publicStamp < 20000) return;
     const sender = sessionNow();
     const gen = ++publicGen;
     publicStamp = now;
+    publicStampScope = scope;
     accountCall("/v1/posts").then((res) => {
       if (gen !== publicGen || !sameSession(sender)) return;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
@@ -14060,9 +14077,10 @@ const here = parseRoute();
     if (!h) return null;
     const pool = posts().slice();
     Object.keys(STATE.replies || {}).forEach((key) => {
-      const bucket = STATE.replies[key] || {};
-      (bucket.replies || []).forEach((row) => pool.push(row));
-      commentRows(bucket.doc).forEach((row) => pool.push(row));
+      const bucket = replyBucketForViewer(STATE.replies[key]);
+      if (!bucket) return;
+      (bucket.replies || []).forEach((row) => { if (replyCardForViewer(row)) pool.push(row); });
+      commentRows(bucket.doc).forEach((row) => { if (replyCardForViewer(row)) pool.push(row); });
     });
     return pool.find((post) => post && (post.platform || "x") === platform && String(post.handle || "").toLowerCase() === h) || null;
   }
@@ -21615,8 +21633,9 @@ if (STATE.histClear) {
     if (direct) return direct;
     const buckets = Object.keys(STATE.replies);
     for (let i = 0; i < buckets.length; i++) {
-      const bucket = STATE.replies[buckets[i]] || {};
-      const found = findComment(commentRows(bucket.doc).concat(bucket.replies || []), key);
+      const bucket = replyBucketForViewer(STATE.replies[buckets[i]]);
+      if (!bucket) continue;
+      const found = replyCardForViewer(findComment(commentRows(bucket.doc).concat(bucket.replies || []), key));
       if (found) return found;
     }
     const nested = commentInDocs(key);
@@ -33062,7 +33081,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (post) {
         const chain = ancestorChain(post);
         const parent = chain.nodes.length ? chain.nodes[chain.nodes.length - 1] : (post.replyParent || null);
-        const replies = orderedUnique(bucket.replies || []).slice(0, 20).map(cacheRow).filter(Boolean);
+        const replies = (replyBucketForViewer(bucket) ? orderedUnique(bucket.replies || []) : []).slice(0, 20).map(cacheRow).filter((row) => replyCardForViewer(row));
         local.saveDoc("threads", String(route.id), {
           order: "utc",
           post: cacheRow(post),
@@ -33195,8 +33214,13 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (window.ProfileGifts) {
       window.ProfileGifts.onReply = function (parentId, post) {
         const key = String(parentId || "");
-        const bucket = STATE.replies[key] || (STATE.replies[key] = { replies: [], loading: false });
-        bucket.replies = (bucket.replies || []).filter((item) => item && item.id !== post.id).concat([post]);
+        const scope = viewerScope();
+        let bucket = STATE.replies[key];
+        if (!bucket || (bucket.scope && bucket.scope !== scope)) bucket = { replies: [], loading: false, scope: scope };
+        bucket.scope = scope;
+        stampAppCard(post);
+        bucket.replies = (bucket.replies || []).filter((item) => item && replyCardForViewer(item) && item.id !== post.id).concat([post]);
+        STATE.replies[key] = bucket;
         render();
       };
       window.ProfileGifts.start();
@@ -33862,7 +33886,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
   function aiPersonKeys(handle) {
     const keys = [];
-    (publicPosts || []).forEach((item) => {
+    visiblePublicPosts().forEach((item) => {
       if (item && item.authorId && String(item.handle || "").replace(/^@/, "").toLowerCase() === handle) keys.push("app:" + String(item.authorId));
     });
     feeds().forEach((f) => {
