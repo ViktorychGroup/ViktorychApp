@@ -74,6 +74,12 @@ async function prep(page, port) {
   const t0 = Date.now();
   await page.goto("http://127.0.0.1:" + port + "/index.html#/following", { waitUntil: "domcontentloaded" });
   await page.waitForSelector('button[data-act="like"]', { timeout: 20000 });
+  await page.waitForFunction(() => {
+    const n = window.__renderInvocations || 0;
+    const slot = window.__benchIdle || (window.__benchIdle = { n: n, t: performance.now() });
+    if (slot.n !== n) { window.__benchIdle = { n: n, t: performance.now() }; return false; }
+    return performance.now() - slot.t > 400;
+  }, null, { timeout: 5000 }).catch(() => {});
   return Date.now() - t0;
 }
 
@@ -83,26 +89,26 @@ async function likeOnce(page) {
     const app = document.getElementById("app");
     if (!btn || !app) { resolve({ missing: true }); return; }
     const startCount = btn.querySelector(".count") ? btn.querySelector(".count").textContent : "";
-    const renders0 = window.__renders || 0;
+    const renders0 = window.__renderInvocations || 0;
     let mutations = 0;
     const mo = new MutationObserver(() => { mutations += 1; });
     mo.observe(app, { childList: true });
     const t0 = performance.now();
-    let paintMs = null;
+    let firstObservedCountChangeMs = null;
     btn.click();
     const clickMs = Number((performance.now() - t0).toFixed(2));
     const tick = () => {
       const live = document.querySelector('button[data-act="like"]');
       const count = live && live.querySelector(".count") ? live.querySelector(".count").textContent : "";
-      if (paintMs == null && count !== startCount) paintMs = Number((performance.now() - t0).toFixed(2));
+      if (firstObservedCountChangeMs == null && count !== startCount) firstObservedCountChangeMs = Number((performance.now() - t0).toFixed(2));
       if (performance.now() - t0 < 900) requestAnimationFrame(tick);
       else {
         mo.disconnect();
         resolve({
           clickMs,
-          paintMs,
+          firstObservedCountChangeMs,
           mutations,
-          renders: (window.__renders || 0) - renders0,
+          renderInvocations: (window.__renderInvocations || 0) - renders0,
           on: !!(live && live.classList.contains("on")),
           count
         });
@@ -137,19 +143,20 @@ async function main() {
       const clicks = [];
       for (let i = 0; i < size.clicks; i++) clicks.push(await likeOnce(page));
       const mutations = clicks.map((row) => row.mutations);
-      const renders = clicks.map((row) => row.renders);
+      const invocations = clicks.map((row) => row.renderInvocations);
       cases.push({
         name: size.name,
         cpuRate: size.cpu,
         n: clicks.length,
         readyMs,
         windowMs: 900,
+        note: "renderInvocations counts renderNow calls, including ones that return before replacing the page. firstObservedCountChangeMs is the first animation frame that saw the like-count text change, not a confirmed presentation.",
         clicks,
         mutationMedian: median(mutations),
         mutationP95: p95(mutations),
-        renderMedian: median(renders),
-        renderP95: p95(renders),
-        paintMedianMs: median(clicks.map((row) => row.paintMs)),
+        renderInvocationMedian: median(invocations),
+        renderInvocationP95: p95(invocations),
+        firstObservedCountChangeMedianMs: median(clicks.map((row) => row.firstObservedCountChangeMs)),
         clickMedianMs: median(clicks.map((row) => row.clickMs))
       });
       await context.close();
@@ -159,7 +166,7 @@ async function main() {
     server.close();
   }
   const doc = {
-    label: "Synthetic fixture, localhost, not production.",
+    label: "Synthetic fixture, localhost, not production. renderInvocations is an invocation count, not a completed rebuild. firstObservedCountChangeMs watches DOM text from requestAnimationFrame.",
     node: process.version,
     cases
   };

@@ -12909,6 +12909,10 @@ const here = parseRoute();
     try { return !!document.querySelector('article[data-post="' + safe + '"] [data-local-preview]'); }
     catch (err) { return false; }
   }
+  /* A local preview is not on a timer. It is checked when the page renders
+     or a post list is merged. One that is still on screen is kept, even after
+     ten minutes. One that belongs to another account, or is older than ten
+     minutes and no longer shown, is revoked on that check. */
   function reconcilePostPreviews() {
     const now = Date.now();
     const mine = signedAccount();
@@ -12923,10 +12927,28 @@ const here = parseRoute();
       revokePostPreview(id);
     });
   }
-  function holdPostPreview(id, urls) {
+  function holdPostPreview(id, urls, ownerId) {
     if (!id || !urls || !urls.length) return;
+    localPostPreview[id] = { urls: urls, at: Date.now(), ownerId: String(ownerId || "") };
+  }
+  function sessionNow() {
     const mine = signedAccount();
-    localPostPreview[id] = { urls: urls, at: Date.now(), ownerId: mine ? String(mine.publicId || "") : "" };
+    const gen = window.ViktorychAccounts && window.ViktorychAccounts.sessionGeneration ? window.ViktorychAccounts.sessionGeneration() : 0;
+    return { id: mine ? String(mine.publicId || "") : "", gen: gen };
+  }
+  function sameSession(sender) {
+    const now = sessionNow();
+    return !!(sender && sender.id && now.id === sender.id && now.gen === sender.gen);
+  }
+  function revokeBlobList(urls) {
+    (urls || []).forEach((url) => {
+      if (url && String(url).indexOf("blob:") === 0) {
+        try { URL.revokeObjectURL(url); } catch (err) { /* already revoked */ }
+      }
+    });
+  }
+  function blobUrls(part) {
+    return ((part && part.media) || []).map((item) => item && item.url).filter((url) => url && String(url).indexOf("blob:") === 0);
   }
   function displayMediaItems(item) {
     const mine = signedAccount();
@@ -12934,12 +12956,14 @@ const here = parseRoute();
     if (bag && mine && bag.ownerId === String(mine.publicId || "") && bag.urls && bag.urls.length) return bag.urls;
     return (item && item.media) || [];
   }
-  function rememberOwnPost(post) {
+  function rememberOwnPost(post, ownerId) {
     if (!post || !post.id) return;
+    const mine = signedAccount();
+    const current = mine ? String(mine.publicId || "") : "";
+    if (ownerId && current !== String(ownerId)) return;
     ownSent[post.id] = { post: post, at: Date.now() };
     publicPosts = [post].concat(publicPosts.filter((item) => item && item.id !== post.id));
-    const mine = signedAccount();
-    const cache = mine && mine.publicId ? authorPostCache[String(mine.publicId)] : null;
+    const cache = current ? authorPostCache[current] : null;
     if (cache) cache.posts = [post].concat(cache.posts.filter((item) => item && item.id !== post.id));
   }
   function forgetOwnPost(id) {
@@ -12987,7 +13011,7 @@ const here = parseRoute();
       alt: item.alt || "",
       local: true
     }));
-    if (previews.length) holdPostPreview(id, previews);
+    if (previews.length) holdPostPreview(id, previews, mine.publicId);
     rememberOwnPost({
       id: id, body: String(text || ""), parentId: parentId || "", quoteId: quoteId || "", createdAt: Date.now(),
       authorId: String(mine.publicId), authorHandle: String(mine.handle || ""), authorName: String(mine.displayName || mine.handle || ""),
@@ -13213,6 +13237,7 @@ const here = parseRoute();
     if (!posts.length) return;
     const scheduled = !!(posts[0] && posts[0].scheduleAt);
     if (scheduled && (!navigator.onLine || !token || !root)) {
+      posts.forEach((part) => revokeBlobList(blobUrls(part)));
       writeDeviceSchedule(readDeviceSchedule().concat([{
         at: posts[0].scheduleAt, text: posts[0].text || "", audience: posts[0].audience || "everyone",
         replyControl: posts[0].replyControl || "everyone", location: posts[0].location || "", poll: posts[0].poll || null
@@ -13230,11 +13255,7 @@ const here = parseRoute();
       return;
     }
     if (!navigator.onLine || !token || !root) {
-      posts.forEach((part) => (part.media || []).forEach((item) => {
-        if (item && item.url && String(item.url).indexOf("blob:") === 0) {
-          try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ }
-        }
-      }));
+      posts.forEach((part) => revokeBlobList(blobUrls(part)));
       const text = posts.map((part) => part.text).filter(Boolean).join("\n\n");
       if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
       if (!navigator.onLine && text) queueOffline({ type: "reply", id: "compose", on: true, body: text });
@@ -13254,19 +13275,30 @@ const here = parseRoute();
       const parent = index === 0 ? (payload.parentId || "") : parentId;
       const quote = index === 0 ? (payload.quoteId || "") : "";
       const later = !!part.scheduleAt;
+      const sender = sessionNow();
+      const blobs = blobUrls(part);
       const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null, part.media);
       if (tempId) render();
       const done = (res) => {
+        const stale = !sameSession(sender);
+        const kept = !stale && res && res.status === 201 && res.post && !later && !res.scheduled;
         const previews = tempId && localPostPreview[tempId] ? localPostPreview[tempId].urls : null;
         if (tempId) delete localPostPreview[tempId];
         if (tempId) forgetOwnPost(tempId);
+        if (stale) render();
+        if (!kept) revokeBlobList(blobs);
+        if (kept && res.post.id) {
+          if (previews && previews.length) holdPostPreview(res.post.id, previews, sender.id);
+          rememberOwnPost(res.post, sender.id);
+          nostrMirror(res.post, index === 0 ? payload.extParent : null);
+          if (!firstSent) firstSent = res.post;
+          if (res.post.community && res.post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(res.post.community.name);
+          publicStamp = Date.now();
+          sendAt(index + 1, res.post.id);
+          return;
+        }
+        if (stale) return;
         if (res && res.status === 201 && res.post) {
-          if (!(res.scheduled || part.scheduleAt) && res.post.id) {
-            if (previews && previews.length) holdPostPreview(res.post.id, previews);
-            rememberOwnPost(res.post);
-            nostrMirror(res.post, index === 0 ? payload.extParent : null);
-            if (!firstSent) firstSent = res.post;
-          } else if (previews) previews.forEach((item) => { if (item && item.url) { try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ } } });
           if (res.post.community && res.post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(res.post.community.name);
           publicStamp = Date.now();
           sendAt(index + 1, res.post.id);
@@ -13274,7 +13306,6 @@ const here = parseRoute();
         }
         const text = posts.slice(index).map((item) => item.text).filter(Boolean).join("\n\n");
         if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
-        if (previews) previews.forEach((item) => { if (item && item.url) { try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ } } });
         toast(res && res.error === "reply_limited" ? tr("Replies are limited on that post.") : tr("Could not send that post. It is still saved on this device."));
         if (tempId) render();
       };
@@ -23038,7 +23069,8 @@ if (STATE.histClear) {
   }
 
   function renderNow(opts) {
-    if (typeof window !== "undefined") window.__renders = (window.__renders || 0) + 1;
+    /* Invocation count, including a call that returns before replacing the page. */
+    if (typeof window !== "undefined") window.__renderInvocations = (window.__renderInvocations || 0) + 1;
     if (document.documentElement.classList.contains("is-split-drag")) {
       STATE.splitRender = opts || STATE.splitRender || {};
       return;

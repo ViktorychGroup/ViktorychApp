@@ -54,7 +54,12 @@ function startServer() {
 
 async function likeBurst(page, label) {
   await page.waitForSelector('button[data-act="like"]', { timeout: 20000 });
-  await page.waitForTimeout(500);
+  await page.waitForFunction(() => {
+    const n = window.__renderInvocations || 0;
+    const slot = window.__idleSlot || (window.__idleSlot = { n: n, t: performance.now() });
+    if (slot.n !== n) { window.__idleSlot = { n: n, t: performance.now() }; return false; }
+    return performance.now() - slot.t > 900;
+  }, null, { timeout: 8000 });
   const samples = [];
   for (let i = 0; i < 4; i++) {
     const row = await page.evaluate(() => {
@@ -63,33 +68,33 @@ async function likeBurst(page, label) {
       let mutations = 0;
       const mo = new MutationObserver(() => { mutations += 1; });
       mo.observe(app, { childList: true });
-      const renders0 = window.__renders || 0;
+      const renders0 = window.__renderInvocations || 0;
       btn.click();
       return new Promise((resolve) => {
         setTimeout(() => {
           mo.disconnect();
           const live = document.querySelector('button[data-act="like"]');
           const count = live && live.querySelector(".count");
-          resolve({ mutations, renders: (window.__renders || 0) - renders0, hash: location.hash, same: live === btn, on: !!(live && live.classList.contains("on")), count: count ? count.textContent : "" });
-        }, 80);
+          resolve({ mutations, renders: (window.__renderInvocations || 0) - renders0, hash: location.hash, same: live === btn, on: !!(live && live.classList.contains("on")), count: count ? count.textContent : "" });
+        }, 1000);
       });
     });
     samples.push(row);
   }
   const rebuilt = samples.reduce((sum, row) => sum + (row.renders || 0), 0);
-  if (rebuilt > 1) fail(label + " likes rebuilt the page " + rebuilt + " " + JSON.stringify(samples));
+  if (rebuilt > 0) fail(label + " likes rebuilt the page " + rebuilt + " " + JSON.stringify(samples));
   if (!samples[0].on || samples[0].count !== "3") fail(label + " like did not count " + JSON.stringify(samples[0]));
   if (samples[1].on || samples[1].count !== "2") fail(label + " unlike did not restore the count " + JSON.stringify(samples[1]));
   if (samples[3].on || samples[3].count !== "2") fail(label + " a burst of likes ended on " + JSON.stringify(samples));
   const bookmark = await page.evaluate(() => {
     const btn = document.querySelector('button[data-act="bookmark"]');
-    const renders0 = window.__renders || 0;
+    const renders0 = window.__renderInvocations || 0;
     btn.click();
     return new Promise((resolve) => {
       setTimeout(() => {
         const live = document.querySelector('button[data-act="bookmark"]');
-        resolve({ renders: (window.__renders || 0) - renders0, on: !!(live && live.classList.contains("on")) });
-      }, 80);
+        resolve({ renders: (window.__renderInvocations || 0) - renders0, on: !!(live && live.classList.contains("on")) });
+      }, 1000);
     });
   });
   if (bookmark.renders !== 0 || !bookmark.on) fail(label + " bookmark rebuilt or missed " + JSON.stringify(bookmark));
@@ -136,7 +141,7 @@ async function followAndFriend(page, label) {
       return;
     }
     if (url.pathname === "/v1/friends/accept" && req.method() === "POST") {
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, status: "friends", friendsCount: 2 }) });
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, status: "friends", friendsCount: 1 }) });
       return;
     }
     if (url.pathname === "/v1/friends/remove" && req.method() === "POST") {
@@ -170,15 +175,31 @@ async function followAndFriend(page, label) {
   const friendCount = page.locator('.counts a[href*="tab=friends"] b').first();
   await friendCount.waitFor({ timeout: 5000 });
   if ((await friendCount.textContent()) !== "4") fail(label + " friend count did not start at 4");
-  const renders0 = await page.evaluate(() => window.__renders || 0);
+  await page.evaluate(() => {
+    const host = document.querySelector(".counts") || document.body;
+    host.insertAdjacentHTML("beforeend", '<div class="counts">'
+      + '<a href="#/@user_b?tab=friends"><b>4</b> <span>Friends</span></a>'
+      + '<a href="#/@user_b2?tab=friends"><b>9</b> <span>Friends</span></a>'
+      + '<a href="#/@user_a?tab=friends"><b>0</b> <span>Friends</span></a>'
+      + "</div>");
+  });
+  const renders0 = await page.evaluate(() => window.__renderInvocations || 0);
   await page.locator('button[data-friend-act="accept"]').click();
   await page.waitForFunction(() => {
     const bold = document.querySelector('.counts a[href*="tab=friends"] b');
     const btn = document.querySelector('button[data-friend-act="unfriend"], button.friend-mutual');
     return bold && bold.textContent === "5" && btn;
   }, null, { timeout: 8000 });
-  const renders1 = await page.evaluate(() => window.__renders || 0);
+  const renders1 = await page.evaluate(() => window.__renderInvocations || 0);
   if (renders1 - renders0 > 2) fail(label + " accepting a friend rebuilt too often " + (renders1 - renders0));
+  const counts = await page.evaluate(() => ({
+    b: [...document.querySelectorAll('.counts a[href="#/@user_b?tab=friends"] b')].map((el) => el.textContent),
+    b2: [...document.querySelectorAll('.counts a[href="#/@user_b2?tab=friends"] b')].map((el) => el.textContent),
+    self: [...document.querySelectorAll('.counts a[href="#/@user_a?tab=friends"] b')].map((el) => el.textContent)
+  }));
+  if (counts.b.length < 2 || counts.b.some((text) => text !== "5")) fail(label + " user_b counts " + JSON.stringify(counts));
+  if (counts.b2.some((text) => text !== "9")) fail(label + " user_b2 was changed " + JSON.stringify(counts));
+  if (counts.self.some((text) => text !== "1")) fail(label + " own friends count " + JSON.stringify(counts));
   await page.locator('button[data-friend-act="unfriend"]').click();
   await page.locator('button[data-friend-act="unfriend-confirm"]').click();
   await page.waitForFunction(() => {
@@ -249,6 +270,119 @@ async function photo(page, label) {
   if (!seen.length) fail(label + " a reload did not load the stored photo");
 }
 
+async function blobRevoked(page, src) {
+  return page.evaluate((url) => new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(false);
+    img.onerror = () => resolve(true);
+    img.src = url;
+  }), src);
+}
+
+async function mediaLife(page, label) {
+  const opener = label === "phone" ? "button.fab" : "button.post-btn";
+  let mode = "scheduled";
+  let holdGate = null;
+  const otherId = "300000000099";
+  await page.route("**/v1/posts", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    if (mode === "hold" && holdGate) await holdGate;
+    const failed = mode === "fail" || mode === "scheduled-fail";
+    await route.fulfill({
+      status: failed ? 500 : 201,
+      contentType: "application/json",
+      body: JSON.stringify(failed ? { error: "no" } : {
+        post: {
+          id: otherId, body: "", createdAt: Date.now(), authorId: ME,
+          authorHandle: "user_a", authorName: "User A", media: []
+        },
+        scheduled: mode === "scheduled"
+      })
+    });
+  });
+  async function openComposer() {
+    await page.goto(page.url().split("#")[0] + "#/", { waitUntil: "domcontentloaded" });
+    await page.locator(opener).first().click();
+    await page.locator(".xc-modal #compose-text").waitFor({ timeout: 8000 });
+    await page.locator('.xc-modal input.xc-file[data-kind="image"]').first().setInputFiles("/tmp/action-speed-pixel.png");
+    await page.locator(".xc-modal .xc-media").waitFor({ timeout: 5000 });
+    return page.locator(".xc-modal .xc-media img").first().getAttribute("src");
+  }
+  async function schedule() {
+    await page.locator('.xc-modal [data-act="xc-schedule"]').click();
+    await page.locator('.xc-modal input[data-xc="schedule"]').fill("2026-12-01T12:00");
+  }
+  async function send(expect) {
+    await page.evaluate(() => {
+      const el = document.getElementById("toast");
+      if (el) { el.textContent = ""; el.hidden = true; }
+    });
+    const before = "";
+    await page.locator(".xc-modal #compose-post").click();
+    await page.waitForFunction((prev) => {
+      const el = document.getElementById("toast");
+      return !!(el && !el.hidden && el.textContent && el.textContent !== prev);
+    }, before, { timeout: 8000 });
+    const text = await page.locator("#toast").textContent();
+    if (text.indexOf(expect) < 0) fail(label + " toast " + JSON.stringify(text) + " wanted " + expect);
+  }
+  mode = "scheduled";
+  let src = await openComposer();
+  await schedule();
+  await send("Scheduled");
+  if (!(await blobRevoked(page, src))) fail(label + " scheduled success kept the preview");
+  if (await page.locator("img[data-local-preview]").count()) fail(label + " scheduled success showed a local card");
+
+  mode = "scheduled-fail";
+  src = await openComposer();
+  await schedule();
+  await send("Could not send");
+  if (!(await blobRevoked(page, src))) fail(label + " scheduled failure kept the preview");
+
+  mode = "fail";
+  src = await openComposer();
+  await send("Could not send");
+  if (!(await blobRevoked(page, src))) fail(label + " failed post kept the preview");
+  if (await page.locator("img[data-local-preview]").count()) fail(label + " failed post left a local card");
+
+  src = await openComposer();
+  await page.context().setOffline(true);
+  try {
+    await send("Could not send");
+  } finally {
+    await page.context().setOffline(false);
+  }
+  if (!(await blobRevoked(page, src))) fail(label + " offline post kept the preview");
+
+  src = await openComposer();
+  await schedule();
+  await page.context().setOffline(true);
+  try {
+    await send("Otherwise it stays on this device");
+  } finally {
+    await page.context().setOffline(false);
+  }
+  if (!(await blobRevoked(page, src))) fail(label + " scheduled offline kept the preview");
+
+  mode = "hold";
+  let go = null;
+  holdGate = new Promise((resolve) => { go = resolve; });
+  src = await openComposer();
+  const pending = page.waitForResponse((res) => res.url().indexOf("/v1/posts") >= 0 && res.request().method() === "POST");
+  await page.locator(".xc-modal #compose-post").click();
+  await page.waitForSelector("img[data-local-preview]", { timeout: 8000 });
+  await page.evaluate(() => {
+    localStorage.setItem("viktorychapp-account-v1", JSON.stringify({
+      token: "other-token",
+      account: { publicId: "200000000009", handle: "user_c", displayName: "User C", avatar: "" }
+    }));
+  });
+  go();
+  await pending;
+  await page.waitForFunction((id) => !document.querySelector('img[data-local-preview], article[data-post="' + id + '"]'), otherId, { timeout: 8000 });
+  if (!(await blobRevoked(page, src))) fail(label + " a switched account kept the other account's preview");
+}
+
 async function main() {
   const spec = process.env.PLAYWRIGHT_CORE || "playwright-core";
   const mod = await import(spec.startsWith("/") ? pathToFileURL(spec).href : spec);
@@ -298,6 +432,7 @@ async function main() {
       await composer.goto("http://127.0.0.1:" + port + "/index.html#/@user_b", { waitUntil: "domcontentloaded" });
       await followAndFriend(composer, size.name);
       await photo(composer, size.name);
+      await mediaLife(composer, size.name);
       await signed.close();
     }
     console.log("action speed ok");

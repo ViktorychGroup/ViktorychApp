@@ -112,6 +112,7 @@
     names(suffix).forEach(function (name) {
       try { localStorage.removeItem(name); } catch (err) { /* already gone */ }
     });
+    if (suffix === "account-v1") noteSession(null);
   }
   function readSession() {
     try {
@@ -124,8 +125,20 @@
       return null;
     }
   }
+  var sessionGeneration = 0;
+  var sessionSeen = null;
+  function sessionStampOf(session) {
+    if (!session || !session.token || !session.account) return "";
+    return String(session.account.publicId || "") + "\n" + String(session.token || "");
+  }
+  function noteSession(session) {
+    var stamp = sessionStampOf(session);
+    if (sessionSeen === null) { sessionSeen = stamp; sessionGeneration = 1; return; }
+    if (stamp !== sessionSeen) { sessionSeen = stamp; sessionGeneration += 1; }
+  }
   function writeSession(session) {
     writeStored("account-v1", JSON.stringify(session));
+    noteSession(session && session.token && session.account ? session : null);
   }
   function readPending() {
     try {
@@ -4783,16 +4796,33 @@ function signupPayload() {
     return Promise.resolve();
   }
 
+  function countHandle(href, field) {
+    var hash = String(href || "");
+    if (hash.charAt(0) !== "#") return "";
+    var q = hash.indexOf("?");
+    var path = (q >= 0 ? hash.slice(0, q) : hash).replace(/^#/, "");
+    var parts = path.split("/").filter(Boolean);
+    if (!parts.length || parts[0].charAt(0) !== "@") return "";
+    var handle = "";
+    try { handle = decodeURIComponent(parts[0].slice(1)); } catch (err) { handle = parts[0].slice(1); }
+    if (field === "friends") {
+      if (parts.length !== 1) return "";
+      var tab = "";
+      (q >= 0 ? hash.slice(q + 1) : "").split("&").forEach(function (pair) {
+        var bits = pair.split("=");
+        if (bits[0] === "tab") tab = bits.slice(1).join("=");
+      });
+      try { tab = decodeURIComponent(tab); } catch (err) { /* keep the raw value */ }
+      return tab === "friends" ? handle : "";
+    }
+    return parts.length === 2 && parts[1] === field ? handle : "";
+  }
   function paintStat(handle, field, value) {
     if (!handle || value == null || typeof document === "undefined") return;
-    var enc = encodeURIComponent(String(handle).replace(/^@/, ""));
+    var want = String(handle).replace(/^@/, "");
     var links = document.querySelectorAll(".counts a");
     for (var i = 0; i < links.length; i++) {
-      var href = links[i].getAttribute("href") || "";
-      var ok = field === "friends"
-        ? href.indexOf("#/@" + enc) === 0 && href.indexOf("tab=friends") >= 0
-        : href.indexOf("#/@" + enc + "/" + field) === 0;
-      if (!ok) continue;
+      if (countHandle(links[i].getAttribute("href") || "", field) !== want) continue;
       var bold = links[i].querySelector("b");
       if (!bold || bold.classList.contains("count-skel")) continue;
       bold.textContent = formatNum(value);
@@ -7833,6 +7863,10 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     account: function () {
       var session = readSession();
       return session && session.account ? session.account : null;
+    },
+    sessionGeneration: function () {
+      noteSession(readSession());
+      return sessionGeneration;
     },
     token: function () {
       var session = readSession();
