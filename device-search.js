@@ -86,7 +86,7 @@
     if (posts.length) indexPosts(posts, opts.feeds || []);
     if (!state.rows.length) return { complete: false, hits: null, ms: 0 };
     if (posts.length && keyOf(posts) !== state.key) return { complete: false, hits: null, ms: 0 };
-    var lq = String(q || "").trim().toLowerCase();
+    var lq = String(q || "").trim().replace(/^@+/, "").toLowerCase();
     var accounts = [];
     var feeds = opts.feeds || state.feeds || [];
     if (lq) {

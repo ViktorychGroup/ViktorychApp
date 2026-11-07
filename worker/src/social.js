@@ -535,15 +535,15 @@ async function peopleSearch(env, request, url, viewer, deps) {
   const term = peopleTerm(url.searchParams.get("q") || "");
   if (!term) return deps.json(200, { accounts: [] });
   const listed = await env.DB.prepare(
-    "SELECT a.public_id AS public_id, a.handle AS handle, a.display_name AS display_name, COALESCE(sp.searchable, 1) AS searchable FROM accounts a LEFT JOIN search_prefs sp ON sp.public_id = a.public_id WHERE a.profile_less = 0 AND a.public_id != ?3 AND (lower(a.handle) LIKE ?1 ESCAPE '\\' OR lower(a.display_name) LIKE ?1 ESCAPE '\\' OR a.public_id IN (SELECT public_id FROM display_names WHERE lower(name) LIKE ?1 ESCAPE '\\')) ORDER BY (lower(a.handle) = ?2) DESC, a.handle ASC LIMIT 40"
-  ).bind(term.like, term.core, String(viewer.public_id)).all();
+    "SELECT a.public_id AS public_id, a.handle AS handle, a.display_name AS display_name, COALESCE(sp.searchable, 1) AS searchable FROM accounts a LEFT JOIN search_prefs sp ON sp.public_id = a.public_id WHERE a.profile_less = 0 AND (lower(a.handle) LIKE ?1 ESCAPE '\\' OR lower(a.display_name) LIKE ?1 ESCAPE '\\' OR a.public_id IN (SELECT public_id FROM display_names WHERE lower(name) LIKE ?1 ESCAPE '\\')) ORDER BY (lower(a.handle) = ?2) DESC, a.handle ASC LIMIT 40"
+  ).bind(term.like, term.core).all();
   const core = term.core;
   // An exact username (any of the account's usernames, by its audience) comes first.
   const rows = ((listed && listed.results) || []).slice();
   let exactId = "";
   try {
     const exact = await resolveName(env, core, viewer.public_id);
-    exactId = exact && exact.publicId && String(exact.publicId) !== String(viewer.public_id) ? String(exact.publicId) : "";
+    exactId = exact && exact.publicId ? String(exact.publicId) : "";
   } catch (err) { exactId = ""; }
   if (exactId) {
     const at = rows.findIndex((row) => String(row.public_id) === exactId);
@@ -552,6 +552,7 @@ async function peopleSearch(env, request, url, viewer, deps) {
   }
   // "Let others find me in search" (default on). Accounts that turned it off stay
   // out for everyone but the site owner, whose sight of them is audit-logged.
+  // The signed-in account still finds itself, and that look is not logged.
   const ids = [];
   const lockedIds = await lockedAccountSet(env, viewer.public_id);
   for (const row of rows) {
@@ -563,8 +564,9 @@ async function peopleSearch(env, request, url, viewer, deps) {
     }
     if (await blocksEither(env, viewer.public_id, row.public_id)) continue;
     if (Number(row.searchable) === 0) {
-      if (!ownerSees(viewer, row.public_id)) continue;
-      await auditOwnerView(env, viewer.public_id, row.public_id, "search");
+      const self = String(row.public_id) === String(viewer.public_id);
+      if (!self && !ownerSees(viewer, row.public_id)) continue;
+      if (!self) await auditOwnerView(env, viewer.public_id, row.public_id, "search");
     }
     ids.push(row.public_id);
     if (ids.length >= 20) break;

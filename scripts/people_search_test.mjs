@@ -44,6 +44,23 @@ const SIZES = [
 
 
 const SHOTS = process.env.SHOTS_DIR || "";
+const CATALOG = {
+  updated: "2026-11-07T00:00:00.000Z",
+  feeds: [{
+    id: "instagram:orbitfox", platform: "instagram", handle: "orbitfox", name: "Orbit Fox",
+    bio: "Demo bio line", configured: true, url: "https://www.instagram.com/orbitfox/"
+  }],
+  posts: [{
+    id: "Efgh5678", statusId: "Efgh5678", platform: "instagram", feedId: "instagram:orbitfox",
+    handle: "orbitfox", author: "Orbit Fox", text: "Fresh demo photo", lang: "en",
+    date: "2026-11-07T00:00:00.000Z", url: "https://www.instagram.com/p/Efgh5678/",
+    media: [], kind: "post"
+  }]
+};
+const ACCOUNTS = [
+  { id: "app:@new_person", kind: "account", handle: "new_person", name: "New Person", avatar: "", bio: "Just joined." },
+  { id: "app:100000000001", kind: "account", handle: "user_a", name: "User A", avatar: "", bio: "" }
+];
 
 function session() {
   return `(() => {
@@ -64,10 +81,13 @@ function mock(page, log, state) {
     let body = {};
     try { body = req.postDataJSON() || {}; } catch (err) { body = {}; }
     if (url.pathname === "/v1/people" || url.pathname === "/v1/suggestions/prefs") log.push(method + " " + url.pathname + url.search + " " + JSON.stringify(body));
+    if (url.pathname === "/v1/data/feeds.json" || url.pathname.endsWith("/feeds.json")) {
+      return reply(route, 200, CATALOG);
+    }
     if (url.pathname === "/v1/people") {
       const q = (url.searchParams.get("q") || "").toLowerCase();
-      const all = [{ id: "app:@new_person", kind: "account", handle: "new_person", name: "New Person", avatar: "", bio: "Just joined." }];
-      return reply(route, 200, { accounts: all.filter((a) => a.handle.includes(q) || a.name.toLowerCase().includes(q)) });
+      if (q === "quiet_lane") return reply(route, 200, { accounts: [] });
+      return reply(route, 200, { accounts: ACCOUNTS.filter((a) => a.handle.includes(q) || a.name.toLowerCase().includes(q)) });
     }
     if (url.pathname === "/v1/suggestions/prefs" && method === "GET") return reply(route, 200, state.prefs);
     if (url.pathname === "/v1/suggestions/prefs") { Object.assign(state.prefs, body); return reply(route, 200, state.prefs); }
@@ -84,6 +104,7 @@ async function check(browser, port, size) {
   const state = { prefs: { discoverable: true, tempOptIn: false, kind: "person", ownerKind: "" } };
   page.on("pageerror", (err) => errors.push(String(err)));
   await mock(page, log, state);
+  await page.route("**/feeds.json*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CATALOG) }));
   await page.addInitScript(session());
 
   // Explore: an account this device has never seen is found on the server.
@@ -93,6 +114,26 @@ async function check(browser, port, size) {
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "people-search-" + label + ".png") });
   await page.goto("http://127.0.0.1:" + port + "/index.html#/explore?q=%40New_Person", { waitUntil: "domcontentloaded" });
   await page.waitForSelector('.gresults-list a[href="#/@new_person"]', { timeout: 20000 }).catch(() => fail(label + ": Top did not list the server account"));
+
+  for (const q of ["orbitfox", "@orbitfox"]) {
+    await page.goto("http://127.0.0.1:" + port + "/index.html#/explore?q=" + encodeURIComponent(q), { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('.gresults-list a[href="#/instagram/orbitfox"]', { timeout: 20000 }).catch(() => fail(label + ": source missing for " + q));
+    const sourceText = await page.locator(".gresults-list").innerText();
+    if (!sourceText.includes("Orbit Fox") || !sourceText.includes("@orbitfox")) fail(label + ": source row " + q);
+    if (sourceText.includes("Not This Person")) fail(label + ": invented source name");
+  }
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "source-search-" + label + ".png") });
+
+  for (const q of ["user_a", "@user_a"]) {
+    await page.goto("http://127.0.0.1:" + port + "/index.html#/explore?q=" + encodeURIComponent(q), { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('.gresults-list a[href="#/@user_a"]', { timeout: 20000 }).catch(() => fail(label + ": signed-in account missing for " + q));
+    if (!log.some((line) => line.startsWith("GET /v1/people?q=user_a"))) fail(label + ": signed-in search was not sent");
+  }
+  if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "self-search-" + label + ".png") });
+
+  await page.goto("http://127.0.0.1:" + port + "/index.html#/explore?q=" + encodeURIComponent("@quiet_lane"), { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => /Nothing matched|No accounts|No results/.test(document.body.innerText || ""), null, { timeout: 8000 }).catch(() => fail(label + ": opted-out query did not stay empty"));
+  if (await page.locator(".gresults-list a.who-main").count()) fail(label + ": an opted-out account was shown");
 
   // Privacy: the search switch is on by default and saves to the server.
   await page.goto("http://127.0.0.1:" + port + "/index.html#/settings/privacy", { waitUntil: "domcontentloaded" });
