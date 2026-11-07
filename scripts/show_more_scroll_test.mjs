@@ -72,14 +72,83 @@ function topOf(page) {
   }, TARGET);
 }
 
+function controlBox(page) {
+  return page.evaluate((id) => {
+    const btn = document.querySelector('article[data-post="' + id + '"] button.show-more');
+    const box = btn.getBoundingClientRect();
+    return {
+      top: box.top,
+      bottom: box.bottom,
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
+      vh: window.innerHeight,
+      expanded: btn.getAttribute("aria-expanded"),
+      inView: box.top >= 8 && box.bottom <= window.innerHeight - 8
+    };
+  }, TARGET);
+}
+
+async function expandInPlace(page) {
+  await page.evaluate((id) => {
+    const btn = document.querySelector('article[data-post="' + id + '"] button.show-more[aria-expanded="false"]');
+    btn.focus({ preventScroll: true });
+  }, TARGET);
+  await page.keyboard.press("Enter");
+  await page.locator('article[data-post="' + TARGET + '"] button.show-more[aria-expanded="true"]').waitFor({ timeout: 10000 });
+  await page.waitForTimeout(200);
+}
+
+async function pushOffscreen(page, label) {
+  const before = await topOf(page);
+  await page.evaluate((id) => {
+    const post = document.querySelector('article[data-post="' + id + '"]');
+    const btn = post.querySelector('button.show-more[aria-expanded="true"]');
+    const block = document.createElement("div");
+    const box = btn.getBoundingClientRect();
+    block.style.height = Math.max(120, window.innerHeight - box.top + 40) + "px";
+    btn.parentNode.insertBefore(block, btn);
+  }, TARGET);
+  await page.waitForTimeout(200);
+  const after = await topOf(page);
+  if (Math.abs(after - before) > 28) fail(label + " a late resize moved the post from " + before + " to " + after);
+  const box = await controlBox(page);
+  if (box.inView) fail(label + " Show less stayed on screen");
+  return after;
+}
+
+async function userScroll(page, delta, touch) {
+  if (!delta) return;
+  if (touch) {
+    await page.evaluate((distance) => {
+      window.dispatchEvent(new Event("touchstart"));
+      window.scrollBy(0, distance);
+    }, delta);
+  } else {
+    await page.mouse.move(200, 420);
+    await page.evaluate((distance) => {
+      window.dispatchEvent(new WheelEvent("wheel", { deltaY: distance, bubbles: true, cancelable: true }));
+      window.scrollBy(0, distance);
+    }, delta);
+  }
+  await page.waitForTimeout(50);
+}
+
+async function bringControlOnScreen(page, label, touch) {
+  const box = await controlBox(page);
+  await userScroll(page, Math.round(box.top - (box.vh - 120)), touch);
+  const seen = await controlBox(page);
+  if (!seen.inView) fail(label + " the scroll left Show less off screen " + JSON.stringify(seen));
+  return topOf(page);
+}
+
 async function main() {
   const chromium = await loadPlaywright();
   const server = await startServer();
   const browser = await chromium.launch({ headless: true, channel: "chrome" });
   try {
     const port = server.address().port;
-    for (const size of [{ name: "phone", width: 390, height: 844 }, { name: "desktop", width: 1280, height: 800 }]) {
-      const context = await browser.newContext({ viewport: size, serviceWorkers: "block" });
+    for (const size of [{ name: "phone", width: 390, height: 844, touch: true }, { name: "desktop", width: 1280, height: 800, touch: false }]) {
+      const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, hasTouch: size.touch, serviceWorkers: "block" });
       const page = await context.newPage();
       await page.addInitScript(() => {
         localStorage.setItem("superintelapp-lang", "en");
@@ -107,10 +176,13 @@ async function main() {
         fail(size.name + " feed ids " + ids.join(","));
       });
       const card = page.locator('article[data-post="' + TARGET + '"]');
-      await page.evaluate((id) => {
+      await page.waitForFunction((id) => {
         const el = document.querySelector('article[data-post="' + id + '"]');
-        window.scrollBy(0, el.getBoundingClientRect().top - 160);
-      }, TARGET);
+        if (!el) return false;
+        const top = el.getBoundingClientRect().top;
+        if (Math.abs(top - 160) > 30) window.scrollBy(0, top - 160);
+        return Math.abs(el.getBoundingClientRect().top - 160) <= 30;
+      }, TARGET, { timeout: 5000 });
       await page.waitForTimeout(100);
       await page.evaluate((id) => {
         const btn = document.querySelector('article[data-post="' + id + '"] button.show-more[data-act="more"]');
@@ -128,20 +200,40 @@ async function main() {
         return !!(el && post && post.contains(el));
       }, TARGET);
       if (!focusInside) fail(size.name + " focus left the opened post");
+      await pushOffscreen(page, size.name);
       await page.evaluate((id) => {
-        const main = document.querySelector('article[data-post="' + id + '"] .post-main');
-        const block = document.createElement("div");
-        block.style.height = "480px";
-        main.appendChild(block);
+        const btn = document.querySelector('article[data-post="' + id + '"] button.show-more[aria-expanded="true"]');
+        btn.focus({ preventScroll: true });
       }, TARGET);
-      await page.waitForTimeout(200);
-      const afterMedia = await topOf(page);
-      if (Math.abs(afterMedia - before) > 28) fail(size.name + " a late resize moved the post from " + before + " to " + afterMedia);
-      await card.locator('button.show-more[aria-expanded="true"]').click();
+      await page.keyboard.press("Enter");
       await card.locator('button.show-more[aria-expanded="false"]').waitFor({ timeout: 10000 });
       await page.waitForTimeout(200);
       const closed = await topOf(page);
       if (Math.abs(closed - before) > 28) fail(size.name + " collapse moved the post from " + before + " to " + closed);
+
+      await expandInPlace(page);
+      await pushOffscreen(page, size.name + " pointer");
+      const pointerBase = await bringControlOnScreen(page, size.name + " pointer", false);
+      const pointerBox = await controlBox(page);
+      if (!pointerBox.inView) fail(size.name + " pointer click started off screen");
+      await page.mouse.click(pointerBox.x, pointerBox.y);
+      await card.locator('button.show-more[aria-expanded="false"]').waitFor({ timeout: 10000 });
+      await page.waitForTimeout(200);
+      const pointerClosed = await topOf(page);
+      if (Math.abs(pointerClosed - pointerBase) > 28) fail(size.name + " pointer collapse moved the post from " + pointerBase + " to " + pointerClosed);
+
+      if (size.touch) {
+        await expandInPlace(page);
+        await pushOffscreen(page, size.name + " tap");
+        const tapBase = await bringControlOnScreen(page, size.name + " tap", true);
+        const tapBox = await controlBox(page);
+        if (!tapBox.inView) fail(size.name + " tap started off screen");
+        await page.touchscreen.tap(tapBox.x, tapBox.y);
+        await card.locator('button.show-more[aria-expanded="false"]').waitFor({ timeout: 10000 });
+        await page.waitForTimeout(200);
+        const tapClosed = await topOf(page);
+        if (Math.abs(tapClosed - tapBase) > 28) fail(size.name + " tap collapse moved the post from " + tapBase + " to " + tapClosed);
+      }
       await context.close();
     }
     console.log("show more scroll ok");
