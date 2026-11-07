@@ -47,6 +47,7 @@
   }
   function nativeDraws(seq) {
     try {
+    if (typeof root.__viktorychEmojiMiss === "function" && root.__viktorychEmojiMiss(seq)) return false;
     if (saveData() || !measure()) return true;
     var full = widthOf(seq);
     if (!full) return true;
@@ -84,8 +85,12 @@
   }
   function wrap(seq, alreadyEscaped) {
     var body = alreadyEscaped ? seq : esc(seq);
-    if (!complex(seq)) return body;
     if (cache.get(seq) === "ok") return body;
+    if (!complex(seq)) {
+      if (!measure() && cache.get(seq) !== "fb") return body;
+      if (cache.get(seq) !== "fb" && allow(seq)) return body;
+      return '<span class="emo fb">' + body + "</span>";
+    }
     var fb = cache.get(seq) === "fb" ? " fb" : "";
     if (!fb) queue();
     return '<span class="emo' + fb + '">' + body + "</span>";
@@ -108,17 +113,82 @@
     out += alreadyEscaped ? rest : esc(rest);
     return out;
   }
+  /* Tags, comments and attribute values stay byte for byte. Only the text
+     between tags is scanned, so an emoji inside href or title is not a span. */
+  function markScan(html) {
+    var src = String(html || "");
+    var out = "";
+    var i = 0;
+    var n = src.length;
+    while (i < n) {
+      if (src.charAt(i) !== "<") {
+        var next = src.indexOf("<", i);
+        if (next < 0) next = n;
+        out += walk(src.slice(i, next), true);
+        i = next;
+        continue;
+      }
+      if (src.slice(i, i + 4) === "<!--") {
+        var comment = src.indexOf("-->", i + 4);
+        if (comment < 0) { out += src.slice(i); break; }
+        out += src.slice(i, comment + 3);
+        i = comment + 3;
+        continue;
+      }
+      var j = i + 1;
+      var quote = "";
+      while (j < n) {
+        var ch = src.charAt(j);
+        if (quote) {
+          if (ch === quote) quote = "";
+        } else if (ch === "\"" || ch === "'") quote = ch;
+        else if (ch === ">") { j += 1; break; }
+        j += 1;
+      }
+      out += src.slice(i, j);
+      i = j;
+    }
+    return out;
+  }
+  function markDom(html) {
+    var doc = root.document.implementation.createHTMLDocument("");
+    var box = doc.createElement("div");
+    box.innerHTML = String(html || "");
+    var nodes = [];
+    var stack = [box];
+    while (stack.length) {
+      var node = stack.pop();
+      var kids = node.childNodes;
+      for (var c = kids.length - 1; c >= 0; c--) stack.push(kids[c]);
+      if (node.nodeType === 3) nodes.push(node);
+    }
+    nodes.forEach(function (child) {
+      var parent = child.parentNode;
+      if (!parent || (parent.closest && parent.closest(".emo"))) return;
+      var tag = parent.tagName;
+      if (tag === "SCRIPT" || tag === "STYLE") return;
+      var raw = child.nodeValue || "";
+      if (!raw) return;
+      var next = walk(raw, false);
+      if (next.indexOf("<span") < 0) return;
+      var tpl = doc.createElement("template");
+      tpl.innerHTML = next;
+      parent.replaceChild(tpl.content, child);
+    });
+    return box.innerHTML;
+  }
   function settle() {
     if (!root.document) return;
     var nodes = root.document.querySelectorAll(".emo:not([data-emo])");
-    for (var i = 0; i < nodes.length; i++) {
+    var budget = Math.min(nodes.length, 80);
+    for (var i = 0; i < budget; i++) {
       var node = nodes[i];
       var seq = node.textContent || "";
-      if (!complex(seq)) { node.setAttribute("data-emo", "ok"); continue; }
       var ok = allow(seq);
       node.setAttribute("data-emo", ok ? "ok" : "fb");
       if (!ok) node.classList.add("fb");
     }
+    if (nodes.length > budget) queue();
   }
   function queue() {
     if (queued || !root.document) return;
@@ -127,9 +197,37 @@
     if (typeof root.requestAnimationFrame === "function") root.requestAnimationFrame(run);
     else root.setTimeout(run, 0);
   }
+  function units(text) {
+    var src = String(text || "");
+    if (!SEQ) return Array.from(src);
+    SEQ.lastIndex = 0;
+    var out = [];
+    var last = 0;
+    var match;
+    while ((match = SEQ.exec(src))) {
+      if (!match[0]) break;
+      out.push.apply(out, Array.from(src.slice(last, match.index)));
+      out.push(match[0]);
+      last = match.index + match[0].length;
+    }
+    out.push.apply(out, Array.from(src.slice(last)));
+    return out;
+  }
   root.ViktorychEmoji = {
     text: function (value) { return walk(value, false); },
-    mark: function (html) { return walk(html, true); },
+    mark: function (html) {
+      if (root.document && root.document.implementation && root.document.implementation.createHTMLDocument) {
+        try { return markDom(html); } catch (err) { return markScan(html); }
+      }
+      return markScan(html);
+    },
+    clip: function (value, max) {
+      var text = String(value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim();
+      var cap = Math.max(0, Number(max) || 0);
+      var parts = units(text);
+      return parts.length > cap ? parts.slice(0, cap).join("") : text;
+    },
+    units: units,
     queue: queue,
     settle: settle,
     nativeDraws: nativeDraws,

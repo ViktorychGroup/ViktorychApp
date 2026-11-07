@@ -8,6 +8,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FONT = "https://cdn.jsdelivr.net/npm/@fontsource/noto-color-emoji@5.2.8/files/noto-color-emoji-emoji-400-normal.woff2";
+const TEST_FONT = "AAEAAAAKAIAAAwAgT1MvMkD2RrsAAAEoAAAAYGNtYXAAHvWhAAABkAAAAFBnbHlmJ1M9lAAAAegAAAAYaGVhZDUQLfoAAACsAAAANmhoZWEK8gibAAAA5AAAACRobXR4CvAAAAAAAYgAAAAIbG9jYQAMAAAAAAHgAAAABm1heHAABAAGAAABCAAAACBuYW1lDgRw3gAAAgAAAAB4cG9zdGZnd9wAAAJ4AAAALAABAAAAAQAAVetplV8PPPUAAwPoAAAAAOcU9P0AAAAA5xT0/QAAAAAH0AMgAAAAAwACAAAAAAAAAAEAAAMg/zgAAAiYAAAAyAfQAAEAAAAAAAAAAAAAAAAAAAACAAEAAAACAAQAAQAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAwV4AZAABQAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAPz8/PwAA/////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAACWAAACJgAAAAAAAMAAAADAAAAHAADAAEAAAAcAAMACgAAADQABAAYAAAAAgACAAAAAP//AAD//wABAAAADAAAAAAAHAAAAAAAAAABAAH6dwAB+ncAAAABAAAAAAAMAAAAAQAAAAAH0AMgAAMAADERIREH0AMg/OAAAAAEADYAAQAAAAAAAQAPAAAAAQAAAAAAAgAHAA8AAwABBAkAAQAeABYAAwABBAkAAgAOADRWaWt0b3J5Y2ggRW1vamlSZWd1bGFyAFYAaQBrAHQAbwByAHkAYwBoACAARQBtAG8AagBpAFIAZQBnAHUAbABhAHIAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAABAgVoZWFydA==";
 function fail(message) { console.error(message); process.exitCode = 1; throw new Error(message); }
 
 const sandbox = { console };
@@ -32,6 +33,18 @@ const span = html.match(/<span class="emo">([^<]+)<\/span>/);
 if (!span || span[1] !== family) fail("the family is not one run " + html);
 if (api.mark("<b>" + family + "</b>").indexOf("<b><span class=\"emo\">" + family + "</span></b>") < 0) fail("a tag was rewritten");
 if (api.mark("a &amp; " + flag).indexOf("&amp;amp;") >= 0) fail("escaped text was escaped again");
+const hostile = '<a title="😀" href="https://example.com/😀?x=1">hi ' + family + '</a><a title="foo>😀" href="https://example.com/ok">z</a><img alt="😀" src="https://example.com/a.png">';
+const kept = api.mark(hostile);
+if (kept.indexOf('href="https://example.com/😀?x=1"') < 0) fail("href gained a span " + kept);
+if (kept.indexOf('title="😀"') < 0 || kept.indexOf('title="foo>😀"') < 0) fail("title gained a span " + kept);
+if (kept.indexOf('alt="😀"') < 0) fail("alt gained a span " + kept);
+if (kept.indexOf('title="<span') >= 0 || kept.indexOf('href="<span') >= 0 || kept.indexOf('alt="<span') >= 0) fail("attribute was rewritten " + kept);
+const { clipEmoji } = await import("../shared/presence.js");
+const savedSeg = Object.getOwnPropertyDescriptor(Intl, "Segmenter");
+Object.defineProperty(Intl, "Segmenter", { value: undefined, configurable: true });
+const clipped = clipEmoji(family + "ABCDEFGH", 2);
+if (savedSeg) Object.defineProperty(Intl, "Segmenter", savedSeg);
+if (clipped !== family + "A") fail("a missing Segmenter split the family " + clipped);
 console.log("emoji text ok");
 
 async function loadPlaywright() {
@@ -102,6 +115,32 @@ async function main() {
       if (read.html >= 0) fail(size.name + " kept a raw tag");
       const box = await page.locator("#post .emo").first().boundingBox();
       if (!box || box.width < 4 || box.height < 4) fail(size.name + " emoji run has no box");
+      const rich = '<a title="😀" href="https://example.com/😀?x=1">hi ' + family + '</a><a title="foo>😀" href="https://example.com/ok">z</a>';
+      const attrs = await page.evaluate((sample) => {
+        const html = window.ViktorychEmoji.mark(sample);
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const links = [...doc.querySelectorAll("a")];
+        return {
+          href: links[0] && links[0].getAttribute("href"),
+          title: links[0] && links[0].getAttribute("title"),
+          title2: links[1] && links[1].getAttribute("title"),
+          text: links[0] ? links[0].textContent : ""
+        };
+      }, rich);
+      if (attrs.href !== "https://example.com/😀?x=1" || attrs.title !== "😀" || attrs.title2 !== "foo>😀") fail(size.name + " rich link changed " + JSON.stringify(attrs));
+      if (attrs.text.indexOf(family) < 0) fail(size.name + " rich text lost the family");
+      await page.setContent(`<!doctype html><meta charset="utf-8"><style>
+        .emo.fb { font-family: "Viktorych Emoji", sans-serif; font-size: 32px; }
+        @font-face { font-family: "Viktorych Emoji"; src: url(data:font/ttf;base64,${TEST_FONT}) format("truetype"); unicode-range: U+1FA77; }
+      </style><script src="http://127.0.0.1:${port}/emoji.js"></script><body><div id="slot"></div></body>`, { waitUntil: "domcontentloaded" });
+      await page.evaluate((pink) => {
+        window.__viktorychEmojiMiss = function (seq) { return seq === pink; };
+        document.getElementById("slot").innerHTML = window.ViktorychEmoji.text(pink);
+        window.ViktorychEmoji.settle();
+      }, newer);
+      await page.evaluate(() => document.fonts.load('32px "Viktorych Emoji"'));
+      const drawn = await page.locator("#slot .emo.fb").evaluate((el) => el.getBoundingClientRect().width);
+      if (!(drawn > 40)) fail(size.name + " fallback face did not draw the simple emoji " + drawn);
       await context.close();
     }
     console.log("emoji display ok");

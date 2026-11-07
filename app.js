@@ -19348,8 +19348,9 @@ const here = parseRoute();
       if (!id || sectionIds.has(id)) return;
       sectionIds.add(id);
       const name = String(section.name || "").replace(/[\u0000-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim().slice(0, 40) || tr("Folder name");
-      const emoji = String(section.emoji || "").replace(/[\u0000-\u001F\u007F]/g, "").trim();
-      const emojiChars = Array.from(emoji).slice(0, 32).join("");
+      const emojiChars = window.ViktorychEmoji && window.ViktorychEmoji.clip
+        ? window.ViktorychEmoji.clip(section.emoji, 8)
+        : String(section.emoji || "").replace(/[\u0000-\u001F\u007F]/g, "").trim();
       const items = [];
       (Array.isArray(section.items) ? section.items : []).forEach((item) => {
         if (DRAWER_IDS.indexOf(item) < 0 || items.indexOf(item) >= 0) return;
@@ -33950,7 +33951,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         const menu = getDrawerMenu();
         const section = (menu.sections || []).find((item) => item.id === el.dataset.sectionId);
         if (!section) return;
-        if (el.classList.contains("drawer-section-emoji")) section.emoji = Array.from(String(el.value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim()).slice(0, 32).join("");
+        if (el.classList.contains("drawer-section-emoji")) section.emoji = window.ViktorychEmoji && window.ViktorychEmoji.clip
+          ? window.ViktorychEmoji.clip(el.value, 8)
+          : String(el.value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim();
         else section.name = String(el.value || "").replace(/\s+/g, " ").trim().slice(0, 40) || tr("Folder name");
         saveDrawerMenu(menu);
         return;
