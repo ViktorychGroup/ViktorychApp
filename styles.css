@@ -1634,9 +1634,23 @@ img[data-ia-wait] { visibility: hidden; }
 }
 .menu button:hover, .menu a:hover { background: var(--hover); }
 .post { position: relative; }
-.post:has(.menu) {
+/* The open card has to sit above the sticky header (5) and the phone bar (20)
+   so its menu is the thing under the pointer. The tab sheet stays at 35. */
+.post.menu-open,
+.post:has(.menu),
+.status:has(.menu.post-menu) {
   content-visibility: visible;
-  z-index: 6;
+  position: relative;
+  z-index: 30;
+}
+.menu.post-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  z-index: 1;
+  max-height: min(70vh, 480px);
+  overflow: auto;
 }
 
 .side-search { position: sticky; top: 0; background: var(--topbar); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: calc(6px + var(--sat, env(safe-area-inset-top, 0px))) 0 12px; z-index: 4; }
