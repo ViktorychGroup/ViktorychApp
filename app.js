@@ -3109,16 +3109,26 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
      tone is not cut in half. */
   function clipPreview(text, maxUnits) {
     const src = String(text || "");
-    if (src.length <= maxUnits) return src;
-    if (typeof Intl !== "undefined" && Intl.Segmenter) {
-      let out = "";
-      for (const part of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(src)) {
-        if (out.length + part.segment.length > maxUnits) break;
-        out += part.segment;
-      }
-      if (out) return out;
+    const budget = Number(maxUnits) || 0;
+    if (budget <= 0) return "";
+    if (src.length <= budget) return src;
+    let parts = null;
+    if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+      try {
+        parts = [];
+        for (const row of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(src)) parts.push(row.segment);
+      } catch (err) { parts = null; }
     }
-    return Array.from(src).slice(0, maxUnits).join("");
+    if (!parts && window.ViktorychEmoji && typeof window.ViktorychEmoji.units === "function") {
+      try { parts = window.ViktorychEmoji.units(src); } catch (err) { parts = null; }
+    }
+    if (!parts) return Array.from(src).slice(0, budget).join("");
+    let out = "";
+    for (let i = 0; i < parts.length; i++) {
+      if (out.length + parts[i].length > budget) break;
+      out += parts[i];
+    }
+    return out;
   }
 
   function textHtml(post, key, full) {

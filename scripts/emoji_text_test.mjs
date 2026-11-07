@@ -60,7 +60,7 @@ function startServer() {
     if (!file.startsWith(root + path.sep) && file !== path.join(root, "emoji.js")) { res.writeHead(403); res.end(); return; }
     fs.readFile(file, (err, data) => {
       if (err) { res.writeHead(404); res.end(); return; }
-      const type = file.endsWith(".css") ? "text/css" : "text/javascript";
+      const type = file.endsWith(".css") ? "text/css" : file.endsWith(".html") ? "text/html" : "text/javascript";
       res.writeHead(200, { "content-type": type + "; charset=utf-8", "cache-control": "no-store" });
       res.end(data);
     });
@@ -143,6 +143,47 @@ async function main() {
       if (!(drawn > 40)) fail(size.name + " fallback face did not draw the simple emoji " + drawn);
       await context.close();
     }
+    const lead = "A".repeat(278);
+    const previewText = lead + family + " trailing words after the joined family";
+    const fixture = JSON.stringify({
+      updated: new Date().toISOString(),
+      feeds: [{ id: "rss:lane0", platform: "rss", handle: "lane0", name: "Lane Zero", title: "Lane Zero", avatar: "", bio: "", url: "https://example.com/lane0", configured: true }],
+      posts: [{
+        id: "preview1", statusId: "preview1", platform: "rss", feedId: "rss:lane0", kind: "post",
+        author: "Lane Zero", handle: "lane0", text: previewText, lang: "en", links: [],
+        date: new Date().toISOString(), url: "https://example.com/preview1",
+        media: [], images: [], repostedBy: null, replyingTo: null, quoted: null,
+        stats: { replies: 0, reposts: 0, likes: 0, views: 0 }
+      }]
+    });
+    const preview = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
+    await preview.addInitScript(() => {
+      try { Object.defineProperty(Intl, "Segmenter", { value: undefined, configurable: true }); } catch (err) { /* the page check reports this */ }
+      localStorage.setItem("viktorychapp-welcome-v1", JSON.stringify({ step: 2, done: true }));
+      localStorage.setItem("viktorychapp-lang-user-picked", "1");
+      localStorage.setItem("superintelapp-lang", "en");
+      localStorage.setItem("viktorychapp-account-v1", JSON.stringify({
+        token: "tok",
+        account: { publicId: "111122223333", handle: "user_a", displayName: "User A", repostsLoaded: true }
+      }));
+    });
+    const card = await preview.newPage();
+    await card.route("**/*", (route) => {
+      const url = route.request().url();
+      if (url.indexOf("feeds.json") >= 0) return route.fulfill({ status: 200, contentType: "application/json", body: fixture });
+      if (url.startsWith("http://127.0.0.1:" + port + "/")) return route.continue();
+      return route.abort();
+    });
+    await card.goto("http://127.0.0.1:" + port + "/index.html#/home", { waitUntil: "domcontentloaded" });
+    const seg = await card.evaluate(() => typeof Intl.Segmenter);
+    if (seg !== "undefined") fail("Segmenter was still available for the preview " + seg);
+    await card.waitForFunction(() => document.querySelector('article[data-post="preview1"]'), null, { timeout: 20000 });
+    const shown = await card.evaluate(() => document.querySelector('article[data-post="preview1"]').innerText);
+    const split = Array.from(previewText).slice(0, 280).join("");
+    if (shown.indexOf(lead) < 0) fail("preview lost the letters before the family");
+    if (shown.indexOf(family) >= 0 || shown.indexOf("\u200D") >= 0 || shown.indexOf("👨") >= 0) fail("preview split or kept the family " + JSON.stringify(shown.slice(260, 340)));
+    if (shown.indexOf(split) >= 0) fail("preview used a code point slice");
+    await preview.close();
     console.log("emoji display ok");
   } finally {
     await browser.close();
