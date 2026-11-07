@@ -5270,6 +5270,9 @@ function signupPayload() {
       var node = null;
       rows.forEach(function (row) { if (row.getAttribute("data-ptab-id") === profileTabDrag.id) node = row; });
       if (!node) return;
+      var edge = profileTabDrag.list.getBoundingClientRect();
+      if (event.clientX <= edge.left + 24) profileTabDrag.list.scrollLeft = Math.max(0, profileTabDrag.list.scrollLeft - 48);
+      else if (event.clientX >= edge.right - 24) profileTabDrag.list.scrollLeft += 48;
       var target = null;
       rows.forEach(function (row) {
         if (row === node) return;
