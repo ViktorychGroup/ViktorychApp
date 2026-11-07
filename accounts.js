@@ -4445,6 +4445,9 @@ function signupPayload() {
   function releaseFollow(id) {
     if (id) followInflight[id] = false;
   }
+  function clearFollowPending(id) {
+    if (id && graphCounts[id]) graphCounts[id].pending = false;
+  }
   function previewFollow(id, follow) {
     if (!id) return;
     graphCounts[id] = graphCounts[id] || {};
@@ -4503,7 +4506,7 @@ function signupPayload() {
     }
     var optimisticFollowers = graphCounts[id].followers;
     var optimisticFollowing = hadMine ? graphCounts[me].following : null;
-    if (follow) graphCounts[id].pending = false;
+    graphCounts[id].pending = false;
     dirtyLists();
     var body = { id: id };
     if (profile && typeof profile === "object") body.profile = profile;
@@ -4513,6 +4516,7 @@ function signupPayload() {
       if (!res || res.status !== 200) {
         if (!skipCounts) rollbackCounts(id, me, hadTarget, prevTarget, hadMine, prevMine);
         else if (opts.replay) previewFollow(id, !follow);
+        if (!follow && wasPending) graphCounts[id].pending = true;
         if (window.ViktorychAccounts && window.ViktorychAccounts.toast) window.ViktorychAccounts.toast(followErrorText(res));
         if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
         return false;
@@ -4561,6 +4565,7 @@ function signupPayload() {
       if (epoch !== followEpoch) return false;
       if (!skipCounts) rollbackCounts(id, me, hadTarget, prevTarget, hadMine, prevMine);
       else if (opts.replay) previewFollow(id, !follow);
+      if (!follow && wasPending) graphCounts[id].pending = true;
       if (window.ViktorychAccounts && window.ViktorychAccounts.toast) window.ViktorychAccounts.toast(tr("Couldn’t update that follow. Try again."));
       if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       return false;
@@ -4778,6 +4783,25 @@ function signupPayload() {
     return Promise.resolve();
   }
 
+  function paintStat(handle, field, value) {
+    if (!handle || value == null || typeof document === "undefined") return;
+    var enc = encodeURIComponent(String(handle).replace(/^@/, ""));
+    var links = document.querySelectorAll(".counts a");
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].getAttribute("href") || "";
+      var ok = field === "friends"
+        ? href.indexOf("#/@" + enc) === 0 && href.indexOf("tab=friends") >= 0
+        : href.indexOf("#/@" + enc + "/" + field) === 0;
+      if (!ok) continue;
+      var bold = links[i].querySelector("b");
+      if (!bold || bold.classList.contains("count-skel")) continue;
+      bold.textContent = formatNum(value);
+    }
+  }
+  function paintFriendCounts(handle, idKey, meHandle, meKey) {
+    paintStat(handle, "friends", graphCounts[idKey] && graphCounts[idKey].friends);
+    paintStat(meHandle, "friends", graphCounts[meKey] && graphCounts[meKey].friends);
+  }
   function friendsSurfaceOpen() {
     return !!(document.querySelector(".friends-grid, .friends-pills, [data-friend-sub]"));
   }
@@ -4850,6 +4874,7 @@ function signupPayload() {
     }
 
     saveFriendReqs();
+    paintFriendCounts(reqHandle, idKey, session.account && session.account.handle, meKey);
     if (!paintFriendButtons(idKey, reqHandle) && window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
 
     var ep = "/v1/friends/" + action;
@@ -4882,6 +4907,7 @@ function signupPayload() {
       if (agreed) graphCounts[idKey].friendStatus = agreed;
       var friendCountDrift = res.friendsCount != null && graphCounts[meKey] && res.friendsCount !== graphCounts[meKey].friends;
       if (res.friendsCount != null && graphCounts[meKey]) graphCounts[meKey].friends = res.friendsCount;
+      paintFriendCounts(reqHandle, idKey, session.account && session.account.handle, meKey);
       if (friendsSurfaceOpen()) refreshFriends();
       else {
         friendsCache = {};
@@ -7773,6 +7799,7 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     changeFollow: changeFollow,
     pressFollow: pressFollow,
     releaseFollow: releaseFollow,
+    clearFollowPending: clearFollowPending,
     previewFollow: previewFollow,
     followControlHtml: followControlHtml,
     graphListHtml: graphListHtml,

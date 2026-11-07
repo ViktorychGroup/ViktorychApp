@@ -1850,8 +1850,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         queueOffline({ type: "follow", id: item, on: !!on, snapshot: followSnapshot(item) });
         if (accounts && accounts.releaseFollow) accounts.releaseFollow(item);
       });
+      if (!on && accounts && accounts.clearFollowPending) ready.forEach((item) => accounts.clearFollowPending(item));
       if (unfollowHidesVisiblePosts(ready, on)) render();
-      else paintFollowButtons(ready, on);
+      else paintFollowButtons(ready);
       return;
     }
     if (accounts && accounts.changeFollow) {
@@ -1870,23 +1871,22 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         if (accounts.syncFollows) accounts.syncFollows();
       });
     } else ready.forEach((item) => { if (accounts && accounts.releaseFollow) accounts.releaseFollow(item); });
+    if (!on && accounts && accounts.clearFollowPending) ready.forEach((item) => accounts.clearFollowPending(item));
     if (unfollowHidesVisiblePosts(ready, on)) render();
-    else paintFollowButtons(ready, on);
+    else paintFollowButtons(ready);
   }
-  function paintFollowButtons(ids, on) {
+  function paintFollowButtons(ids) {
     const want = {};
     (ids || []).forEach((id) => { want[String(id)] = true; });
-    const buttons = document.querySelectorAll('button[data-act="follow"]');
-    for (let i = 0; i < buttons.length; i++) {
-      const btn = buttons[i];
+    const buttons = Array.prototype.slice.call(document.querySelectorAll('button[data-act="follow"]'));
+    buttons.forEach((btn) => {
+      if (!btn.isConnected) return;
       const id = btn.dataset.id || "";
-      const many = String(btn.dataset.ids || "").split(",").map((part) => part.trim());
-      if (!want[id] && !many.some((item) => want[item])) continue;
-      btn.classList.toggle("following", !!on);
-      btn.classList.remove("pending");
-      btn.setAttribute("aria-pressed", on ? "true" : "false");
-      btn.removeAttribute("aria-busy");
-    }
+      const many = String(btn.dataset.ids || "").split(",").map((part) => part.trim()).filter(Boolean);
+      if (!want[id] && !many.some((item) => want[item])) return;
+      const html = followButtonClean(id || many[0], btn.classList.contains("lg"));
+      if (html) btn.outerHTML = html;
+    });
   }
   function unfollowHidesVisiblePosts(ids, on) {
     if (on) return false;
@@ -12894,14 +12894,45 @@ const here = parseRoute();
   const ownSent = {};
   const localPostPreview = {};
   function revokePostPreview(id) {
-    const list = localPostPreview[id];
-    if (!list) return;
-    list.forEach((item) => {
-      if (item && item.local && item.url) {
+    const bag = localPostPreview[id];
+    if (!bag) return;
+    (bag.urls || []).forEach((item) => {
+      if (item && item.url && String(item.url).indexOf("blob:") === 0) {
         try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ }
       }
     });
     delete localPostPreview[id];
+  }
+  function previewOnScreen(id) {
+    if (typeof document === "undefined") return false;
+    const safe = String(id || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    try { return !!document.querySelector('article[data-post="' + safe + '"] [data-local-preview]'); }
+    catch (err) { return false; }
+  }
+  function reconcilePostPreviews() {
+    const now = Date.now();
+    const mine = signedAccount();
+    const owner = mine ? String(mine.publicId || "") : "";
+    Object.keys(localPostPreview).forEach((id) => {
+      const bag = localPostPreview[id];
+      if (!bag) return;
+      const foreign = bag.ownerId !== owner;
+      const expired = now - (bag.at || 0) > 600000;
+      if (!foreign && !expired) return;
+      if (previewOnScreen(id)) return;
+      revokePostPreview(id);
+    });
+  }
+  function holdPostPreview(id, urls) {
+    if (!id || !urls || !urls.length) return;
+    const mine = signedAccount();
+    localPostPreview[id] = { urls: urls, at: Date.now(), ownerId: mine ? String(mine.publicId || "") : "" };
+  }
+  function displayMediaItems(item) {
+    const mine = signedAccount();
+    const bag = item && localPostPreview[item.id];
+    if (bag && mine && bag.ownerId === String(mine.publicId || "") && bag.urls && bag.urls.length) return bag.urls;
+    return (item && item.media) || [];
   }
   function rememberOwnPost(post) {
     if (!post || !post.id) return;
@@ -12934,11 +12965,6 @@ const here = parseRoute();
     Object.keys(ownSent).forEach((id) => {
       const entry = ownSent[id];
       if (ids.has(id) || now - entry.at > 600000) {
-        if (now - entry.at > 600000) revokePostPreview(id);
-        else if (ids.has(id) && localPostPreview[id]) {
-          const kept = next.find((item) => item && item.id === id);
-          if (kept && !(kept.media && kept.media[0] && kept.media[0].local)) kept.media = localPostPreview[id];
-        }
         delete ownSent[id];
         return;
       }
@@ -12948,6 +12974,7 @@ const here = parseRoute();
     Object.keys(ownSent).forEach((id) => {
       if (String(id).indexOf("tmp-") === 0) next.unshift(ownSent[id].post);
     });
+    reconcilePostPreviews();
     return next.sort((a, b) => (Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
   }
   function optimisticOwnPost(text, parentId, quoteId, extParent, media) {
@@ -12960,7 +12987,7 @@ const here = parseRoute();
       alt: item.alt || "",
       local: true
     }));
-    if (previews.length) localPostPreview[id] = previews;
+    if (previews.length) holdPostPreview(id, previews);
     rememberOwnPost({
       id: id, body: String(text || ""), parentId: parentId || "", quoteId: quoteId || "", createdAt: Date.now(),
       authorId: String(mine.publicId), authorHandle: String(mine.handle || ""), authorName: String(mine.displayName || mine.handle || ""),
@@ -13203,6 +13230,11 @@ const here = parseRoute();
       return;
     }
     if (!navigator.onLine || !token || !root) {
+      posts.forEach((part) => (part.media || []).forEach((item) => {
+        if (item && item.url && String(item.url).indexOf("blob:") === 0) {
+          try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ }
+        }
+      }));
       const text = posts.map((part) => part.text).filter(Boolean).join("\n\n");
       if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
       if (!navigator.onLine && text) queueOffline({ type: "reply", id: "compose", on: true, body: text });
@@ -13225,15 +13257,12 @@ const here = parseRoute();
       const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null, part.media);
       if (tempId) render();
       const done = (res) => {
-        const previews = tempId ? localPostPreview[tempId] : null;
+        const previews = tempId && localPostPreview[tempId] ? localPostPreview[tempId].urls : null;
         if (tempId) delete localPostPreview[tempId];
         if (tempId) forgetOwnPost(tempId);
         if (res && res.status === 201 && res.post) {
           if (!(res.scheduled || part.scheduleAt) && res.post.id) {
-            if (previews && previews.length) {
-              localPostPreview[res.post.id] = previews;
-              res.post.media = previews;
-            }
+            if (previews && previews.length) holdPostPreview(res.post.id, previews);
             rememberOwnPost(res.post);
             nostrMirror(res.post, index === 0 ? payload.extParent : null);
             if (!firstSent) firstSent = res.post;
@@ -13532,7 +13561,7 @@ const here = parseRoute();
     const created = Number(item.createdAt) || 0;
     const date = new Date(created || Date.now()).toISOString();
     const community = item.community && item.community.name ? { name: String(item.community.name), rootId: String(item.community.rootId || item.id || "") } : null;
-    const media = (item.media || []).map(publicMediaHtml).join("");
+    const media = displayMediaItems(item).map(publicMediaHtml).join("");
     const poll = appPollHtml(item);
     const place = item.location ? `<p class="phandle">${esc(item.location)}</p>` : "";
     const edited = Number(item.editedAt) > 0 ? `<p class="phandle app-edited">${esc(tr("Edited"))}</p>` : "";
@@ -22392,6 +22421,7 @@ if (STATE.histClear) {
     scheduleImageSweep();
     hscrollSettle({ reveal: true });
     if (window.ViktorychAccounts && window.ViktorychAccounts.bindProfileTabs) window.ViktorychAccounts.bindProfileTabs();
+    reconcilePostPreviews();
   }
 
   function hscrollRestoreSaved(retry) {
@@ -23008,6 +23038,7 @@ if (STATE.histClear) {
   }
 
   function renderNow(opts) {
+    if (typeof window !== "undefined") window.__renders = (window.__renders || 0) + 1;
     if (document.documentElement.classList.contains("is-split-drag")) {
       STATE.splitRender = opts || STATE.splitRender || {};
       return;

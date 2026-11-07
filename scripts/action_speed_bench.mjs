@@ -78,30 +78,38 @@ async function prep(page, port) {
 }
 
 async function likeOnce(page) {
-  return page.evaluate(() => {
+  return page.evaluate(() => new Promise((resolve) => {
     const btn = document.querySelector('button[data-act="like"]');
     const app = document.getElementById("app");
-    if (!btn || !app) return { missing: true };
+    if (!btn || !app) { resolve({ missing: true }); return; }
+    const startCount = btn.querySelector(".count") ? btn.querySelector(".count").textContent : "";
+    const renders0 = window.__renders || 0;
     let mutations = 0;
     const mo = new MutationObserver(() => { mutations += 1; });
     mo.observe(app, { childList: true });
     const t0 = performance.now();
+    let paintMs = null;
     btn.click();
-    const feedbackMs = Number((performance.now() - t0).toFixed(2));
-    return new Promise((resolve) => {
-      setTimeout(() => {
+    const clickMs = Number((performance.now() - t0).toFixed(2));
+    const tick = () => {
+      const live = document.querySelector('button[data-act="like"]');
+      const count = live && live.querySelector(".count") ? live.querySelector(".count").textContent : "";
+      if (paintMs == null && count !== startCount) paintMs = Number((performance.now() - t0).toFixed(2));
+      if (performance.now() - t0 < 900) requestAnimationFrame(tick);
+      else {
         mo.disconnect();
-        const live = document.querySelector('button[data-act="like"]');
-        const count = live && live.querySelector(".count");
         resolve({
-          feedbackMs,
+          clickMs,
+          paintMs,
           mutations,
+          renders: (window.__renders || 0) - renders0,
           on: !!(live && live.classList.contains("on")),
-          count: count ? count.textContent : ""
+          count
         });
-      }, 120);
-    });
-  });
+      }
+    };
+    requestAnimationFrame(tick);
+  }));
 }
 
 async function main() {
@@ -129,15 +137,20 @@ async function main() {
       const clicks = [];
       for (let i = 0; i < size.clicks; i++) clicks.push(await likeOnce(page));
       const mutations = clicks.map((row) => row.mutations);
+      const renders = clicks.map((row) => row.renders);
       cases.push({
         name: size.name,
         cpuRate: size.cpu,
         n: clicks.length,
         readyMs,
+        windowMs: 900,
         clicks,
         mutationMedian: median(mutations),
         mutationP95: p95(mutations),
-        feedbackMedianMs: median(clicks.map((row) => row.feedbackMs))
+        renderMedian: median(renders),
+        renderP95: p95(renders),
+        paintMedianMs: median(clicks.map((row) => row.paintMs)),
+        clickMedianMs: median(clicks.map((row) => row.clickMs))
       });
       await context.close();
     }
