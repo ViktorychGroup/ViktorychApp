@@ -740,6 +740,8 @@
     var next = slot.media.slice();
     incoming.forEach(function (file) {
       if (!file || file.size > MAX_BYTES) return;
+      // Keep a copy. Clearing the file input afterwards must not drop the bytes.
+      try { file = new File([file], file.name || "upload", { type: file.type || "" }); } catch (err) { /* the original file is still used */ }
       var typed = fileType(file);
       var useKind = kind;
       if (kind === "camera") useKind = "image";
