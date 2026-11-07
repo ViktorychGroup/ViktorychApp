@@ -690,7 +690,7 @@
     const dev = window.ViktorychDevice;
     if (!dev || !dev.featureOn(dev.read(), "media", dev.signals())) return false;
     const src = img.dataset.source || img.getAttribute("src") || "";
-    if (!src || !/^https:\/\//i.test(src)) return false;
+    if (!src || !/^https:\/\//i.test(src) || src.indexOf("/v1/media?url=") >= 0) return false;
     const api = accountsApi();
     if (!api) return false;
     dev.rememberFail("media", src, Date.now(), "source");
@@ -708,6 +708,8 @@
     const id = String(tile.dataset.id || "");
     const post = id ? posts().find((row) => String(row.id) === id || String(row.statusId) === id || canonicalId(row) === id) : null;
     if (!post || (post.platform !== "instagram" && post.platform !== "threads")) return false;
+    // Instagram's embed page is an error document with X-Frame-Options: DENY.
+    if (post.platform === "instagram") return tryInstagramCover(img);
     const src = metaEmbedSrc(post);
     if (!src) return false;
     const frame = document.createElement("iframe");
@@ -916,7 +918,9 @@
       return [{ type: "photo", url: poster, poster: poster }];
     }
     if (platform === "instagram") {
-      return [{ type: "embed", url: "https://www.instagram.com/p/" + id + "/embed/", title: "Instagram", open: pageUrl }];
+      // The embed document refuses to be framed. The public media redirect is
+      // the file Instagram still serves for this post.
+      return [{ type: "photo", url: "https://www.instagram.com/p/" + id + "/media/?size=l" }];
     }
     if (platform === "threads") {
       return [{ type: "embed", url: "https://www.threads.net/t/" + id + "/embed", title: "Threads", open: pageUrl }];
@@ -4502,6 +4506,79 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     </a>`;
   }
 
+  function metaCdnHost(url) {
+    try {
+      return /(?:^|\.)(?:cdninstagram\.com|fbcdn\.net)$/i.test(new URL(String(url || "")).hostname);
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function relayMediaUrl(url) {
+    const raw = String(url || "");
+    if (!metaCdnHost(raw)) return raw;
+    const api = accountsApi();
+    return api ? mediaRelayUrl(api, raw) : raw;
+  }
+
+  function igFileUsable(url) {
+    const raw = String(url || "");
+    if (!raw || deadMediaUrl(raw) || oePast(raw) || !/^https:\/\//i.test(raw)) return false;
+    return true;
+  }
+
+  function igPhotoUsable(item) {
+    if (!item || item.type === "video" || item.type === "animated_gif" || item.type === "embed") return false;
+    return igFileUsable(item.url) || igFileUsable(item.poster);
+  }
+
+  function igVideoUsable(item) {
+    if (!item || (item.type !== "video" && item.type !== "animated_gif")) return false;
+    return igFileUsable(item.url) && playableFile(item.url);
+  }
+
+  function instagramFreshMediaUrl(post) {
+    const code = metaCode(post);
+    if (!/^[A-Za-z0-9_-]{5,40}$/.test(code)) return "";
+    const page = String((post && post.url) || "");
+    const kind = /instagram\.com\/reel\//i.test(page) ? "reel" : (/instagram\.com\/tv\//i.test(page) ? "tv" : "p");
+    return "https://www.instagram.com/" + kind + "/" + code + "/media/?size=l";
+  }
+
+  function tryInstagramCover(img) {
+    if (!img || !img.isConnected || img.dataset.igCover === "1") return false;
+    const tile = img.closest(".tile");
+    if (!tile) return false;
+    const id = String(tile.dataset.id || "");
+    const post = id ? posts().find((row) => String(row.id) === id || String(row.statusId) === id || canonicalId(row) === id) : null;
+    if (!post || post.platform !== "instagram") return false;
+    const api = accountsApi();
+    const fresh = instagramFreshMediaUrl(post);
+    if (!api || !fresh) return false;
+    const next = mediaRelayUrl(api, fresh);
+    if ((img.getAttribute("src") || "").indexOf(encodeURIComponent(fresh)) >= 0) return false;
+    const media = tile.closest(".media");
+    if (media && media.querySelector("img[data-ig-cover='1']")) return false;
+    img.dataset.igCover = "1";
+    img.removeAttribute("srcset");
+    img.src = next;
+    return true;
+  }
+
+  function instagramCoverHtml(post, video) {
+    const fresh = instagramFreshMediaUrl(post);
+    const page = String((post && post.url) || "");
+    const label = video ? tr("Watch on Instagram") : tr("Open original");
+    const open = page ? `<a class="open-original" data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(page)}">${label}</a>` : "";
+    const api = accountsApi();
+    const id = esc((post && post.id) || "");
+    if (!api || !fresh) {
+      return `<div class="media m1"><div class="tile broken" data-id="${id}"><span class="media-gone" aria-hidden="true">${icon("image")}</span>${open}</div></div>`;
+    }
+    const src = mediaRelayUrl(api, fresh);
+    return `<div class="media m1"><div class="tile has-ratio" style="aspect-ratio:4 / 5" data-act="view" data-id="${id}" data-mi="0" data-ig-cover="1"><img src="${esc(src)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" data-ig-cover="1"></div>${open}</div>`;
+  }
+
   function metaEmbedSrc(post) {
     const code = metaCode(post);
     if (!code) return "";
@@ -4514,7 +4591,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   }
 
   function metaNeedsEmbed(post, media) {
-    if (!post || (post.platform !== "instagram" && post.platform !== "threads")) return false;
+    // Instagram embeds cannot be framed. Those posts use the public media file.
+    if (!post || post.platform !== "threads") return false;
     const url = String((media && (media.url || media.poster)) || "");
     if (!url || deadMediaUrl(url)) return true;
     if (oePast(url) || oePast(media && media.poster)) return true;
@@ -4536,6 +4614,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const files = attachmentHtml(items);
     const list = (items || []).filter((m) => m && m.type !== "file" && m.type !== "audio" && (m.url || m.poster || m.videoId || m.type === "embed" || m.type === "placeholder" || m.type === "video" || m.type === "animated_gif")).slice(0, 4);
     if (!list.length) return files;
+    if (post && post.platform === "instagram" && list.every((item) => !igPhotoUsable(item) && !igVideoUsable(item))) {
+      const cover = instagramCoverHtml(post, list.some((item) => item && (item.type === "video" || item.type === "animated_gif")));
+      if (cover) return cover + files;
+    }
     if (post && list.length && list.every((item) => metaNeedsEmbed(post, item))) {
       const embed = metaEmbedHtml(post);
       if (embed) return embed + files;
@@ -4546,6 +4628,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       return `<div class="media m1">${playerTile(post || { media: [one] }, one, 0, "feed", true)}</div>` + files;
     }
     if (list.length === 1 && list[0].type === "embed") {
+      if (post && post.platform === "instagram") {
+        const cover = instagramCoverHtml(post, /\/reel\//i.test(String(post.url || "")));
+        if (cover) return cover + files;
+      }
       const embed = list[0];
       let src = String(embed.url || "");
       const helper = window.ViktorychEmbed;
@@ -4816,7 +4902,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const failed = !!(dev && dev.sourceState && dev.sourceState(raw) === "fail");
     let host = "";
     try { host = new URL(raw).hostname; } catch (err) { return url; }
-    const preferRelay = RELAYABLE.test(host) && (regionBlocked(host) || hostRelayed(host));
+    // Meta's CDN sends Cross-Origin-Resource-Policy: same-origin unless the
+    // referrer is Instagram. A page on this site cannot send that referrer,
+    // so the picture is loaded through the public media proxy.
+    const preferRelay = RELAYABLE.test(host) && (regionBlocked(host) || hostRelayed(host) || metaCdnHost(raw));
     if (!preferRelay && !failed) return url;
     const api = accountsApi();
     if (!api) return url;
@@ -5221,7 +5310,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (key && mirrorKey(key)) pushTelegram(out, key);
     raw.forEach((url) => {
       if (r2ObjectKey(url)) return;
-      pushSource(out, { kind: /\.m3u8(\?|$)/i.test(url) ? "hls" : "mp4", url: url });
+      const play = relayMediaUrl(url);
+      pushSource(out, { kind: /\.m3u8(\?|$)/i.test(url) ? "hls" : "mp4", url: play });
     });
     [media && media.url, media && media.fallback].forEach((url) => {
       const saved = iaForUrl(url);
@@ -5291,7 +5381,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
     if (platform === "instagram" || platform === "threads") {
       return metaRefresh(post).then((fresh) => {
-        if (fresh && fresh.url) pushSource(files, { kind: "mp4", url: fresh.url });
+        if (fresh && fresh.url) pushSource(files, { kind: "mp4", url: relayMediaUrl(fresh.url) });
         return files;
       });
     }
@@ -5518,13 +5608,19 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (mute) mute.hidden = true;
     if (left) left.hidden = true;
     if (!el.querySelector(".vposter")) {
-      const src = (media && media.poster) || (media && media.url && !playableFile(media.url) ? media.url : "") || "";
+      let src = (media && media.poster) || (media && media.url && !playableFile(media.url) ? media.url : "") || "";
+      if (post && post.platform === "instagram" && !igFileUsable(src)) {
+        const api = accountsApi();
+        const fresh = instagramFreshMediaUrl(post);
+        src = api && fresh ? mediaRelayUrl(api, fresh) : "";
+      }
       if (src) {
         const img = document.createElement("img");
         img.className = "vposter";
         img.alt = "";
         img.referrerPolicy = "no-referrer";
-        img.src = src;
+        img.dataset.igCover = post && post.platform === "instagram" ? "1" : "";
+        img.src = ruSafeImageUrl(src);
         el.prepend(img);
       }
     }
@@ -26895,6 +26991,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (!img || (img.tagName !== "IMG" && img.tagName !== "VIDEO")) return;
     if (img.tagName === "IMG") img.dataset.swept = img.getAttribute("src") || "";
     handleMediaError(img);
+  }, true);
+
+  document.addEventListener("load", (event) => {
+    const img = event.target;
+    if (!img || img.tagName !== "IMG" || img.dataset.igCover !== "1") return;
+    const tile = img.closest(".tile");
+    if (!tile || !img.naturalWidth || !img.naturalHeight) return;
+    tile.style.aspectRatio = img.naturalWidth + " / " + img.naturalHeight;
+    tile.dataset.fit = "feed";
   }, true);
 
   window.addEventListener("pageshow", () => scheduleImageSweep(800));

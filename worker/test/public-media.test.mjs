@@ -6,6 +6,7 @@ import { Miniflare } from "miniflare";
 const STATUS = "1000000000000001";
 const FILE = "https://video.twimg.com/ext_tw_video/" + STATUS + "/vid/avc1/1280x720/a.mp4";
 const BYTES = Uint8Array.from([0, 1, 2, 3, 4, 5, 6, 7]);
+const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
 const seen = { range: "", referer: "" };
 
 function workerOptions() {
@@ -47,6 +48,24 @@ function workerOptions() {
       }
       if (url.hostname === "pbs.twimg.com" || url.hostname === "yt3.ggpht.com" || url.hostname === "yt3.googleusercontent.com") {
         return new Response("img", { status: 200, headers: { "content-type": "image/jpeg" } });
+      }
+      if (url.hostname === "www.instagram.com" || url.hostname === "instagram.com") {
+        if (/\/media\/?$/.test(url.pathname) && url.pathname.indexOf("BadHtml1") < 0 && url.pathname.indexOf("Missing1") < 0) {
+          return Response.redirect("https://scontent.cdninstagram.com/v/cover.jpg", 302);
+        }
+        if (url.pathname.indexOf("BadHtml1") >= 0) {
+          return Response.redirect("https://scontent.cdninstagram.com/v/page.html", 302);
+        }
+        return new Response("<html>login</html>", { status: 200, headers: { "content-type": "text/html" } });
+      }
+      if (url.hostname === "scontent.cdninstagram.com" && url.pathname === "/v/cover.jpg") {
+        return new Response(JPEG, {
+          status: 200,
+          headers: { "content-type": "image/jpeg", "cross-origin-resource-policy": "same-origin" }
+        });
+      }
+      if (url.hostname === "scontent.cdninstagram.com" && url.pathname === "/v/page.html") {
+        return new Response("<html>no</html>", { status: 200, headers: { "content-type": "text/html" } });
       }
       return new Response("no", { status: 404 });
     }
@@ -95,6 +114,37 @@ test("an X video relay is not cached and keeps the original bytes", async () => 
     assert.equal(embed.status, 400);
     const denied = await embed.json();
     assert.equal(denied.error, "bad_url");
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("an Instagram media redirect is returned as the image and nothing else on that host", async () => {
+  const mf = new Miniflare(workerOptions());
+  try {
+    const photo = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://www.instagram.com/p/Abcd1234/media/?size=l"));
+    assert.equal(photo.status, 200);
+    assert.equal(photo.headers.get("content-type"), "image/jpeg");
+    assert.equal(photo.headers.get("cross-origin-resource-policy"), null);
+    const bytes = new Uint8Array(await photo.arrayBuffer());
+    assert.equal(bytes[0], 0xff);
+    assert.equal(bytes[1], 0xd8);
+
+    const reel = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://www.instagram.com/reel/Abcd1234/media/?size=l"));
+    assert.equal(reel.status, 200);
+    await reel.arrayBuffer();
+
+    const profile = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://www.instagram.com/orbitfox/"));
+    assert.equal(profile.status, 400);
+    const embed = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://www.instagram.com/p/Abcd1234/embed/captioned/"));
+    assert.equal(embed.status, 400);
+    const login = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://www.instagram.com/accounts/login/"));
+    assert.equal(login.status, 400);
+
+    const html = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://www.instagram.com/p/BadHtml1/media/?size=l"));
+    assert.equal(html.status, 502);
+    const missing = await mf.dispatchFetch("https://accounts.test/v1/media?url=" + encodeURIComponent("https://www.instagram.com/p/Missing1/media/?size=l"));
+    assert.equal(missing.status, 400);
   } finally {
     await mf.dispose();
   }
