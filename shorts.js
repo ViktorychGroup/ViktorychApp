@@ -1227,7 +1227,14 @@
     if (!started || !started.catch) return Promise.resolve();
     return started.catch(function (err) {
       if (!err || err.name !== "NotAllowedError") throw err;
-      return new Promise(function (resolve, reject) {
+      // The manifest arrives after the tap, so a phone will not start an
+      // unmuted video. Mute and play now; a second tap is only if that fails.
+      video.muted = true;
+      var mutedPlay = video.play();
+      if (!mutedPlay || !mutedPlay.catch) return Promise.resolve();
+      return mutedPlay.catch(function (again) {
+        if (!again || again.name !== "NotAllowedError") throw again;
+        return new Promise(function (resolve, reject) {
         var stage = video.parentNode;
         if (!stage) { reject(err); return; }
         function go() {
@@ -1238,6 +1245,7 @@
           again.then(resolve).catch(reject);
         }
         stage.addEventListener("pointerdown", go);
+        });
       });
     });
   }
@@ -2403,14 +2411,19 @@
       if (err) console.error("live playback", err && err.message ? err.message : err);
       showLiveMessage(handle, tr("Couldn't play this live"), true);
     }
+    function playlistUrl(key) {
+      var url = tgUrl(key) + "/index.m3u8";
+      if (!recording) url += "?saved=1";
+      return url;
+    }
     function playPart(next) {
       part = next;
       stitchedPlay = false;
       var key = String(rec.key || "").replace(/\/\d+$/, "") + "/" + part;
-      playHls(video, tgUrl(key) + "/index.m3u8", true, true, false, false, "vod").catch(failSaved);
+      playHls(video, playlistUrl(key), true, true, false, false, "vod").catch(failSaved);
     }
     stitchedPlay = true;
-    playHls(video, tgUrl(String(rec.key || "").replace(/\/\d+$/, "")) + "/index.m3u8", true, true, false, false, "vod").catch(function () {
+    playHls(video, playlistUrl(String(rec.key || "").replace(/\/\d+$/, "")), true, true, false, false, "vod").catch(function () {
       if (token !== liveToken) return;
       playPart(1);
     });

@@ -3417,7 +3417,97 @@ function mediaResponse(bytes, mime, status, extra) {
   return new Response(bytes, { status: status, headers: headers });
 }
 
+function telegramStreamHeaders(row, mime, length, immutable) {
+  const headers = {
+    "content-type": serveMime(row) || mime || "application/octet-stream",
+    "accept-ranges": "bytes",
+    "x-content-type-options": "nosniff",
+    "x-robots-tag": "noindex, nofollow, noarchive, nosnippet, noimageindex"
+  };
+  if (immutable) Object.assign(headers, publicLoopCache());
+  else headers["cache-control"] = "private, max-age=31536000, immutable";
+  if (length) headers["content-length"] = String(length);
+  return headers;
+}
+
+// A full segment request starts while Telegram is still sending. The copy
+// used for a later play is stored after the length check. A range still
+// waits for the whole object, because a slice needs the bytes.
+async function streamTelegram(env, row, immutable) {
+  const id = String((row && (row.sha256 || row.file_id)) || "");
+  if (!id) return null;
+  const cache = caches.default;
+  const cacheKey = new Request("https://tg-cache.internal/body/" + id);
+  const hit = await cache.match(cacheKey);
+  if (hit) return new Response(hit.body, { status: 200, headers: telegramStreamHeaders(row, hit.headers.get("content-type"), hit.headers.get("content-length"), immutable) });
+  const key = "body:" + id;
+  const existing = tgInflight.get(key);
+  if (existing) {
+    const packed = await existing;
+    if (!packed || !packed.bytes) return null;
+    return new Response(packed.bytes.slice(0), { status: 200, headers: telegramStreamHeaders(row, packed.mime, packed.bytes.byteLength, immutable) });
+  }
+  let resolveJob = null;
+  const job = new Promise((resolve) => { resolveJob = resolve; });
+  tgInflight.set(key, job);
+  job.finally(() => { if (tgInflight.get(key) === job) tgInflight.delete(key); });
+  const finish = (packed) => { resolveJob(packed || null); return packed; };
+  try {
+    const path = await telegramFilePath(env, row.file_id);
+    if (!path) return finish(null) && null;
+    const upstream = await fetch("https://api.telegram.org/file/bot" + env.TELEGRAM_BOT_TOKEN + "/" + path);
+    if (!upstream.ok || !upstream.body) return finish(null) && null;
+    const expect = Number(row.size) || 0;
+    const len = Number(upstream.headers.get("content-length") || 0);
+    const mime = row.mime || upstream.headers.get("content-type") || "application/octet-stream";
+    if (expect > 0 && len && len !== expect) return finish(null) && null;
+    if (expect > 0 && len === expect && typeof upstream.body.tee === "function") {
+      const parts = upstream.body.tee();
+      const done = new Response(parts[1]).arrayBuffer().then(async (buf) => {
+        if (buf.byteLength !== expect) return null;
+        try {
+          await cache.put(cacheKey, new Response(buf.slice(0), {
+            headers: {
+              "content-type": mime,
+              "content-length": String(buf.byteLength),
+              "cache-control": "public, max-age=31536000, immutable",
+              "x-content-type-options": "nosniff",
+              "x-robots-tag": "noindex, nofollow, noarchive, nosnippet, noimageindex"
+            }
+          }));
+        } catch (err) { /* the player is already reading the other half */ }
+        return { bytes: buf, mime: mime };
+      }).catch(() => null);
+      done.then(finish, () => finish(null));
+      return new Response(parts[0], { status: 200, headers: telegramStreamHeaders(row, mime, len, immutable) });
+    }
+    const bytes = await upstream.arrayBuffer();
+    if (expect > 0 && bytes.byteLength !== expect) return finish(null) && null;
+    finish({ bytes: bytes, mime: mime });
+    try {
+      await cache.put(cacheKey, new Response(bytes.slice(0), {
+        headers: {
+          "content-type": mime,
+          "content-length": String(bytes.byteLength),
+          "cache-control": "public, max-age=31536000, immutable",
+          "x-content-type-options": "nosniff",
+          "x-robots-tag": "noindex, nofollow, noarchive, nosnippet, noimageindex"
+        }
+      }));
+    } catch (err) { /* this response is still returned */ }
+    return new Response(bytes.slice(0), { status: 200, headers: telegramStreamHeaders(row, mime, bytes.byteLength, immutable) });
+  } catch (err) {
+    finish(null);
+    return null;
+  }
+}
+
 async function rangedTelegram(request, env, row, immutable) {
+  if (!request.headers.get("Range")) {
+    const opened = await streamTelegram(env, row, immutable);
+    if (!opened) return json(502, { error: "unavailable" });
+    return opened;
+  }
   const full = await telegramBody(env, row);
   if (!full) return json(502, { error: "unavailable" });
   const bytes = await full.arrayBuffer();
@@ -3493,10 +3583,14 @@ async function liveBufferIndex(env, partKey) {
   return rows;
 }
 
-async function partRows(env, key) {
+async function partRows(env, key, skipBuffer) {
   const d1 = await telegramRows(env, key);
   let merged = d1;
-  if (livePartKey(key)) {
+  // A finished past live is already in D1. Listing the R2 buffer here
+  // walks every upload slot before the playlist can start. The tail that
+  // is still only in R2 matters while a recording is open, not after it
+  // is saved.
+  if (!skipBuffer && livePartKey(key)) {
     const extra = await liveBufferIndex(env, key);
     if (extra.length) {
       const seen = {};
@@ -3548,12 +3642,12 @@ async function cachedVod(key, build) {
   return text;
 }
 
-async function stitchedLivePlaylist(env, parent, origin) {
+async function stitchedLivePlaylist(env, parent, origin, skipBuffer) {
   const parts = [];
   let misses = 0;
   for (let n = 1; n <= 48; n++) {
     const key = parent + "/" + n;
-    const rows = await partRows(env, key);
+    const rows = await partRows(env, key, skipBuffer);
     const text = livePartPlayable(rows) ? buildPlaylist(rows, key, origin) : "";
     if (!text) {
       misses += 1;
@@ -3717,10 +3811,12 @@ async function handleTelegram(request, env, path, ctx) {
   }
   if (mode === "playlist") {
     const origin = new URL(request.url).origin;
+    const saved = new URL(request.url).searchParams.get("saved") === "1";
+    const cacheKey = saved ? key + ":saved" : key;
     let text = "";
-    if (isLiveParentKey(key)) text = await cachedVod(key, () => stitchedLivePlaylist(env, key, origin));
-    else if (livePartKey(key)) text = await cachedVod(key, async () => {
-      const rows = await partRows(env, key);
+    if (isLiveParentKey(key)) text = await cachedVod(cacheKey, () => stitchedLivePlaylist(env, key, origin, saved));
+    else if (livePartKey(key)) text = await cachedVod(cacheKey, async () => {
+      const rows = await partRows(env, key, saved);
       return livePartPlayable(rows) ? buildPlaylist(rows, key, origin) : "";
     });
     else text = buildPlaylist(await telegramRows(env, key), key, origin);
