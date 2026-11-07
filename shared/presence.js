@@ -46,11 +46,45 @@ export function cleanStatusText(value) {
   return text;
 }
 
-export function cleanEmoji(value) {
+const EMOJI_UNIT = "(?:\\u{1F3F4}[\\u{E0020}-\\u{E007E}]{2,}\\u{E007F}|[#*0-9]\\uFE0F?\\u20E3|\\p{Regional_Indicator}{2}|\\p{Extended_Pictographic}(?:\\uFE0F|\\p{Emoji_Modifier})?(?:\\u200D\\p{Extended_Pictographic}(?:\\uFE0F|\\p{Emoji_Modifier})?)*)";
+
+/* One user-visible emoji run, without Intl.Segmenter. A joined family stays
+   one piece; code points alone would cut it at the joiner. */
+export function emojiUnits(text) {
+  const src = String(text || "");
+  let re = null;
+  try { re = new RegExp(EMOJI_UNIT, "gu"); } catch (err) { re = null; }
+  if (!re) return Array.from(src);
+  const out = [];
+  let last = 0;
+  let match;
+  while ((match = re.exec(src))) {
+    if (!match[0]) break;
+    out.push(...Array.from(src.slice(last, match.index)));
+    out.push(match[0]);
+    last = match.index + match[0].length;
+  }
+  out.push(...Array.from(src.slice(last)));
+  return out;
+}
+
+export function clipEmoji(value, max) {
   const text = String(value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim();
-  const chars = Array.from(text);
-  if (chars.length > 8) return chars.slice(0, 8).join("");
+  const cap = Math.max(0, Number(max) || 0);
+  let parts;
+  try {
+    if (typeof Intl !== "undefined" && Intl.Segmenter) {
+      parts = Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (row) => row.segment);
+    } else parts = emojiUnits(text);
+  } catch (err) {
+    parts = emojiUnits(text);
+  }
+  if (parts.length > cap) return parts.slice(0, cap).join("");
   return text;
+}
+
+export function cleanEmoji(value) {
+  return clipEmoji(value, 8);
 }
 
 export function isAccountId(value) {

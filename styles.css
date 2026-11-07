@@ -32,7 +32,7 @@
   --tooltip-bg: rgba(91, 112, 131, 0.88);
   --tooltip-text: #ffffff;
   --bell-border: #536471;
-  --font: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, "Noto Sans Devanagari", "Nirmala UI", "Mangal", "Kohinoor Devanagari", "Devanagari Sangam MN", Arial, sans-serif;
+  --font: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, "Noto Sans Devanagari", "Nirmala UI", "Mangal", "Kohinoor Devanagari", "Devanagari Sangam MN", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji, sans-serif;
   --top: 53px;
   color-scheme: dark;
 }
@@ -6704,6 +6704,20 @@ img, video { max-width: 100%; }
    every theme inverts it. The subset covers Latin, Cyrillic, Greek and
    Vietnamese and downloads only when someone uses custom text; any other
    script falls back to the system font at the same weights. */
+/* Noto Color Emoji (OFL-1.1), fontsource 5.2.8, about 5.5 MB. The browser
+   fetches it only when a run asks for this family. System emoji stay first. */
+@font-face {
+  font-family: "Viktorych Emoji";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("https://cdn.jsdelivr.net/npm/@fontsource/noto-color-emoji@5.2.8/files/noto-color-emoji-emoji-400-normal.woff2") format("woff2");
+  unicode-range: U+00A9, U+00AE, U+200D, U+203C, U+2049, U+20E3, U+2122, U+2139, U+2194-2199, U+21A9-21AA, U+231A-231B, U+2328, U+23CF, U+23E9-23F3, U+23F8-23FA, U+24C2, U+25AA-25AB, U+25B6, U+25C0, U+25FB-25FE, U+2600-27BF, U+2934-2935, U+2B05-2B07, U+2B1B-2B1C, U+2B50, U+2B55, U+3030, U+303D, U+3297, U+3299, U+FE0F, U+1F000-1FAFF, U+1FB00-1FBFF, U+E0020-E007F;
+}
+html.emoji-web {
+  --font: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, "Noto Sans Devanagari", "Nirmala UI", "Mangal", "Kohinoor Devanagari", "Devanagari Sangam MN", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji, "Viktorych Emoji", sans-serif;
+}
+.emo.fb { font-family: "Viktorych Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji, sans-serif; }
 @font-face { font-family: "Viktorych Wordmark"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/inter-400.woff2") format("woff2"); unicode-range: U+0000-024F, U+0259, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0300-036F, U+0370-03FF, U+0400-052F, U+1C80-1C88, U+1E00-1EFF, U+2000-206F, U+20A0-20CF, U+2116, U+2122, U+2190-2193, U+2212, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
 @font-face { font-family: "Viktorych Wordmark"; font-style: normal; font-weight: 900; font-display: swap; src: url("fonts/inter-900.woff2") format("woff2"); unicode-range: U+0000-024F, U+0259, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0300-036F, U+0370-03FF, U+0400-052F, U+1C80-1C88, U+1E00-1EFF, U+2000-206F, U+20A0-20CF, U+2116, U+2122, U+2190-2193, U+2212, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
 .logo-text {

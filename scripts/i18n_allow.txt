@@ -497,3 +497,6 @@ settings-registry.js|Friends master switch: turn Friends off entirely (no reques
 # Local AI setup: each reply language is shown in its own name.
 local-ai-ui.js|English
 local-ai-ui.js|Español
+# Font names used only to measure whether the device can draw an emoji.
+emoji.js|32px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji, sans-serif
+emoji.js|48px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji, sans-serif
