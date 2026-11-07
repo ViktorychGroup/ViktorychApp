@@ -121,6 +121,69 @@ async function openMenu(page, id) {
   }), id);
 }
 
+async function gestureOpen(page, id, how) {
+  const before = await page.evaluate((postId) => {
+    const card = document.querySelector('article[data-post="' + postId + '"]');
+    const btn = card && card.querySelector('button[data-act="menu"]');
+    const box = btn ? btn.getBoundingClientRect() : null;
+    return {
+      scrollY: Math.round(window.scrollY),
+      postTop: card ? Math.round(card.getBoundingClientRect().top) : null,
+      btnTop: box ? Math.round(box.top) : null,
+      btnInView: !!(box && box.top >= 0 && box.bottom <= window.innerHeight),
+      x: box ? box.left + box.width / 2 : 0,
+      y: box ? box.top + box.height / 2 : 0
+    };
+  }, id);
+  if (!before.btnInView) return { before, error: "button not in view" };
+  if (how === "tap") await page.touchscreen.tap(before.x, before.y);
+  else if (how === "mouse") await page.mouse.click(before.x, before.y);
+  else {
+    await page.evaluate((postId) => {
+      const btn = document.querySelector('article[data-post="' + postId + '"] button[data-act="menu"]');
+      if (btn) btn.focus({ preventScroll: true });
+    }, id);
+    await page.keyboard.press(how);
+  }
+  const settled = await page.evaluate((postId) => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const live = document.querySelector('article[data-post="' + postId + '"]');
+      const liveBtn = live && live.querySelector('button[data-act="menu"]');
+      const menu = document.querySelector(".menu.post-menu");
+      const header = document.querySelector(".topbar");
+      const headerBottom = header ? header.getBoundingClientRect().bottom : 0;
+      const nav = document.querySelector(".bottom-nav");
+      const navTop = nav && getComputedStyle(nav).display !== "none" ? nav.getBoundingClientRect().top : window.innerHeight;
+      let hit = null;
+      if (menu && liveBtn) {
+        const box = menu.getBoundingClientRect();
+        const btnBox = liveBtn.getBoundingClientRect();
+        const x = Math.min(window.innerWidth - 2, Math.max(2, box.left + 20));
+        const y = Math.min(window.innerHeight - 2, Math.max(2, box.top + 16));
+        const node = document.elementFromPoint(x, y);
+        const gapBelow = box.top - btnBox.bottom;
+        const gapAbove = btnBox.top - box.bottom;
+        hit = {
+          inMenu: !!(node && (node === menu || menu.contains(node))),
+          menuTop: Math.round(box.top),
+          menuBottom: Math.round(box.bottom),
+          nearButton: (gapBelow >= -2 && gapBelow <= 12) || (gapAbove >= -2 && gapAbove <= 12),
+          inViewport: box.top >= headerBottom - 1 && box.bottom <= navTop + 1 && box.left >= -1 && box.right <= window.innerWidth + 1
+        };
+      }
+      resolve({
+        after: {
+          scrollY: Math.round(window.scrollY),
+          postTop: live ? Math.round(live.getBoundingClientRect().top) : null,
+          btnTop: liveBtn ? Math.round(liveBtn.getBoundingClientRect().top) : null
+        },
+        hit, open: !!menu
+      });
+    }));
+  }), id);
+  return Object.assign({ before }, settled);
+}
+
 function check(name, row) {
   if (!row || row.error) throw new Error(name + " " + JSON.stringify(row));
   const postDelta = row.after.postTop - row.before.postTop;
@@ -140,7 +203,7 @@ async function main() {
   const proof = [];
   try {
     for (const size of [{ name: "phone", width: 390, height: 844 }, { name: "desktop", width: 1280, height: 800 }]) {
-      const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, serviceWorkers: "block" });
+      const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, serviceWorkers: "block", hasTouch: size.name === "phone" });
       await context.addInitScript(() => {
         localStorage.setItem("superintelapp-lang", "en");
         localStorage.setItem("viktorychapp-lang-user-picked", "1");
@@ -197,7 +260,24 @@ async function main() {
       if (closed) throw new Error(size.name + " outside click left the menu open");
       await place(page, "p16", size.height - 70);
       const edge = check(size.name + " edge", await openMenu(page, "p16"));
-      proof.push({ name: size.name, top, mid, scrolled, edge });
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await place(page, "p12", 260);
+      const pointer = check(size.name + " pointer", await gestureOpen(page, "p12", size.name === "phone" ? "tap" : "mouse"));
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const dismissed = await page.evaluate(() => ({
+        open: !!document.querySelector(".menu.post-menu"),
+        back: document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute("data-act") === "menu"
+      }));
+      if (dismissed.open || !dismissed.back) throw new Error(size.name + " pointer dismiss " + JSON.stringify(dismissed));
+      await place(page, "p12", 260);
+      const entered = check(size.name + " enter", await gestureOpen(page, "p12", "Enter"));
+      await page.keyboard.press("Escape");
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await place(page, "p12", 260);
+      const spaced = check(size.name + " space", await gestureOpen(page, "p12", "Space"));
+      proof.push({ name: size.name, top, mid, scrolled, edge, pointer, entered, spaced });
       await context.close();
     }
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block" });
