@@ -15963,7 +15963,7 @@ const here = parseRoute();
         dev.rememberFail("search", "index", Date.now(), "feature");
       }
     }
-    const lq = String(q || "").trim().toLowerCase();
+    const lq = String(q || "").trim().replace(/^@+/, "").toLowerCase();
     const started = Date.now();
     const accounts = lq ? shownFeeds(feeds()).filter((f) => !matchesMute(STATE.settings.mutedAccounts, f.handle, f.platform, f.id) && ((f.name || "") + " " + (f.handle || "") + " " + (f.aliases || "") + " " + (f.bio || "") + " " + nickName(f.platform, f.channelId || f.handle, "")).toLowerCase().includes(lq)) : [];
     const found = lq ? posts().filter((p) => !hiddenPost(p) && postHay(p).toLowerCase().includes(lq)).sort(byStamp) : [];

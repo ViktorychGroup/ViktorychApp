@@ -100,8 +100,15 @@ test("people search: exact handles, the search opt-out, and the owner bypass", a
   assert.deepEqual(await found(other.token, "quiet_one"), []);
   assert.deepEqual(await found(other.token, "Quiet Person"), []);
 
-  // ...but the owner still finds it, and that sight is audit-logged.
+  // The account that turned search off still finds itself. That look is not audited.
   const db = await mf.getD1Database("DB");
+  const beforeSelf = await db.prepare("SELECT COUNT(*) AS n FROM locked_follow_audit WHERE action = 'search'").first();
+  assert.deepEqual(await found(quiet.token, "@quiet_one"), ["quiet_one"]);
+  assert.deepEqual(await found(quiet.token, "quiet_one"), ["quiet_one"]);
+  const afterSelf = await db.prepare("SELECT COUNT(*) AS n FROM locked_follow_audit WHERE action = 'search'").first();
+  assert.equal(afterSelf.n, beforeSelf.n);
+
+  // ...but the owner still finds it, and that sight is audit-logged.
   const before = await db.prepare("SELECT COUNT(*) AS n FROM locked_follow_audit WHERE action = 'search'").first();
   assert.deepEqual(await found(owner.token, "quiet_one"), ["quiet_one"]);
   const after = await db.prepare("SELECT COUNT(*) AS n FROM locked_follow_audit WHERE action = 'search' AND subject_id = ?").bind(quiet.account.publicId).first();
@@ -115,6 +122,6 @@ test("people search: exact handles, the search opt-out, and the owner bypass", a
   // Turning it back on brings the account back.
   await call("/v1/suggestions/prefs", { method: "PUT", token: quiet.token, body: { searchable: true } });
   assert.ok((await found(other.token, "quiet_one")).includes("quiet_one"));
-  // Nobody finds themselves.
-  assert.ok(!(await found(fresh.token, "fresh_one")).includes("fresh_one"));
+  assert.equal((await found(fresh.token, "fresh_one"))[0], "fresh_one");
+  assert.equal((await found(fresh.token, "@fresh_one"))[0], "fresh_one");
 });
