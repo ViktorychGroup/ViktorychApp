@@ -3423,7 +3423,97 @@ function mediaResponse(bytes, mime, status, extra) {
   return new Response(bytes, { status: status, headers: headers });
 }
 
+function telegramStreamHeaders(row, mime, length, immutable) {
+  const headers = {
+    "content-type": serveMime(row) || mime || "application/octet-stream",
+    "accept-ranges": "bytes",
+    "x-content-type-options": "nosniff",
+    "x-robots-tag": "noindex, nofollow, noarchive, nosnippet, noimageindex"
+  };
+  if (immutable) Object.assign(headers, publicLoopCache());
+  else headers["cache-control"] = "private, max-age=31536000, immutable";
+  if (length) headers["content-length"] = String(length);
+  return headers;
+}
+
+// A full segment request starts while Telegram is still sending. The copy
+// used for a later play is stored after the length check. A range still
+// waits for the whole object, because a slice needs the bytes.
+async function streamTelegram(env, row, immutable) {
+  const id = String((row && (row.sha256 || row.file_id)) || "");
+  if (!id) return null;
+  const cache = caches.default;
+  const cacheKey = new Request("https://tg-cache.internal/body/" + id);
+  const hit = await cache.match(cacheKey);
+  if (hit) return new Response(hit.body, { status: 200, headers: telegramStreamHeaders(row, hit.headers.get("content-type"), hit.headers.get("content-length"), immutable) });
+  const key = "body:" + id;
+  const existing = tgInflight.get(key);
+  if (existing) {
+    const packed = await existing;
+    if (!packed || !packed.bytes) return null;
+    return new Response(packed.bytes.slice(0), { status: 200, headers: telegramStreamHeaders(row, packed.mime, packed.bytes.byteLength, immutable) });
+  }
+  let resolveJob = null;
+  const job = new Promise((resolve) => { resolveJob = resolve; });
+  tgInflight.set(key, job);
+  job.finally(() => { if (tgInflight.get(key) === job) tgInflight.delete(key); });
+  const finish = (packed) => { resolveJob(packed || null); return packed; };
+  try {
+    const path = await telegramFilePath(env, row.file_id);
+    if (!path) return finish(null) && null;
+    const upstream = await fetch("https://api.telegram.org/file/bot" + env.TELEGRAM_BOT_TOKEN + "/" + path);
+    if (!upstream.ok || !upstream.body) return finish(null) && null;
+    const expect = Number(row.size) || 0;
+    const len = Number(upstream.headers.get("content-length") || 0);
+    const mime = row.mime || upstream.headers.get("content-type") || "application/octet-stream";
+    if (expect > 0 && len && len !== expect) return finish(null) && null;
+    if (expect > 0 && len === expect && typeof upstream.body.tee === "function") {
+      const parts = upstream.body.tee();
+      const done = new Response(parts[1]).arrayBuffer().then(async (buf) => {
+        if (buf.byteLength !== expect) return null;
+        try {
+          await cache.put(cacheKey, new Response(buf.slice(0), {
+            headers: {
+              "content-type": mime,
+              "content-length": String(buf.byteLength),
+              "cache-control": "public, max-age=31536000, immutable",
+              "x-content-type-options": "nosniff",
+              "x-robots-tag": "noindex, nofollow, noarchive, nosnippet, noimageindex"
+            }
+          }));
+        } catch (err) { /* the player is already reading the other half */ }
+        return { bytes: buf, mime: mime };
+      }).catch(() => null);
+      done.then(finish, () => finish(null));
+      return new Response(parts[0], { status: 200, headers: telegramStreamHeaders(row, mime, len, immutable) });
+    }
+    const bytes = await upstream.arrayBuffer();
+    if (expect > 0 && bytes.byteLength !== expect) return finish(null) && null;
+    finish({ bytes: bytes, mime: mime });
+    try {
+      await cache.put(cacheKey, new Response(bytes.slice(0), {
+        headers: {
+          "content-type": mime,
+          "content-length": String(bytes.byteLength),
+          "cache-control": "public, max-age=31536000, immutable",
+          "x-content-type-options": "nosniff",
+          "x-robots-tag": "noindex, nofollow, noarchive, nosnippet, noimageindex"
+        }
+      }));
+    } catch (err) { /* this response is still returned */ }
+    return new Response(bytes.slice(0), { status: 200, headers: telegramStreamHeaders(row, mime, bytes.byteLength, immutable) });
+  } catch (err) {
+    finish(null);
+    return null;
+  }
+}
+
 async function rangedTelegram(request, env, row, immutable) {
+  if (!request.headers.get("Range")) {
+    const opened = await streamTelegram(env, row, immutable);
+    if (!opened) return json(502, { error: "unavailable" });
+    return opened;
+  }
   const full = await telegramBody(env, row);
   if (!full) return json(502, { error: "unavailable" });
   const bytes = await full.arrayBuffer();
@@ -3459,38 +3549,45 @@ async function liveBufferIndex(env, partKey) {
   if (hit && now - hit.at < 30000) return hit.rows;
   const rows = [];
   try {
-    for (let slot = 0; slot <= 8; slot++) {
+    // One part can sit in any upload slot. The slots are independent, so
+    // they are listed together. Every playable sidecar is kept, including
+    // an oversized piece that stays in the buffer.
+    const groups = await Promise.all([0, 1, 2, 3, 4, 5, 6, 7, 8].map(async (slot) => {
+      const found = [];
       const prefix = "live-buf/" + slot + "/" + part.handle + "/" + part.room + "/" + part.part + "/";
       let cursor = undefined;
       do {
         const listed = await env.DATA.list({ prefix, cursor, limit: 200 });
-        const objects = (listed && listed.objects) || [];
-        for (let i = 0; i < objects.length; i++) {
-          const object = objects[i];
-          if (!object || !object.key || !String(object.key).endsWith(".json")) continue;
-          const sidecar = await env.DATA.get(object.key);
-          if (!sidecar) continue;
+        const keys = ((listed && listed.objects) || [])
+          .map((object) => (object && object.key) || "")
+          .filter((objectKey) => objectKey.endsWith(".json"));
+        const parsed = await Promise.all(keys.map(async (objectKey) => {
+          const sidecar = await env.DATA.get(objectKey);
+          if (!sidecar) return null;
           let meta = null;
           try { meta = JSON.parse(await sidecar.text()); } catch (err) { meta = null; }
-          if (!meta || String(meta.objectKey || "") !== part.key) continue;
+          if (!meta || String(meta.objectKey || "") !== part.key) return null;
           const role = String(meta.role || "");
           const index = Number(meta.index);
-          if (role !== "init" && role !== "segment") continue;
-          if (role === "init" && index !== -1) continue;
-          if (role === "segment" && (!Number.isFinite(index) || index < 0)) continue;
-          rows.push({
+          if (role !== "init" && role !== "segment") return null;
+          if (role === "init" && index !== -1) return null;
+          if (role === "segment" && (!Number.isFinite(index) || index < 0)) return null;
+          return {
             kind: role,
             part_index: role === "init" ? -1 : index,
             size: Number(meta.size) || 0,
             duration: Number(meta.duration) || 0,
             mime: "video/mp4",
             object_key: part.key,
-            bufKey: String(object.key).replace(/\.json$/, "")
-          });
-        }
+            bufKey: objectKey.replace(/\.json$/, "")
+          };
+        }));
+        parsed.forEach((row) => { if (row) found.push(row); });
         cursor = listed && listed.truncated ? listed.cursor : "";
       } while (cursor);
-    }
+      return found;
+    }));
+    groups.forEach((group) => { group.forEach((row) => rows.push(row)); });
   } catch (err) {
     liveBufCache.set(part.key, { at: now, rows: [] });
     return [];
@@ -3502,6 +3599,9 @@ async function liveBufferIndex(env, partKey) {
 async function partRows(env, key) {
   const d1 = await telegramRows(env, key);
   let merged = d1;
+  // Saved and open recordings share this list. An oversized piece is held
+  // in the buffer and never gets a Telegram row, and a saved room can
+  // still contain one. Skipping the buffer would drop that media.
   if (livePartKey(key)) {
     const extra = await liveBufferIndex(env, key);
     if (extra.length) {
