@@ -1502,6 +1502,8 @@ SI18n.addPack("ru", {
   "Record TikTok lives on the server when they start. This device does not record or upload.": "Записывает прямые эфиры TikTok на сервере, когда они начинаются. Это устройство не записывает и не загружает.",
   "While this is on, saved segments stay stored and are not sent. Turn it off to resume.": "Пока это включено, сохранённые сегменты остаются в хранилище и не отправляются. Выключите, чтобы продолжить.",
   "Pause uploads": "Пауза загрузок",
+  "Always-on recorder is running. Saved lives stay under Past lives.": "Постоянная запись работает. Сохранённые эфиры остаются в разделе «Прошедшие эфиры».",
+  "Always-on recorder is not running.": "Постоянная запись не работает.",
   "Automatic TikTok recorder": "Автозапись прямых эфиров TikTok",
   "Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.": "Записывает прямые эфиры TikTok на сервере и отправляет сегменты в канал копии. Выключено останавливает новые записи и загрузки.",
   "Add a backup channel": "Добавить канал копии",

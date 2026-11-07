@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { admitRecord, fresh, needsUpload, recordingAllowed, shouldRememberLive, uploaderStale, uploadsPaused, watchDecision, watchHandles } from "../src/live-watch.js";
+import { admitRecord, alwaysOnFresh, fresh, needsUpload, recordingAllowed, shouldRememberLive, uploaderStale, uploadsPaused, watchDecision, watchHandles } from "../src/live-watch.js";
 import { allowRecord, nextPlayable, parseCap, proxyBlocked, sinkPaused, stepCap } from "../../shared/viewer-cap.js";
 import { after, chain, embedUrl } from "../../shared/shorts-play.js";
 import { bestSource, concatBytes, concatFlv, copyPlan, parseHls } from "../../shared/live-copy.js";
@@ -121,6 +121,16 @@ test("the uploader heartbeat is stale after five quiet minutes", () => {
   assert.equal(uploaderStale({ at: ISO(NOW - 60 * 1000) }, NOW), false);
   assert.equal(uploaderStale({ at: ISO(NOW - 10 * 60 * 1000) }, NOW), true);
   assert.equal(uploaderStale(null, NOW), true);
+});
+
+test("a fresh always-on heartbeat is the only one that stands the cron down", () => {
+  assert.equal(alwaysOnFresh({ runner: "always-on", at: ISO(NOW - 60 * 1000) }, NOW), true);
+  assert.equal(alwaysOnFresh({ runner: "always-on", at: ISO(NOW - 6 * 60 * 1000) }, NOW), false);
+  assert.equal(alwaysOnFresh({ runner: "always-on", at: ISO(NOW + 60 * 1000) }, NOW), true);
+  assert.equal(alwaysOnFresh({ runner: "always-on", at: ISO(NOW + 10 * 60 * 1000) }, NOW), false);
+  assert.equal(alwaysOnFresh({ runner: "other", at: ISO(NOW - 60 * 1000) }, NOW), false);
+  assert.equal(alwaysOnFresh(null, NOW), false);
+  assert.equal(JSON.stringify({ runner: "always-on", at: ISO(NOW) }).includes("fixture"), false);
 });
 
 test("sixteen recorders leave a new live queued and keep a live that already started", () => {

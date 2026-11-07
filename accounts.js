@@ -5692,7 +5692,7 @@ function signupPayload() {
   var backupChannels = null;
   var backupChannelNote = "";
   var backupChannelsAt = 0;
-  var liveRecord = { server: false, uploadsPaused: false, at: 0 };
+  var liveRecord = { server: false, uploadsPaused: false, alwaysOn: false, at: 0 };
   var liveRecordSave = 0;
   function recorderSwitchOn() {
     try {
@@ -5710,6 +5710,7 @@ function signupPayload() {
       if (!body || body.status !== 200 || liveRecordSave > started) return;
       liveRecord.server = body.server === true;
       liveRecord.uploadsPaused = body.uploadsPaused === true;
+      liveRecord.alwaysOn = body.alwaysOn === true;
       if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
     }).catch(function () {});
   }
@@ -5729,6 +5730,7 @@ function signupPayload() {
       if (!body || body.status !== 200 || liveRecordSave !== stamp) return;
       liveRecord.server = body.server === true;
       liveRecord.uploadsPaused = body.uploadsPaused === true;
+      liveRecord.alwaysOn = body.alwaysOn === true;
       if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
     }).catch(function () {});
   }
@@ -5742,6 +5744,7 @@ function signupPayload() {
       sw(liveRecord.server, tr("Automatic recording"), "toggle-live-record") +
       '<p class="set-sub">' + esc(tr("While this is on, saved segments stay stored and are not sent. Turn it off to resume.")) + "</p>" +
       sw(liveRecord.uploadsPaused, tr("Pause uploads"), "toggle-upload-pause") +
+      '<p class="set-sub">' + esc(liveRecord.alwaysOn ? tr("Always-on recorder is running. Saved lives stay under Past lives.") : tr("Always-on recorder is not running.")) + "</p>" +
       "</div>";
   }
   function loadTikTokHealth() {

@@ -1502,6 +1502,8 @@ SI18n.addPack("es", {
   "Record TikTok lives on the server when they start. This device does not record or upload.": "Graba los directos de TikTok en el servidor cuando empiezan. Este dispositivo no graba ni sube.",
   "While this is on, saved segments stay stored and are not sent. Turn it off to resume.": "Mientras está activado, los segmentos guardados se quedan almacenados y no se envían. Desactívalo para reanudar.",
   "Pause uploads": "Pausar subidas",
+  "Always-on recorder is running. Saved lives stay under Past lives.": "La grabadora continua está en marcha. Los directos guardados siguen en Directos anteriores.",
+  "Always-on recorder is not running.": "La grabadora continua no está en marcha.",
   "Automatic TikTok recorder": "Grabadora automática de TikTok",
   "Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.": "Graba los directos de TikTok en el servidor y envía los segmentos al canal de copia. Apagado detiene las grabaciones y las subidas nuevas.",
   "Add a backup channel": "Añadir un canal de copia",

@@ -52,6 +52,14 @@ An X or Periscope broadcast link in a post is a 16:9 card (phone and desktop). T
 
 `publish-app.yml` owns the app build, Accounts health gate, GitHub Pages lock, Cloudflare mirror, live smoke check and delayed `version.json` publish. A non-data push to main starts it directly, without starting feed fetching. Scheduled or manually dispatched `sync.yml` runs its feed refresh and calls the same reusable publisher in parallel, preserving the existing scheduled/manual app-and-data publication. Discord live checks both publishing workflows. The watchdog retries `publish-app.yml` when the live version is behind; it does not fetch feeds merely to publish the app. No user-facing strings or service-worker-cached files changed.
 
+## Always-on TikTok LIVE recorder
+
+Not live. The package is `docker/tiktok-live/` and it is not on the published site until this change is on main and the owner starts the container. It records with `scripts/tiktok_record.py --record` (`ffmpeg -c copy`, origin quality, no re-encode) into the same R2 buffer, job rows and D1 `telegram_files` the Shorts past list and `/tg` already use. A heartbeat at `owner/live-runner.json` makes the Worker cron and the Actions `--plan --dispatch`, `--record` and `--upload` steps stand down while it is under five minutes old. They resume when it goes quiet. The container reads `GET /v1/features` from `ACCOUNTS_ORIGIN` and stops when `tiktok_auto_record` is off. Settings shows whether that host is running. Pause uploads also holds the full-length send. A part that did not join is kept and tried again. Logs and `/status` stay counts and flags; the account name is only in the private backup caption. The free host is Oracle Always Free. A Hugging Face Docker Space needs a paid plan, so that is not the path. Secrets and steps: `docs/free-cloud-backup.md` section 5. Dummy tests do not prove a live recording.
+
+## Shorts live watch
+
+The Shorts Live tab on the published site is the watch page. It is TikTok only. Add account saves the handle for the owner. Shorts starts locked, so a new account stays off the grid until Shorts is unlocked or that handle is on the unlock list. A live check then shows a watch button only when TikTok says the account is live. Playback is the public HLS in the page (hls.js, muted, origin when TikTok offers it, no cookies sent to the CDN). A block or a missing room does not play. A missing `owner/tiktok.json` used to drop that check; a check now creates the catalog so a reload still shows the live. That persistence fix is in this change, not on the published site yet. Watching a live does not require the always-on recorder. Past lives do.
+
 ## Speed log
 
 Desktop, CPU slowed 4×, unless a row says otherwise. Each row is the change that landed.
@@ -371,6 +379,7 @@ scripts/smoke-all.sh --changed
 - Close or keep #145 (obsolete; edits workflows).
 - Payments: #365 and #413 stay switched off until payment keys are added and you decide.
 - Migration renumbering for #365, #352, #355, #274 before they can merge.
+- Always-on TikTok LIVE recorder: not running until you start the container on a free Docker host (Oracle Always Free). Do not buy a Hugging Face PRO plan for it. After this change is on main, fill `docker/tiktok-live/env.example` on that host only. Secret names: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `TELEGRAM_BOT_TOKEN` or `TELEGRAM_BOT_TOKENS`, `TELEGRAM_CHANNEL_ID`, optional `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TIKTOK_STATUS_TOKEN`. The image clones main, so it cannot record this package before the merge.
 - Keys still needed (set as Worker or GitHub secrets from the exact steps in each doc):
   - SMSPool (`SMSPOOL_API_KEY`, Inbox › SMS codes, `docs/sms-codes.md`).
   - IMAP mail relay (Inbox mail, `docs/INBOX-MAIL.md`).

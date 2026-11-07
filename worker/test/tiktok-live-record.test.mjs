@@ -126,6 +126,8 @@ test("settings keep the recorder switch on the existing preference", () => {
   assert.match(accounts, /toggle-live-record/);
   assert.match(accounts, /toggle-upload-pause/);
   assert.match(accounts, /uploadsPaused: liveRecord\.uploadsPaused === true/);
+  assert.match(accounts, /Always-on recorder is running\. Saved lives stay under Past lives\./);
+  assert.match(accounts, /Always-on recorder is not running\./);
   assert.equal(accounts.indexOf("MediaRecorder"), -1);
   assert.equal(accounts.indexOf("new MediaRecorder"), -1);
   assert.match(app, /"tiktok_auto_record"/);
@@ -155,7 +157,8 @@ test("the owner can enable recording and pause uploads without a browser capture
 
   const fresh = await call("/v1/owner/live-record", { ip: "203.0.113.45", token });
   assert.equal(fresh.status, 200);
-  assert.deepEqual(fresh.body, { server: false, uploadsPaused: false });
+  assert.deepEqual(fresh.body, { server: false, uploadsPaused: false, alwaysOn: false });
+  assert.equal(JSON.stringify(fresh.body).includes("fixture"), false);
 
   const listed = await call("/v1/features");
   assert.equal(listed.body.off.includes("tiktok_auto_record"), false);
@@ -167,7 +170,7 @@ test("the owner can enable recording and pause uploads without a browser capture
     body: { server: true, auto: true }
   });
   assert.equal(on.status, 200);
-  assert.deepEqual(on.body, { server: true, uploadsPaused: false });
+  assert.deepEqual(on.body, { server: true, uploadsPaused: false, alwaysOn: false });
   assert.equal(on.text.indexOf("auto"), -1);
 
   const paused = await call("/v1/owner/live-record", {
@@ -176,7 +179,7 @@ test("the owner can enable recording and pause uploads without a browser capture
     token,
     body: { uploadsPaused: true }
   });
-  assert.deepEqual(paused.body, { server: true, uploadsPaused: true });
+  assert.deepEqual(paused.body, { server: true, uploadsPaused: true, alwaysOn: false });
 
   const bad = await call("/v1/owner/live-record", {
     method: "POST",
@@ -238,6 +241,34 @@ test("the owner can enable recording and pause uploads without a browser capture
   assert.ok(count("tiktok-record.yml") > beforeRecord, "server recording starts a capture job");
   assert.ok(count("tiktok-live-upload.yml") > 1, "resume starts the uploader again");
 
+  const beatWhen = Date.now() + 3000;
+  const yieldDoc = JSON.parse(await (await bindings.DATA.get("owner/tiktok.json")).text());
+  yieldDoc.live.fixture_yield = { handle: "fixture_yield", live: false };
+  await bindings.DATA.put("owner/tiktok.json", JSON.stringify(yieldDoc));
+  await bindings.DATA.put("owner/live-runner.json", JSON.stringify({
+    runner: "always-on",
+    at: new Date(beatWhen).toISOString()
+  }));
+  const beforeYield = count("tiktok-record.yml");
+  const beforeYieldUploads = count("tiktok-live-upload.yml");
+  await worker.scheduled({ cron: "* * * * *", scheduledTime: beatWhen + 1000 });
+  assert.equal(count("tiktok-record.yml"), beforeYield, "a fresh always-on recorder is left to record");
+  assert.equal(count("tiktok-live-upload.yml"), beforeYieldUploads, "a fresh always-on recorder is left to upload");
+  const seen = await call("/v1/owner/live-record", { ip: "203.0.113.56", token });
+  assert.equal(seen.status, 200);
+  assert.equal(seen.body.alwaysOn, true);
+  assert.equal(seen.body.server, true);
+  assert.equal(JSON.stringify(seen.body).includes("fixture"), false);
+  await bindings.DATA.put("owner/live-runner.json", JSON.stringify({
+    runner: "always-on",
+    at: "2020-01-01T00:00:00.000Z"
+  }));
+  const stale = await call("/v1/owner/live-record", { ip: "203.0.113.57", token });
+  assert.equal(stale.body.alwaysOn, false);
+  const beforeResume = count("tiktok-record.yml");
+  await worker.scheduled({ cron: "* * * * *", scheduledTime: beatWhen + 2000 });
+  assert.ok(count("tiktok-record.yml") > beforeResume, "a stale always-on heartbeat lets the site record again");
+
   await call("/v1/owner/live-record", {
     method: "POST",
     ip: "203.0.113.55",
@@ -252,6 +283,23 @@ test("the owner can enable recording and pause uploads without a browser capture
   await worker.scheduled({ cron: "* * * * *", scheduledTime: Date.now() + 2500 });
   assert.ok(count("tiktok-record.yml") > recordsWhilePaused, "pause does not stop a new recording");
   assert.equal(count("tiktok-live-upload.yml"), uploadsWhilePaused, "pause holds uploads while recording stays on");
+
+  const kept = await bindings.DATA.get("owner/tiktok.json");
+  const keptText = kept ? await kept.text() : "";
+  await bindings.DATA.delete("owner/tiktok.json");
+  const watched = await call("/v1/owner/live/fixture_watch", { ip: "203.0.113.70", token });
+  assert.equal(watched.status, 200);
+  assert.equal(watched.body.live, true);
+  assert.ok(String(watched.body.hls || "").includes(".m3u8"));
+  const catalog = JSON.parse(await (await bindings.DATA.get("owner/tiktok.json")).text());
+  assert.equal(catalog.live.fixture_watch.live, true);
+  assert.equal(catalog.live.fixture_watch.roomId, "7100000000000000002");
+  assert.equal(Object.prototype.hasOwnProperty.call(catalog.live.fixture_watch, "hls"), false);
+  assert.equal(JSON.stringify(catalog).includes("tiktokcdn"), false);
+  const catalogGet = await call("/v1/owner/tiktok", { ip: "203.0.113.71", token });
+  assert.equal(catalogGet.status, 200);
+  assert.equal(catalogGet.body.live.fixture_watch.handle, "fixture_watch");
+  if (keptText) await bindings.DATA.put("owner/tiktok.json", keptText);
 
   const off = await call("/v1/owner/features", {
     method: "POST",
