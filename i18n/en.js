@@ -1502,6 +1502,8 @@ SI18n.addPack("en", {
   "Record TikTok lives on the server when they start. This device does not record or upload.": "Record TikTok lives on the server when they start. This device does not record or upload.",
   "While this is on, saved segments stay stored and are not sent. Turn it off to resume.": "While this is on, saved segments stay stored and are not sent. Turn it off to resume.",
   "Pause uploads": "Pause uploads",
+  "Always-on recorder is running. Saved lives stay under Past lives.": "Always-on recorder is running. Saved lives stay under Past lives.",
+  "Always-on recorder is not running.": "Always-on recorder is not running.",
   "Automatic TikTok recorder": "Automatic TikTok recorder",
   "Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.": "Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.",
   "Add a backup channel": "Add a backup channel",

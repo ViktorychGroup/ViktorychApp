@@ -1242,6 +1242,8 @@ SI18n.addPack("hi", {
   "Record TikTok lives on the server when they start. This device does not record or upload.": "TikTok लाइव शुरू होने पर सर्वर पर रिकॉर्ड होती है। यह डिवाइस रिकॉर्ड या अपलोड नहीं करता।",
   "While this is on, saved segments stay stored and are not sent. Turn it off to resume.": "यह चालू होने पर सेव किए सेगमेंट संग्रहित रहते हैं और भेजे नहीं जाते। फिर से शुरू करने के लिए इसे बंद करें।",
   "Pause uploads": "अपलोड रोकें",
+  "Always-on recorder is running. Saved lives stay under Past lives.": "लगातार चलने वाली रिकॉर्डर चालू है। सेव किए लाइव «पिछले लाइव» में रहते हैं।",
+  "Always-on recorder is not running.": "लगातार चलने वाली रिकॉर्डर बंद है।",
   "Automatic TikTok recorder": "TikTok की स्वचालित रिकॉर्डर",
   "Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.": "TikTok लाइव को सर्वर पर रिकॉर्ड करती है और सेगमेंट बैकअप चैनल पर भेजती है। बंद होने पर नई रिकॉर्डिंग और अपलोड रुक जाते हैं।",
   "Add a backup channel": "बैकअप चैनल जोड़ें",
