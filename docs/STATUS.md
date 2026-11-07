@@ -20,6 +20,10 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
+**Custom tabs.** Home tabs, their order, and the accounts in them are part of the signed-in account. A drag saves one order for every tab in it, and the newer drag wins that whole order. An add or a removal sticks unless a later add or removal says otherwise. A tab keeps every account it is allowed to hold, including accounts saved before membership had its own times. A deleted tab stays deleted; a later edit does not bring it back. Another account never receives them. The open page applies a sync without waiting for a reload. Tests: `scripts/device_sync_test.js`, `scripts/tab_sync_test.mjs`.
+
+**Show more.** Opening the rest of a post keeps that post where it was on the screen, including after a late resize. Show less does the same. The keyboard focus stays on that control. Test: `scripts/show_more_scroll_test.mjs`.
+
 **Instagram reel posters.** A reel whose stored poster cannot load uses the same public media image as an expired photo. The player stays. If that image is not available, the caption and the play control stay. Tests: `scripts/instagram_media_test.mjs`.
 
 **Search.** A leading @ is the same query as the handle alone, for a source already in the feed and for an app account. The signed-in account is included in People search. An account that turned off “Let others find me in search” stays hidden from everyone else; the site owner still finds it, and that look is audit-logged. Finding yourself is not logged. Tests: `scripts/people_search_test.mjs`, `scripts/device_test.js`, `worker/test/people-search.test.mjs`.
