@@ -28,6 +28,8 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 ## Past lives on Shorts
 
+`#/shorts` stays on the loading skeleton only while `shorts.js` is still loading. Once the module is loaded, a signed-out visitor is asked to sign in, and a signed-in account that is not the owner sees that Shorts is not available on this account. Published `947a7c4` used “Reload the page.” for that case, including a temporary account, because the published audience is owner and a temporary account is not the owner. Reloading could not change it, and the page never mounted a tile or a player. Owner recordings are still requested only for the owner. An owner session still gets the same tiles and player, at the original quality. The fixture covers the shell only. It does not play a live recording.
+
 A saved past live uses the same `/tg/.../live/index.m3u8` playlist as a recording that is still open. The playlist keeps every stored segment and every playable buffer segment, including an oversized piece that stayed in the buffer. The upload slots for one part are read together. A full segment response starts while Telegram is still sending it, and a phone that will not play with sound starts muted instead of waiting for another tap. The bytes stay the original copy. A fixture proves a saved request still lists and serves a buffer-only oversized segment, and that a repeat read does not ask Telegram again. It does not prove a live Telegram channel. If `TELEGRAM_BOT_TOKEN` is missing, a segment that is in neither storage nor the buffer cannot play.
 
 ## Storage recordings

@@ -21612,9 +21612,9 @@ if (STATE.histClear) {
       return lazySkeleton(tr("Contacts"));
     }
     if (route.name === "shorts") {
-      if (window.ViktorychShorts && window.ViktorychShorts.visible()) return window.ViktorychShorts.page(route);
-      if (!window.ViktorychShorts) { ensureLazy("shorts"); return lazySkeleton(tr("Shorts")); }
-      return pageHead(tr("Shorts")) + emptyBlock(tr("Shorts"), tr("Reload the page."));
+      if (window.ViktorychShorts) return window.ViktorychShorts.page(route);
+      ensureLazy("shorts");
+      return lazySkeleton(tr("Shorts"));
     }
     if (route.name === "localai") {
       if (!localAiOn()) return pageHead(tr("Local AI")) + emptyBlock(tr("Local AI"), tr("Local AI is turned off right now."));

@@ -1067,8 +1067,16 @@
     return '<li class="shorts-past-tile"><button type="button" class="shorts-past-play" data-shorts="past" data-past="' + index + '">' + body + "</button></li>";
   }
 
+  function closedPage() {
+    var row = account();
+    var line = row ? tr("Shorts isn't available on this account.") : tr("Sign in to watch Shorts.");
+    return '<div class="shorts-page"><div class="shorts-top">' + mhead() + "</div>" +
+      '<div class="shorts-feed" id="shorts-feed"><div class="shorts-past-empty"><h2>' +
+      hooks.esc(line) + "</h2></div></div></div>";
+  }
+
   function page(route) {
-    if (!visible()) return '<div class="shorts-page"></div>';
+    if (!visible()) return closedPage();
     var live = !!(route && route.live);
     var pane = paneNow();
     if (live) {
@@ -3872,6 +3880,13 @@
   }
 
   function mount(route) {
+    if (!visible()) {
+      document.documentElement.classList.add("shorts-on");
+      stopPreview();
+      closeLive();
+      destroyHls();
+      return;
+    }
     if (route && route.live) {
       var explicit = paneOf(route);
       if (explicit) rememberPane(explicit);

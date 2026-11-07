@@ -308,5 +308,32 @@ const steps = shorts.playbackSteps({
 assert.strictEqual(steps[0].url, "https://cdn.example/h.m3u8");
 const appSrc = fs.readFileSync(path.join(__dirname, "../app.js"), "utf8");
 assert(appSrc.includes("livePane"), "Shorts routes keep a live pane");
+assert(!/route\.name === "shorts"[\s\S]{0,500}Reload the page\./.test(appSrc), "A loaded Shorts module is not a reload failure");
+
+console.log("Testing the shell for a temporary account that is not the owner...");
+const ownerAccount = global.ViktorychAccounts.account;
+global.ViktorychAccounts.account = () => ({
+  handle: "tmp_fixture",
+  owner: false,
+  temporary: { expiresAt: Date.now() + 3600000 }
+});
+const tempPast = shorts.page({ live: true, livePane: "past" });
+assert(tempPast.includes("shorts-page"), "A temporary account still gets the Shorts shell");
+assert(tempPast.includes("shorts-feed"), "The shell has a feed");
+assert(tempPast.includes("Shorts isn't available on this account."), "The shell says this account cannot open Shorts");
+assert(!tempPast.includes("Reload the page."), "The shell does not ask for a reload");
+assert(!tempPast.includes("@sampleclip"), "Owner recordings stay off this account");
+assert(!tempPast.includes("data-shorts=\"past\""), "No past-live tile is mounted");
+assert(!tempPast.includes("data-thumb="), "No recording thumbnail is mounted");
+global.ViktorychAccounts.account = () => null;
+const signedOut = shorts.page({ live: true, livePane: "past" });
+assert(signedOut.includes("Sign in to watch Shorts."), "A signed-out visit asks for a sign-in");
+assert(!signedOut.includes("Reload the page."), "A signed-out visit is not a reload failure");
+assert(!signedOut.includes("@sampleclip"), "A signed-out visit does not list recordings");
+global.ViktorychAccounts.account = ownerAccount;
+const ownerAgain = shorts.page({ live: true, livePane: "past" });
+assert(ownerAgain.includes("@sampleclip"), "The owner still sees the saved past live");
+assert(ownerAgain.includes("data-shorts=\"past\""), "The owner still gets a playable tile");
+assert(!ownerAgain.includes("Shorts isn't available on this account."), "The owner is not shown the closed shell");
 
 console.log("All Shorts locked mode and site-wide isolation tests passed successfully!");
