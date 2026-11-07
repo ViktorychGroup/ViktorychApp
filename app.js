@@ -23070,7 +23070,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           window.scrollTo(0, next);
           if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = next;
           if (opts && opts.focusKey) focusExpandedControl(String(opts.focusKey));
-          if (opts && opts.anchorId) watchPostAnchor(String(opts.anchorId), Number(opts.anchorTop) || 0);
+          if (opts && opts.pinAnchor && opts.anchorId) watchPostAnchor(String(opts.anchorId), Number(opts.anchorTop) || 0);
         });
       }
       if (focusId) {
@@ -25126,7 +25126,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const anchorTop = article ? article.getBoundingClientRect().top : 0;
       rememberCardHeights();
       STATE.expanded[key] = !STATE.expanded[key];
-      render({ y: pageY(), anchorId: anchorId, anchorTop: anchorTop, focusKey: key });
+      render({ y: pageY(), anchorId: anchorId, anchorTop: anchorTop, focusKey: key, pinAnchor: true });
       return;
     }
     if (act === "busy-open") {
