@@ -151,7 +151,7 @@ const PAGE_STEPS = [
   step("video-fallback", "node scripts/video_fallback_test.mjs", { needs: ["pw", "browser"], paths: [file("video_fallback_test.mjs")] }),
   step("ig-media", "node scripts/instagram_media_test.mjs", {
     weight: 45, needs: ["pw", "browser"],
-    paths: [file("instagram_media_test.mjs"), /^app\.js$/, /^worker\/src\/index\.js$/]
+    paths: [file("instagram_media_test.mjs"), /^app\.js$/, /^accounts\.js$/, /^worker\/src\/index\.js$/]
   }),
   step("device-guard", "node scripts/device_guard_test.mjs", { needs: ["pw", "browser"], paths: [file("device_guard_test.mjs")] }),
   step("usernames", "node scripts/usernames_settings_test.mjs", { weight: 80, needs: ["pw", "browser"], paths: [file("usernames_settings_test.mjs")] }),

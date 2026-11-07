@@ -30,14 +30,15 @@ const FIXTURE = {
   updated: new Date(now).toISOString(),
   feeds: [{
     id: "instagram:orbitfox", platform: "instagram", handle: "orbitfox", name: "Orbit Fox",
-    title: "Orbit Fox", avatar: "", url: "https://www.instagram.com/orbitfox/", configured: true
+    title: "Orbit Fox", avatar: "", bio: "Demo bio line", url: "https://www.instagram.com/orbitfox/", configured: true
   }],
   posts: [
     post("Efgh5678", "Fresh demo photo", 1, [{ type: "photo", url: "https://scontent.cdninstagram.com/v/new.jpg?oe=" + FRESH, width: 1080, height: 1350 }]),
     post("Abcd1234", "Expired demo photo", 2, [{ type: "photo", url: "https://scontent.cdninstagram.com/v/old.jpg?oe=" + OLD, width: 1080, height: 1350 }]),
     post("Vwxyz12ab", "Reel demo", 3, [{ type: "photo", url: "https://scontent.cdninstagram.com/v/reel-old.jpg?oe=" + OLD }], "https://www.instagram.com/reel/Vwxyz12ab/"),
     post("Mnop3456", "Video demo", 4, [{ type: "video", url: "https://scontent.cdninstagram.com/v/clip.mp4?oe=" + FRESH, poster: "https://scontent.cdninstagram.com/v/poster.jpg?oe=" + FRESH, width: 720, height: 1280 }]),
-    post("Qrst7890", "Missing demo", 5, [{ type: "photo", url: "https://www.instagram.com/p/Qrst7890/media/?size=l" }])
+    post("Qrst7890", "Missing demo", 5, [{ type: "photo", url: "https://www.instagram.com/p/Qrst7890/media/?size=l" }]),
+    post("Reelclip1", "Expired reel clip", 6, [{ type: "video", url: "https://scontent.cdninstagram.com/o1/v/t2/clip.mp4?oe=" + OLD, poster: "https://scontent.cdninstagram.com/v/poster-old.jpg?oe=" + OLD, width: 720, height: 1280 }], "https://www.instagram.com/reel/Reelclip1/")
   ]
 };
 
@@ -105,6 +106,7 @@ async function run(chromium, port, vp) {
   const browser = await chromium.launch({ headless: true, channel: process.env.PW_CHANNEL || "chrome", args: ["--no-sandbox", "--disable-gpu"] });
   const media = [];
   const outside = [];
+  const profileHits = [];
   try {
     const ctx = await browser.newContext({
       viewport: { width: vp.width, height: vp.height },
@@ -126,6 +128,14 @@ async function run(chromium, port, vp) {
         if (target.indexOf("Qrst7890") >= 0) return route.fulfill({ status: 404, contentType: "application/json", body: '{"error":"upstream"}' });
         return route.fulfill({ status: 200, contentType: "image/png", body: PNG });
       }
+      if (url.pathname.indexOf("/v1/profile/") === 0) {
+        profileHits.push(url.pathname);
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ account: { handle: "orbitfox", displayName: "Not This Person", bio: "Invented bio" }, reposts: [] })
+        });
+      }
       if (url.pathname.indexOf("/v1/") >= 0) {
         if (/feeds/.test(url.pathname)) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FIXTURE) });
         return route.fulfill({ status: 200, contentType: "application/json", body: '{"posts":[],"reposts":[],"ok":true}' });
@@ -143,7 +153,7 @@ async function run(chromium, port, vp) {
     }, ME);
     await page.goto(origin + "/#/home", { waitUntil: "domcontentloaded" });
     await page.waitForSelector('article[data-post="Efgh5678"]', { timeout: 30000 });
-    for (const id of ["Efgh5678", "Abcd1234", "Vwxyz12ab", "Mnop3456", "Qrst7890"]) {
+    for (const id of ["Efgh5678", "Abcd1234", "Vwxyz12ab", "Mnop3456", "Qrst7890", "Reelclip1"]) {
       const card = page.locator('article[data-post="' + id + '"]');
       await card.scrollIntoViewIfNeeded().catch(() => {});
     }
@@ -185,13 +195,15 @@ async function run(chromium, port, vp) {
         reel: card("Vwxyz12ab"),
         video: card("Mnop3456"),
         missing: card("Qrst7890"),
+        reelClip: card("Reelclip1"),
         iframes: [...document.querySelectorAll("iframe")].map((frame) => frame.getAttribute("src") || "").filter((src) => /instagram\.com/i.test(src))
       };
     });
     const decoded = {
       fresh: targetOf(view.fresh.src),
       expired: targetOf(view.expired.src),
-      reel: targetOf(view.reel.src)
+      reel: targetOf(view.reel.src),
+      reelClip: targetOf(view.reelClip && view.reelClip.src)
     };
     if (!view.fresh || view.fresh.text.indexOf("Fresh demo photo") < 0) fail(vp.name + ": fresh caption missing");
     if (decoded.fresh.indexOf("scontent.cdninstagram.com/v/new.jpg") < 0) fail(vp.name + ": a current file was replaced " + decoded.fresh);
@@ -199,7 +211,10 @@ async function run(chromium, port, vp) {
     if (!view.expired || view.expired.text.indexOf("Expired demo photo") < 0) fail(vp.name + ": expired caption missing");
     if (decoded.expired !== "https://www.instagram.com/p/Abcd1234/media/?size=l") fail(vp.name + ": expired file did not use the public media redirect " + decoded.expired);
     if (!view.reel || decoded.reel !== "https://www.instagram.com/reel/Vwxyz12ab/media/?size=l") fail(vp.name + ": reel did not use its public media redirect " + decoded.reel);
-    const painted = await page.evaluate(() => ["Efgh5678", "Abcd1234", "Vwxyz12ab"].every((id) => {
+    if (!view.reelClip || view.reelClip.text.indexOf("Expired reel clip") < 0) fail(vp.name + ": expired reel caption missing");
+    if (decoded.reelClip !== "https://www.instagram.com/reel/Reelclip1/media/?size=l") fail(vp.name + ": an expired reel clip did not use its public media redirect " + decoded.reelClip);
+    if (view.reelClip.play) fail(vp.name + ": an expired reel clip offered a player");
+    const painted = await page.evaluate(() => ["Efgh5678", "Abcd1234", "Vwxyz12ab", "Reelclip1"].every((id) => {
       const img = document.querySelector('article[data-post="' + id + '"] img');
       return !!(img && img.naturalWidth > 0);
     }));
@@ -207,7 +222,7 @@ async function run(chromium, port, vp) {
     if (!view.video || !view.video.play || view.video.text.indexOf("Video demo") < 0) fail(vp.name + ": video card missing " + JSON.stringify(view.video));
     if (view.video.src.indexOf("poster.jpg") < 0 && view.video.src.indexOf("clip.mp4") < 0) fail(vp.name + ": video poster was not the stored file " + view.video.src);
     if (view.iframes.length) fail(vp.name + ": an Instagram embed was framed " + view.iframes.join(" "));
-    [view.fresh, view.expired, view.reel, view.video].forEach((card) => {
+    [view.fresh, view.expired, view.reel, view.reelClip, view.video].forEach((card) => {
       if (card && card.frames.length) fail(vp.name + ": a card framed an embed " + card.frames.join(" "));
     });
     const igDirect = outside.filter((raw) => /instagram\.com/i.test(raw));
@@ -234,11 +249,59 @@ async function run(chromium, port, vp) {
       fail(vp.name + ": a missing image did not stay a caption with Open original " + JSON.stringify(info));
     }
 
+    await page.locator('article[data-post="Mnop3456"]').evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest" }));
+    const layout = await page.evaluate(() => {
+      const card = document.querySelector('article[data-post="Mnop3456"]');
+      const tile = card && card.querySelector(".tile");
+      const play = card && card.querySelector("button.play");
+      const cr = card ? card.getBoundingClientRect() : null;
+      const tr = tile ? tile.getBoundingClientRect() : null;
+      const pr = play ? play.getBoundingClientRect() : null;
+      const viewH = window.innerHeight;
+      const onScreen = (box) => !!(box && box.width > 40 && box.bottom > 0 && box.top < viewH);
+      return {
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        tileInside: !!(onScreen(tr) && cr && tr.left >= cr.left - 1 && tr.right <= cr.right + 1),
+        playInside: !!(onScreen(pr) && tr && pr.left >= tr.left - 1 && pr.right <= tr.right + 1 && pr.top >= tr.top - 1 && pr.bottom <= tr.bottom + 1)
+      };
+    });
+    if (layout.overflow > 2) fail(vp.name + ": the feed is wider than the screen " + layout.overflow);
+    if (!layout.tileInside) fail(vp.name + ": the video frame leaves the card");
+    if (!layout.playInside) fail(vp.name + ": the play button leaves the video frame");
+
+    await page.locator('article[data-post="Efgh5678"] a.name').click();
+    await page.waitForFunction(() => /#\/instagram\/orbitfox(?:\?|$)/.test(location.hash || ""), null, { timeout: 8000 }).catch(() => {});
+    const source = await page.waitForFunction(() => {
+      const name = document.querySelector("h1.pname");
+      const text = document.body ? document.body.innerText || "" : "";
+      return name && /Orbit Fox/.test(name.textContent || "") && /Demo bio line/.test(text);
+    }, null, { timeout: 8000 }).then(() => true).catch(() => false);
+    const profile = await page.evaluate(() => {
+      const text = document.body ? document.body.innerText || "" : "";
+      return {
+        hash: location.hash || "",
+        title: document.title || "",
+        text: text.slice(0, 500),
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+      };
+    });
+    if (!source) fail(vp.name + ": the source page did not keep the stored name and bio " + JSON.stringify(profile));
+    if (profile.hash.indexOf("#/instagram/orbitfox") !== 0) fail(vp.name + ": the source opened an app profile " + profile.hash);
+    if (/Not This Person|Invented bio|Edit profile/.test(profile.text)) fail(vp.name + ": the source page used an app account " + profile.text.slice(0, 240));
+    if (profileHits.length) fail(vp.name + ": an external source asked /v1/profile " + profileHits.join(" "));
+    if (profile.overflow > 2) fail(vp.name + ": the source page is wider than the screen " + profile.overflow);
+
     fs.mkdirSync(shots, { recursive: true });
+    await page.screenshot({ path: path.join(shots, "instagram-profile-" + vp.name + ".png") });
+    await page.goto(origin + "/#/home", { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('article[data-post="Efgh5678"]', { timeout: 15000 });
     const shown = page.locator('article[data-post="Efgh5678"]');
     await shown.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest" }));
     await page.screenshot({ path: path.join(shots, "instagram-" + vp.name + ".png") });
     await shown.screenshot({ path: path.join(shots, "instagram-card-" + vp.name + ".png") });
+    await page.locator('article[data-post="Mnop3456"]').evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest" }));
+    await page.screenshot({ path: path.join(shots, "instagram-video-" + vp.name + ".png") });
+    if (profileHits.length) fail(vp.name + ": going home asked /v1/profile " + profileHits.join(" "));
     console.log("ok " + vp.name);
   } finally {
     await browser.close();

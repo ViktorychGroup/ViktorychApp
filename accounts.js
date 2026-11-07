@@ -5388,8 +5388,16 @@ function signupPayload() {
     top = birthdayBanner + top;
     return top + '<div class="pinfo"><div class="pava-row">' + photo + '<div class="pactions">' + edit + giftBtn + followBtn + friendBtn + seenLine + '</div></div><h1 class="pname">' + nameRowHtml(account, !mine) + (nk && nk.button && !mine ? nk.button("app", account.handle || "", originalName) : "") + '</h1><div class="phandle">@' + esc(account.handle) + '</div>' + mutualLine + (account.bio ? '<div class="pbio">' + esc(account.bio) + "</div>" : "") + (account.location ? '<div class="acct-loc">' + esc(account.location) + "</div>" : "") + (siteHref(account.website) ? '<div class="acct-loc"><a href="' + esc(siteHref(account.website)) + '" target="_blank" rel="noopener noreferrer">' + esc(account.website) + "</a></div>" : "") + linkedIdentitiesHtml(account) + (account.profileLess ? '<div class="private-badge" style="margin:4px 0 8px">' + esc(tr("Profile-less (not visible to others)")) + '</div>' : "") + accountCountsHtml(account) + "</div>" + tabs + body + galleryHtml(account);
   }
+  function appProfileRoute(route) {
+    var platform = String((route && route.platform) || "x");
+    return platform === "x" || platform === "app";
+  }
   function profileHtml(route) {
     if (!route || route.name !== "profile" || !route.handle || route.handle === "_") return "";
+    /* External sources are not app accounts. The page uses the feed already
+       on this device. /v1/profile is only an app account, and a miss there
+       is not a missing source. */
+    if (!appProfileRoute(route)) return "";
     var key = skel(route.handle);
     if (profileMiss[key]) return "";
     var account = profiles[key];
