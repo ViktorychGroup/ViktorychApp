@@ -1227,7 +1227,14 @@
     if (!started || !started.catch) return Promise.resolve();
     return started.catch(function (err) {
       if (!err || err.name !== "NotAllowedError") throw err;
-      return new Promise(function (resolve, reject) {
+      // The manifest arrives after the tap, so a phone will not start an
+      // unmuted video. Mute and play now; a second tap is only if that fails.
+      video.muted = true;
+      var mutedPlay = video.play();
+      if (!mutedPlay || !mutedPlay.catch) return Promise.resolve();
+      return mutedPlay.catch(function (again) {
+        if (!again || again.name !== "NotAllowedError") throw again;
+        return new Promise(function (resolve, reject) {
         var stage = video.parentNode;
         if (!stage) { reject(err); return; }
         function go() {
@@ -1238,6 +1245,7 @@
           again.then(resolve).catch(reject);
         }
         stage.addEventListener("pointerdown", go);
+        });
       });
     });
   }
