@@ -3117,12 +3117,14 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
     const text = post.text || "";
     const rich = safeRich(post.html);
-    if (rich && (full || STATE.expanded[key] || text.length <= 280)) return rich;
-    if (full || STATE.expanded[key] || text.length <= 280) return linkify(text, post.links, post.platform, post.handle);
+    const moreBtn = (open) => ` <button type="button" class="show-more" data-act="more" data-key="${esc(key)}" aria-expanded="${open ? "true" : "false"}">${open ? tr("Show less") : tr("Show more")}</button>`;
+    const long = text.length > 280;
+    if (rich && (full || STATE.expanded[key] || !long)) return rich + (!full && long && STATE.expanded[key] ? moreBtn(true) : "");
+    if (full || STATE.expanded[key] || !long) return linkify(text, post.links, post.platform, post.handle) + (!full && long && STATE.expanded[key] ? moreBtn(true) : "");
     let cut = text.slice(0, 280);
     const sp = cut.lastIndexOf(" ");
     if (sp > 220) cut = cut.slice(0, sp);
-    return linkify(cut, post.links, post.platform, post.handle) + ` <button class="show-more" data-act="more" data-key="${esc(key)}">${tr("Show more")}</button>`;
+    return linkify(cut, post.links, post.platform, post.handle) + moreBtn(false);
   }
 
   function readerLanguage() {
@@ -23067,6 +23069,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           }
           window.scrollTo(0, next);
           if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = next;
+          if (opts && opts.focusKey) focusExpandedControl(String(opts.focusKey));
+          if (opts && opts.anchorId) watchPostAnchor(String(opts.anchorId), Number(opts.anchorTop) || 0);
         });
       }
       if (focusId) {
@@ -25116,10 +25120,13 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "more") {
-      const key = el.dataset.key;
-      if (String(key || "").indexOf("desc:") === 0) STATE.expanded[key] = !STATE.expanded[key];
-      else STATE.expanded[key] = true;
-      render();
+      const key = el.dataset.key || "";
+      const article = el.closest("article[data-post]");
+      const anchorId = article ? (article.getAttribute("data-post") || "") : "";
+      const anchorTop = article ? article.getBoundingClientRect().top : 0;
+      rememberCardHeights();
+      STATE.expanded[key] = !STATE.expanded[key];
+      render({ y: pageY(), anchorId: anchorId, anchorTop: anchorTop, focusKey: key });
       return;
     }
     if (act === "busy-open") {
@@ -27546,6 +27553,62 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }
       if (i === all.length - 1) evs.forEach((ev) => window.removeEventListener(ev, quit));
     }, ms));
+  }
+  /* After Show more, the new tree guesses off-screen cards at 220px, so the
+     old pixel scroll lands on a different card. Keep the opened post at the
+     same place on screen, including while a late picture changes the height. */
+  let anchorPin = null;
+  function watchPostAnchor(id, top) {
+    if (anchorPin) anchorPin();
+    const raw = String(id || "");
+    if (!raw) return;
+    const sel = window.CSS && CSS.escape ? 'article[data-post="' + CSS.escape(raw) + '"]' : 'article[data-post="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+    let stop = false;
+    let quiet = 0;
+    let aligning = false;
+    let ro = null;
+    const finish = () => {
+      if (stop) return;
+      stop = true;
+      if (quiet) clearTimeout(quiet);
+      if (ro) ro.disconnect();
+      window.removeEventListener("scroll", onScroll);
+      ["wheel", "touchstart", "keydown"].forEach((ev) => window.removeEventListener(ev, finish, true));
+      if (anchorPin === finish) anchorPin = null;
+    };
+    const align = () => {
+      if (stop || aligning) return;
+      const el = document.querySelector(sel);
+      if (!el) return;
+      const off = el.getBoundingClientRect().top - top;
+      if (Math.abs(off) > 2) {
+        aligning = true;
+        window.scrollBy(0, off);
+        aligning = false;
+        if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = window.scrollY;
+      }
+      if (quiet) clearTimeout(quiet);
+      quiet = setTimeout(finish, 450);
+    };
+    const onScroll = () => align();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    ["wheel", "touchstart", "keydown"].forEach((ev) => window.addEventListener(ev, finish, { capture: true, passive: true }));
+    anchorPin = finish;
+    const app = document.getElementById("app");
+    if (window.ResizeObserver && app) {
+      ro = new ResizeObserver(align);
+      ro.observe(app);
+    }
+    requestAnimationFrame(align);
+  }
+  function focusExpandedControl(key) {
+    const want = String(key || "");
+    const buttons = document.querySelectorAll('button.show-more[data-act="more"]');
+    for (let i = 0; i < buttons.length; i++) {
+      if ((buttons[i].dataset.key || "") !== want) continue;
+      try { buttons[i].focus({ preventScroll: true }); } catch (err) { buttons[i].focus(); }
+      return;
+    }
   }
   function cardHeightStyle(id) {
     const h = STATE.cardHeights ? STATE.cardHeights.get(String(id || "")) : 0;
