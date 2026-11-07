@@ -521,11 +521,47 @@ test("past lives stitch parts and stream held segments", async () => {
       oversize: true,
       channelSlot: 0
     }));
+    await db.DATA.put("live-buf/0/some_name/7100000000000000002/1/seg00004.m4s", new Uint8Array([1]));
+    await db.DATA.put("live-buf/0/some_name/7100000000000000002/1/seg00004.m4s.json", JSON.stringify({
+      objectKey,
+      index: 4,
+      role: "segment",
+      size: 1,
+      duration: 2,
+      channelSlot: 0
+    }));
+    // An oversized piece is held in the buffer and has no Telegram row.
+    // A saved room can still contain it, so a saved playlist must list it
+    // and the bytes must play.
+    await db.DATA.put("live-buf/1/some_name/7100000000000000002/1/seg00005.m4s", new Uint8Array([7, 7, 7, 7, 7]));
+    await db.DATA.put("live-buf/1/some_name/7100000000000000002/1/seg00005.m4s.json", JSON.stringify({
+      objectKey,
+      index: 5,
+      role: "segment",
+      size: 5,
+      duration: 2,
+      oversize: true,
+      channelSlot: 1
+    }));
     const parent = await call(mf, "/tg/" + room + "/index.m3u8", { ip: "203.0.113.62", token: owner.token });
     assert.equal(parent.status, 200);
-    assert.match(new TextDecoder().decode(parent.bytes), /#EXT-X-DISCONTINUITY/);
-    assert.match(new TextDecoder().decode(parent.bytes), /\/live\/1\/1/);
-    assert.match(new TextDecoder().decode(parent.bytes), /\/live\/2\/1/);
+    const parentText = new TextDecoder().decode(parent.bytes);
+    assert.match(parentText, /#EXT-X-DISCONTINUITY/);
+    assert.match(parentText, /\/live\/1\/1/);
+    assert.match(parentText, /\/live\/2\/1/);
+    assert.match(parentText, /\/live\/1\/3/);
+    assert.match(parentText, /\/live\/1\/4/);
+    assert.match(parentText, /\/live\/1\/5/);
+    const saved = await call(mf, "/tg/" + room + "/index.m3u8?saved=1", { ip: "203.0.113.62", token: owner.token });
+    assert.equal(saved.status, 200);
+    const savedText = new TextDecoder().decode(saved.bytes);
+    assert.match(savedText, /\/live\/1\/1/);
+    assert.match(savedText, /\/live\/1\/3/, "a saved playlist keeps the oversized stored segment");
+    assert.match(savedText, /\/live\/1\/4/, "a saved playlist keeps a buffer-only segment");
+    assert.match(savedText, /\/live\/1\/5/, "a saved playlist keeps an oversized buffer-only segment");
+    const held = await call(mf, "/tg/" + room + "/1/5", { ip: "203.0.113.62", token: owner.token });
+    assert.equal(held.status, 200);
+    assert.deepEqual(Array.from(held.bytes), [7, 7, 7, 7, 7]);
     const denied = await call(mf, "/tg/" + room + "/index.m3u8", { ip: "203.0.113.63", token: reader.token });
     assert.equal(denied.status, 403);
     const tail = await call(mf, "/tg/" + room + "/1/3", { ip: "203.0.113.62", token: owner.token, range: "bytes=-2" });
