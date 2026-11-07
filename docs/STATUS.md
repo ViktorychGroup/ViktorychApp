@@ -22,7 +22,7 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Custom tabs.** Home tabs, their order, and the accounts in them are part of the signed-in account. A drag saves one order for every tab in it, and the newer drag wins that whole order. An add or a removal sticks unless a later add or removal says otherwise. A tab keeps every account it is allowed to hold, including accounts saved before membership had its own times. A deleted tab stays deleted; a later edit does not bring it back. Another account never receives them. The open page applies a sync without waiting for a reload. Tests: `scripts/device_sync_test.js`, `scripts/tab_sync_test.mjs`.
 
-**Show more.** Opening the rest of a post keeps that post where it was on the screen, including after a late resize. Show less does the same, including when that control is below the phone screen. The check focuses it without scrolling. Test: `scripts/show_more_scroll_test.mjs`.
+**Show more.** Opening the rest of a post keeps that post where it was on the screen, including after a late resize. Show less does the same when the control is below the screen and after a pointer click or a phone tap once it has been scrolled into view. Test: `scripts/show_more_scroll_test.mjs`.
 
 **Search.** A leading @ is the same query as the handle alone, for a source already in the feed and for an app account. The signed-in account is included in People search. An account that turned off “Let others find me in search” stays hidden from everyone else; the site owner still finds it, and that look is audit-logged. Finding yourself is not logged. Tests: `scripts/people_search_test.mjs`, `scripts/device_test.js`, `worker/test/people-search.test.mjs`.
 
