@@ -22126,6 +22126,12 @@ if (STATE.histClear) {
       maxH = Math.max(120, Math.min(want, spaceAbove));
       top = item.top - 4 - maxH;
     }
+    // The reply row under a post stays clickable while this menu is open.
+    const reply = document.querySelector('[data-act="xc-expand-reply"], .composer');
+    if (reply) {
+      const replyTop = reply.getBoundingClientRect().top;
+      if (top < replyTop && top + maxH > replyTop - 8) maxH = Math.max(72, replyTop - 8 - top);
+    }
     let left = item.right - width;
     if (left < 8) left = 8;
     if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);

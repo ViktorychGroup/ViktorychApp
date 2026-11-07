@@ -1637,8 +1637,7 @@ img[data-ia-wait] { visibility: hidden; }
 /* The open card has to sit above the sticky header (5) and the phone bar (20)
    so its menu is the thing under the pointer. The tab sheet stays at 35. */
 .post.menu-open,
-.post:has(.menu),
-.status:has(.menu.post-menu) {
+.post:has(.menu) {
   content-visibility: visible;
   position: relative;
   z-index: 30;
@@ -1648,7 +1647,7 @@ img[data-ia-wait] { visibility: hidden; }
   top: 0;
   left: 0;
   right: auto;
-  z-index: 1;
+  z-index: 30;
   max-height: min(70vh, 480px);
   overflow: auto;
 }
