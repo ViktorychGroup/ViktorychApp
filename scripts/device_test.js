@@ -202,6 +202,14 @@ assert.strictEqual(found.complete, true);
 assert.strictEqual(found.hits.posts.length, 1);
 assert.strictEqual(found.hits.posts[0].id, "1");
 assert.strictEqual(found.hits.accounts.length, 1);
+const at = search.query("@reader", {
+  posts: posts,
+  feeds: [{ name: "Reader", handle: "reader", bio: "" }]
+});
+assert.strictEqual(at.hits.accounts.length, 1);
+assert.strictEqual(at.hits.accounts[0].handle, "reader");
+assert.strictEqual(at.hits.posts.length, 1);
+assert.strictEqual(search.query("@", { posts: posts, feeds: [{ name: "Reader", handle: "reader" }] }).hits.accounts.length, 0);
 assert.strictEqual(search.query("missing", { posts: posts }).hits.posts.length, 0);
 search.reset();
 assert.strictEqual(search.query("reader", { posts: [] }).complete, false);
