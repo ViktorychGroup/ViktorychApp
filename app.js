@@ -12103,8 +12103,17 @@ const here = parseRoute();
   }
 
   function listMembersPosts(list) {
-    const ids = new Set(list.members || []);
-    return posts().filter((p) => ids.has(p.feedId) || ids.has((p.platform || "x") + ":" + p.handle)).sort(byStamp);
+    const ids = (list && list.members) || [];
+    const tab = "list:" + (list && list.id || "");
+    const seen = {};
+    const out = posts().filter((post) => profileMatch(post, ids));
+    out.forEach((post) => { if (post && post.id) seen[post.id] = true; });
+    appHomePosts(tab).concat(deviceFollowPosts(tab)).forEach((post) => {
+      if (!post || !post.id || seen[post.id]) return;
+      seen[post.id] = true;
+      out.push(post);
+    });
+    return out.sort(byStamp);
   }
 
   const FEED_PAGE = ((window.ViktorychIos && window.ViktorychIos.lite) || (window.ViktorychTVMode && window.ViktorychTVMode.pref("fewerPosts") === true)) ? 12 : 25;
@@ -13603,12 +13612,76 @@ const here = parseRoute();
     render();
   }
 
+  function filteredHomeTab(tab) {
+    return !!(tab && (tab.indexOf("cat:") === 0 || tab.indexOf("list:") === 0));
+  }
+  function tabMembers(tab) {
+    if (tab && tab.indexOf("list:") === 0) {
+      const found = (STATE.settings.lists || []).find((item) => item.id === tab.slice(5));
+      return (found && found.members) || [];
+    }
+    if (tab && tab.indexOf("cat:") === 0) {
+      const found = feedTabById(tab.slice(4));
+      if (!found || found.showHome === false) return [];
+      return found.members || [];
+    }
+    return [];
+  }
+  function memberPostHit(post, ids) {
+    if (!post || !ids || !ids.length) return false;
+    if (profileMatch(post, ids)) return true;
+    const author = post.authorId ? "app:" + post.authorId : "";
+    return !!author && ids.some((id) => String(id) === author);
+  }
+  function authorCacheKey(memberId) {
+    const text = String(memberId || "");
+    if (text.indexOf("app:") !== 0) return "";
+    const key = text.slice(4).replace(/^@/, "");
+    if (/^\d{12}$/.test(key)) return key;
+    return key ? "@" + key.toLowerCase() : "";
+  }
+  function memberFetchPending(tab) {
+    const now = Date.now();
+    const ids = tabMembers(tab);
+    for (let i = 0; i < ids.length; i++) {
+      const cacheKey = authorCacheKey(ids[i]);
+      if (cacheKey) {
+        const entry = authorPostCache[cacheKey];
+        if (entry && entry.loading && now - (entry.at || 0) < 8000) return true;
+      }
+      const text = String(ids[i] || "");
+      const cut = text.indexOf(":");
+      if (cut < 1) continue;
+      const platform = text.slice(0, cut);
+      if (DEVICE_FOLLOW.indexOf(platform) < 0) continue;
+      const row = STATE.liveUsers[liveKey(platform, text.slice(cut + 1))];
+      if (row && row.loading && !row.settled && now - (row.askedAt || 0) < 8000) return true;
+    }
+    return false;
+  }
   function appHomePosts(tab) {
-    if (tab !== "foryou" && tab !== "following") return [];
+    const onTab = filteredHomeTab(tab);
+    if (tab !== "foryou" && tab !== "following" && !onTab) return [];
     if (!STATE.publicSpam) STATE.publicSpam = {};
     const mine = signedAccount();
     const meId = mine && mine.publicId ? String(mine.publicId) : "";
-    const list = publicPosts.filter((item) => item && item.id).map((item) => {
+    const members = onTab ? tabMembers(tab) : null;
+    const seen = {};
+    const items = [];
+    const take = (item) => {
+      if (!item || !item.id || seen[item.id]) return;
+      seen[item.id] = true;
+      items.push(item);
+    };
+    publicPosts.forEach(take);
+    if (onTab) {
+      members.forEach((id) => {
+        const cacheKey = authorCacheKey(id);
+        if (!cacheKey) return;
+        authorPosts(cacheKey).forEach(take);
+      });
+    }
+    const list = items.map((item) => {
       const post = appCardPost(item);
       if (publicPostSpam(item) && !STATE.publicSpam[item.id]) post.spamHidden = true;
       return post;
@@ -13628,6 +13701,7 @@ const here = parseRoute();
     list.forEach((post) => { if (post.parentId && byId[post.parentId] && !post.spamHidden) threaded[post.parentId] = true; });
     return list.filter((post) => {
       if (threaded[post.id] || hiddenPost(post)) return false;
+      if (onTab) return memberPostHit(post, members);
       if (tab === "foryou") return true;
       if (meId && post.authorId === meId) return true;
       if (post.community) return true;
@@ -13690,10 +13764,14 @@ const here = parseRoute();
       : "";
     const tabLoading = !list.length && tabStillLoading(tab);
     if (tabLoading && !tabFlights[tab] && !(tabRetries[tab] && tabRetries[tab].timer)) setTimeout(() => refreshHomeTabs([tab]), 0);
+    const memberTab = catTab || tab.indexOf("list:") === 0;
+    const retry = !list.length && !tabLoading && memberTab
+      ? `<p class="empty-action"><button type="button" class="save" data-act="tab-retry" data-tab="${esc(tab)}">${esc(tr("Try again"))}</button></p>`
+      : "";
     const body = tabLoading ? `<div class="tab-loading" role="progressbar" aria-label="${esc(tr("Loading"))}">` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("") + `</div>` : (list.length ? withSuggestions(groupThreads(list).map((p, i) => p && p.busyGroup ? busyRow(p) : card(p, null, { eager: i < 4 })), tab) : emptyBlock(
       repostsOnly ? tr("No reposts yet") : tab === "following" ? tr("Nothing to see here — yet") : catTab ? tr("No posts in this tab") : tab.startsWith("list:") ? tr("No posts in this List") : tr("No posts yet"),
       repostsOnly ? tr("Reposts and forwards on this tab show up here.") : tab === "following" ? tr("When you follow accounts, their posts show up here.") : catTab ? tr("Posts from accounts in this tab show up here.") : tab.startsWith("list:") ? tr("Posts from members of this List will show up here.") : tr("Posts from your feeds will show up here.")
-    ) + findAccounts);
+    ) + findAccounts + retry);
     const bar = STATE.homeFreshBar ? `<div class="home-fresh" role="progressbar" aria-label="${esc(tr("Loading"))}"><span></span></div>` : "";
     const inline = (tab === "foryou" || tab === "following") && STATE.modal !== "compose" && window.ViktorychXCompose && window.ViktorychXCompose.inlineHtml
       ? window.ViktorychXCompose.inlineHtml("home")
@@ -14898,10 +14976,12 @@ const here = parseRoute();
      (fediverse, Bluesky, Nostr) are read live here and join Home. */
   const DEVICE_FOLLOW = ["mastodon", "bsky", "nostr", "news"];
   function deviceFollowPosts(tab) {
-    if (tab !== "foryou" && tab !== "following") return [];
+    const onTab = filteredHomeTab(tab);
+    if (tab !== "foryou" && tab !== "following" && !onTab) return [];
     const out = [];
     let kicked = 0;
-    (STATE.settings.follows || []).forEach((id) => {
+    const source = onTab ? tabMembers(tab) : (STATE.settings.follows || []);
+    source.forEach((id) => {
       const cut = String(id).indexOf(":");
       const platform = cut > 0 ? String(id).slice(0, cut) : "";
       const handle = cut > 0 ? String(id).slice(cut + 1) : "";
@@ -14914,7 +14994,7 @@ const here = parseRoute();
       }
       ((row && row.posts) || []).slice(0, 20).forEach((post) => {
         if (!post || hiddenPost(post)) return;
-        if (tab === "following" && post.kind === "reply") return;
+        if ((tab === "following" || onTab) && post.kind === "reply") return;
         post.feedId = id;
         out.push(post);
       });
@@ -14953,6 +15033,7 @@ const here = parseRoute();
     if (row.pageTask) return row;
     if (row.settled && row.fetchedAt && Date.now() - row.fetchedAt < COMMENT_TTL) return row;
     row.loading = !row.profile;
+    row.askedAt = Date.now();
     const clean = String(handle || "").replace(/^@/, "");
     const job = platform === "youtube" ? loadYtLive(row, clean)
       : platform === "bsky" ? loadBskyLive(row, clean)
@@ -18206,18 +18287,42 @@ const here = parseRoute();
 
   function openAssignFromPost(postId, x, y) {
     const post = posts().find((item) => item && (item.id === postId || String(item.statusId || "") === String(postId)));
-    if (!post) return;
-    const feed = feedOf(post);
-    openAssign((feed && feed.id) || post.feedId || ((post.platform || "x") + ":" + (post.handle || "")), x, y);
+    if (post) {
+      const feed = feedOf(post);
+      openAssign((feed && feed.id) || post.feedId || ((post.platform || "x") + ":" + (post.handle || "")), x, y);
+      return;
+    }
+    const app = findAppItem(postId);
+    if (!app || !app.authorId) return;
+    openAssign("app:" + app.authorId, x, y);
   }
 
+  function seenAppAccounts() {
+    const out = [];
+    const seen = {};
+    publicPosts.forEach((item) => {
+      if (!item || !item.authorId) return;
+      const id = "app:" + item.authorId;
+      if (seen[id] || feeds().some((feed) => feed && feed.id === id)) return;
+      seen[id] = true;
+      out.push({ id: id, name: item.authorName || item.authorHandle || id, handle: item.authorHandle || "", platform: "app", avatar: item.authorAvatar || "" });
+    });
+    return out;
+  }
   function feedTabEditor() {
     const draft = STATE.draft || { name: "", emoji: "", color: "", showHome: true, showNotes: true, members: [], q: "" };
     const q = String(draft.q || "").trim().toLowerCase();
     const memberSet = draft.members || [];
+    const pool = [];
+    const pooled = {};
+    feeds().concat(seenAppAccounts()).forEach((feed) => {
+      if (!feed || !feed.id || pooled[feed.id]) return;
+      pooled[feed.id] = true;
+      pool.push(feed);
+    });
     const inDraft = (feed) => tabHasProfile({ members: memberSet }, feed.id);
-    const memberRows = feeds().filter((feed) => inDraft(feed));
-    const found = q ? feeds().filter((feed) => {
+    const memberRows = pool.filter((feed) => inDraft(feed));
+    const found = q ? pool.filter((feed) => {
       if (inDraft(feed)) return false;
       return ((feed.name || "") + " " + (feed.handle || "") + " " + (feed.platform || "")).toLowerCase().indexOf(q) >= 0;
     }).slice(0, 40) : [];
@@ -25128,7 +25233,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const id = el.dataset.id || "";
       if (!tab || !id) return;
       const now = Date.now();
-      const on = (tab.members || []).indexOf(id) < 0;
+      const previous = { members: (tab.members || []).slice(), adds: Object.assign({}, tab.memberAdds || {}), drops: Object.assign({}, tab.memberDrops || {}), updatedAt: tab.updatedAt };
+      const on = previous.members.indexOf(id) < 0;
       freezeFeedMembers(tab);
       tab.members = toggleMemberIds(tab.members, id);
       tab.memberAdds = Object.assign({}, tab.memberAdds || {});
@@ -25136,7 +25242,14 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (on) { tab.memberAdds[id] = now; delete tab.memberDrops[id]; }
       else { tab.memberDrops[id] = now; delete tab.memberAdds[id]; }
       tab.updatedAt = now;
-      saveSettings();
+      try { saveSettings(); }
+      catch (err) {
+        tab.members = previous.members;
+        tab.memberAdds = previous.adds;
+        tab.memberDrops = previous.drops;
+        tab.updatedAt = previous.updatedAt;
+        toast(tr("Try again"));
+      }
       render();
       return;
     }
@@ -25522,11 +25635,34 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "member-add" || act === "member-remove") {
       const list = STATE.settings.lists.find((l) => l.id === STATE.draft.id);
       if (list) {
-        list.members = list.members || [];
-        if (act === "member-add" && !list.members.includes(el.dataset.id)) list.members.push(el.dataset.id);
-        if (act === "member-remove") list.members = list.members.filter((id) => id !== el.dataset.id);
-        saveSettings();
+        const previous = (list.members || []).slice();
+        list.members = previous.slice();
+        const id = el.dataset.id || "";
+        if (act === "member-add" && id && list.members.indexOf(id) < 0) list.members.push(id);
+        if (act === "member-remove") list.members = list.members.filter((item) => item !== id);
+        try { saveSettings(); }
+        catch (err) {
+          list.members = previous;
+          toast(tr("Try again"));
+        }
       }
+      render();
+      return;
+    }
+    if (act === "tab-retry") {
+      const id = String(el.dataset.tab || "");
+      if (id.indexOf("cat:") !== 0 && id.indexOf("list:") !== 0) return;
+      const row = tabRetries[id];
+      if (row) { clearTimeout(row.timer); row.timer = 0; row.n = 0; }
+      delete tabTried[id];
+      delete tabAsked[id];
+      if (tabBoundTimer[id]) { clearTimeout(tabBoundTimer[id]); tabBoundTimer[id] = 0; }
+      tabMembers(id).forEach((member) => {
+        const cacheKey = authorCacheKey(member);
+        const entry = cacheKey && authorPostCache[cacheKey];
+        if (entry) { entry.at = 0; entry.loading = false; }
+      });
+      refreshHomeTabs([id]);
       render();
       return;
     }
@@ -29059,6 +29195,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
      session, or a retry is waiting. Retries back off: 4 s, 12 s, 36 s. */
   const tabFlights = {};
   const tabTried = {};
+  const tabAsked = {};
+  const tabBoundTimer = {};
   const tabRetries = {};
   const TAB_RETRY_MS = [4000, 12000, 36000];
   function tabHasPosts(tab) {
@@ -29078,8 +29216,19 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
   function tabStillLoading(tab) {
     if (!(tab.indexOf("cat:") === 0 || tab.indexOf("list:") === 0)) return false;
-    if (!feedsForTab(tab).length) return false;
+    if (!feedsForTab(tab).length && !memberFetchPending(tab)) return false;
+    const asked = tabAsked[tab] || (tabAsked[tab] = Date.now());
+    const left = 8000 - (Date.now() - asked);
+    if (left <= 0) return false;
+    if (!tabBoundTimer[tab]) {
+      tabBoundTimer[tab] = setTimeout(() => {
+        tabBoundTimer[tab] = 0;
+        const route = parseRoute();
+        if (route && route.name === "home" && route.tab === tab) render({ y: window.scrollY });
+      }, left + 30);
+    }
     if (!tabHydrated[tab]) { hydrateTab(tab); return true; }
+    if (memberFetchPending(tab)) return true;
     if ((tabFlights[tab] || 0) > 0 || !tabTried[tab]) return true;
     const row = tabRetries[tab];
     return !!(row && row.timer);
