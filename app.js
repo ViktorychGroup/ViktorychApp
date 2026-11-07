@@ -1134,6 +1134,18 @@
     return COLORS.indexOf(text) >= 0 ? text : "";
   }
 
+  function cleanMemberTimes(bag) {
+    const out = {};
+    if (!bag || typeof bag !== "object" || Array.isArray(bag)) return out;
+    Object.keys(bag).slice(0, 1000).forEach((key) => {
+      const id = String(key || "").trim().slice(0, 120);
+      const at = Number(bag[key]);
+      if (!id || !isFinite(at) || at <= 0) return;
+      out[id] = at;
+    });
+    return out;
+  }
+
   function cleanFeedTabs(list) {
     if (!Array.isArray(list)) return [];
     const out = [];
@@ -1147,7 +1159,7 @@
       const members = [];
       (Array.isArray(item.members) ? item.members : []).forEach((member) => {
         const text = String(member || "").trim();
-        if (!text || text.length > 120 || members.indexOf(text) >= 0 || members.length >= 500) return;
+        if (!text || text.length > 120 || members.indexOf(text) >= 0 || members.length >= 1000) return;
         members.push(text);
       });
       out.push({
@@ -1168,7 +1180,14 @@
         deletedAt: Number(item.deletedAt) || 0,
         sort: item.sort === "popular" ? "popular" : "recent"
       });
-      if (isFinite(Number(item.pos)) && item.pos !== null && item.pos !== undefined && item.pos !== "") out[out.length - 1].pos = Number(item.pos);
+      const saved = out[out.length - 1];
+      if (isFinite(Number(item.pos)) && item.pos !== null && item.pos !== undefined && item.pos !== "") saved.pos = Number(item.pos);
+      if (isFinite(Number(item.posAt)) && Number(item.posAt) > 0) saved.posAt = Number(item.posAt);
+      if (isFinite(Number(item.restoredAt)) && Number(item.restoredAt) > 0) saved.restoredAt = Number(item.restoredAt);
+      const adds = cleanMemberTimes(item.memberAdds);
+      const drops = cleanMemberTimes(item.memberDrops);
+      if (Object.keys(adds).length) saved.memberAdds = adds;
+      if (Object.keys(drops).length) saved.memberDrops = drops;
     });
     return out;
   }
@@ -1366,7 +1385,7 @@
       { id: "mentions", name: "mentions", kind: "mentions", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" },
       { id: "games", name: "games", kind: "games", emoji: "", color: "", showHome: false, showNotes: true, members: [], readAt: 0, sort: "recent" }
     ];
-    feedTabs().forEach((tab) => {
+    orderedFeedTabs().forEach((tab) => {
       if (!tab || tab.showNotes === false || BUILTIN_NOTE_KINDS.indexOf(tab.kind) >= 0) return;
       const id = ("n" + tab.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40);
       if (!id || tabs.some((item) => item.id === id)) return;
@@ -1403,7 +1422,14 @@
 
   function feedTabById(id) {
     const wanted = String(id || "");
-    return feedTabs().find((tab) => tab.id === wanted) || null;
+    const tab = feedTabs().find((item) => item.id === wanted) || null;
+    return tab && tabAlive(tab) ? tab : null;
+  }
+
+  /* Alive custom tabs in the saved order. A drag stores pos; tabs that
+     have never been moved keep the list order. */
+  function orderedFeedTabs() {
+    return sortNoteTabs(feedTabs().filter(tabAlive));
   }
 
   function newFeedTabId() {
@@ -11977,7 +12003,7 @@ const here = parseRoute();
 
   function homeHeader(tab) {
     const lists = STATE.settings.lists.filter((l) => l.pinned);
-    const cats = feedTabs().filter((item) => item.showHome !== false);
+    const cats = orderedFeedTabs().filter((item) => item.showHome !== false);
     const pinnedCm = communityTabsPinned();
     const tabBtn = (id, label, on, face, noteId) => `<button class="tab${on ? " on" : ""}" data-act="htab" data-tab="${esc(id)}"${noteId ? ` data-note-tab="${esc(noteId)}"` : ""} role="tab" aria-selected="${on ? "true" : "false"}">${face || ""}<span>${esc(label)}</span></button>`;
     const tabWithMenu = (id, label, face, noteId) => {
@@ -17563,7 +17589,7 @@ const here = parseRoute();
 
   function feedTabChoices(feedId) {
     const id = String(feedId || "");
-    const rows = feedTabs().map((tab) => {
+    const rows = orderedFeedTabs().map((tab) => {
       const on = tabHasProfile(tab, id);
       return `<button class="bell-choice" type="button" role="menuitemcheckbox" aria-checked="${on ? "true" : "false"}" data-act="feed-tab-member" data-tab="${esc(tab.id)}" data-id="${esc(id)}"><span class="bell-choice-ico">${tabMark(tab)}</span><span class="bell-choice-label">${esc(tab.name)}</span><span class="bell-mark">${on ? icon("tick") : ""}</span></button>`;
     }).join("");
@@ -18056,8 +18082,33 @@ const here = parseRoute();
       if (moved.length) touchNoteTabs(moved);
       return;
     }
-    STATE.settings.feedTabs = next;
+    const now = Date.now();
+    const rank = {};
+    ids.forEach((id, index) => { rank[id] = index; });
+    // One stamp for the whole order. A tab that stayed put still has to
+    // carry this drag, or an older drag can keep that tab's previous place.
+    next.forEach((tab) => {
+      if (!Object.prototype.hasOwnProperty.call(rank, tab.id) || !tabAlive(tab)) return;
+      tab.pos = rank[tab.id];
+      tab.posAt = now;
+    });
+    const dead = feedTabs().filter((tab) => !tabAlive(tab) && !next.some((item) => item.id === tab.id));
+    STATE.settings.feedTabs = next.concat(dead);
     saveSettings();
+  }
+
+  /* A tab saved before membership had its own times lists every current
+     account at the tab's previous edit time, so a rename is not a new add
+     and the first later removal does not forget the other accounts. */
+  function freezeFeedMembers(tab) {
+    if (!tab || tab.memberAdds || tab.memberDrops) return;
+    const prior = Number(tab.updatedAt) || 1;
+    const adds = {};
+    (tab.members || []).forEach((id) => {
+      const text = String(id || "");
+      if (text) adds[text] = prior;
+    });
+    if (Object.keys(adds).length) tab.memberAdds = adds;
   }
 
   function saveFeedTabDraft() {
@@ -18088,11 +18139,33 @@ const here = parseRoute();
     tab.color = tabColor(draft.color);
     tab.showHome = draft.showHome !== false;
     tab.showNotes = draft.showNotes !== false;
+    const previousMembers = (tab.members || []).slice();
     tab.members = [];
     (draft.members || []).forEach((member) => {
       const text = String(member || "").trim();
       if (text && text.length <= 120 && tab.members.indexOf(text) < 0 && tab.members.length < 1000) tab.members.push(text);
     });
+    if (!editingNoteTabs()) {
+      const now = Date.now();
+      freezeFeedMembers(tab);
+      tab.memberAdds = Object.assign({}, tab.memberAdds || {});
+      tab.memberDrops = Object.assign({}, tab.memberDrops || {});
+      tab.members.forEach((id) => {
+        if (previousMembers.indexOf(id) >= 0) return;
+        tab.memberAdds[id] = now;
+        delete tab.memberDrops[id];
+      });
+      previousMembers.forEach((id) => {
+        if (tab.members.indexOf(id) >= 0) return;
+        tab.memberDrops[id] = now;
+        delete tab.memberAdds[id];
+      });
+      tab.updatedAt = now;
+      if (!draft.id) {
+        tab.pos = Math.max(0, feedTabs().filter(tabAlive).length - 1);
+        tab.posAt = now;
+      }
+    }
     if (editingNoteTabs()) {
       STATE.settings.noteTabs = cleanFeedTabs(tabs);
       touchNoteTabs([tab.id]);
@@ -19186,7 +19259,7 @@ const here = parseRoute();
     if (section === "content") {
       return settingsHead(tr("Custom tabs"), "#/settings") + `<div class="set-block">
         <p class="phandle">${esc(tr("Group accounts into tabs on Home and in Notifications."))}</p>
-        ${feedTabs().map((tab) => `<div class="tab-edit-row"><span>${tab.color && !tab.emoji ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}${esc((tab.emoji ? tab.emoji + " " : "") + tab.name)}</span><button class="outline" type="button" data-act="feed-tab-edit" data-id="${esc(tab.id)}">${esc(tr("Edit"))}</button></div>`).join("")}
+        ${orderedFeedTabs().map((tab) => `<div class="tab-edit-row"><span>${tab.color && !tab.emoji ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}${esc((tab.emoji ? tab.emoji + " " : "") + tab.name)}</span><button class="outline" type="button" data-act="feed-tab-edit" data-id="${esc(tab.id)}">${esc(tr("Edit"))}</button></div>`).join("")}
         <button class="outline" type="button" data-act="feed-tab-new">${esc(tr("New tab"))}</button>
       </div>`;
     }
@@ -19864,7 +19937,7 @@ if (STATE.histClear) {
           ${rows || `<p class="phandle">${tr("Pin a List to add it beside Following.")}</p>`}
           <h3>${tr("Custom tabs")}</h3>
           <button class="outline" type="button" data-act="feed-tab-new" aria-label="${tr("New tab")}">${tr("New tab")}</button>
-          ${feedTabs().map((tab) => `<div class="acct-row tab-manage-row"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="who-copy"><span class="name">${esc(tab.name)}</span><span class="handle">${tab.showHome === false ? tr("Hidden on Home") : tr("On Home")}${tab.showNotes === false ? " · " + tr("Hidden in Notifications") : ""}</span></span><button class="outline" type="button" data-act="feed-tab-edit" data-id="${esc(tab.id)}">${tr("Edit")}</button></div>`).join("") || `<p class="phandle">${tr("Create a tab to group accounts on Home and in Notifications.")}</p>`}
+          ${orderedFeedTabs().map((tab) => `<div class="acct-row tab-manage-row"><span class="tab-grip" data-drag-tab="${esc(tab.id)}" data-act="stop" aria-label="${tr("Drag to reorder")}"></span>${tab.emoji ? `<span>${esc(tab.emoji)}</span>` : tab.color ? `<i class="tab-dot" style="background:${esc(tab.color)}"></i>` : ""}<span class="who-copy"><span class="name">${esc(tab.name)}</span><span class="handle">${tab.showHome === false ? tr("Hidden on Home") : tr("On Home")}${tab.showNotes === false ? " · " + tr("Hidden in Notifications") : ""}</span></span><button class="outline" type="button" data-act="feed-tab-edit" data-id="${esc(tab.id)}">${tr("Edit")}</button></div>`).join("") || `<p class="phandle">${tr("Create a tab to group accounts on Home and in Notifications.")}</p>`}
           ${reg && shared && reg.catLocal ? `<button class="tab-switch${tabsSyncOn ? " on" : ""}" type="button" role="switch" aria-checked="${tabsSyncOn ? "true" : "false"}" data-act="sync-cat-local" data-cat="tabs"><span>${esc(tr("Sync these tabs across devices"))}</span><i></i></button><p class="phandle">${esc(tr("Off keeps this device's tabs on this device only."))}</p>` : ""}
         </div>
       </div></div>`;
@@ -25050,7 +25123,15 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const tab = feedTabById(el.dataset.tab);
       const id = el.dataset.id || "";
       if (!tab || !id) return;
+      const now = Date.now();
+      const on = (tab.members || []).indexOf(id) < 0;
+      freezeFeedMembers(tab);
       tab.members = toggleMemberIds(tab.members, id);
+      tab.memberAdds = Object.assign({}, tab.memberAdds || {});
+      tab.memberDrops = Object.assign({}, tab.memberDrops || {});
+      if (on) { tab.memberAdds[id] = now; delete tab.memberDrops[id]; }
+      else { tab.memberDrops[id] = now; delete tab.memberAdds[id]; }
+      tab.updatedAt = now;
       saveSettings();
       render();
       return;
@@ -25060,6 +25141,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (!tab) return;
       const key = el.dataset.key === "showNotes" ? "showNotes" : "showHome";
       tab[key] = tab[key] === false;
+      freezeFeedMembers(tab);
+      tab.updatedAt = Date.now();
       saveSettings();
       const route = parseRoute();
       if (key === "showHome" && tab.showHome === false && route.name === "home" && route.tab === "cat:" + tab.id) {
@@ -25394,7 +25477,10 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           const now = Date.now();
           STATE.settings.noteTabs = noteTabs().map((tab) => tab.id === id ? Object.assign({}, tab, { deletedAt: now, updatedAt: now, showNotes: false }) : tab);
           touchNoteTabs([id]);
-        } else STATE.settings.feedTabs = feedTabs().filter((tab) => tab.id !== id);
+        } else {
+          const now = Date.now();
+          STATE.settings.feedTabs = feedTabs().map((tab) => tab.id === id ? Object.assign({}, tab, { deletedAt: now, updatedAt: now }) : tab);
+        }
         if (STATE.settings.lastNoteTab === id) STATE.settings.lastNoteTab = "all";
         STATE.confirm = null;
         STATE.modal = null;
@@ -28682,8 +28768,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       seen[id] = true;
       ids.push(id);
     });
-    feedTabs().forEach((item) => {
-      if (!item || !item.id || item.showHome === false || !tabAlive(item)) return;
+    orderedFeedTabs().forEach((item) => {
+      if (!item || !item.id || item.showHome === false) return;
       const id = "cat:" + item.id;
       if (seen[id]) return;
       seen[id] = true;
@@ -32271,7 +32357,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       seen[id] = true;
       ids.push(id);
     });
-    feedTabs().forEach((item) => {
+    orderedFeedTabs().forEach((item) => {
       if (!item || !item.id || item.showHome === false) return;
       const id = "cat:" + item.id;
       if (seen[id]) return;
@@ -33438,7 +33524,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (name === "tab.create") {
       const id = newFeedTabId();
       const tabs = feedTabs();
-      tabs.push({ id: id, name: clipTabName(step.tabName), emoji: "", color: "", showHome: true, showNotes: false, members: [], sort: "recent", readAt: 0 });
+      const now = Date.now();
+      tabs.push({ id: id, name: clipTabName(step.tabName), emoji: "", color: "", showHome: true, showNotes: false, members: [], sort: "recent", readAt: 0, updatedAt: now, pos: tabs.filter(tabAlive).length, posAt: now });
       STATE.settings.feedTabs = cleanFeedTabs(tabs);
       saveSettings();
       goHash(homeHash("cat:" + id));
@@ -33457,7 +33544,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (name === "tab.close") {
       const found = feedTabById(step.tabId);
       if (!found || found.name !== step.tabName) return Promise.resolve({ ok: false, error: "tab" });
-      STATE.settings.feedTabs = feedTabs().filter((tab) => tab.id !== found.id);
+      const now = Date.now();
+      STATE.settings.feedTabs = feedTabs().map((tab) => tab.id === found.id ? Object.assign({}, tab, { deletedAt: now, updatedAt: now }) : tab);
       saveSettings();
       goHash("#/");
       return Promise.resolve({ ok: true, closed: true });
@@ -33467,6 +33555,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (!found || found.name !== step.tabName) return Promise.resolve({ ok: false, error: "tab" });
       if (step.nextName) found.name = clipTabName(step.nextName);
       if (step.showHome === true || step.showHome === false) found.showHome = step.showHome;
+      freezeFeedMembers(found);
+      found.updatedAt = Date.now();
       STATE.settings.feedTabs = cleanFeedTabs(feedTabs());
       saveSettings();
       render();
@@ -33952,7 +34042,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const next = loadSettings();
     // Synced display choices from another device apply right away.
     let lookChanged = false;
-    ["appearance", "homePills", "reactionsData", "communityNotesData", "stories", "prefsAt", "syncUi", "syncUiAt", "showPictures", "showBanners", "profileTabs", "autoplay", "followingSort", "forYouReposts", "forYouReplies", "livePreview", "friendsRail", "translateTo", "translateAuto", "translateNever", "notify", "bells", "mutedWords", "mutedAccounts", "privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "brandLogo", "peopleLinks", "inboxLayout", "busyPrefs", "avatarShape", "accent", "fontSize", "density", "reduceMotion", "postAlign", "postWrapAvatar", "haptics", "aiFab"].forEach((key) => {
+    ["appearance", "homePills", "reactionsData", "communityNotesData", "stories", "prefsAt", "syncUi", "syncUiAt", "showPictures", "showBanners", "profileTabs", "autoplay", "followingSort", "forYouReposts", "forYouReplies", "livePreview", "friendsRail", "translateTo", "translateAuto", "translateNever", "notify", "bells", "mutedWords", "mutedAccounts", "privacyEmbedShield", "privacyWebRTC", "privacyNoReferrer", "privacyStripTrackers", "privacyAntiFingerprint", "brandLogo", "peopleLinks", "inboxLayout", "busyPrefs", "avatarShape", "accent", "fontSize", "density", "reduceMotion", "postAlign", "postWrapAvatar", "haptics", "aiFab", "feedTabs", "noteTabs", "lastNoteTab", "noteTabsSame", "communityTabs", "communityFolders", "tabViews"].forEach((key) => {
       if (JSON.stringify(STATE.settings[key]) === JSON.stringify(next[key])) return;
       STATE.settings[key] = next[key];
       lookChanged = true;
