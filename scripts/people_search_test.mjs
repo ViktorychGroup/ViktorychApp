@@ -87,6 +87,10 @@ function mock(page, log, state) {
     if (url.pathname === "/v1/people") {
       const q = (url.searchParams.get("q") || "").toLowerCase();
       if (q === "quiet_lane") return reply(route, 200, { accounts: [] });
+      if (q === "lane_fox") {
+        if (state.laneOmit) return reply(route, 200, { accounts: [] });
+        return reply(route, 200, { accounts: [{ id: "app:@lane_fox", handle: "lane_fox", name: "Lane Fox", avatar: "", bio: "" }] });
+      }
       return reply(route, 200, { accounts: ACCOUNTS.filter((a) => a.handle.includes(q) || a.name.toLowerCase().includes(q)) });
     }
     if (url.pathname === "/v1/suggestions/prefs" && method === "GET") return reply(route, 200, state.prefs);
@@ -134,6 +138,13 @@ async function check(browser, port, size) {
   await page.goto("http://127.0.0.1:" + port + "/index.html#/explore?q=" + encodeURIComponent("@quiet_lane"), { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => /Nothing matched|No accounts|No results/.test(document.body.innerText || ""), null, { timeout: 8000 }).catch(() => fail(label + ": opted-out query did not stay empty"));
   if (await page.locator(".gresults-list a.who-main").count()) fail(label + ": an opted-out account was shown");
+
+  await page.goto("http://127.0.0.1:" + port + "/index.html#/explore?q=lane_fox", { waitUntil: "domcontentloaded" });
+  await page.waitForSelector('.gresults-list a[href="#/@lane_fox"]', { timeout: 20000 }).catch(() => fail(label + ": first server hit did not show"));
+  state.laneOmit = true;
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => /Nothing matched|No accounts|No results/.test(document.body.innerText || ""), null, { timeout: 8000 }).catch(() => fail(label + ": an omitted account stayed after reload"));
+  if (await page.locator('.gresults-list a[href="#/@lane_fox"]').count()) fail(label + ": stale people hit remained");
 
   // Privacy: the search switch is on by default and saves to the server.
   await page.goto("http://127.0.0.1:" + port + "/index.html#/settings/privacy", { waitUntil: "domcontentloaded" });
