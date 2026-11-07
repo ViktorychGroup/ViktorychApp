@@ -1100,6 +1100,8 @@ SI18n.addPack("es", {
   "this song": "esta canción",
   "{music} isn’t available": "{music} no está disponible",
   "Reload the page.": "Vuelve a cargar la página.",
+  "Shorts isn't available on this account.": "Shorts no está disponible en esta cuenta.",
+  "Sign in to watch Shorts.": "Inicia sesión para ver Shorts.",
   "Start radio": "Empezar la radio",
   "Songs": "Canciones",
   "Add songs": "Añadir canciones",

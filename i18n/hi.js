@@ -840,6 +840,8 @@ SI18n.addPack("hi", {
   "this song": "यह गाना",
   "{music} isn’t available": "{music} उपलब्ध नहीं है",
   "Reload the page.": "पेज फिर से लोड करें।",
+  "Shorts isn't available on this account.": "इस खाते पर Shorts उपलब्ध नहीं है।",
+  "Sign in to watch Shorts.": "Shorts देखने के लिए साइन इन करें।",
   "Start radio": "रेडियो शुरू करें",
   "Songs": "गाने",
   "Add songs": "गाने जोड़ें",

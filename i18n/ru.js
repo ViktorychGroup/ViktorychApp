@@ -1100,6 +1100,8 @@ SI18n.addPack("ru", {
   "this song": "эту песню",
   "{music} isn’t available": "{music} недоступен",
   "Reload the page.": "Обновите страницу.",
+  "Shorts isn't available on this account.": "Shorts недоступны для этой учётной записи.",
+  "Sign in to watch Shorts.": "Войдите, чтобы смотреть Shorts.",
   "Start radio": "Включить радио",
   "Songs": "Песни",
   "Add songs": "Добавить песни",
