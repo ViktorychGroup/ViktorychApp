@@ -173,6 +173,10 @@ const PAGE_STEPS = [
     needs: ["pw", "browser"],
     paths: [file("people_search_test.mjs"), /^app\.js$/, /^device-search\.js$/, /^accounts\.js$/]
   }),
+  step("show-more-scroll", "node scripts/show_more_scroll_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("show_more_scroll_test.mjs"), /^app\.js$/]
+  }),
   step("tab-sync", "node scripts/tab_sync_test.mjs", {
     needs: ["pw", "browser"],
     paths: [file("tab_sync_test.mjs"), file("device_sync_test.js"), /^app\.js$/, /^accounts\.js$/]
@@ -261,7 +265,7 @@ const SHARDS = {
   "compose-core": ["compose-ai", "compose-page"],
   "compose-a": ["community-home", "communities-hub", "own-post", "author-marks", "post-page"],
   "compose-b": ["music-dock", "video-fallback", "ig-media", "device-guard", "usernames", "owner-user-settings"],
-  "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile", "people-search", "tab-sync"],
+  "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile", "people-search", "show-more-scroll", "tab-sync"],
   "compose-d": ["live-translate", "friend-p2p", "communities-instant", "routes-instant"],
   "compose-e": ["profile-by-name", "communities-rows", "friend-privacy", "foryou-communities"],
   "signup-flows": ["signup-flows"]
@@ -283,7 +287,7 @@ const REQUIRED_PAGE = [
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
   "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
-  "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name", "people-search", "tab-sync",
+  "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name", "people-search", "show-more-scroll", "tab-sync",
   "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares",
   "storage-recordings", "storage-page"
 ];
