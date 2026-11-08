@@ -64,14 +64,38 @@ function cleanName(value) {
 }
 
 async function readJson(env, key) {
-  if (!env.DATA) return null;
+  const entry = await readEntry(env, key);
+  return entry.value;
+}
+
+async function readEntry(env, key) {
+  if (!env.DATA) return { value: null, etag: "" };
   try {
     const object = await env.DATA.get(key);
-    if (!object) return null;
+    if (!object) return { value: null, etag: "" };
     const parsed = JSON.parse(await object.text());
-    return parsed && typeof parsed === "object" ? parsed : null;
+    return { value: parsed && typeof parsed === "object" ? parsed : null, etag: String(object.etag || "") };
   } catch (err) {
-    return null;
+    return { value: null, etag: "" };
+  }
+}
+
+function putRejected(err) {
+  const name = String((err && err.name) || "");
+  const message = String((err && err.message) || err || "");
+  return name === "PreconditionFailed" || err && err.status === 412 || /precondition/i.test(message);
+}
+
+async function putJsonIfMatch(env, key, value, etag) {
+  const opts = Object.assign({}, JSON_TYPE);
+  if (etag) opts.onlyIf = { etagMatches: etag };
+  else opts.onlyIf = { etagDoesNotMatch: "*" };
+  try {
+    await env.DATA.put(key, JSON.stringify(value), opts);
+    return true;
+  } catch (err) {
+    if (putRejected(err)) return false;
+    throw err;
   }
 }
 
@@ -310,10 +334,107 @@ function shardStale(index, list, force) {
   return Number(list.changedAt) > Number(row.at || 0);
 }
 
+function unwrap(value) {
+  return String(value || "").replace(/^<!\[CDATA\[/, "").replace(/\]\]>$/, "");
+}
+
+function innerTag(xml, name) {
+  const re = new RegExp("<" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b[^>]*>([\\s\\S]*?)</" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ">", "i");
+  const found = String(xml || "").match(re);
+  return found ? unwrap(found[1]) : "";
+}
+
+function plainText(value) {
+  return unwrap(value)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim()
+    .slice(0, 100000);
+}
+
+function mediaFrom(xml, html) {
+  const out = [];
+  const seen = new Set();
+  const add = (url, type) => {
+    const raw = String(url || "").trim();
+    if (!/^https:\/\//i.test(raw) || seen.has(raw) || raw.length > 2000) return;
+    seen.add(raw);
+    const kind = type && type.indexOf("video") >= 0 ? "video" : "photo";
+    out.push({ type: kind, url: raw });
+  };
+  const tags = String(xml || "").match(/<(?:enclosure|media:content|content)\b[^>]*>/gi) || [];
+  tags.forEach((tag) => {
+    const url = (tag.match(/\burl=["']([^"']+)["']/i) || [])[1] || "";
+    const type = (tag.match(/\b(?:type|medium)=["']([^"']+)["']/i) || [])[1] || "";
+    add(url, type);
+  });
+  const images = String(html || "").match(/<img\b[^>]*>/gi) || [];
+  images.forEach((tag) => add((tag.match(/\bsrc=["']([^"']+)["']/i) || [])[1] || "", "image"));
+  return out;
+}
+
+/* A new feed is read from the public document itself. The owner-catalog
+   preview parser keeps only a short line and no media; this one does not. */
+function parseFeedDocument(xml, source) {
+  const text = String(xml || "");
+  if (!/<(?:rss|feed|rdf)\b/i.test(text)) return null;
+  const chunks = text.split(/<(?:item|entry)\b/i).slice(1);
+  const posts = [];
+  chunks.forEach((chunk) => {
+    if (posts.length >= POSTS_PER_SOURCE) return;
+    const body = chunk.split(/<\/(?:item|entry)>/i)[0];
+    const encoded = innerTag(body, "content:encoded") || innerTag(body, "encoded");
+    const description = innerTag(body, "description") || innerTag(body, "summary");
+    const html = encoded || description || "";
+    const title = plainText(innerTag(body, "title"));
+    let readable = plainText(html);
+    if (title && readable.indexOf(title) < 0) readable = title + (readable ? "\n\n" + readable : "");
+    const quoteHtml = (html.match(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/i) || [])[1] || "";
+    const quoteText = plainText(quoteHtml);
+    const link = innerTag(body, "link") || ((body.match(/<link\b[^>]*href=["']([^"']+)["']/i) || [])[1] || "");
+    const guid = plainText(innerTag(body, "guid") || innerTag(body, "id")) || String(link || "").trim();
+    const date = plainText(innerTag(body, "pubDate") || innerTag(body, "published") || innerTag(body, "updated"));
+    const media = mediaFrom(body, html);
+    if (!guid || (!readable && !media.length)) return;
+    const post = { id: guid.slice(0, 400), text: readable, date, url: String(link || "").trim(), media };
+    if (quoteText) {
+      post.kind = "quote";
+      post.quoted = { id: guid.slice(0, 360) + "#q", platform: source.platform || "rss", kind: "post", text: quoteText };
+    }
+    posts.push(post);
+  });
+  return posts;
+}
+
+async function fetchSourcePosts(row, deadline) {
+  const url = String(row.url || "");
+  if (!/^https:\/\//i.test(url)) return null;
+  let res = null;
+  try {
+    res = await boundedFetch(deadline)(url, { redirect: "follow", headers: { accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" } });
+  } catch (err) {
+    return null;
+  }
+  if (!res || !res.ok) return null;
+  let text = "";
+  try { text = await res.text(); } catch (err) { return null; }
+  if (text.length > 500000) text = text.slice(0, 500000);
+  return parseFeedDocument(text, row);
+}
+
 async function postsForSource(row, index, deadline) {
-  if (Array.isArray(row.cachedPosts) && row.cachedPosts.length) return { ok: true, posts: row.cachedPosts.slice(0, POSTS_PER_SOURCE), cached: true };
   const saved = index.sourcePosts && index.sourcePosts[row.id];
-  if (saved && Array.isArray(saved.posts) && saved.posts.length) return { ok: true, posts: saved.posts.slice(0, POSTS_PER_SOURCE), cached: true };
+  if (saved && saved.full && Array.isArray(saved.posts) && saved.posts.length) return { ok: true, posts: saved.posts.slice(0, POSTS_PER_SOURCE), cached: true };
+  if (Date.now() >= deadline) return { ok: false, posts: [], cached: false };
+  const fresh = await fetchSourcePosts(row, deadline);
+  if (fresh) return { ok: true, posts: fresh.slice(0, POSTS_PER_SOURCE), cached: false };
   if (Date.now() >= deadline) return { ok: false, posts: [], cached: false };
   const spec = {
     platform: row.platform,
@@ -383,11 +504,11 @@ async function publishReady(env, hintDoc, onlyIds, force) {
         if (row) posts.push(row);
       });
       health[id] = { ok: got.ok === true, count: got.posts.length, at: now };
-      if (got.posts.length) kept[id] = { profile: feed, posts: got.posts };
+      if (got.posts.length) kept[id] = { profile: feed, posts: got.posts, full: true };
       if (Date.now() >= deadline) break;
     }
     if (failed && !posts.length) {
-      pending.push({ id: list.id, expectMembers, expectSources, entry: { hash: "", count: 0, at: now, error: "down", sources: expectSources }, health, posts: kept });
+      pending.push({ id: list.id, expectMembers, expectSources, entry: { hash: "", count: 0, at: now, error: "down", sources: expectSources, membersKey: expectMembers.join("\n") }, health, posts: kept });
       continue;
     }
     const body = stableJson({ v: 1, feeds, posts }) + "\n";
@@ -397,32 +518,89 @@ async function publishReady(env, hintDoc, onlyIds, force) {
       id: list.id,
       expectMembers,
       expectSources,
-      entry: { hash, size: new TextEncoder().encode(body).byteLength, count: posts.length, at: now, sources: expectSources, partial: failed },
+      entry: { hash, size: new TextEncoder().encode(body).byteLength, count: posts.length, at: now, sources: expectSources, membersKey: expectMembers.join("\n"), partial: failed },
       health,
       posts: kept
     });
   }
   if (!pending.length) return false;
-  const live = await readDoc(env);
-  const index = Object.assign({ v: 1, lists: {}, sources: {}, sourcePosts: {} }, (await readJson(env, INDEX_KEY)) || {});
-  index.lists = index.lists || {};
-  index.sources = index.sources || {};
-  index.sourcePosts = index.sourcePosts || {};
-  let wrote = false;
-  pending.forEach((update) => {
-    const list = live.lists.find((row) => row.id === update.id);
-    if (!list) return;
-    if (!sameIds(list.members, update.expectMembers) || !sameIds(list.sources, update.expectSources)) return;
-    index.lists[update.id] = update.entry;
-    Object.keys(update.health).forEach((id) => { index.sources[id] = update.health[id]; });
-    Object.keys(update.posts).forEach((id) => { index.sourcePosts[id] = update.posts[id]; });
-    wrote = true;
+  return commitUpdates(env, pending);
+}
+
+function listStill(doc, update) {
+  const list = (doc.lists || []).find((row) => row && row.id === update.id);
+  if (!list) return false;
+  return sameIds(list.members, update.expectMembers) && sameIds(list.sources, update.expectSources);
+}
+
+/* Overlay only this publish's lists onto the index that exists now.
+   If the membership changed after that read, the new entry is removed
+   again. Another list's entry is left in place. */
+async function commitUpdates(env, updates) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const before = await readDoc(env);
+    const allowed = updates.filter((update) => listStill(before, update));
+    if (!allowed.length) return false;
+    const current = await readEntry(env, INDEX_KEY);
+    const index = Object.assign({ v: 1, lists: {}, sources: {}, sourcePosts: {} }, current.value || {});
+    index.lists = index.lists || {};
+    index.sources = index.sources || {};
+    index.sourcePosts = index.sourcePosts || {};
+    const prior = {};
+    allowed.forEach((update) => {
+      prior[update.id] = Object.prototype.hasOwnProperty.call(index.lists, update.id) ? index.lists[update.id] : null;
+      index.lists[update.id] = update.entry;
+      Object.keys(update.health || {}).forEach((id) => { index.sources[id] = update.health[id]; });
+      Object.keys(update.posts || {}).forEach((id) => { index.sourcePosts[id] = update.posts[id]; });
+    });
+    index.v = 1;
+    index.at = Date.now();
+    const wrote = await putJsonIfMatch(env, INDEX_KEY, index, current.etag);
+    if (!wrote) continue;
+    const after = await readDoc(env);
+    const dropped = allowed.filter((update) => !listStill(after, update));
+    if (!dropped.length) return true;
+    await restoreLists(env, dropped, prior);
+    return false;
+  }
+  return false;
+}
+
+async function sweepIndex(env, doc) {
+  const current = await readEntry(env, INDEX_KEY);
+  const lists = (current.value && current.value.lists) || {};
+  const dropped = [];
+  Object.keys(lists).forEach((id) => {
+    const row = lists[id];
+    if (!row || !row.membersKey) return;
+    const list = (doc.lists || []).find((item) => item && item.id === id);
+    const key = list ? (list.members || []).map(String).join("\n") : "";
+    if (list && key === row.membersKey) return;
+    dropped.push({ id, expectMembers: String(row.membersKey).split("\n") });
   });
-  if (!wrote) return false;
-  index.v = 1;
-  index.at = Date.now();
-  await env.DATA.put(INDEX_KEY, JSON.stringify(index), JSON_TYPE);
-  return true;
+  if (dropped.length) await restoreLists(env, dropped, {});
+}
+
+async function restoreLists(env, dropped, prior) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const doc = await readDoc(env);
+    const current = await readEntry(env, INDEX_KEY);
+    const index = Object.assign({ v: 1, lists: {}, sources: {}, sourcePosts: {} }, current.value || {});
+    index.lists = index.lists || {};
+    let changed = false;
+    dropped.forEach((update) => {
+      if (listStill(doc, update)) return;
+      const row = index.lists[update.id];
+      if (!row || row.membersKey !== update.expectMembers.join("\n")) return;
+      if (prior[update.id]) index.lists[update.id] = prior[update.id];
+      else delete index.lists[update.id];
+      changed = true;
+    });
+    if (!changed) return;
+    index.v = 1;
+    index.at = Date.now();
+    if (await putJsonIfMatch(env, INDEX_KEY, index, current.etag)) return;
+  }
 }
 
 async function notifyMembers(env, doc, publish) {
@@ -440,6 +618,7 @@ async function afterChange(env, doc, deps) {
   await writeDoc(env, doc);
   try { await publishReady(env, null); } catch (err) { /* the member read tries once more */ }
   const live = await readDoc(env);
+  try { await sweepIndex(env, live); } catch (err) { /* a stale index entry is ignored on read */ }
   const changed = await writeWanted(env, live, Date.now());
   if (changed && deps.dispatchWorkflows) {
     try { await deps.dispatchWorkflows(env, ["sync.yml"]); } catch (err) { /* the next scheduled sync fetches it */ }
@@ -575,9 +754,14 @@ async function handleMySourceLists(request, env, path, deps) {
       try { await publishReady(env, null, mine.map((row) => row.id), retry); } catch (err) { /* answer with whatever is already published */ }
     }
     const live = await readDoc(env);
+    try { await sweepIndex(env, live); } catch (err) { /* the read still hides a stale entry */ }
     const mineNow = live.lists.filter((row) => row.members.indexOf(id) >= 0);
     const index = (await readJson(env, INDEX_KEY)) || {};
     const shards = index.lists || {};
+    const hidden = mineNow.filter((row) => shards[row.id] && shards[row.id].membersKey && shards[row.id].membersKey !== (row.members || []).join("\n"));
+    if (hidden.length) await restoreLists(env, hidden.map((row) => ({ id: row.id, expectMembers: String(shards[row.id].membersKey || "").split("\n") })), {});
+    const freshIndex = hidden.length ? ((await readJson(env, INDEX_KEY)) || {}) : index;
+    const freshShards = freshIndex.lists || shards;
     if (mineNow.length) {
       // A member who came back after a quiet month switches the fetch back on.
       const wanted = (await readJson(env, WANTED_KEY)) || {};
@@ -586,8 +770,9 @@ async function handleMySourceLists(request, env, path, deps) {
     }
     return deps.json(200, {
       lists: mineNow.map((row) => {
-        const shard = shards[row.id] || {};
-        const hash = hashOk(shard.hash) ? shard.hash : "";
+        const shard = freshShards[row.id] || {};
+        const visible = !shard.membersKey || shard.membersKey === (row.members || []).join("\n");
+        const hash = visible && hashOk(shard.hash) ? shard.hash : "";
         const count = Number(shard.count) || 0;
         let status = "loading";
         if (!row.sources.length || shard.empty) status = "empty";
@@ -603,9 +788,17 @@ async function handleMySourceLists(request, env, path, deps) {
   if (shardPath && method === "GET") {
     const hit = await deps.rateHit(env, "my-lists-shard:" + id, 240, 60 * 60 * 1000);
     if (!hit.ok) return deps.limited(hit);
+    const live = await readDoc(env);
+    const mineNow = live.lists.filter((row) => row.members.indexOf(id) >= 0);
     const index = (await readJson(env, INDEX_KEY)) || {};
     const shards = index.lists || {};
-    if (!mine.some((row) => shards[row.id] && shards[row.id].hash === shardPath[1])) return deps.json(404, { error: "not_found" });
+    const allowed = mineNow.some((row) => {
+      const shard = shards[row.id];
+      if (!shard || shard.hash !== shardPath[1]) return false;
+      if (shard.membersKey && shard.membersKey !== (row.members || []).join("\n")) return false;
+      return true;
+    });
+    if (!allowed) return deps.json(404, { error: "not_found" });
     const object = await env.DATA.get(SHARD_PREFIX + shardPath[1] + ".json");
     if (!object) return deps.json(404, { error: "not_found" });
     return new Response(object.body, {

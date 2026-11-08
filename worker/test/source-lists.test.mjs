@@ -22,6 +22,11 @@ async function outbound(request) {
     dispatches.push(await request.text());
     return new Response(null, { status: 204 });
   }
+  if (url.hostname === "feeds.example" && url.pathname === "/full.xml") {
+    const long = "N".repeat(600);
+    const body = `<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Lane Feed</title><item><title>Lane headline</title><guid>full-1</guid><link>https://feeds.example/full-1</link><content:encoded><![CDATA[<p>${long}</p><img src="https://cdn.example/lane.jpg"/><blockquote>Quoted lane line</blockquote>]]></content:encoded><enclosure url="https://cdn.example/lane.jpg" type="image/jpeg"/></item></channel></rss>`;
+    return new Response(body, { status: 200, headers: { "content-type": "application/rss+xml" } });
+  }
   if (url.hostname === "feeds.example" && url.pathname === "/slow.xml") {
     await new Promise((resolve) => { releaseSlow = resolve; setTimeout(resolve, 8000); });
     return new Response(rss("Slow Wind"), { status: 200, headers: { "content-type": "application/rss+xml" } });
@@ -256,13 +261,15 @@ test("stored posts keep their text, media and quotes, and a failed source stays 
   const list = doc.lists.find((row) => row.id === lid);
   const sourceId = list.sources[0];
   doc.sources[sourceId].cachedPosts = [rich];
-  doc.sources.missing = { id: "missing", platform: "rss", handle: "missing", url: "https://feeds.example/missing.xml", name: "Missing", cachedPosts: [] };
+  doc.sources.missing = { id: "missing", platform: "rss", handle: "missing", url: "https://gone.example/missing.xml", name: "Missing", cachedPosts: [] };
   list.sources = [sourceId, "missing"];
   list.changedAt = Date.now();
   const b = await mf.getBindings();
   await b.DATA.put("owner/source-lists.json", JSON.stringify(doc));
-  const index = (await r2json("owner/lists/index.json")) || { v: 1, lists: {} };
+  const index = (await r2json("owner/lists/index.json")) || { v: 1, lists: {}, sourcePosts: {} };
   delete index.lists[lid];
+  index.sourcePosts = index.sourcePosts || {};
+  index.sourcePosts[sourceId] = { full: true, posts: [rich], profile: {} };
   await b.DATA.put("owner/lists/index.json", JSON.stringify(index));
   const mine = await call("/v1/me/source-lists", { ip: "203.0.113.75", token: member.token });
   const row = mine.body.lists.find((item) => item.id === lid);
@@ -273,4 +280,78 @@ test("stored posts keep their text, media and quotes, and a failed source stays 
   assert.equal(got.text.includes("Y".repeat(600)), true);
   assert.equal(got.text.includes("https://cdn.example/full.jpg"), true);
   assert.equal(got.text.includes("quotedlane"), true);
+});
+
+test("a new feed keeps its text, picture and quote", async () => {
+  const owner = { token: ownerToken };
+  const member = await signup("memberbirch", "203.0.113.80");
+  const made = await call("/v1/owner/source-lists", { method: "POST", ip: "203.0.113.81", token: owner.token, body: { name: "Fresh" } });
+  const lid = made.body.created;
+  const src = await call(`/v1/owner/source-lists/${lid}/sources`, { method: "POST", ip: "203.0.113.82", token: owner.token, body: { input: "https://feeds.example/full.xml" } });
+  assert.equal(src.status, 200, JSON.stringify(src.body));
+  await call(`/v1/owner/source-lists/${lid}/members`, { method: "POST", ip: "203.0.113.83", token: owner.token, body: { handle: "memberbirch" } });
+  const mine = await call("/v1/me/source-lists", { ip: "203.0.113.84", token: member.token });
+  const row = mine.body.lists.find((item) => item.id === lid);
+  assert.match(row.hash, /^[a-f0-9]{64}$/);
+  const got = await call("/v1/me/source-lists/shard/" + row.hash, { ip: "203.0.113.85", token: member.token });
+  assert.equal(got.status, 200);
+  assert.equal(got.text.includes("N".repeat(600)), true);
+  assert.equal(got.text.includes("https://cdn.example/lane.jpg"), true);
+  assert.equal(got.text.includes("Quoted lane line"), true);
+  const memberId = String(member.account.publicId);
+  await call(`/v1/owner/source-lists/${lid}/members/${memberId}`, { method: "DELETE", ip: "203.0.113.86", token: owner.token });
+  const index = await r2json("owner/lists/index.json");
+  index.lists[lid] = { hash: row.hash, membersKey: memberId, count: 1, at: 1, size: 10 };
+  const b = await mf.getBindings();
+  await b.DATA.put("owner/lists/index.json", JSON.stringify(index));
+  const hidden = await call("/v1/me/source-lists", { ip: "203.0.113.87", token: member.token });
+  assert.equal(hidden.body.lists.find((item) => item.id === lid), undefined);
+  assert.equal((await call("/v1/me/source-lists/shard/" + row.hash, { ip: "203.0.113.88", token: member.token })).status, 404);
+  const cleared = await r2json("owner/lists/index.json");
+  assert.equal(cleared.lists[lid], undefined);
+});
+
+test("two publishes keep both lists", async () => {
+  const owner = { token: ownerToken };
+  const first = await signup("memberoak", "203.0.113.90");
+  const second = await signup("memberelm", "203.0.113.91");
+  const slow = await call("/v1/owner/source-lists", { method: "POST", ip: "203.0.113.92", token: owner.token, body: { name: "Slow list" } });
+  const fast = await call("/v1/owner/source-lists", { method: "POST", ip: "203.0.113.93", token: owner.token, body: { name: "Fast list" } });
+  await call(`/v1/owner/source-lists/${slow.body.created}/sources`, { method: "POST", ip: "203.0.113.94", token: owner.token, body: { input: "https://feeds.example/other.xml" } });
+  await call(`/v1/owner/source-lists/${fast.body.created}/sources`, { method: "POST", ip: "203.0.113.95", token: owner.token, body: { input: "https://feeds.example/sample.xml" } });
+  await call(`/v1/owner/source-lists/${slow.body.created}/members`, { method: "POST", ip: "203.0.113.96", token: owner.token, body: { handle: "memberoak" } });
+  await call(`/v1/owner/source-lists/${fast.body.created}/members`, { method: "POST", ip: "203.0.113.97", token: owner.token, body: { handle: "memberelm" } });
+  const doc = await r2json("owner/source-lists.json");
+  doc.lists.forEach((row) => {
+    if (row.id === slow.body.created) {
+      row.changedAt = Date.now();
+      row.sources.forEach((id) => { if (doc.sources[id]) doc.sources[id].url = "https://feeds.example/slow.xml"; });
+    }
+    if (row.id === fast.body.created) row.changedAt = Date.now();
+  });
+  Object.keys(doc.sources).forEach((id) => { doc.sources[id].cachedPosts = []; });
+  const b = await mf.getBindings();
+  await b.DATA.put("owner/source-lists.json", JSON.stringify(doc));
+  const index = (await r2json("owner/lists/index.json")) || { v: 1, lists: {} };
+  delete index.lists[slow.body.created];
+  delete index.lists[fast.body.created];
+  if (index.sourcePosts) {
+    doc.lists.filter((row) => row.id === slow.body.created || row.id === fast.body.created).forEach((row) => {
+      row.sources.forEach((id) => { delete index.sourcePosts[id]; });
+    });
+  }
+  await b.DATA.put("owner/lists/index.json", JSON.stringify(index));
+  outboundHits.length = 0;
+  const pending = call("/v1/me/source-lists", { ip: "203.0.113.98", token: first.token });
+  for (let i = 0; i < 50 && !outboundHits.includes("/slow.xml"); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+  const quick = await call("/v1/me/source-lists", { ip: "203.0.113.99", token: second.token });
+  assert.match(quick.body.lists.find((row) => row.id === fast.body.created).hash, /^[a-f0-9]{64}$/);
+  if (releaseSlow) releaseSlow();
+  await pending;
+  const both = await r2json("owner/lists/index.json");
+  assert.ok(both.lists[slow.body.created], "the slow list was dropped");
+  assert.ok(both.lists[fast.body.created], "the fast list was dropped");
+  assert.match(both.lists[slow.body.created].hash, /^[a-f0-9]{64}$/);
+  assert.match(both.lists[fast.body.created].hash, /^[a-f0-9]{64}$/);
+  assert.notEqual(both.lists[slow.body.created].hash, both.lists[fast.body.created].hash);
 });
