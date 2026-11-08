@@ -22435,6 +22435,7 @@ if (STATE.histClear) {
   let tabScrollLeft = null;
   let tabScrollRoute = "";
   let hscrollNav = false;
+  let profileTabHold = "";
   let hscrollTouching = false;
   let hscrollHolding = false;
   let hscrollHoldGen = 0;
@@ -22775,6 +22776,19 @@ if (STATE.histClear) {
   /* The selected profile pill is measured after its label is laid out, then
      kept inside the strip. A smooth arrow scroll still running on this node
      is cancelled so it cannot pull the pill back to the start. */
+  function focusHeldProfileTab(fallback) {
+    const raw = String(profileTabHold || fallback || "");
+    if (!raw) return;
+    const sel = window.CSS && CSS.escape
+      ? '.ptabs [role="tab"][data-ptab-id="' + CSS.escape(raw) + '"]'
+      : '.ptabs [role="tab"][data-ptab-id="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+    const el = document.querySelector(sel);
+    if (!el) return;
+    if (document.activeElement !== el) {
+      try { el.focus({ preventScroll: true }); } catch (err) { el.focus(); }
+    }
+  }
+
   function revealProfileTabs() {
     const apply = () => {
       const root = document.getElementById("app") || document.body;
@@ -22789,7 +22803,9 @@ if (STATE.histClear) {
       });
       syncTabArrows();
     };
+    const follow = profileTabHold;
     apply();
+    if (!follow) return;
     const schedule = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
     schedule(apply);
   }
@@ -23505,6 +23521,8 @@ if (STATE.histClear) {
     let y = STATE.holdY != null ? STATE.holdY : (reset ? 0 : window.scrollY);
     const focus = document.activeElement;
     const focusId = focus && focus.id;
+    const focusTabNode = focus && focus.closest ? (focus.matches && focus.matches("[data-ptab-id]") ? focus : focus.closest(".ptabs [data-ptab-id]")) : null;
+    const focusTab = focusTabNode ? String(focusTabNode.getAttribute("data-ptab-id") || "") : "";
     const caret = focus && typeof focus.selectionStart === "number" ? focus.selectionStart : null;
     const focusValue = focusId === "explore-q" ? focus.value : null;
     if (leavingWatch) stopWatchPlayback();
@@ -23683,6 +23701,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (opts && opts.pinAnchor && opts.anchorId) watchPostAnchor(String(opts.anchorId), Number(opts.anchorTop) || 0);
         });
       }
+      let focusRestored = false;
       if (focusId) {
         const el = document.getElementById(focusId);
         if (el) {
@@ -23691,8 +23710,10 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (caret != null && el.setSelectionRange) {
             try { el.setSelectionRange(caret, caret); } catch (err) { /* ignore */ }
           }
+          focusRestored = true;
         }
       }
+      if (!focusRestored) focusHeldProfileTab(focusTab);
       paintChromeHidden(STATE.headerHidden && window.innerWidth < 500);
       if (route.name === "subscriptions" && route.channel && (routeChanged || !STATE.scrollKey)) revealSubsChannel();
       STATE.scrollKey = nextKey;
@@ -24736,11 +24757,11 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const amount = scroller.clientWidth || 240;
       const next = Math.max(0, Math.min(max, scroller.scrollLeft + dir * amount));
       const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const profile = scroller.classList && scroller.classList.contains("ptabs");
       tabScrollLeft = next;
       tabScrollRoute = routeScrollKey();
-      scroller.scrollLeft = next;
-      const profile = scroller.classList && scroller.classList.contains("ptabs");
-      if (!reduced && !profile && scroller.scrollTo) scroller.scrollTo({ left: next, behavior: "smooth" });
+      if (profile || reduced || !scroller.scrollTo) scroller.scrollLeft = next;
+      else scroller.scrollTo({ left: next, behavior: "smooth" });
       hscrollRememberEl(scroller);
       syncTabArrows();
       return;
@@ -26433,8 +26454,32 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     const next = tabs[at + (event.key === "ArrowRight" ? 1 : -1)];
     if (!next) return;
     event.preventDefault();
-    next.focus();
+    profileTabHold = next.getAttribute("data-ptab-id") || "";
     next.click();
+    const held = profileTabHold;
+    const restore = () => {
+      if (profileTabHold !== held) return;
+      focusHeldProfileTab(held);
+    };
+    restore();
+    setTimeout(restore, 0);
+    setTimeout(restore, 160);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) profileTabHold = tab.getAttribute("data-ptab-id") || "";
+  }, true);
+  document.addEventListener("click", (event) => {
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) profileTabHold = tab.getAttribute("data-ptab-id") || "";
+  }, true);
+  document.addEventListener("focusin", (event) => {
+    if (!profileTabHold) return;
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) return;
+    const node = event.target;
+    if (!node || node === document.body || node === document.documentElement) return;
+    profileTabHold = "";
   });
   document.addEventListener("click", (event) => {
     const acct = event.target.closest && event.target.closest(".acct-menu [data-acct]");

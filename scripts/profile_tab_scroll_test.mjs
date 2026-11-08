@@ -151,27 +151,33 @@ async function main() {
     await desk.page.locator(".ptabs .tab").first().click();
     await desk.page.waitForFunction(() => {
       const tab = document.querySelector(".ptabs .tab");
-      return tab && tab.getAttribute("aria-selected") === "true";
+      return tab && tab.getAttribute("aria-selected") === "true" && document.activeElement === tab;
     });
     for (let step = 0; step < info.tabs.length; step++) {
-      const label = await desk.page.evaluate(() => {
+      const state = await desk.page.evaluate(() => {
         const tabs = [...document.querySelectorAll(".ptabs [role='tab']")];
         const at = tabs.findIndex((el) => el.getAttribute("aria-selected") === "true");
+        const selected = tabs[at];
         const next = tabs[at + 1];
-        return next ? (next.textContent || "").replace(/\s+/g, " ").trim() : "";
+        return {
+          id: selected ? selected.getAttribute("data-ptab-id") : "",
+          focused: document.activeElement === selected,
+          next: next ? next.getAttribute("data-ptab-id") : ""
+        };
       });
-      if (!label) break;
-      await desk.page.locator(".ptabs [role='tab'][aria-selected='true']").focus();
+      if (!state.focused) throw new Error("focus was not on the selected profile tab before the next key " + JSON.stringify(state));
+      if (!state.next) break;
       await desk.page.keyboard.press("ArrowRight");
-      await desk.page.waitForFunction((text) => {
-        const tab = [...document.querySelectorAll(".ptabs [role='tab']")].find((el) => (el.textContent || "").replace(/\s+/g, " ").trim() === text);
-        return tab && tab.getAttribute("aria-selected") === "true";
-      }, label);
+      await desk.page.waitForFunction((id) => {
+        const tabs = [...document.querySelectorAll(".ptabs [role='tab']")];
+        const tab = tabs.find((el) => el.getAttribute("data-ptab-id") === id);
+        return tab && tab.getAttribute("aria-selected") === "true" && document.activeElement === tab;
+      }, state.next);
     }
     const keyed = await desk.page.waitForFunction((label) => {
       const scroller = document.querySelector(".ptabs");
       const tab = [...scroller.querySelectorAll(".tab")].find((el) => (el.textContent || "").indexOf(label) >= 0);
-      if (!tab || tab.getAttribute("aria-selected") !== "true") return false;
+      if (!tab || tab.getAttribute("aria-selected") !== "true" || document.activeElement !== tab) return false;
       const box = tab.getBoundingClientRect();
       const host = scroller.getBoundingClientRect();
       const ok = box.left >= host.left - 8 && box.right <= host.right + 8;
@@ -182,6 +188,16 @@ async function main() {
       const detail = await desk.page.evaluate(() => window.__keySee || null);
       throw new Error("keyboard did not keep the active profile tab in view " + JSON.stringify(detail));
     }
+    const beforeLeft = await desk.page.evaluate(() => {
+      const tabs = [...document.querySelectorAll(".ptabs [role='tab']")];
+      return tabs.findIndex((el) => el.getAttribute("aria-selected") === "true");
+    });
+    await desk.page.keyboard.press("ArrowLeft");
+    await desk.page.waitForFunction((at) => {
+      const tabs = [...document.querySelectorAll(".ptabs [role='tab']")];
+      const now = tabs.findIndex((el) => el.getAttribute("aria-selected") === "true");
+      return now >= 0 && now < at && document.activeElement === tabs[now];
+    }, beforeLeft);
     await desk.page.screenshot({ path: "/opt/cursor/artifacts/profile-tabs-desktop.png" });
     await desk.context.close();
 
