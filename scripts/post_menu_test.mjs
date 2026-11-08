@@ -219,10 +219,16 @@ async function main() {
         const menu = document.querySelector(".menu.post-menu");
         const items = [...menu.querySelectorAll("button, a")];
         const cs = getComputedStyle(items[0]);
+        const text = items[1] ? getComputedStyle(items[1]) : null;
+        const mark = items[0].querySelector("svg");
+        const markBox = mark ? mark.getBoundingClientRect() : null;
         return {
           h: items.map((el) => Math.round(el.getBoundingClientRect().height)),
           font: cs.fontSize,
-          overflow: menu.scrollHeight - menu.clientHeight
+          overflow: menu.scrollHeight - menu.clientHeight,
+          display: text ? text.display : "",
+          pad: text ? text.paddingTop + "/" + text.paddingBottom : "",
+          mark: markBox ? Math.round(markBox.height) : 0
         };
       });
       if (size.name === "desktop") {
@@ -231,8 +237,11 @@ async function main() {
         if (rows.overflow > 8) throw new Error("desktop menu still scrolls " + rows.overflow);
       }
       if (size.name === "phone") {
-        if (rows.h[0] < 160) throw new Error("phone menu changed " + rows.h[0]);
-        if (rows.h[1] !== 44) throw new Error("phone menu row " + rows.h[1]);
+        if (rows.h[0] < 160 || rows.mark < 100) throw new Error("phone menu changed " + rows.h[0] + " mark " + rows.mark);
+        if (rows.display !== "block" || rows.font !== "15px" || rows.pad !== "12px/12px") throw new Error("phone menu row style " + JSON.stringify(rows));
+        // 12px padding plus the font's line. This Chrome's line is 20px (44).
+        // The CI font's line is 17px (41). Both are the unchanged text row.
+        if (rows.h[1] < 39 || rows.h[1] > 48) throw new Error("phone menu row " + rows.h[1]);
       }
       await page.keyboard.press("Escape");
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
