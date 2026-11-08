@@ -651,6 +651,41 @@
     return "";
   }
 
+  /* A srcset candidate can fail after a fallback src is already assigned.
+     That older error must not delete the fallback. mediaHold stays until the
+     assigned src itself fails or paints. */
+  function holdMediaSrc(img, url) {
+    if (!img) return;
+    img.dataset.mediaWant = url;
+    img.dataset.mediaHold = url;
+    img.dataset.mediaHoldAt = String(Date.now());
+    img.dataset.mediaMiss = "";
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
+    // A failed srcset candidate stays selected if the next src is assigned in
+    // the same error turn. Clear it, then assign the fallback after that turn.
+    img.removeAttribute("src");
+    setTimeout(() => {
+      if (!img.isConnected || img.dataset.mediaHold !== url) return;
+      img.src = url;
+    }, 0);
+  }
+
+  function heldImagePending(img) {
+    if (!img || img.tagName !== "IMG") return false;
+    const hold = img.dataset.mediaHold || "";
+    if (!hold) return false;
+    const attr = img.getAttribute("src") || "";
+    // src is cleared for one turn before the fallback is assigned.
+    return attr === hold || attr === "";
+  }
+
+  function staleHeldError(img) {
+    if (!heldImagePending(img) || img.naturalWidth > 0) return img.tagName === "IMG" && img.naturalWidth > 0;
+    const cur = img.currentSrc || "";
+    return !!(cur && cur !== img.dataset.mediaHold);
+  }
+
   /* The archive list arrives after the catalog. A picture that failed before
      then waits for it only briefly: a slow or failed catalog used to leave the
      broken picture on screen for good, with no relay try and no fallback. */
@@ -665,15 +700,15 @@
         if (!img.isConnected || !img.hasAttribute("data-ia-wait")) return;
         img.removeAttribute("data-ia-wait");
         img.dataset.iaSkip = "1";
+        if (img.naturalWidth > 0 || (heldImagePending(img) && !img.complete)) return;
         finishMediaError(img);
       }, IA_WAIT_MS);
       return true;
     }
     const next = nextIaUrl(img);
     if (!next) return false;
-    img.removeAttribute("srcset");
     img.referrerPolicy = "no-referrer";
-    img.src = next;
+    holdMediaSrc(img, next);
     return true;
   }
 
@@ -696,8 +731,7 @@
     dev.rememberFail("media", src, Date.now(), "source");
     noteHostFail(src);
     img.dataset.deviceRelay = "1";
-    img.removeAttribute("srcset");
-    img.src = api.replace(/\/$/, "") + "/v1/media?url=" + encodeURIComponent(src);
+    holdMediaSrc(img, api.replace(/\/$/, "") + "/v1/media?url=" + encodeURIComponent(src));
     return true;
   }
 
@@ -732,6 +766,9 @@
 
   function finishMediaError(img) {
     if (!img || !img.isConnected) return;
+    if (img.tagName === "IMG" && (img.naturalWidth > 0 || staleHeldError(img))) return;
+    // A fallback request that has not finished is not a failure yet.
+    if (img.tagName === "IMG" && heldImagePending(img) && img.dataset.mediaMiss !== img.dataset.mediaHold) return;
     if (tryDeviceRelay(img)) return;
     if (tryRuProxyFallback(img)) return;
     if (img.dataset.fallback === "avatar") {
@@ -770,6 +807,7 @@
       const src = img.getAttribute("src") || "";
       if (!/^(?:https?:|blob:)/i.test(src) || /\.svg(?:[?#]|$)/i.test(src)) return;
       if (!img.complete || img.naturalWidth > 0 || img.hasAttribute("data-ia-wait")) return;
+      if (img.dataset.mediaHold === src && img.dataset.mediaMiss !== src) return;
       if (img.dataset.swept === src) return;
       img.dataset.swept = src;
       n += 1;
@@ -4632,8 +4670,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const media = tile.closest(".media");
     if (media && media.querySelector("img[data-ig-cover='1']")) return false;
     img.dataset.igCover = "1";
-    img.removeAttribute("srcset");
-    img.src = next;
+    holdMediaSrc(img, next);
     return true;
   }
 
@@ -4995,14 +5032,14 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const cur = img.getAttribute("src") || "";
     const relayIdx = cur.indexOf("/v1/media?url=");
     if (relayIdx > 0) {
+      if (!img.complete && heldImagePending(img)) return true;
       if (img.dataset.relayAlt === "1") return false;
       img.dataset.relayAlt = "1";
       const usedRoot = cur.slice(0, relayIdx);
       const roots = (window.ViktorychAccounts && window.ViktorychAccounts.apiEndpoints) ? window.ViktorychAccounts.apiEndpoints() : [];
       const other = roots.find((root) => root && root !== usedRoot);
       if (!other) return false;
-      img.removeAttribute("srcset");
-      img.src = mediaRelayUrl(other, src);
+      holdMediaSrc(img, mediaRelayUrl(other, src));
       return true;
     }
     if (img.dataset.ruTried === "1") return false;
@@ -5013,8 +5050,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!RELAYABLE.test(host)) return false;
     const api = accountsApi();
     if (!api) return false;
-    img.removeAttribute("srcset");
-    img.src = mediaRelayUrl(api, src);
+    holdMediaSrc(img, mediaRelayUrl(api, src));
     return true;
   }
 
@@ -27596,10 +27632,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       const give = () => {
         img.dataset.tgTried = "1";
         const fallback = img.dataset.fallbackSrc || "";
-        if (fallback) { img.src = fallback; const v = img.classList.contains("vposter") && !img.classList.contains("face") && img.parentElement && img.parentElement.querySelector("video"); if (v) v.poster = fallback; return; }
+        if (fallback) { holdMediaSrc(img, fallback); const v = img.classList.contains("vposter") && !img.classList.contains("face") && img.parentElement && img.parentElement.querySelector("video"); if (v) v.poster = fallback; return; }
         let urls = [];
         try { urls = JSON.parse(img.dataset.falls || "[]"); } catch (err) { urls = []; }
-        if (urls[0]) img.src = urls[0];
+        if (urls[0]) holdMediaSrc(img, urls[0]);
       };
       const loadKey = (index) => {
         const url = tgMediaUrl(keys[index] || "");
@@ -27608,7 +27644,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
           if (!res.ok) throw new Error(String(res.status));
           return res.blob();
         }).then((blob) => {
-          if (img.isConnected) { const u = URL.createObjectURL(blob); img.src = u; const v = img.classList.contains("vposter") && !img.classList.contains("face") && img.parentElement && img.parentElement.querySelector("video"); if (v) v.poster = u; }
+          if (img.isConnected) { const u = URL.createObjectURL(blob); holdMediaSrc(img, u); const v = img.classList.contains("vposter") && !img.classList.contains("face") && img.parentElement && img.parentElement.querySelector("video"); if (v) v.poster = u; }
         }).catch(() => {
           if (!img.isConnected) return;
           if (index + 1 < keys.length) loadKey(index + 1);
@@ -27626,7 +27662,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       img.dataset.sourceTried = "1";
       img.dataset.tried = "1";
       img.removeAttribute("data-refresh");
-      img.src = img.dataset.source;
+      holdMediaSrc(img, img.dataset.source);
       return;
     }
     if (img.dataset.fallback === "avatar") {
@@ -27650,7 +27686,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (next && img.dataset.tried !== "1") {
       img.dataset.tried = "1";
       img.removeAttribute("data-refresh");
-      img.src = next;
+      holdMediaSrc(img, next);
       return;
     }
     if (useArchiveMedia(img)) return;
@@ -27660,7 +27696,26 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   document.addEventListener("error", (event) => {
     const img = event.target;
     if (!img || (img.tagName !== "IMG" && img.tagName !== "VIDEO")) return;
-    if (img.tagName === "IMG") img.dataset.swept = img.getAttribute("src") || "";
+    if (img.tagName === "IMG") {
+      if (img.naturalWidth > 0) {
+        if (heldImagePending(img)) img.dataset.mediaHold = "";
+        return;
+      }
+      // The browser reports the srcset candidate that failed. Once a fallback
+      // is the src attribute, that older candidate must not drop it.
+      if (staleHeldError(img)) return;
+      if (heldImagePending(img)) {
+        const cur = img.currentSrc || "";
+        if (cur && cur === img.dataset.mediaHold) img.dataset.mediaMiss = img.dataset.mediaHold;
+      }
+      const attr = img.getAttribute("src") || "";
+      const cur = img.currentSrc || "";
+      if (img.getAttribute("srcset") && cur && attr && cur !== attr) {
+        img.removeAttribute("srcset");
+        img.removeAttribute("sizes");
+      }
+      img.dataset.swept = attr;
+    }
     handleMediaError(img);
   }, true);
 
@@ -27693,7 +27748,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
             if (!res.ok) throw new Error(String(res.status));
             return res.blob();
           }).then((blob) => {
-            if (img.isConnected) { const b = URL.createObjectURL(blob); img.src = b; const v = img.classList.contains("vposter") && !img.classList.contains("face") && img.parentElement && img.parentElement.querySelector("video"); if (v) v.poster = b; }
+            if (img.isConnected) { const b = URL.createObjectURL(blob); holdMediaSrc(img, b); const v = img.classList.contains("vposter") && !img.classList.contains("face") && img.parentElement && img.parentElement.querySelector("video"); if (v) v.poster = b; }
           }).catch(() => tryKey(idx + 1));
         };
         tryKey(0);
