@@ -10289,18 +10289,14 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const plat = post.platform || "x";
     const ids = [String(post.statusId || ""), String(post.id || "")].filter(Boolean);
     const seen = {};
-    const mine = signedAccount();
-    const me = mine ? String(mine.publicId || "") : "";
-    if (!me) return [];
     return visiblePublicPosts().filter((item) => {
       const ext = item && item.extParent;
       if (!ext || seen[item.id] || !notGone(item)) return false;
-      if (String(item.authorId || "") !== me) return false;
       if ((ext.platform || "x") !== plat) return false;
       if (ids.indexOf(String(ext.statusId || ext.id || "")) < 0) return false;
       seen[item.id] = true;
       return true;
-    }).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)).map(appCardPost);
+    }).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)).map(appCardPost).filter((cardPost) => cardPost && !hiddenPost(cardPost));
   }
 
   /* A reply this account just sent is in the local list before the thread
