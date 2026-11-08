@@ -6421,5 +6421,8 @@ SI18n.addPack("en", {
   "This browser cannot copy a picture. The picture was not copied.": "This browser cannot copy a picture. The picture was not copied.",
   "The picture could not be read. It was not copied.": "The picture could not be read. It was not copied.",
   "Copied the largest listed picture. It is not a proven original file.": "Copied the largest listed picture. It is not a proven original file.",
-  "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.": "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match."
+  "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.": "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.",
+  "Copy the largest listed picture": "Copy the largest listed picture",
+  "Copy a smaller listed picture": "Copy a smaller listed picture",
+  "Copied a smaller listed picture. It is not the full file.": "Copied a smaller listed picture. It is not the full file."
 });

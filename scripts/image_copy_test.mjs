@@ -207,6 +207,17 @@ async function browserProof() {
     if (pixels.clear[3] !== 0) throw new Error("transparent pixel became solid " + JSON.stringify(pixels));
     if (pixels.texts.length) throw new Error("copy wrote text " + JSON.stringify(pixels.texts));
     await page.evaluate(() => {
+      window.ViktorychAccounts = {
+        gen: 1,
+        id: "100000000001",
+        sessionGeneration() { return this.gen; },
+        account() { return { publicId: this.id }; }
+      };
+      window.ViktorychAccounts.gen = 2;
+    });
+    const kept = await page.evaluate(() => window.__copies.length);
+    if (kept !== 1) throw new Error("a finished copy was treated as something the page can undo");
+    await page.evaluate(() => {
       const orig = URL.createObjectURL;
       URL.createObjectURL = (blob) => { window.__download = blob; return orig.call(URL, blob); };
     });
@@ -229,6 +240,34 @@ async function browserProof() {
     await page.waitForFunction(() => document.querySelector(".image-copy-note").textContent.indexOf("did not load") >= 0);
     const failed = await page.evaluate(() => ({ copies: window.__copies.length, texts: window.__texts.length }));
     if (failed.copies || failed.texts) throw new Error("failed copy still wrote the clipboard " + JSON.stringify(failed));
+    await page.locator(".image-copy-menu button", { hasText: "Download original" }).click();
+    await page.waitForFunction(() => document.querySelector(".image-copy-note").textContent.indexOf("did not load") >= 0);
+    const downloadFailed = await page.evaluate(() => ({ note: document.querySelector(".image-copy-note").textContent, copies: window.__copies.length }));
+    if (downloadFailed.copies || downloadFailed.note.indexOf("Saves the original") >= 0) throw new Error("a failed download was called a saved original " + JSON.stringify(downloadFailed));
+    await page.evaluate(() => {
+      const img = document.getElementById("photo");
+      img.dataset.original = "/missing.png";
+      img.setAttribute("srcset", "/full.png 2048w, /thumb.png 320w");
+      window.__copies.length = 0;
+    });
+    await page.locator(".image-copy-menu button", { hasText: "Copy image" }).click();
+    await page.waitForFunction(() => document.querySelector(".image-copy-note").textContent.indexOf("did not load") >= 0);
+    const silent = await page.evaluate(() => window.__copies.length);
+    if (silent) throw new Error("a failed original silently copied a smaller picture");
+    await page.locator("[data-act='image-copy-listed']").click();
+    await page.waitForFunction(() => window.__copies.length === 1);
+    const listed = await page.evaluate(async () => {
+      const bmp = await createImageBitmap(window.__copies[0].blob);
+      return { width: bmp.width, height: bmp.height, note: document.querySelector(".image-copy-note").textContent };
+    });
+    if (listed.width !== 4 || listed.height !== 2) throw new Error("the listed picture was not the 2048 file " + JSON.stringify(listed));
+    if (listed.note.indexOf("largest listed") < 0 || listed.note.indexOf("Copied the picture") >= 0) throw new Error("the smaller file was labeled as the full original " + listed.note);
+    await page.evaluate(() => {
+      const img = document.getElementById("photo");
+      img.removeAttribute("srcset");
+      img.src = "/thumb.png?shown=1";
+      window.__copies.length = 0;
+    });
     await page.locator("[data-act='image-copy-screen']").click();
     await page.waitForFunction(() => window.__copies.length === 1);
     const screen = await page.evaluate(async () => {
@@ -240,9 +279,8 @@ async function browserProof() {
     const beforePermission = await page.evaluate(() => window.__copies.length);
     await page.evaluate(() => {
       window.__write = navigator.clipboard.write;
-      navigator.clipboard.write = async (items) => {
-        await items[0].getType("image/png");
-        throw new DOMException("denied", "NotAllowedError");
+      navigator.clipboard.write = function () {
+        return Promise.reject(new DOMException("denied", "NotAllowedError"));
       };
       document.getElementById("photo").dataset.original = "/full.png";
     });
@@ -258,6 +296,12 @@ async function browserProof() {
     }));
     if (denied.copies !== beforePermission || denied.texts.length) throw new Error("permission denial wrote the clipboard " + JSON.stringify(denied));
     if (denied.note.indexOf("did not load") >= 0 || denied.note.indexOf("Copied the picture") >= 0) throw new Error("permission denial was described as a failed or finished copy " + denied.note);
+    await page.evaluate(() => { navigator.clipboard.write = undefined; });
+    await page.locator(".image-copy-menu button", { hasText: "Copy image" }).click();
+    await page.waitForFunction(() => document.querySelector(".image-copy-note").textContent.indexOf("cannot copy") >= 0);
+    const unsupported = await page.evaluate(() => document.querySelector(".image-copy-note").textContent);
+    if (unsupported.indexOf("did not load") >= 0 || unsupported.indexOf("Copied") >= 0) throw new Error("unsupported clipboard was called a failed load or a finished copy " + unsupported);
+    await page.evaluate(() => { navigator.clipboard.write = window.__write; });
     await page.evaluate(() => {
       navigator.clipboard.write = window.__write;
       window.__copies.length = 0;
@@ -314,6 +358,76 @@ async function browserProof() {
     await page.waitForTimeout(250);
     const left = await page.evaluate(() => ({ copies: window.__copies.length, menu: !!document.querySelector(".image-copy-menu") }));
     if (left.copies || left.menu) throw new Error("leaving the page still copied the picture " + JSON.stringify(left));
+    await page.evaluate(() => {
+      window.ViktorychAccounts.gen = 4;
+      window.ViktorychAccounts.id = "100000000001";
+      const img = document.getElementById("photo");
+      img.removeAttribute("srcset");
+      img.dataset.original = "/full.png";
+      window.__copies.length = 0;
+      window.__realBitmap = window.createImageBitmap.bind(window);
+      window.createImageBitmap = function (blob) {
+        return new Promise((resolve, reject) => {
+          window.__releaseDecode = () => window.__realBitmap(blob).then(resolve, reject);
+        });
+      };
+    });
+    const decodeBox = await page.locator("#photo").boundingBox();
+    await page.mouse.click(decodeBox.x + 4, decodeBox.y + 4, { button: "right" });
+    await page.locator(".image-copy-menu button", { hasText: "Copy image" }).click();
+    await page.waitForFunction(() => typeof window.__releaseDecode === "function");
+    await page.evaluate(() => {
+      window.ViktorychAccounts.gen = 5;
+      window.dispatchEvent(new Event("viktorych-session"));
+      window.__releaseDecode();
+    });
+    await page.waitForTimeout(250);
+    const decoded = await page.evaluate(() => window.__copies.length);
+    if (decoded) throw new Error("a same-account generation change during decode still copied");
+    await page.evaluate(() => { window.createImageBitmap = window.__realBitmap; });
+    await page.evaluate(() => {
+      window.ViktorychAccounts.gen = 6;
+      window.ViktorychAccounts.id = "100000000001";
+      document.getElementById("photo").dataset.original = "/hold.png";
+      window.__copies.length = 0;
+    });
+    const abaBox = await page.locator("#photo").boundingBox();
+    await page.mouse.click(abaBox.x + 4, abaBox.y + 4, { button: "right" });
+    await page.locator(".image-copy-menu button", { hasText: "Copy image" }).click();
+    await new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => { if (waiting.length || Date.now() - start > 2000) resolve(); else setTimeout(tick, 20); };
+      tick();
+    });
+    await page.evaluate(() => {
+      window.ViktorychAccounts.gen = 7;
+      window.ViktorychAccounts.id = "100000000002";
+      window.ViktorychAccounts.gen = 8;
+      window.ViktorychAccounts.id = "100000000001";
+      window.dispatchEvent(new Event("viktorych-session"));
+    });
+    releaseHold();
+    await page.waitForTimeout(250);
+    const aba = await page.evaluate(() => window.__copies.length);
+    if (aba) throw new Error("an older generation copied after the account id returned");
+    await page.evaluate(() => {
+      window.ViktorychAccounts.gen = 9;
+      document.getElementById("photo").dataset.original = "/hold.png";
+      window.__copies.length = 0;
+    });
+    const hideBox = await page.locator("#photo").boundingBox();
+    await page.mouse.click(hideBox.x + 4, hideBox.y + 4, { button: "right" });
+    await page.locator(".image-copy-menu button", { hasText: "Copy image" }).click();
+    await new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => { if (waiting.length || Date.now() - start > 2000) resolve(); else setTimeout(tick, 20); };
+      tick();
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    releaseHold();
+    await page.waitForTimeout(250);
+    const hidden = await page.evaluate(() => ({ copies: window.__copies.length, menu: !!document.querySelector(".image-copy-menu") }));
+    if (hidden.copies || hidden.menu) throw new Error("hiding the page still copied the picture " + JSON.stringify(hidden));
     const linked = await page.evaluate(() => {
       const img = document.getElementById("linked");
       const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 });

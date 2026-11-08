@@ -6423,5 +6423,8 @@ SI18n.addPack("ru", {
   "This browser cannot copy a picture. The picture was not copied.": "Этот браузер не может скопировать картинку. Изображение не скопировано.",
   "The picture could not be read. It was not copied.": "Картинку не удалось прочитать. Она не скопирована.",
   "Copied the largest listed picture. It is not a proven original file.": "Скопирована самая большая картинка из списка. Это не подтверждённый исходный файл.",
-  "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.": "Копирует самую большую картинку из списка. Это не подтверждённый исходный файл. Цвет, HDR и анимация могут не совпасть."
+  "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.": "Копирует самую большую картинку из списка. Это не подтверждённый исходный файл. Цвет, HDR и анимация могут не совпасть.",
+  "Copy the largest listed picture": "Копировать самую большую картинку из списка",
+  "Copy a smaller listed picture": "Копировать картинку поменьше из списка",
+  "Copied a smaller listed picture. It is not the full file.": "Скопирована картинка поменьше из списка. Это не полный файл."
 });

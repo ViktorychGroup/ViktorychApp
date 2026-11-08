@@ -335,7 +335,7 @@
       if (type.indexOf("image/") !== 0 || type === "image/svg+xml") throw codeError("fetch");
       return readCapped(res).then(function (buf) {
         if (!live(op)) throw codeError("session");
-        return { buffer: buf, type: type };
+        return { buffer: buf, type: type, url: plan.url };
       });
     });
   }
@@ -444,14 +444,15 @@
     return next();
   }
 
-  function copyUrls(img, urls, success) {
-    if (!urls.length) { show("fetch", img); return; }
+  function copyUrls(img, urls, success, onFail) {
+    if (!urls.length) { show("fetch", img); if (onFail) onFail(); return; }
     var op = startOp();
     var stage = "fetch";
     var pending = tryUrls(img, urls, op).then(function (file) {
       if (!live(op)) throw codeError("session");
       stage = "decode";
       op.buffer = file.buffer;
+      op.copiedUrl = file.url;
       return decode(file.buffer, op);
     }).then(function (bitmap) {
       if (!live(op)) throw codeError("session");
@@ -463,35 +464,92 @@
       return blob;
     });
     var reported = false;
-    function report(err) {
-      if (reported) return;
+    var clipboardReported = false;
+    function reportImage(err) {
+      if (reported || clipboardReported) return;
+      reported = true;
+      var still = live(op);
+      var why = reasonOf(err);
+      drop(op);
+      if (!still || why === "session") return;
+      if (why === "decode" || stage === "decode") { show("decode", img); return; }
+      show("fetch", img);
+      if (onFail) onFail();
+    }
+    function reportClipboard(err) {
+      var why = reasonOf(err);
+      if (why !== "permission" && why !== "clipboard") return;
+      if (clipboardReported) return;
+      clipboardReported = true;
       reported = true;
       var still = live(op);
       drop(op);
-      if (!still || reasonOf(err) === "session") return;
-      var why = reasonOf(err);
-      if (stage !== "clipboard") show(why === "decode" || stage === "decode" ? "decode" : "fetch", img);
-      else show(why === "clipboard" ? "clipboard" : "permission", img);
+      if (!still) return;
+      show(why, img);
     }
-    pending.catch(report);
+    pending.catch(reportImage);
     var write;
     try { write = writePng(pending, op); }
-    catch (err) { report(err); return; }
+    catch (err) { reportClipboard(err.code ? err : codeError("clipboard")); return; }
     write.then(function () {
       if (reported || !live(op)) { drop(op); return; }
       reported = true;
       note(success);
-    }).catch(report);
+    }).catch(reportClipboard);
+  }
+
+  function addAction(act, label, run) {
+    if (!menu || menu.querySelector("[data-act='" + act + "']")) return;
+    var button = doc.createElement("button");
+    button.type = "button";
+    button.setAttribute("role", "menuitem");
+    button.dataset.act = act;
+    button.textContent = label;
+    button.addEventListener("click", function () { run(); });
+    var hint = menu.querySelector(".image-copy-note");
+    if (hint) menu.insertBefore(button, hint);
+    else menu.appendChild(button);
+  }
+
+  function widthGroups(sized) {
+    var groups = [];
+    sized.forEach(function (row) {
+      var last = groups[groups.length - 1];
+      if (!last || last.width !== row.width) groups.push({ width: row.width, urls: [row.url] });
+      else last.urls.push(row.url);
+    });
+    return groups;
+  }
+
+  function copySized(img, sized, largest) {
+    var groups = widthGroups(sized);
+    if (!groups.length) { show("fetch", img); addScreen(img); return; }
+    var success = largest
+      ? tr("Copied the largest listed picture. It is not a proven original file.")
+      : tr("Copied a smaller listed picture. It is not the full file.");
+    copyUrls(img, groups[0].urls, success, function () {
+      var rest = sized.filter(function (row) { return row.width < groups[0].width; });
+      if (rest.length) {
+        addAction("image-copy-smaller", tr("Copy a smaller listed picture"), function () { copySized(img, rest, false); });
+      }
+      addScreen(img);
+    });
   }
 
   function copyOriginal(img) {
     var record = recordOf(img);
     var picked = plan(record, record.base);
-    var urls = copyOrder(record, record.base);
-    var success = picked.originals.length
-      ? tr("Copied the picture")
-      : tr("Copied the largest listed picture. It is not a proven original file.");
-    copyUrls(img, urls, success);
+    if (picked.originals.length) {
+      copyUrls(img, picked.originals, tr("Copied the picture"), function () {
+        if (picked.sized.length) {
+          addAction("image-copy-listed", tr("Copy the largest listed picture"), function () { copySized(img, picked.sized, true); });
+        }
+        addScreen(img);
+      });
+      return;
+    }
+    if (picked.sized.length) { copySized(img, picked.sized, true); return; }
+    show("fetch", img);
   }
 
   function copyScreen(img) {
@@ -523,8 +581,10 @@
       setTimeout(function () { if (op.urls.indexOf(objectUrl) >= 0) { try { URL.revokeObjectURL(objectUrl); } catch (err) { /* already revoked */ } } }, 1000);
       if (live(op)) note(tr("Saves the original file as it is. It is not compressed again."));
     }).catch(function (err) {
+      var still = live(op);
+      var why = reasonOf(err);
       drop(op);
-      if (!live(op) || reasonOf(err) === "session") return;
+      if (!still || why === "session") return;
       show("fetch", img);
     });
   }
@@ -599,6 +659,7 @@
 
   root.addEventListener("resize", closeMenu);
   root.addEventListener("hashchange", function () { cancelAll(); closeMenu(); });
+  root.addEventListener("pagehide", function () { cancelAll(); closeMenu(); });
   root.addEventListener("viktorych-session", function () { cancelAll(); closeMenu(); });
 
   root.ViktorychImageCopy = {
