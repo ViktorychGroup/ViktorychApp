@@ -20,6 +20,8 @@ Any person or agent can take over from this section. Rules for shipping, checks 
 
 **Hard rules.** No usernames, handles, display names or account identifiers in the public repository, pull requests, commits or logs. Never weaken the handle guard. Secrets live only in GitHub Actions secrets and Cloudflare Worker secrets. Do not edit `.github/` without the owner's approval; put a ready patch in `docs/owner-patches/` instead. No force-push and no history rewrite without asking. No paid APIs. Do not bypass a block, a guard or a failed check.
 
+**Thread lookup.** A reply loaded for one account is not returned to another account, or after sign-out, by share, bookmarks, history, or the media viewer. A reply that arrives after the account changed is dropped. Test: `scripts/reply_lookup_test.mjs`.
+
 **Custom tabs.** Home tabs, their order, and the accounts in them are part of the signed-in account. A drag saves one order for every tab in it, and the newer drag wins that whole order. An add or a removal sticks unless a later add or removal says otherwise. A tab keeps every account it is allowed to hold, including accounts saved before membership had its own times. A deleted tab stays deleted; a later edit does not bring it back. Another account never receives them. The open page applies a sync without waiting for a reload. Tests: `scripts/device_sync_test.js`, `scripts/tab_sync_test.mjs`.
 
 **Show more.** Opening the rest of a post keeps that post where it was on the screen, including after a late resize. Show less does the same when the control is below the screen and after a pointer click or a phone tap once it has been scrolled into view. Test: `scripts/show_more_scroll_test.mjs`.

@@ -176,10 +176,18 @@ async function followAndFriend(page, label) {
   });
   if (!dup) fail(label + " could not duplicate the follow button");
   const cancelSync = page.waitForResponse((res) => res.url().indexOf("/v1/follows") >= 0 && res.request().method() === "GET");
-  await page.locator('button.follow.pending').first().click();
+  const copies = await page.evaluate(() => {
+    const settled = (btn) => btn.textContent.indexOf("Pending") < 0 && btn.textContent.indexOf("Cancel request") < 0 && btn.getAttribute("aria-label") !== "Pending" && btn.textContent.indexOf("Follow") >= 0;
+    const btn = document.querySelector("button.follow.pending");
+    if (!btn) return false;
+    btn.click();
+    const buttons = [...document.querySelectorAll('button[data-act="follow"][data-id="app:200000000002"]')];
+    return buttons.length >= 2 && buttons.every(settled);
+  });
+  if (!copies) fail(label + " both follow buttons did not leave Pending together");
   await page.waitForFunction(() => {
     const buttons = [...document.querySelectorAll('button[data-act="follow"][data-id="app:200000000002"]')];
-    return buttons.length >= 2 && buttons.every((btn) => btn.textContent.indexOf("Pending") < 0 && btn.textContent.indexOf("Cancel request") < 0 && btn.getAttribute("aria-label") !== "Pending" && btn.textContent.indexOf("Follow") >= 0);
+    return buttons.length >= 1 && buttons.every((btn) => btn.textContent.indexOf("Pending") < 0 && btn.textContent.indexOf("Cancel request") < 0 && btn.getAttribute("aria-label") !== "Pending" && btn.textContent.indexOf("Follow") >= 0);
   }, null, { timeout: 8000 });
   await cancelSync;
   await page.waitForFunction(() => {
