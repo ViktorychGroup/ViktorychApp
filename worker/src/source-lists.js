@@ -308,12 +308,20 @@ async function sha256Hex(text) {
   return hex(new Uint8Array(digest));
 }
 
-/* A list the sync already published is kept. A list whose sources changed
-   since that copy, or that has never had one, is built here from posts we
-   already stored, then from one short public fetch. */
+/* A published row is readable only when it names this list's current
+   members and sources. A scheduled-sync row with neither is not readable. */
+function publicationMatches(row, list) {
+  if (!row || !list || row.membersKey == null || !Array.isArray(row.sources)) return false;
+  return String(row.membersKey) === (list.members || []).map(String).join("\n") && sameIds(row.sources, list.sources || []);
+}
+
+/* A list the sync already published is kept once its sources are known.
+   A list whose sources changed, or whose copy does not say which sources
+   it holds, is built again from the current list. */
 function shardStale(index, list, force) {
   const row = (index.lists || {})[list.id] || {};
   if (!list.sources.length) return hashOk(row.hash) || !row.empty;
+  if (!publicationMatches(row, list)) return true;
   if (!hashOk(row.hash)) {
     if (!force && row.error && !row.partial && Date.now() - Number(row.at || 0) < 10000) return false;
     return true;
@@ -332,14 +340,18 @@ function innerTag(xml, name) {
   return found ? unwrap(found[1]) : "";
 }
 
-function plainText(value) {
+function decodeEntities(value) {
   return unwrap(value)
-    .replace(/<[^>]+>/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
+    .replace(/&#39;|&apos;/g, "'");
+}
+
+function plainText(value) {
+  return decodeEntities(value)
+    .replace(/<[^>]+>/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/[ \t]{2,}/g, " ")
@@ -381,7 +393,7 @@ function parseFeedDocument(xml, source) {
     const encoded = innerTag(body, "content:encoded") || innerTag(body, "encoded");
     const atom = innerTag(body, "content");
     const description = innerTag(body, "description") || innerTag(body, "summary");
-    const html = encoded || atom || description || "";
+    const html = decodeEntities(encoded || atom || description || "");
     const title = plainText(innerTag(body, "title"));
     let readable = plainText(html);
     if (title && readable.indexOf(title) < 0) readable = title + (readable ? "\n\n" + readable : "");
@@ -547,20 +559,61 @@ async function commitUpdates(env, updates) {
   return false;
 }
 
+async function shardFeedIds(env, row) {
+  if (!row || !hashOk(row.hash) || !env.DATA) return null;
+  const object = await env.DATA.get(SHARD_PREFIX + row.hash + ".json");
+  if (!object) return null;
+  try {
+    const parsed = JSON.parse(await object.text());
+    if (!parsed || !Array.isArray(parsed.feeds)) return null;
+    return parsed.feeds.map((feed) => String((feed && feed.id) || ""));
+  } catch (err) {
+    return null;
+  }
+}
+
+/* Drop a row whose sources are not the live list. A scheduled-sync row
+   that omits its sources is kept only when the shard's own feed ids are
+   exactly the live sources; otherwise it is removed and published again. */
 async function sweepIndex(env, doc) {
-  const current = await readEntry(env, INDEX_KEY);
-  const lists = (current.value && current.value.lists) || {};
-  const dropped = [];
-  Object.keys(lists).forEach((id) => {
-    const row = lists[id];
-    if (!row || !row.membersKey) return;
-    const list = (doc.lists || []).find((item) => item && item.id === id);
-    const key = list ? (list.members || []).map(String).join("\n") : "";
-    const sourcesMatch = !Array.isArray(row.sources) || sameIds(row.sources, (list && list.sources) || []);
-    if (list && key === row.membersKey && sourcesMatch) return;
-    dropped.push({ id, expectMembers: String(row.membersKey).split("\n"), expectSources: row.sources || [], entry: row });
-  });
-  if (dropped.length) await restoreLists(env, dropped);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const current = await readEntry(env, INDEX_KEY);
+    const index = Object.assign({ v: 1, lists: {}, sources: {}, sourcePosts: {} }, current.value || {});
+    index.lists = index.lists || {};
+    let changed = false;
+    for (const id of Object.keys(index.lists)) {
+      const row = index.lists[id];
+      if (!row) continue;
+      const list = (doc.lists || []).find((item) => item && item.id === id);
+      if (list && publicationMatches(row, list)) continue;
+      if (list && Array.isArray(row.sources) && sameIds(row.sources, list.sources || [])) {
+        index.lists[id] = Object.assign({}, row, { membersKey: (list.members || []).map(String).join("\n") });
+        changed = true;
+        continue;
+      }
+      const feeds = list && !Array.isArray(row.sources) ? await shardFeedIds(env, row) : null;
+      if (list && feeds && sameIds(feeds, list.sources || [])) {
+        index.lists[id] = Object.assign({}, row, {
+          sources: list.sources.slice(),
+          membersKey: (list.members || []).map(String).join("\n")
+        });
+        changed = true;
+        continue;
+      }
+      const update = {
+        expectMembers: String(row.membersKey || "").split("\n").filter((part) => part),
+        expectSources: Array.isArray(row.sources) ? row.sources : [],
+        entry: row
+      };
+      if (!isExactPublication(row, update)) continue;
+      delete index.lists[id];
+      changed = true;
+    }
+    if (!changed) return;
+    index.v = 1;
+    index.at = Date.now();
+    if (await putIndex(env, index, current.etag)) return;
+  }
 }
 
 async function restoreLists(env, dropped) {
@@ -737,18 +790,17 @@ async function handleMySourceLists(request, env, path, deps) {
   if (path === "/v1/me/source-lists" && method === "GET") {
     // Read only: no rate row is written, so the check costs no D1 write.
     const retry = new URL(request.url).searchParams.get("retry") === "1";
+    const live = await readDoc(env);
+    // Identify a scheduled-sync copy before publishing, so a shard whose
+    // feeds are still this list's sources is stamped instead of replaced.
+    try { await sweepIndex(env, live); } catch (err) { /* an unproven hash is still hidden below */ }
     if (mine.some((row) => row.sources.length)) {
       try { await publishReady(env, null, mine.map((row) => row.id), retry); } catch (err) { /* answer with whatever is already published */ }
     }
-    const live = await readDoc(env);
-    try { await sweepIndex(env, live); } catch (err) { /* the read still hides a stale entry */ }
+    try { await sweepIndex(env, await readDoc(env)); } catch (err) { /* the read still hides a stale entry */ }
     const mineNow = live.lists.filter((row) => row.members.indexOf(id) >= 0);
     const index = (await readJson(env, INDEX_KEY)) || {};
-    const shards = index.lists || {};
-    const hidden = mineNow.filter((row) => shards[row.id] && shards[row.id].membersKey && shards[row.id].membersKey !== (row.members || []).join("\n"));
-    if (hidden.length) await restoreLists(env, hidden.map((row) => ({ id: row.id, expectMembers: String(shards[row.id].membersKey || "").split("\n") })), {});
-    const freshIndex = hidden.length ? ((await readJson(env, INDEX_KEY)) || {}) : index;
-    const freshShards = freshIndex.lists || shards;
+    const freshShards = index.lists || {};
     if (mineNow.length) {
       // A member who came back after a quiet month switches the fetch back on.
       const wanted = (await readJson(env, WANTED_KEY)) || {};
@@ -758,8 +810,7 @@ async function handleMySourceLists(request, env, path, deps) {
     return deps.json(200, {
       lists: mineNow.map((row) => {
         const shard = freshShards[row.id] || {};
-        const visible = !shard.membersKey || shard.membersKey === (row.members || []).join("\n");
-        const hash = visible && hashOk(shard.hash) ? shard.hash : "";
+        const hash = publicationMatches(shard, row) && hashOk(shard.hash) ? shard.hash : "";
         const count = Number(shard.count) || 0;
         let status = "loading";
         if (!row.sources.length || shard.empty) status = "empty";
@@ -776,14 +827,14 @@ async function handleMySourceLists(request, env, path, deps) {
     const hit = await deps.rateHit(env, "my-lists-shard:" + id, 240, 60 * 60 * 1000);
     if (!hit.ok) return deps.limited(hit);
     const live = await readDoc(env);
+    try { await sweepIndex(env, live); } catch (err) { /* an unproven hash is still refused below */ }
     const mineNow = live.lists.filter((row) => row.members.indexOf(id) >= 0);
     const index = (await readJson(env, INDEX_KEY)) || {};
     const shards = index.lists || {};
     const allowed = mineNow.some((row) => {
       const shard = shards[row.id];
       if (!shard || shard.hash !== shardPath[1]) return false;
-      if (shard.membersKey && shard.membersKey !== (row.members || []).join("\n")) return false;
-      return true;
+      return publicationMatches(shard, row);
     });
     if (!allowed) return deps.json(404, { error: "not_found" });
     const object = await env.DATA.get(SHARD_PREFIX + shardPath[1] + ".json");
@@ -877,4 +928,4 @@ async function dropSourceKeys(env, keys, deps) {
 }
 
 export { allowIntoList, listsSummary, dropSourceKeys };
-export { handleOwnerSourceLists, handleMySourceLists, refreshWanted, DOC_KEY, WANTED_KEY, INDEX_KEY, SHARD_PREFIX };
+export { handleOwnerSourceLists, handleMySourceLists, refreshWanted, commitUpdates, DOC_KEY, WANTED_KEY, INDEX_KEY, SHARD_PREFIX };
