@@ -241,7 +241,8 @@ const PAGE_STEPS = [
   step("storage-page", "node scripts/storage_page_test.mjs", {
     weight: 45, needs: ["pw", "browser"],
     paths: [file("storage_page_test.mjs"), /^storage-recordings\.js$/, /^drive\.(js|css)$/, /^shared\/storage-/, ...APP]
-  })
+  }),
+  step("app-scale", "node scripts/app_scale_test.mjs", { needs: ["pw", "browser"], paths: [file("app_scale_test.mjs"), /^desktop-app\.js$/, /^app\.js$/, /^mention-suggest\.js$/] })
 ];
 
 const NAV_STEPS = [
@@ -258,7 +259,6 @@ const NAV_STEPS = [
   step("compact-header", "node scripts/compact_header_test.mjs", { needs: ["pw", "browser"], paths: [file("compact_header_test.mjs"), ...APP] }),
   step("quote-gutter", "node scripts/quote_gutter_test.mjs", { needs: ["pw", "browser"], paths: [file("quote_gutter_test.mjs"), ...APP] }),
   step("zoom-lock", "node scripts/zoom_lock_test.mjs", { needs: ["pw", "browser"], paths: [file("zoom_lock_test.mjs"), ...APP] }),
-  step("app-scale", "node scripts/app_scale_test.mjs", { needs: ["pw", "browser"], paths: [file("app_scale_test.mjs"), /^desktop-app\.js$/, /^app\.js$/] }),
   step("update-notice", "node scripts/update_notice_test.mjs", { needs: ["pw", "browser"], paths: [file("update_notice_test.mjs"), /^update\.js$/, ...APP] }),
   step("header-stable", "node scripts/header_stable_test.mjs", { needs: ["pw", "browser"], paths: [file("header_stable_test.mjs"), ...APP] }),
   step("post-ring", "node scripts/post_ring_test.mjs", { needs: ["pw", "browser"], paths: [file("post_ring_test.mjs"), /^keys\.(js|css)$/, ...APP] }),

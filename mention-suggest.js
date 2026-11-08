@@ -103,7 +103,14 @@
     document.body.appendChild(copy);
     var line = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) || 16) * 1.3;
     var box = el.getBoundingClientRect();
-    var point = { x: box.left + mark.offsetLeft - el.scrollLeft, y: box.top + mark.offsetTop - el.scrollTop + line };
+    /* The field's box is in visual pixels. The mirror and the field's own
+       scroll are in layout pixels, so only the box is divided. */
+    var z = parseFloat(document.documentElement.style.zoom);
+    var scale = z > 0 ? z : 1;
+    var point = {
+      x: box.left / scale + mark.offsetLeft - el.scrollLeft,
+      y: box.top / scale + mark.offsetTop - el.scrollTop + line
+    };
     copy.remove();
     return point;
   }
@@ -111,14 +118,14 @@
   function place() {
     if (!pop || !state.el) return;
     var point = caretPoint(state.el, state.start);
-    var width = Math.min(320, window.innerWidth - 16);
     var z = parseFloat(document.documentElement.style.zoom);
     var scale = z > 0 ? z : 1;
     var viewW = window.innerWidth / scale;
-    var left = Math.max(8, Math.min(point.x / scale, viewW - width - 8));
+    var width = Math.min(320, Math.max(120, viewW - 16));
+    var left = Math.max(8, Math.min(point.x, viewW - width - 8));
     var vv = window.visualViewport;
     var bottom = (vv ? vv.height + vv.offsetTop : window.innerHeight) / scale;
-    var top = point.y / scale + 4;
+    var top = point.y + 4;
     pop.style.width = width + "px";
     pop.style.left = (left + window.scrollX) + "px";
     pop.style.maxHeight = Math.max(120, Math.min(360, bottom - top - 8)) + "px";

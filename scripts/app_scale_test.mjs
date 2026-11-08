@@ -199,6 +199,80 @@ async function browserScale() {
     await page.waitForTimeout(400);
     const wide = await page.evaluate(() => document.documentElement.style.zoom || "");
     if (wide !== "2") throw new Error("wide window did not restore 200% " + wide);
+    async function mentionAt(scale) {
+      await page.evaluate((value) => {
+        window.scrollTo(0, 0);
+        const raw = JSON.parse(localStorage.getItem("viktorych-desktop-v1") || "{}");
+        raw.scale.mode = "manual";
+        raw.scale.manual = value;
+        localStorage.setItem("viktorych-desktop-v1", JSON.stringify(raw));
+        window.ViktorychDesktop.applyScale();
+        window.ViktorychMentionsLocal = {
+          search: function (q) {
+            var query = String(q || "").toLowerCase();
+            if (query.indexOf("lane") !== 0) return [];
+            return [{ handle: "laneone", name: "Lane One", avatar: "" }];
+          }
+        };
+      }, scale);
+      if (!(await page.locator("#compose-text").count())) {
+        await page.locator('button.post-btn[data-act="compose"]').first().click();
+        await page.waitForSelector("#compose-text", { timeout: 8000 });
+      }
+      const hit = await page.evaluate(() => {
+        const el = document.getElementById("compose-text");
+        el.style.setProperty("min-height", "48px", "important");
+        el.style.setProperty("height", "48px", "important");
+        el.style.setProperty("max-height", "48px", "important");
+        el.style.overflowY = "scroll";
+        el.value = "one\ntwo\nthree\nfour\nfive hello @lane";
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+        el.scrollTop = 48;
+        if (window.ViktorychMentionSuggest) window.ViktorychMentionSuggest.close();
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        const pop = document.querySelector(".mention-pop:not([hidden])");
+        if (!pop) return { missing: true, scrollTop: el.scrollTop };
+        const z = parseFloat(document.documentElement.style.zoom) || 1;
+        const style = getComputedStyle(el);
+        const copy = document.createElement("div");
+        ["boxSizing", "width", "fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "borderTopWidth", "borderLeftWidth", "textTransform", "wordSpacing", "tabSize"].forEach((key) => { copy.style[key] = style[key]; });
+        copy.style.position = "absolute";
+        copy.style.visibility = "hidden";
+        copy.style.whiteSpace = "pre-wrap";
+        copy.style.wordWrap = "break-word";
+        copy.style.top = "0";
+        copy.style.left = "-9999px";
+        const at = el.value.lastIndexOf("@");
+        copy.textContent = el.value.slice(0, at);
+        const mark = document.createElement("span");
+        mark.textContent = "\u200b";
+        copy.appendChild(mark);
+        document.body.appendChild(copy);
+        const line = parseFloat(style.lineHeight) || 24;
+        const box = el.getBoundingClientRect();
+        const expectedLeft = box.left / z + mark.offsetLeft - el.scrollLeft;
+        const expectedTop = box.top / z + mark.offsetTop - el.scrollTop + line + 4;
+        const halvedLeft = (box.left + mark.offsetLeft - el.scrollLeft) / z;
+        const halvedTop = (box.top + mark.offsetTop - el.scrollTop + line) / z + 4;
+        const out = {
+          z, scrollTop: el.scrollTop, offsetLeft: mark.offsetLeft, offsetTop: mark.offsetTop, line,
+          inner: window.innerWidth, scrollX: window.scrollX, scrollY: window.scrollY,
+          styleLeft: pop.style.left, styleTop: pop.style.top,
+          expectedLeft, expectedTop, halvedLeft, halvedTop,
+          gotLeft: parseFloat(pop.style.left) - window.scrollX,
+          gotTop: parseFloat(pop.style.top) - window.scrollY
+        };
+        copy.remove();
+        return out;
+      });
+      if (!hit || hit.missing) throw new Error("mention list did not open " + JSON.stringify(hit));
+      if (hit.scrollTop < 8 || hit.offsetTop < hit.line * 2 || hit.offsetLeft < 40) throw new Error("mention fixture did not scroll a multiline caret " + JSON.stringify(hit));
+      if (Math.abs(hit.gotLeft - hit.expectedLeft) > 2 || Math.abs(hit.gotTop - hit.expectedTop) > 2) throw new Error("scale " + scale + " mention caret " + JSON.stringify(hit));
+      if (Math.abs(hit.expectedLeft - hit.halvedLeft) < 8 || Math.abs(hit.gotLeft - hit.halvedLeft) < 8) throw new Error("scale " + scale + " mention still halves the caret offset " + JSON.stringify(hit));
+    }
+    await mentionAt(200);
+    await mentionAt(150);
     await context.close();
     const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block", hasTouch: true });
     await phone.addInitScript(() => {
@@ -221,4 +295,4 @@ async function browserScale() {
   }
 }
 
-test("browser: scaled pointer menus, keyboard, scroll, off, and a narrow window", browserScale);
+test("browser: scaled pointer menus, mention caret, keyboard, scroll, off, and a narrow window", browserScale);
