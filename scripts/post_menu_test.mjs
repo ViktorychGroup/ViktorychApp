@@ -215,6 +215,25 @@ async function main() {
       await page.waitForSelector('article[data-post="p16"]', { timeout: 15000 });
       await place(page, "p02", 180);
       const top = check(size.name + " top", await openMenu(page, "p02"));
+      const rows = await page.evaluate(() => {
+        const menu = document.querySelector(".menu.post-menu");
+        const items = [...menu.querySelectorAll("button, a")];
+        const cs = getComputedStyle(items[0]);
+        return {
+          h: items.map((el) => Math.round(el.getBoundingClientRect().height)),
+          font: cs.fontSize,
+          overflow: menu.scrollHeight - menu.clientHeight
+        };
+      });
+      if (size.name === "desktop") {
+        if (rows.font !== "15px") throw new Error("desktop menu text changed " + rows.font);
+        if (rows.h.some((h) => h > 48 || h < 36)) throw new Error("desktop menu rows " + rows.h.join(","));
+        if (rows.overflow > 8) throw new Error("desktop menu still scrolls " + rows.overflow);
+      }
+      if (size.name === "phone") {
+        if (rows.h[0] < 160) throw new Error("phone menu changed " + rows.h[0]);
+        if (rows.h[1] !== 44) throw new Error("phone menu row " + rows.h[1]);
+      }
       await page.keyboard.press("Escape");
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const escaped = await page.evaluate(() => ({
