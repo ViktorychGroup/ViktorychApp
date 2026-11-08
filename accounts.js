@@ -3160,6 +3160,11 @@ var numberNote = form.passkey
     // this device's own copy and its keep-on-this-device choices.
     var locks = settingLocks();
     Object.keys(locks).forEach(function (key) { if (key !== "lang") settings[key] = locks[key]; });
+    // Another tab can save a newer block list while this echo is applied.
+    // The newer list stays. An older echo must not bring the blocked posts back.
+    var disk = null;
+    try { disk = JSON.parse(readStored("settings-v1") || "null"); } catch (err) { disk = null; }
+    if (disk && disk.blocks) settings.blocks = pickBlocks(disk.blocks, settings.blocks);
     writeStored("settings-v1", JSON.stringify(settings));
     if (reg) reg.remember(taken);
     if (window.ViktorychAccounts && window.ViktorychAccounts.writeHistory) window.ViktorychAccounts.writeHistory(payload);

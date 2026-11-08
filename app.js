@@ -10278,7 +10278,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       + (post.appPost ? appMenuItems(post) : (post.url ? `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url)}">${tr("View on {platform}", { platform: PLATFORM[post.platform] || tr("Web") })}</a>` : ""))
       + blockMenuItems(post, "status")
       + (fresh ? `<div class="menu-note reply-fresh">${esc(fresh)}</div>` : "");
-    return `<span class="status-menu-wrap">${btn}<div class="menu status-menu" data-act="stop" role="menu">${items}</div></span>`;
+    return `<span class="status-menu-wrap">${btn}<div class="menu status-menu post-menu" data-act="stop" role="menu">${items}</div></span>`;
   }
 
   /* Replies written in this app to a feed post (X, YouTube, …) are app posts
@@ -10780,7 +10780,7 @@ const here = parseRoute();
     const busyItem = busyKey ? `<button data-act="busy-menu" data-key="${esc(busyKey)}" data-name="${esc(post.author || post.name || "")}" data-handle="${esc(post.handle || "")}" data-platform="${esc(post.platform || "x")}">${tr("Posting volume")}</button>` : "";
     const giftItem = `<button type="button" data-gift="reply" data-parent="${esc(post.id || "")}" data-handle="${esc(post.handle || "")}">${tr("Send a gift")}</button>`;
     const blockItems = STATE.menu === post.id ? blockMenuItems(post, mode) : "";
-    const menu = STATE.menu === post.id ? `<div class="menu" data-act="stop">${localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("viktrych")} ${tr("Explain this post")}</button>` : ""}<button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
+    const menu = STATE.menu === post.id ? `<div class="menu post-menu" role="menu" data-act="stop">${localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("viktrych")} ${tr("Explain this post")}</button>` : ""}<button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
     const continues = !!opts.continues;
     const face = authorFace(post);
     const creator = isRepost(post) ? creatorOf(post) : null;
@@ -10814,7 +10814,7 @@ const here = parseRoute();
       : (redditSub(post) && !opts.parentShown
         ? `<div class="repost-line community-line">${icon("communities")}<a data-act="stop" href="#/communities/${encodeURIComponent(redditSub(post))}">${esc(nickName("reddit", "r/" + redditSub(post), "r/" + redditSub(post)))}</a></div>`
         : "");
-    return `<article class="post${continues ? " continues" : ""}${mode === "reply" ? " reply-card" : ""}" data-post="${esc(post.id)}" data-kind="${esc(post.kind || "post")}" data-date="${esc(post.date || "")}"${open}${hydrate}${cardHeightStyle(post.id)}>
+    return `<article class="post${STATE.menu === post.id ? " menu-open" : ""}${continues ? " continues" : ""}${mode === "reply" ? " reply-card" : ""}" data-post="${esc(post.id)}" data-kind="${esc(post.kind || "post")}" data-date="${esc(post.date || "")}"${open}${hydrate}${cardHeightStyle(post.id)}>
       ${community}
       ${repost}
       ${sharedNote}
@@ -10829,7 +10829,7 @@ const here = parseRoute();
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
             ${asAccount ? linkedSourceBadge(post.platform) : postSourceBadges(post)}
-            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}">${icon("more")}</button></span>
+            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}" aria-haspopup="menu" aria-expanded="${STATE.menu === post.id ? "true" : "false"}">${icon("more")}</button></span>
           </div>
           ${reply}
           ${discordMeta(post)}
@@ -22363,6 +22363,50 @@ if (STATE.histClear) {
     menu.style.top = top + "px";
   }
 
+  function placePostMenu() {
+    const menu = document.querySelector(".menu.post-menu");
+    if (!menu) return;
+    const id = String(STATE.menu || "");
+    const sel = window.CSS && CSS.escape
+      ? 'button[data-act="menu"][data-id="' + CSS.escape(id) + '"]'
+      : 'button[data-act="menu"][data-id="' + id.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+    const btn = id ? document.querySelector(sel) : null;
+    if (!btn) return;
+    const item = btn.getBoundingClientRect();
+    const width = menu.offsetWidth || 220;
+    const nav = document.querySelector(".bottom-nav");
+    const navShown = nav && nav.getBoundingClientRect().height > 0 && getComputedStyle(nav).display !== "none";
+    const limitBottom = (navShown ? nav.getBoundingClientRect().top : window.innerHeight) - 8;
+    const header = document.querySelector(".topbar");
+    const limitTop = header ? Math.max(8, header.getBoundingClientRect().bottom + 4) : 8;
+    const spaceBelow = limitBottom - (item.bottom + 4);
+    const spaceAbove = item.top - 4 - limitTop;
+    const want = menu.scrollHeight || menu.offsetHeight || 200;
+    let top;
+    let maxH;
+    if (spaceBelow >= 160 || spaceBelow >= spaceAbove) {
+      top = item.bottom + 4;
+      maxH = Math.max(120, Math.min(want, spaceBelow));
+    } else {
+      maxH = Math.max(120, Math.min(want, spaceAbove));
+      top = item.top - 4 - maxH;
+    }
+    // The reply row under a post stays clickable while this menu is open.
+    const reply = document.querySelector('[data-act="xc-expand-reply"], .composer');
+    if (reply) {
+      const replyTop = reply.getBoundingClientRect().top;
+      if (top < replyTop && top + maxH > replyTop - 8) maxH = Math.max(72, replyTop - 8 - top);
+    }
+    let left = item.right - width;
+    if (left < 8) left = 8;
+    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+    menu.style.maxHeight = Math.round(maxH) + "px";
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top = Math.round(top) + "px";
+  }
+  window.addEventListener("scroll", () => { if (STATE.menu) placePostMenu(); }, { passive: true });
+  window.addEventListener("resize", () => { if (STATE.menu) placePostMenu(); });
+
   function placeFloatMenu(selector) {
     const menu = document.querySelector(selector);
     if (!menu) return;
@@ -23590,7 +23634,20 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           }
           window.scrollTo(0, next);
           if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = next;
+          placePostMenu();
           if (opts && opts.focusKey) focusExpandedControl(String(opts.focusKey));
+          if (opts && opts.focusMenu) {
+            const item = document.querySelector(".menu.post-menu button, .menu.post-menu a");
+            if (item) { try { item.focus({ preventScroll: true }); } catch (err) { item.focus(); } }
+          }
+          if (opts && opts.focusReturn) {
+            const raw = String(opts.focusReturn);
+            const backSel = window.CSS && CSS.escape
+              ? 'button[data-act="menu"][data-id="' + CSS.escape(raw) + '"]'
+              : 'button[data-act="menu"][data-id="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+            const back = document.querySelector(backSel);
+            if (back) { try { back.focus({ preventScroll: true }); } catch (err) { back.focus(); } }
+          }
           if (opts && opts.pinAnchor && opts.anchorId) watchPostAnchor(String(opts.anchorId), Number(opts.anchorTop) || 0);
         });
       }
@@ -23629,6 +23686,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       resumePlayback();
       placeTabMenu();
       placeBellMenu();
+      placePostMenu();
       placeFloatMenu(".assign-menu");
       placeFloatMenu(".tab-context");
       syncTabArrows();
@@ -25697,7 +25755,22 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       render({ y: window.scrollY });
       return;
     }
-    if (act === "menu") { STATE.menu = STATE.menu === el.dataset.id ? null : el.dataset.id; render(); return; }
+    if (act === "menu") {
+      const opening = STATE.menu !== el.dataset.id;
+      const article = el.closest("article");
+      const anchorId = article ? (article.getAttribute("data-post") || "") : "";
+      const anchorTop = article ? article.getBoundingClientRect().top : 0;
+      rememberCardHeights();
+      STATE.menu = opening ? el.dataset.id : null;
+      render({
+        y: pageY(),
+        anchorId: anchorId,
+        anchorTop: anchorTop,
+        focusMenu: opening,
+        focusReturn: opening ? "" : (el.dataset.id || "")
+      });
+      return;
+    }
     if (act === "profile-tools" || act === "profile-more") {
       const next = act === "profile-tools" ? "tools" : "more";
       STATE.profileMenu = STATE.profileMenu === next ? null : next;
@@ -26360,6 +26433,17 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     if (window.innerWidth < 500 && event.target.closest(".topbar") && !event.target.closest("button, a, input, textarea, select")) {
       if (parseRoute().name !== "home") { goHash("#/"); return; }
       smoothTop();
+      return;
+    }
+    if (STATE.menu && !(event.target.closest && event.target.closest(".menu, button[data-act='menu']"))) {
+      const menuBtn = document.querySelector(window.CSS && CSS.escape ? 'button[data-act="menu"][data-id="' + CSS.escape(STATE.menu) + '"]' : "button[data-act='menu']");
+      const menuArticle = menuBtn ? menuBtn.closest("article") : null;
+      const menuAnchor = menuArticle ? (menuArticle.getAttribute("data-post") || "") : "";
+      const menuTop = menuArticle ? menuArticle.getBoundingClientRect().top : 0;
+      STATE.menu = null;
+      render({ y: pageY(), anchorId: menuAnchor, anchorTop: menuTop });
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     if (event.target.closest("a, button, video, input, textarea, label")) return;
@@ -27385,6 +27469,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (STATE.modal === "compose" && window.ViktorychXCompose && window.ViktorychXCompose.onEscape && window.ViktorychXCompose.onEscape()) return true;
     if (STATE.viewer) { closeViewer(); return true; }
     if (STATE.modal || STATE.drawer || STATE.drawerEdit || STATE.accountMenu || STATE.noteGear || STATE.menu || STATE.share || STATE.groupMenu || STATE.tabMenu || STATE.bellMenu || STATE.busySheet || STATE.removeFeed || STATE.tabAssign || STATE.tabContext || STATE.repostMenu || (STATE.confirm && STATE.confirm.kind === "feed-tab")) {
+      const menuId = STATE.menu || "";
+      const menuBtn = menuId ? document.querySelector(window.CSS && CSS.escape ? 'button[data-act="menu"][data-id="' + CSS.escape(menuId) + '"]' : 'button[data-act="menu"][data-id="' + String(menuId).replace(/"/g, "") + '"]') : null;
+      const menuArticle = menuBtn ? menuBtn.closest("article") : null;
+      const menuAnchor = menuArticle ? (menuArticle.getAttribute("data-post") || "") : "";
+      const menuTop = menuArticle ? menuArticle.getBoundingClientRect().top : 0;
       STATE.modal = null;
       STATE.composeVia = "";
       STATE.drawer = false;
@@ -27405,7 +27494,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       STATE.histClear = "";
       STATE.removeFeed = null;
       STATE.repostMenu = null;
-      render();
+      render(menuId ? { y: pageY(), anchorId: menuAnchor, anchorTop: menuTop, focusReturn: menuId } : undefined);
       return true;
     }
     return false;
