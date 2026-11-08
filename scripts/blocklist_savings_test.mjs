@@ -223,6 +223,15 @@ try {
     }, target);
     if (hook !== "ok") fail("window.ViktorychBlocklist.hides must hide a blocked account's reply and keep others (" + hook + ")");
     if (!header || header.indexOf(target) >= 0) fail("the stored header must be hashes only");
+    // The other tab still holds the settings it loaded. A save there must not
+    // put the empty block list back over the newer one.
+    await b.evaluate(() => { location.hash = "#/home?reposts=0"; });
+    await a.waitForFunction((h) => {
+      const blocks = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}").blocks || {};
+      const kept = (blocks.accounts || []).some((item) => String(item).indexOf(h) >= 0);
+      const shown = Array.from(document.querySelectorAll("#app article.post .handle")).some((el) => el.textContent.replace(/^@/, "") === h);
+      return kept && !shown;
+    }, target, { timeout: 8000 });
     console.log("cross-tab block check passed", JSON.stringify({ otherTabMs: Date.now() - t0 }));
     await ctx.close();
   }

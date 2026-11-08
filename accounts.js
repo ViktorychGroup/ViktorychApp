@@ -4758,16 +4758,23 @@ function signupPayload() {
     api("/v1/friends?id=" + encodeURIComponent(key) + "&tab=friends", { token: session.token }).then(function (res) {
       friendsLoads[key] = false;
       if (!res || res.status !== 200) { friendsFailedAt[key] = Date.now(); return; }
+      var id = key;
+      var prevList = JSON.stringify(friendsCache[key] || []);
+      var prevCount = graphCounts[id] && graphCounts[id].friends;
+      var prevStatus = graphCounts[id] && graphCounts[id].friendStatus;
       friendsCache[key] = Array.isArray(res.friends) ? res.friends : [];
       // Owner view: the server shows the app owner every friendship and logs it.
       friendsOwnerView[key] = res.ownerView === true;
-      var id = key;
       graphCounts[id] = graphCounts[id] || {};
       if (res.friendsCount != null) graphCounts[id].friends = res.friendsCount;
       if (friendWord(res)) graphCounts[id].friendStatus = friendWord(res);
       if (res.mutualCount != null) graphCounts[id].mutualFriendsCount = res.mutualCount;
       graphCounts[id].friendsOff = res.friendsOff === true;
       if (typeof res.canRequest === "boolean") graphCounts[id].canRequest = res.canRequest;
+      var unchanged = JSON.stringify(friendsCache[key]) === prevList && graphCounts[id].friends === prevCount && graphCounts[id].friendStatus === prevStatus;
+      // A background refresh that changes nothing must not rebuild the profile.
+      // That rebuild dropped counters painted on the open page.
+      if (unchanged && !friendsSurfaceOpen()) return;
       if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
     }).catch(function () { friendsLoads[key] = false; friendsFailedAt[key] = Date.now(); });
   }
@@ -4783,12 +4790,15 @@ function signupPayload() {
     api("/v1/friends?tab=requests", { token: session.token }).then(function (res) {
       friendRequestsLoading = false;
       if (!res || res.status !== 200) return;
+      var prevReqs = JSON.stringify(friendRequestsCache);
       friendRequestsCache = {
         incoming: Array.isArray(res.incoming) ? res.incoming : [],
         outgoing: Array.isArray(res.outgoing) ? res.outgoing : []
       };
+      var reqsSame = prevReqs === JSON.stringify(friendRequestsCache);
       friendRequestsLoaded = true;
       saveFriendReqs();
+      if (reqsSame && !friendsSurfaceOpen()) return;
       if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
     }).catch(function () { friendRequestsLoading = false; });
   }
@@ -5475,6 +5485,9 @@ function signupPayload() {
     var settings = {};
     try { settings = JSON.parse(readStored("settings-v1") || "{}"); } catch (err) { settings = {}; }
     settings.profileTabs = cleaned;
+    var diskNow = null;
+    try { diskNow = JSON.parse(readStored("settings-v1") || "null"); } catch (err) { diskNow = null; }
+    if (diskNow && diskNow.blocks) settings.blocks = pickBlocks(diskNow.blocks, settings.blocks);
     writeStored("settings-v1", JSON.stringify(settings));
     onLocalChange();
     publishProfileTabs(cleaned);
@@ -7857,6 +7870,7 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     fitRequestPills: fitRequestPills,
     setGraphQuery: setGraphQuery,
     relationWrite: relationWrite,
+    pickBlocks: pickBlocks,
     blockSet: function () {
       var ids = {};
       (relationCache.blocks || []).forEach(function (item) {
