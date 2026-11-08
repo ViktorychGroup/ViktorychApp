@@ -120,6 +120,8 @@ async function open(browser, origin, opts) {
   const errors = [];
   page.on("pageerror", (err) => {
     const message = String(err && err.message || err);
+    // YouTube's embed player throws this inside its own script. It is not the header.
+    if (/isExternalMethodAvailable/.test(message)) return;
     // Chrome's extension activity logger throws this into the page. It is not the header.
     if (message === "this.api.logApiCall is not a function") return;
     if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(message.slice(0, 200));
