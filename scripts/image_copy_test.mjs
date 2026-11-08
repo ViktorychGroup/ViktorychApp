@@ -49,6 +49,15 @@ const fullPng = png(4, 2, [
 ]);
 const thumbPng = png(1, 1, [[255, 0, 0, 255]]);
 const fullHash = createHash("sha256").update(fullPng).digest("hex");
+const waiting = [];
+function releaseHold() {
+  waiting.splice(0).forEach((res) => {
+    try {
+      res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" });
+      res.end(fullPng);
+    } catch (err) { /* the browser already aborted */ }
+  });
+}
 
 test("a Twitter small picture upgrades to the original, not the large display size", () => {
   const small = "https://pbs.twimg.com/media/AbC.jpg?format=jpg&name=small";
@@ -57,16 +66,37 @@ test("a Twitter small picture upgrades to the original, not the large display si
   assert.equal(list.includes(small), false);
 });
 
-test("a YouTube thumbnail upgrades to the largest still of the same video", () => {
+test("a YouTube thumbnail selects the largest still and is not called the original file", () => {
   const hq = "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg";
-  const list = copy.originalCandidates({ src: hq });
-  assert.equal(list[0], "https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg");
-  assert.equal(list.includes(hq), false);
+  const picked = copy.plan({ src: hq });
+  assert.equal(picked.originals.length, 0);
+  assert.equal(picked.downloadOriginal, false);
+  assert.equal(picked.sized[0].url, "https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg");
+  assert.equal(picked.label, "listed");
 });
 
-test("the full file listed beside a thumbnail is chosen over the picture on screen", () => {
+test("a fallback address is not treated as the original file", () => {
   const record = { src: "https://cdn.test/thumb.png", currentSrc: "https://cdn.test/thumb.png", source: "https://cdn.test/full.png" };
-  assert.equal(copy.originalCandidates(record)[0], "https://cdn.test/full.png");
+  const picked = copy.plan(record);
+  assert.equal(picked.originals.length, 0);
+  assert.equal(picked.label, "displayed");
+  assert.equal(copy.copyOrder(record).includes("https://cdn.test/full.png"), false);
+});
+
+test("a srcset width picks 2048 over an earlier 320, and an unknown proxy is not an original", () => {
+  const sized = copy.sizedCandidates({ srcset: "https://cdn.test/a.jpg 320w, https://cdn.test/b.jpg 2048w" });
+  assert.deepEqual(sized.map((row) => row.width), [2048, 320]);
+  assert.equal(sized[0].url, "https://cdn.test/b.jpg");
+  const flipped = copy.copyOrder({ srcset: "https://cdn.test/a.jpg 320w, https://cdn.test/b.jpg 2048w" });
+  assert.equal(flipped[0], "https://cdn.test/b.jpg");
+  assert.deepEqual(copy.copyOrder({
+    original: "https://cdn.test/orig.png",
+    srcset: "https://cdn.test/a.jpg 320w, https://cdn.test/b.jpg 2048w"
+  }), ["https://cdn.test/orig.png", "https://cdn.test/b.jpg", "https://cdn.test/a.jpg"]);
+  const proxy = copy.plan({ src: "https://app.test/v1/media?url=https://cdn.test/pic.jpg" });
+  assert.equal(proxy.label, "displayed");
+  assert.equal(proxy.downloadOriginal, false);
+  assert.equal(proxy.originals.length, 0);
 });
 
 test("a url that is not on the picture is refused, including another private view and a built proxy", () => {
@@ -98,11 +128,19 @@ async function browserProof() {
       res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" });
       return res.end(thumbPng);
     }
+    if (url.pathname === "/bad.png") {
+      res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" });
+      return res.end(Buffer.from("not-a-png"));
+    }
+    if (url.pathname === "/hold.png") {
+      waiting.push(res);
+      return;
+    }
     if (url.pathname === "/") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       return res.end(`<!doctype html><meta charset="utf-8"><title>copy</title>
         <style>img{width:20px;height:10px}</style>
-        <div class="media"><div class="tile"><img id="photo" alt="" src="/thumb.png" data-source="/full.png"></div></div>
+        <div class="media"><div class="tile"><img id="photo" alt="" src="/thumb.png" data-original="/full.png"></div></div>
         <div class="media"><div class="tile"><a id="link" href="/full.png"><img id="linked" alt="" src="/full.png"></a></div></div>
         <script src="/image-copy.js"></script>`);
     }
@@ -184,7 +222,7 @@ async function browserProof() {
       throw new Error("download changed the original bytes " + JSON.stringify(saved));
     }
     await page.evaluate(() => {
-      document.getElementById("photo").dataset.source = "/missing.png";
+      document.getElementById("photo").dataset.original = "/missing.png";
       window.__copies.length = 0;
     });
     await page.locator(".image-copy-menu button", { hasText: "Copy image" }).click();
@@ -199,7 +237,83 @@ async function browserProof() {
     });
     if (screen.width !== 1 || screen.height !== 1) throw new Error("on-screen copy was not the thumbnail " + JSON.stringify(screen));
     if (screen.note.indexOf("not the full file") < 0) throw new Error("on-screen copy was labeled as the full file");
-    await page.keyboard.press("Escape");
+    const beforePermission = await page.evaluate(() => window.__copies.length);
+    await page.evaluate(() => {
+      window.__write = navigator.clipboard.write;
+      navigator.clipboard.write = async (items) => {
+        await items[0].getType("image/png");
+        throw new DOMException("denied", "NotAllowedError");
+      };
+      document.getElementById("photo").dataset.original = "/full.png";
+    });
+    await page.locator(".image-copy-menu button", { hasText: "Copy image" }).click();
+    await page.waitForFunction(() => {
+      const text = document.querySelector(".image-copy-note").textContent;
+      return text.indexOf("permission") >= 0;
+    });
+    const denied = await page.evaluate(() => ({
+      copies: window.__copies.length,
+      texts: window.__texts.length,
+      note: document.querySelector(".image-copy-note").textContent
+    }));
+    if (denied.copies !== beforePermission || denied.texts.length) throw new Error("permission denial wrote the clipboard " + JSON.stringify(denied));
+    if (denied.note.indexOf("did not load") >= 0 || denied.note.indexOf("Copied the picture") >= 0) throw new Error("permission denial was described as a failed or finished copy " + denied.note);
+    await page.evaluate(() => {
+      navigator.clipboard.write = window.__write;
+      window.__copies.length = 0;
+      document.getElementById("photo").dataset.original = "/bad.png";
+    });
+    await page.locator(".image-copy-menu button", { hasText: "Copy image" }).click();
+    await page.waitForFunction(() => document.querySelector(".image-copy-note").textContent.indexOf("could not be read") >= 0);
+    const unread = await page.evaluate(() => ({ copies: window.__copies.length, note: document.querySelector(".image-copy-note").textContent }));
+    if (unread.copies || unread.note.indexOf("Copied") >= 0) throw new Error("a picture that could not be read was called copied " + JSON.stringify(unread));
+    await page.evaluate(() => {
+      window.ViktorychAccounts = {
+        gen: 1,
+        id: "100000000001",
+        sessionGeneration() { return this.gen; },
+        account() { return { publicId: this.id }; }
+      };
+      window.__clicks = 0;
+      const click = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function () { window.__clicks += 1; return click.apply(this, arguments); };
+      document.getElementById("photo").dataset.original = "/hold.png";
+      window.__copies.length = 0;
+    });
+    await page.locator(".image-copy-menu button", { hasText: "Download original" }).click();
+    await new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => { if (waiting.length || Date.now() - start > 2000) resolve(); else setTimeout(tick, 20); };
+      tick();
+    });
+    await page.evaluate(() => {
+      window.ViktorychAccounts.gen = 2;
+      window.ViktorychAccounts.id = "100000000002";
+      window.dispatchEvent(new Event("viktorych-session"));
+    });
+    releaseHold();
+    await page.waitForTimeout(250);
+    const switched = await page.evaluate(() => ({ clicks: window.__clicks, copies: window.__copies.length, menu: !!document.querySelector(".image-copy-menu") }));
+    if (switched.clicks || switched.copies || switched.menu) throw new Error("a switched account still received the picture " + JSON.stringify(switched));
+    await page.evaluate(() => {
+      window.ViktorychAccounts.gen = 3;
+      window.ViktorychAccounts.id = "100000000003";
+      document.getElementById("photo").dataset.original = "/hold.png";
+      window.__copies.length = 0;
+    });
+    const again = await page.locator("#photo").boundingBox();
+    await page.mouse.click(again.x + 4, again.y + 4, { button: "right" });
+    await page.locator(".image-copy-menu button", { hasText: "Copy image" }).click();
+    await new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => { if (waiting.length || Date.now() - start > 2000) resolve(); else setTimeout(tick, 20); };
+      tick();
+    });
+    await page.evaluate(() => { location.hash = "#/left"; });
+    releaseHold();
+    await page.waitForTimeout(250);
+    const left = await page.evaluate(() => ({ copies: window.__copies.length, menu: !!document.querySelector(".image-copy-menu") }));
+    if (left.copies || left.menu) throw new Error("leaving the page still copied the picture " + JSON.stringify(left));
     const linked = await page.evaluate(() => {
       const img = document.getElementById("linked");
       const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 });

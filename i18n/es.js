@@ -6419,5 +6419,10 @@ SI18n.addPack("es", {
   "Copied the picture": "Imagen copiada",
   "The full picture did not load": "La imagen completa no se cargó",
   "Copy the picture on screen": "Copiar la imagen de la pantalla",
-  "This is the picture on the screen, not the full file.": "Esta es la imagen que se ve, no el archivo completo."
+  "This is the picture on the screen, not the full file.": "Esta es la imagen que se ve, no el archivo completo.",
+  "The clipboard permission was denied. The picture was not copied.": "Se denegó el permiso del portapapeles. La imagen no se copió.",
+  "This browser cannot copy a picture. The picture was not copied.": "Este navegador no puede copiar una imagen. La imagen no se copió.",
+  "The picture could not be read. It was not copied.": "No se pudo leer la imagen. No se copió.",
+  "Copied the largest listed picture. It is not a proven original file.": "Se copió la imagen más grande de la lista. No es un archivo original comprobado.",
+  "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.": "Copia la imagen más grande de la lista. No es un archivo original comprobado. El color, el HDR y la animación pueden no coincidir."
 });

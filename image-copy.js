@@ -38,16 +38,30 @@
     pushUnique(list, record.source, base);
     pushUnique(list, record.fallbackSrc, base);
     pushUnique(list, record.refresh, base);
+    pushUnique(list, record.original, base);
     var falls = record.falls;
     if (typeof falls === "string") {
       try { falls = JSON.parse(falls); } catch (err) { falls = []; }
     }
     if (!Array.isArray(falls)) falls = [];
     falls.forEach(function (url) { pushUnique(list, url, base); });
-    String(record.srcset || "").split(",").forEach(function (part) {
-      pushUnique(list, part.trim().split(/\s+/)[0], base);
-    });
+    srcsetEntries(record.srcset, base).forEach(function (row) { pushUnique(list, row.url, base); });
     return list;
+  }
+
+  function srcsetEntries(value, base) {
+    var out = [];
+    String(value || "").split(",").forEach(function (part) {
+      var bits = part.trim().split(/\s+/);
+      if (!bits[0]) return;
+      var url = safeUrl(bits[0], base);
+      if (!url) return;
+      var width = 0;
+      var wide = String(bits[1] || "").match(/^(\d+)w$/);
+      if (wide) width = Number(wide[1]);
+      out.push({ url: url, width: width });
+    });
+    return out;
   }
 
   function twimgOrig(url) {
@@ -84,24 +98,41 @@
   }
 
   function originalCandidates(record, base) {
-    var listed = listedFrom(record, base);
-    var shown = {};
-    [safeUrl(record.currentSrc, base), safeUrl(record.src, base)].forEach(function (url) { if (url) shown[url] = true; });
     var out = [];
-    listed.forEach(function (url) {
-      pushUnique(out, twimgOrig(url), base);
-      pushUnique(out, ytimgMax(url), base);
+    pushUnique(out, record.original, base);
+    listedFrom(record, base).forEach(function (url) { pushUnique(out, twimgOrig(url), base); });
+    return out;
+  }
+
+  function sizedCandidates(record, base) {
+    var originals = originalCandidates(record, base);
+    var best = {};
+    srcsetEntries(record.srcset, base).forEach(function (row) {
+      if (!row.url || originals.indexOf(row.url) >= 0 || thumbRank(row.url) >= 9) return;
+      if (!best[row.url] || row.width > best[row.url]) best[row.url] = row.width;
     });
-    listed.forEach(function (url) {
-      if (thumbRank(url) < 9) pushUnique(out, url, base);
+    listedFrom(record, base).forEach(function (url) {
+      var max = ytimgMax(url);
+      if (max && originals.indexOf(max) < 0 && best[max] == null) best[max] = 0;
     });
-    function priority(url) {
-      var rank = thumbRank(url);
-      if (shown[url] && rank > 1) return rank + 4;
-      return rank;
-    }
-    out.sort(function (a, b) { return priority(a) - priority(b); });
-    return out.filter(function (url) { return thumbRank(url) < 9; });
+    return Object.keys(best).map(function (url) { return { url: url, width: best[url] }; }).sort(function (a, b) {
+      return b.width - a.width;
+    });
+  }
+
+  function plan(record, base) {
+    var originals = originalCandidates(record, base);
+    var sized = sizedCandidates(record, base);
+    var displayed = screenUrl(record, base);
+    var label = originals.length ? "original" : sized.length ? "listed" : "displayed";
+    return { originals: originals, sized: sized, displayed: displayed, label: label, downloadOriginal: originals.length > 0 };
+  }
+
+  function copyOrder(record, base) {
+    var picked = plan(record, base);
+    var out = picked.originals.slice();
+    picked.sized.forEach(function (row) { pushUnique(out, row.url, base); });
+    return out;
   }
 
   function screenUrl(record, base) {
@@ -111,7 +142,7 @@
   function allowedUrl(record, url, base) {
     var target = safeUrl(url, base);
     if (!target) return false;
-    if (originalCandidates(record, base).indexOf(target) >= 0) return true;
+    if (copyOrder(record, base).indexOf(target) >= 0) return true;
     return target === screenUrl(record, base);
   }
 
@@ -135,6 +166,7 @@
       refresh: img.dataset ? img.dataset.refresh || "" : "",
       falls: img.dataset ? img.dataset.falls || "" : "",
       srcset: img.getAttribute("srcset") || "",
+      original: img.dataset ? img.dataset.original || "" : "",
       base: base || (root.location && root.location.href) || ""
     };
   }
@@ -172,6 +204,9 @@
   if (typeof module !== "undefined" && module.exports) {
     module.exports = {
       originalCandidates: originalCandidates,
+      sizedCandidates: sizedCandidates,
+      plan: plan,
+      copyOrder: copyOrder,
       screenUrl: screenUrl,
       allowedUrl: allowedUrl,
       fetchPlan: fetchPlan,
@@ -185,11 +220,66 @@
   var doc = root.document;
   var menu = null;
   var current = null;
+  var epoch = 0;
+  var inflight = [];
+
+  function identityNow() {
+    var accounts = root.ViktorychAccounts;
+    var gen = 0;
+    var id = "";
+    try {
+      if (accounts && typeof accounts.sessionGeneration === "function") gen = Number(accounts.sessionGeneration()) || 0;
+      if (accounts && typeof accounts.account === "function") {
+        var account = accounts.account();
+        if (account && account.publicId) id = String(account.publicId);
+      }
+    } catch (err) { /* a broken account module counts as signed out */ }
+    return { gen: gen, id: id };
+  }
+
+  function sameIdentity(held) {
+    if (!held) return false;
+    var now = identityNow();
+    return now.gen === held.gen && now.id === held.id;
+  }
+
+  function live(op) {
+    return !!(op && !op.done && op.epoch === epoch && sameIdentity(op.who));
+  }
+
+  function drop(op) {
+    if (!op || op.done) return;
+    op.done = true;
+    if (op.controller) { try { op.controller.abort(); } catch (err) { /* already aborted */ } }
+    (op.urls || []).forEach(function (url) { try { URL.revokeObjectURL(url); } catch (err) { /* already revoked */ } });
+    op.urls = [];
+    (op.bitmaps || []).forEach(function (bitmap) { try { if (bitmap && bitmap.close) bitmap.close(); } catch (err) { /* already closed */ } });
+    op.bitmaps = [];
+    op.buffer = null;
+  }
+
+  function cancelAll() {
+    epoch += 1;
+    inflight.forEach(drop);
+    inflight = [];
+  }
+
+  function startOp() {
+    var op = { epoch: epoch, who: identityNow(), controller: typeof AbortController === "function" ? new AbortController() : null, urls: [], bitmaps: [], done: false };
+    inflight.push(op);
+    return op;
+  }
 
   function closeMenu() {
     if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
     menu = null;
     current = null;
+  }
+
+  function codeError(code) {
+    var err = new Error(code);
+    err.code = code;
+    return err;
   }
 
   function placeMenu(node, x, y) {
@@ -213,52 +303,62 @@
 
   function readCapped(res) {
     var len = Number(res.headers.get("content-length") || 0);
-    if (len > CAP) return Promise.reject(new Error("large"));
+    if (len > CAP) return Promise.reject(codeError("fetch"));
     return res.arrayBuffer().then(function (buf) {
-      if (buf.byteLength > CAP) throw new Error("large");
+      if (buf.byteLength > CAP) throw codeError("fetch");
       return buf;
     });
   }
 
-  function loadUrl(img, url) {
+  function loadUrl(img, url, op) {
+    if (!live(op)) return Promise.reject(codeError("session"));
     var record = recordOf(img);
-    if (!allowedUrl(record, url, record.base)) return Promise.reject(new Error("scope"));
+    if (!allowedUrl(record, url, record.base)) return Promise.reject(codeError("scope"));
     var plan = fetchPlan(url, record.base);
-    if (!plan) return Promise.reject(new Error("scope"));
+    if (!plan) return Promise.reject(codeError("scope"));
     return root.fetch(plan.url, {
       method: "GET",
       mode: plan.mode,
       credentials: plan.credentials,
       cache: "no-store",
-      redirect: "follow"
+      redirect: "follow",
+      signal: op.controller ? op.controller.signal : undefined
     }).then(function (res) {
-      if (!res || !res.ok) throw new Error("status");
+      if (!live(op)) throw codeError("session");
+      if (!res || !res.ok) throw codeError("fetch");
       var finalUrl = "";
       try { finalUrl = new URL(res.url || plan.url).hostname; } catch (err) { finalUrl = ""; }
       var startHost = "";
       try { startHost = new URL(plan.url).hostname; } catch (err) { startHost = ""; }
-      if (startHost && finalUrl && finalUrl !== startHost) throw new Error("redirect");
+      if (startHost && finalUrl && finalUrl !== startHost) throw codeError("fetch");
       var type = String(res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-      if (type.indexOf("image/") !== 0 || type === "image/svg+xml") throw new Error("type");
+      if (type.indexOf("image/") !== 0 || type === "image/svg+xml") throw codeError("fetch");
       return readCapped(res).then(function (buf) {
+        if (!live(op)) throw codeError("session");
         return { buffer: buf, type: type };
       });
     });
   }
 
-  function originalsOf(img) {
+  function orderOf(img) {
     var record = recordOf(img);
-    return originalCandidates(record, record.base);
+    return copyOrder(record, record.base);
   }
 
-  function decode(buffer) {
+  function decode(buffer, op) {
+    if (!live(op)) return Promise.reject(codeError("session"));
     var blob = new Blob([buffer]);
-    if (!root.createImageBitmap) return Promise.reject(new Error("decode"));
+    if (!root.createImageBitmap) return Promise.reject(codeError("decode"));
     return root.createImageBitmap(blob).then(function (bitmap) {
+      if (!live(op)) {
+        if (bitmap && bitmap.close) bitmap.close();
+        throw codeError("session");
+      }
       if (!bitmap || bitmap.width < 1 || bitmap.height < 1 || bitmap.width > MAX_EDGE || bitmap.height > MAX_EDGE) {
         if (bitmap && bitmap.close) bitmap.close();
-        throw new Error("size");
+        throw codeError("decode");
       }
+      op.bitmaps.push(bitmap);
       return bitmap;
     });
   }
@@ -268,27 +368,44 @@
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
     var ctx = canvas.getContext("2d", { alpha: true });
-    if (!ctx) return Promise.reject(new Error("canvas"));
+    if (!ctx) return Promise.reject(codeError("decode"));
     ctx.drawImage(bitmap, 0, 0);
     if (bitmap.close) bitmap.close();
     return new Promise(function (resolve, reject) {
       canvas.toBlob(function (blob) {
-        if (!blob) reject(new Error("png"));
+        if (!blob) reject(codeError("decode"));
         else resolve(blob);
       }, "image/png");
     });
   }
 
-  function writePng(blobPromise) {
+  function writePng(blobPromise, op) {
     if (!root.navigator || !root.navigator.clipboard || typeof root.navigator.clipboard.write !== "function" || typeof root.ClipboardItem !== "function") {
-      return Promise.reject(new Error("clipboard"));
+      return Promise.reject(codeError("clipboard"));
     }
-    return root.navigator.clipboard.write([new root.ClipboardItem({ "image/png": blobPromise })]);
+    var guarded = Promise.resolve(blobPromise).then(function (blob) {
+      if (!live(op)) throw codeError("session");
+      return blob;
+    });
+    return root.navigator.clipboard.write([new root.ClipboardItem({ "image/png": guarded })]).then(function () {
+      if (!live(op)) throw codeError("session");
+    });
   }
 
-  function fail(img, screen) {
-    note(tr("The full picture did not load"));
-    if (!menu || menu.querySelector("[data-act='image-copy-screen']") || !screen) return;
+  function reasonOf(err) {
+    var name = err && err.name ? String(err.name) : "";
+    var code = err && err.code ? String(err.code) : "";
+    if (code === "session" || name === "AbortError") return "session";
+    if (name === "NotAllowedError" || name === "SecurityError") return "permission";
+    if (code === "clipboard") return "clipboard";
+    if (code === "decode") return "decode";
+    if (code === "fetch" || code === "scope") return "fetch";
+    return "";
+  }
+
+  function addScreen(img) {
+    var record = recordOf(img);
+    if (!menu || menu.querySelector("[data-act='image-copy-screen']") || !screenUrl(record, record.base)) return;
     var button = doc.createElement("button");
     button.type = "button";
     button.setAttribute("role", "menuitem");
@@ -298,50 +415,117 @@
     menu.insertBefore(button, menu.querySelector(".image-copy-note"));
   }
 
-  function copyOriginal(img) {
-    var list = originalsOf(img);
-    if (!list.length) {
-      fail(img, screenUrl(recordOf(img), recordOf(img).base));
-      return;
+  function show(reason, img) {
+    if (reason === "session") return;
+    if (reason === "permission") note(tr("The clipboard permission was denied. The picture was not copied."));
+    else if (reason === "clipboard") note(tr("This browser cannot copy a picture. The picture was not copied."));
+    else if (reason === "decode") note(tr("The picture could not be read. It was not copied."));
+    else {
+      note(tr("The full picture did not load"));
+      if (img) addScreen(img);
     }
-    var pending = loadUrl(img, list[0]).then(function (file) { return decode(file.buffer).then(pngBlob); });
-    var write;
-    try { write = writePng(pending); }
-    catch (err) { fail(img, screenUrl(recordOf(img), recordOf(img).base)); return; }
-    write.then(function () {
-      note(tr("Copied the picture"));
-    }).catch(function () {
-      fail(img, screenUrl(recordOf(img), recordOf(img).base));
+  }
+
+  function tryUrls(img, urls, op) {
+    var index = 0;
+    function next() {
+      if (!live(op)) return Promise.reject(codeError("session"));
+      if (index >= urls.length) return Promise.reject(codeError("fetch"));
+      var url = urls[index];
+      index += 1;
+      return loadUrl(img, url, op).then(function (file) {
+        if (!live(op)) throw codeError("session");
+        return file;
+      }).catch(function (err) {
+        if (!live(op) || reasonOf(err) === "session") throw codeError("session");
+        return next();
+      });
+    }
+    return next();
+  }
+
+  function copyUrls(img, urls, success) {
+    if (!urls.length) { show("fetch", img); return; }
+    var op = startOp();
+    var stage = "fetch";
+    var pending = tryUrls(img, urls, op).then(function (file) {
+      if (!live(op)) throw codeError("session");
+      stage = "decode";
+      op.buffer = file.buffer;
+      return decode(file.buffer, op);
+    }).then(function (bitmap) {
+      if (!live(op)) throw codeError("session");
+      return pngBlob(bitmap);
+    }).then(function (blob) {
+      if (!live(op)) throw codeError("session");
+      stage = "clipboard";
+      op.buffer = null;
+      return blob;
     });
+    var reported = false;
+    function report(err) {
+      if (reported) return;
+      reported = true;
+      var still = live(op);
+      drop(op);
+      if (!still || reasonOf(err) === "session") return;
+      var why = reasonOf(err);
+      if (stage !== "clipboard") show(why === "decode" || stage === "decode" ? "decode" : "fetch", img);
+      else show(why === "clipboard" ? "clipboard" : "permission", img);
+    }
+    pending.catch(report);
+    var write;
+    try { write = writePng(pending, op); }
+    catch (err) { report(err); return; }
+    write.then(function () {
+      if (reported || !live(op)) { drop(op); return; }
+      reported = true;
+      note(success);
+    }).catch(report);
+  }
+
+  function copyOriginal(img) {
+    var record = recordOf(img);
+    var picked = plan(record, record.base);
+    var urls = copyOrder(record, record.base);
+    var success = picked.originals.length
+      ? tr("Copied the picture")
+      : tr("Copied the largest listed picture. It is not a proven original file.");
+    copyUrls(img, urls, success);
   }
 
   function copyScreen(img) {
-    var url = screenUrl(recordOf(img), recordOf(img).base);
-    if (!url) { fail(img, ""); return; }
-    var pending = loadUrl(img, url).then(function (file) { return decode(file.buffer).then(pngBlob); });
-    writePng(pending).then(function () {
-      note(tr("This is the picture on the screen, not the full file."));
-    }).catch(function () {
-      note(tr("The full picture did not load"));
-    });
+    var record = recordOf(img);
+    var url = screenUrl(record, record.base);
+    if (!url) { show("fetch", img); return; }
+    copyUrls(img, [url], tr("This is the picture on the screen, not the full file."));
   }
 
   function downloadOriginal(img) {
-    var list = originalsOf(img);
-    if (!list.length) { fail(img, ""); return; }
-    loadUrl(img, list[0]).then(function (file) {
+    var record = recordOf(img);
+    var urls = originalCandidates(record, record.base);
+    if (!urls.length) { show("fetch", img); return; }
+    var op = startOp();
+    tryUrls(img, urls, op).then(function (file) {
+      if (!live(op)) throw codeError("session");
       var blob = new Blob([file.buffer], { type: file.type || "application/octet-stream" });
-      var link = doc.createElement("a");
+      op.buffer = null;
       var objectUrl = URL.createObjectURL(blob);
+      op.urls.push(objectUrl);
+      if (!live(op)) { drop(op); return; }
+      var link = doc.createElement("a");
       link.href = objectUrl;
       link.download = "image";
+      if (!live(op)) { drop(op); return; }
       doc.body.appendChild(link);
       link.click();
       link.remove();
-      setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
-      note(tr("Saves the original file as it is. It is not compressed again."));
-    }).catch(function () {
-      fail(img, "");
+      setTimeout(function () { if (op.urls.indexOf(objectUrl) >= 0) { try { URL.revokeObjectURL(objectUrl); } catch (err) { /* already revoked */ } } }, 1000);
+      if (live(op)) note(tr("Saves the original file as it is. It is not compressed again."));
+    }).catch(function (err) {
+      drop(op);
+      if (!live(op) || reasonOf(err) === "session") return;
+      show("fetch", img);
     });
   }
 
@@ -380,16 +564,23 @@
       node.appendChild(button);
       return button;
     }
-    var copy = item(tr("Copy image"), function () { copyOriginal(img); });
-    if (originalsOf(img).length) item(tr("Download original"), function () { downloadOriginal(img); });
+    var picked = plan(recordOf(img), recordOf(img).base);
+    var copy = null;
+    if (picked.originals.length || picked.sized.length) copy = item(tr("Copy image"), function () { copyOriginal(img); });
+    if (picked.downloadOriginal) item(tr("Download original"), function () { downloadOriginal(img); });
+    if (!picked.originals.length && !picked.sized.length && picked.displayed) copy = item(tr("Copy the picture on screen"), function () { copyScreen(img); });
     var hint = doc.createElement("p");
     hint.className = "image-copy-note";
-    hint.textContent = tr("Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.");
+    hint.textContent = picked.originals.length
+      ? tr("Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.")
+      : picked.sized.length
+        ? tr("Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.")
+        : tr("This is the picture on the screen, not the full file.");
     node.appendChild(hint);
     doc.body.appendChild(node);
     menu = node;
     placeMenu(node, x, y);
-    copy.focus();
+    if (copy) copy.focus();
   }
 
   doc.addEventListener("contextmenu", function (event) {
@@ -407,11 +598,13 @@
   }, true);
 
   root.addEventListener("resize", closeMenu);
-  root.addEventListener("hashchange", closeMenu);
+  root.addEventListener("hashchange", function () { cancelAll(); closeMenu(); });
+  root.addEventListener("viktorych-session", function () { cancelAll(); closeMenu(); });
 
   root.ViktorychImageCopy = {
     owns: function (node) { return !!(contentImage(node) && desktopNow()); },
     close: closeMenu,
-    candidates: function (img) { return originalsOf(img); }
+    plan: function (img) { return plan(recordOf(img), recordOf(img).base); },
+    candidates: function (img) { return orderOf(img); }
   };
 })(typeof window !== "undefined" ? window : globalThis);

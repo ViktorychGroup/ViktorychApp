@@ -6406,5 +6406,10 @@ SI18n.addPack("hi", {
   "Copied the picture": "तस्वीर कॉपी हो गई",
   "The full picture did not load": "पूरी तस्वीर लोड नहीं हुई",
   "Copy the picture on screen": "स्क्रीन पर दिख रही तस्वीर कॉपी करें",
-  "This is the picture on the screen, not the full file.": "यह स्क्रीन पर दिख रही तस्वीर है, पूरी फ़ाइल नहीं।"
+  "This is the picture on the screen, not the full file.": "यह स्क्रीन पर दिख रही तस्वीर है, पूरी फ़ाइल नहीं।",
+  "The clipboard permission was denied. The picture was not copied.": "क्लिपबोर्ड की अनुमति नहीं मिली। तस्वीर कॉपी नहीं हुई।",
+  "This browser cannot copy a picture. The picture was not copied.": "यह ब्राउज़र तस्वीर कॉपी नहीं कर सकता। तस्वीर कॉपी नहीं हुई।",
+  "The picture could not be read. It was not copied.": "तस्वीर पढ़ी नहीं जा सकी। उसे कॉपी नहीं किया गया।",
+  "Copied the largest listed picture. It is not a proven original file.": "सूची की सबसे बड़ी तस्वीर कॉपी हुई। यह प्रमाणित मूल फ़ाइल नहीं है।",
+  "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.": "सूची की सबसे बड़ी तस्वीर कॉपी करता है। यह प्रमाणित मूल फ़ाइल नहीं है। रंग, HDR और एनिमेशन मेल नहीं खा सकते।"
 });

@@ -134,7 +134,11 @@
   function noteSession(session) {
     var stamp = sessionStampOf(session);
     if (sessionSeen === null) { sessionSeen = stamp; sessionGeneration = 1; return; }
-    if (stamp !== sessionSeen) { sessionSeen = stamp; sessionGeneration += 1; }
+    if (stamp !== sessionSeen) {
+      sessionSeen = stamp;
+      sessionGeneration += 1;
+      try { window.dispatchEvent(new CustomEvent("viktorych-session")); } catch (err) { /* the page is closing */ }
+    }
   }
   function writeSession(session) {
     writeStored("account-v1", JSON.stringify(session));
