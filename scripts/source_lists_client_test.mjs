@@ -17,8 +17,12 @@ function setup(opts) {
   const lists = opts.lists === false ? [] : (opts.lists || [{ id: "sa1b2c3d4", name: "Extra", hash, size: shard.length, at: 1, count: 1, status: "ready" }]);
   const body = opts.badShard ? shard + " " : shard;
   const who = opts.who || { id: "membermaple" };
+  const session = opts.session || { gen: 1 };
   const window = {
-    ViktorychAccounts: { account: () => ({ publicId: who.id }) },
+    ViktorychAccounts: {
+      account: () => (who.id ? { publicId: who.id } : null),
+      sessionGeneration: () => session.gen
+    },
     ViktorychPool: opts.pool ? {
       getBlob: async (h) => { calls.push("pool:" + h.slice(0, 6)); return h === hash ? new TextEncoder().encode(shard) : null; },
       putBlob: async () => { calls.push("offer"); return hash; }
@@ -35,7 +39,9 @@ function setup(opts) {
         if (opts.shardHold) await opts.shardHold;
       } else if (opts.hold) await opts.hold;
       if (url.indexOf("/v1/me/source-lists") >= 0 && url.indexOf("/shard/") < 0) {
-        const listsFor = opts.only && opts.who && opts.who.id !== opts.only ? [] : lists;
+        const wrongAccount = opts.only && opts.who && opts.who.id !== opts.only;
+        const wrongSession = opts.sessionOnly && opts.session && opts.session.gen !== opts.sessionOnly;
+        const listsFor = wrongAccount || wrongSession ? [] : lists;
         return { ok: true, status: 200, json: async () => ({ lists: listsFor }) };
       }
       if (url.includes("/shard/")) return { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode(body).buffer };
@@ -47,7 +53,7 @@ function setup(opts) {
   let changed = 0;
   const SL = window.SourceLists;
   SL.attach({ accountsApi: () => "https://api.example", accountToken: () => "t", signedOwner: () => false, STATE: { settings: {} }, onChange: () => { changed += 1; } });
-  return { SL, calls, hash, store, who, changed: () => changed };
+  return { SL, calls, hash, store, who, session, changed: () => changed };
 }
 
 const base = () => ({ feeds: [{ id: "x:globalpine" }], posts: [{ id: "g1", feedId: "x:globalpine", platform: "x" }] });
@@ -111,6 +117,26 @@ test("a shard that finishes after the account changed is not saved for the new a
   for (const [key, value] of t.store.entries()) {
     if (String(key).indexOf("100000000002") >= 0) assert.equal(String(value).indexOf("quotedmaple") >= 0, false, key);
   }
+});
+
+test("signing in again does not keep a shard from the previous session", async () => {
+  let release;
+  const shardHold = new Promise((resolve) => { release = resolve; });
+  const who = { id: "100000000001" };
+  const session = { gen: 1 };
+  const t = setup({ shardHold, who, session, only: "100000000001", sessionOnly: 1 });
+  const pending = t.SL.refresh(true);
+  for (let i = 0; i < 30 && !t.calls.some((item) => item.includes("/shard/")); i++) await new Promise((resolve) => setImmediate(resolve));
+  who.id = "100000000002";
+  session.gen = 2;
+  who.id = "";
+  session.gen = 3;
+  who.id = "100000000001";
+  session.gen = 4;
+  release();
+  assert.equal(await pending, false);
+  assert.equal(t.SL.merge(base()).posts.length, 1);
+  for (const value of t.store.values()) assert.equal(String(value).indexOf("quotedmaple") >= 0, false);
 });
 
 test("an open page refreshes when the assignment signal arrives", async () => {

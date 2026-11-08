@@ -14,6 +14,7 @@
 import { ERROR_TEXT, accountId, cleanLabel, detectInput } from "../../shared/feed-sources.js";
 import { probeAccount, probeWithin, unverifiedProbe } from "./owner-feeds.js";
 import { bannedSpec, keyVariants } from "./feed-requests.js";
+import { isExactPublication, notifyIds, putJsonIfMatch, readBounded, sameIds } from "./list-commit.js";
 
 const DOC_KEY = "owner/source-lists.json";
 const WANTED_KEY = "owner/lists/wanted.json";
@@ -80,25 +81,6 @@ async function readEntry(env, key) {
   }
 }
 
-function putRejected(err) {
-  const name = String((err && err.name) || "");
-  const message = String((err && err.message) || err || "");
-  return name === "PreconditionFailed" || err && err.status === 412 || /precondition/i.test(message);
-}
-
-async function putJsonIfMatch(env, key, value, etag) {
-  const opts = Object.assign({}, JSON_TYPE);
-  if (etag) opts.onlyIf = { etagMatches: etag };
-  else opts.onlyIf = { etagDoesNotMatch: "*" };
-  try {
-    await env.DATA.put(key, JSON.stringify(value), opts);
-    return true;
-  } catch (err) {
-    if (putRejected(err)) return false;
-    throw err;
-  }
-}
-
 async function readDoc(env) {
   const doc = Object.assign(emptyDoc(), (await readJson(env, DOC_KEY)) || {});
   doc.lists = Array.isArray(doc.lists) ? doc.lists.filter((row) => row && listIdOk(row.id)) : [];
@@ -117,6 +99,10 @@ async function writeDoc(env, doc) {
   doc.lists.forEach((row) => row.sources.forEach((id) => used.add(id)));
   Object.keys(doc.sources).forEach((id) => { if (!used.has(id)) delete doc.sources[id]; });
   await env.DATA.put(DOC_KEY, JSON.stringify(doc), JSON_TYPE);
+}
+
+async function putIndex(env, index, etag) {
+  return putJsonIfMatch(env.DATA, INDEX_KEY, index, etag);
 }
 
 /* Members with an account that signed in within 30 days (or joined within 30 days). */
@@ -275,6 +261,8 @@ async function addSource(env, doc, list, input, opts) {
   return { id };
 }
 
+/* This budget only decides whether another network fetch may start, and it
+   aborts that fetch. Hashing and the index write are outside it. */
 const PUBLISH_BUDGET_MS = 4000;
 const POSTS_PER_SOURCE = 8;
 
@@ -391,8 +379,9 @@ function parseFeedDocument(xml, source) {
     if (posts.length >= POSTS_PER_SOURCE) return;
     const body = chunk.split(/<\/(?:item|entry)>/i)[0];
     const encoded = innerTag(body, "content:encoded") || innerTag(body, "encoded");
+    const atom = innerTag(body, "content");
     const description = innerTag(body, "description") || innerTag(body, "summary");
-    const html = encoded || description || "";
+    const html = encoded || atom || description || "";
     const title = plainText(innerTag(body, "title"));
     let readable = plainText(html);
     if (title && readable.indexOf(title) < 0) readable = title + (readable ? "\n\n" + readable : "");
@@ -410,7 +399,7 @@ function parseFeedDocument(xml, source) {
     }
     posts.push(post);
   });
-  return posts;
+  return posts.length ? posts : null;
 }
 
 async function fetchSourcePosts(row, deadline) {
@@ -424,8 +413,7 @@ async function fetchSourcePosts(row, deadline) {
   }
   if (!res || !res.ok) return null;
   let text = "";
-  try { text = await res.text(); } catch (err) { return null; }
-  if (text.length > 500000) text = text.slice(0, 500000);
+  try { text = await readBounded(res, 500000); } catch (err) { return null; }
   return parseFeedDocument(text, row);
 }
 
@@ -434,9 +422,10 @@ async function postsForSource(row, index, deadline) {
   if (saved && saved.full && Array.isArray(saved.posts) && saved.posts.length) return { ok: true, posts: saved.posts.slice(0, POSTS_PER_SOURCE), cached: true };
   if (Date.now() >= deadline) return { ok: false, posts: [], cached: false };
   const fresh = await fetchSourcePosts(row, deadline);
-  if (fresh) return { ok: true, posts: fresh.slice(0, POSTS_PER_SOURCE), cached: false };
-  if (Date.now() >= deadline) return { ok: false, posts: [], cached: false };
+  if (fresh && fresh.length) return { ok: true, posts: fresh.slice(0, POSTS_PER_SOURCE), cached: false, full: true };
+  if (Date.now() >= deadline) return { ok: false, posts: [], cached: false, full: false };
   const spec = {
+    ok: true,
     platform: row.platform,
     handle: row.handle,
     url: row.url || "",
@@ -445,16 +434,10 @@ async function postsForSource(row, index, deadline) {
     redditKind: row.redditKind || ""
   };
   const probed = await probeWithin(spec, Math.max(1, deadline - Date.now()), boundedFetch(deadline));
-  if (!probed || probed.error || probed.late) return { ok: false, posts: [], cached: false };
-  return { ok: true, posts: (probed.posts || []).slice(0, POSTS_PER_SOURCE), cached: false };
-}
-
-function sameIds(left, right) {
-  const a = (left || []).map(String);
-  const b = (right || []).map(String);
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
+  if (!probed || probed.error || probed.late) return { ok: false, posts: [], cached: false, full: false };
+  // The preview probe drops media and shortens text. It can be shown now,
+  // but it must not be stored as a complete copy.
+  return { ok: true, posts: (probed.posts || []).slice(0, POSTS_PER_SOURCE), cached: false, full: false };
 }
 
 /* Build shard bytes first. The owner document is read again before anything
@@ -504,7 +487,7 @@ async function publishReady(env, hintDoc, onlyIds, force) {
         if (row) posts.push(row);
       });
       health[id] = { ok: got.ok === true, count: got.posts.length, at: now };
-      if (got.posts.length) kept[id] = { profile: feed, posts: got.posts, full: true };
+      if (got.posts.length) kept[id] = { profile: feed, posts: got.posts, full: got.full === true };
       if (Date.now() >= deadline) break;
     }
     if (failed && !posts.length) {
@@ -546,21 +529,19 @@ async function commitUpdates(env, updates) {
     index.lists = index.lists || {};
     index.sources = index.sources || {};
     index.sourcePosts = index.sourcePosts || {};
-    const prior = {};
     allowed.forEach((update) => {
-      prior[update.id] = Object.prototype.hasOwnProperty.call(index.lists, update.id) ? index.lists[update.id] : null;
       index.lists[update.id] = update.entry;
       Object.keys(update.health || {}).forEach((id) => { index.sources[id] = update.health[id]; });
       Object.keys(update.posts || {}).forEach((id) => { index.sourcePosts[id] = update.posts[id]; });
     });
     index.v = 1;
     index.at = Date.now();
-    const wrote = await putJsonIfMatch(env, INDEX_KEY, index, current.etag);
+    const wrote = await putIndex(env, index, current.etag);
     if (!wrote) continue;
     const after = await readDoc(env);
     const dropped = allowed.filter((update) => !listStill(after, update));
     if (!dropped.length) return true;
-    await restoreLists(env, dropped, prior);
+    await restoreLists(env, dropped);
     return false;
   }
   return false;
@@ -575,13 +556,14 @@ async function sweepIndex(env, doc) {
     if (!row || !row.membersKey) return;
     const list = (doc.lists || []).find((item) => item && item.id === id);
     const key = list ? (list.members || []).map(String).join("\n") : "";
-    if (list && key === row.membersKey) return;
-    dropped.push({ id, expectMembers: String(row.membersKey).split("\n") });
+    const sourcesMatch = !Array.isArray(row.sources) || sameIds(row.sources, (list && list.sources) || []);
+    if (list && key === row.membersKey && sourcesMatch) return;
+    dropped.push({ id, expectMembers: String(row.membersKey).split("\n"), expectSources: row.sources || [], entry: row });
   });
-  if (dropped.length) await restoreLists(env, dropped, {});
+  if (dropped.length) await restoreLists(env, dropped);
 }
 
-async function restoreLists(env, dropped, prior) {
+async function restoreLists(env, dropped) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const doc = await readDoc(env);
     const current = await readEntry(env, INDEX_KEY);
@@ -591,28 +573,32 @@ async function restoreLists(env, dropped, prior) {
     dropped.forEach((update) => {
       if (listStill(doc, update)) return;
       const row = index.lists[update.id];
-      if (!row || row.membersKey !== update.expectMembers.join("\n")) return;
-      if (prior[update.id]) index.lists[update.id] = prior[update.id];
-      else delete index.lists[update.id];
+      // Only the publication this cleanup wrote may be removed. A newer
+      // hash, even with the same members, stays.
+      if (!isExactPublication(row, update)) return;
+      delete index.lists[update.id];
       changed = true;
     });
     if (!changed) return;
     index.v = 1;
     index.at = Date.now();
-    if (await putJsonIfMatch(env, INDEX_KEY, index, current.etag)) return;
+    if (await putIndex(env, index, current.etag)) return;
   }
 }
 
-async function notifyMembers(env, doc, publish) {
-  if (!publish) return;
-  const told = new Set();
-  (doc.lists || []).forEach((row) => (row.members || []).forEach((id) => told.add(String(id))));
+async function notifyMembers(env, ids, publish) {
+  const told = notifyIds(ids);
+  if (env && env.DATA) {
+    try { await env.DATA.put("owner/lists/last-notify.json", JSON.stringify({ ids: told }), JSON_TYPE); } catch (err) { /* the signal is still sent */ }
+  }
+  if (!publish) return told;
   for (const id of told) {
     try { await publish(env, id, "sync", { lists: true }, id); } catch (err) { /* the next open still reads the shard */ }
   }
+  return told;
 }
 
-async function afterChange(env, doc, deps) {
+async function afterChange(env, doc, deps, notifyList) {
   // Membership is committed before the fetch, so a later removal is the
   // newer document and is not replaced by this copy.
   await writeDoc(env, doc);
@@ -623,7 +609,7 @@ async function afterChange(env, doc, deps) {
   if (changed && deps.dispatchWorkflows) {
     try { await deps.dispatchWorkflows(env, ["sync.yml"]); } catch (err) { /* the next scheduled sync fetches it */ }
   }
-  await notifyMembers(env, live, deps.publish);
+  await notifyMembers(env, notifyList, deps && deps.publish);
 }
 
 async function handleOwnerSourceLists(request, env, path, deps) {
@@ -676,7 +662,7 @@ async function handleOwnerSourceLists(request, env, path, deps) {
       if (added.error) return deps.json(added.status, { error: added.error, message: ERROR_TEXT[added.error] || "" });
       if (body.assign !== false && row.by && list.members.indexOf(row.by) < 0 && list.members.length < MEMBERS_PER_LIST) list.members.push(row.by);
       doc.requests = doc.requests.filter((item) => item.id !== rid);
-      await afterChange(env, doc, deps);
+      await afterChange(env, doc, deps, list.members);
       return deps.json(200, await ownerBody(env, doc));
     }
     return deps.json(404, { error: "not_found" });
@@ -700,8 +686,9 @@ async function handleOwnerSourceLists(request, env, path, deps) {
     return deps.json(200, await ownerBody(env, doc));
   }
   if (!part && method === "DELETE") {
+    const told = list.members.slice();
     doc.lists = doc.lists.filter((item) => item.id !== list.id);
-    await afterChange(env, doc, deps);
+    await afterChange(env, doc, deps, told);
     return deps.json(200, await ownerBody(env, doc));
   }
   if (part === "sources" && !target && method === "POST") {
@@ -709,13 +696,13 @@ async function handleOwnerSourceLists(request, env, path, deps) {
     if (body.error) return deps.json(400, { error: body.error });
     const added = await addSource(env, doc, list, body.input);
     if (added.error) return deps.json(added.status, { error: added.error, message: ERROR_TEXT[added.error] || "" });
-    await afterChange(env, doc, deps);
+    await afterChange(env, doc, deps, list.members);
     return deps.json(200, Object.assign({ added: added.id }, await ownerBody(env, doc)));
   }
   if (part === "sources" && target && method === "DELETE") {
     list.sources = list.sources.filter((id) => id !== target);
     list.changedAt = Date.now();
-    await afterChange(env, doc, deps);
+    await afterChange(env, doc, deps, list.members);
     return deps.json(200, await ownerBody(env, doc));
   }
   if (part === "members" && !target && method === "POST") {
@@ -727,12 +714,12 @@ async function handleOwnerSourceLists(request, env, path, deps) {
     if (!row) return deps.json(404, { error: "no_account" });
     if (list.members.length >= MEMBERS_PER_LIST) return deps.json(400, { error: "full" });
     if (list.members.indexOf(String(row.public_id)) < 0) list.members.push(String(row.public_id));
-    await afterChange(env, doc, deps);
+    await afterChange(env, doc, deps, [String(row.public_id)]);
     return deps.json(200, await ownerBody(env, doc));
   }
   if (part === "members" && target && method === "DELETE") {
     list.members = list.members.filter((id) => id !== target);
-    await afterChange(env, doc, deps);
+    await afterChange(env, doc, deps, [target]);
     return deps.json(200, await ownerBody(env, doc));
   }
   return deps.json(404, { error: "not_found" });
@@ -858,7 +845,7 @@ async function allowIntoList(env, deps, opts) {
     const text = String(id || "");
     if (/^\d{12}$/.test(text) && list.members.indexOf(text) < 0 && list.members.length < MEMBERS_PER_LIST) list.members.push(text);
   });
-  await afterChange(env, doc, deps || {});
+  await afterChange(env, doc, deps || {}, list.members);
   return { listId: list.id, sourceId: added.id };
 }
 
@@ -879,8 +866,13 @@ async function dropSourceKeys(env, keys, deps) {
     return want.has(id.toLowerCase()) || want.has(alias);
   });
   if (!gone.length) return 0;
-  doc.lists.forEach((row) => { row.sources = row.sources.filter((id) => gone.indexOf(id) < 0); });
-  await afterChange(env, doc, deps || {});
+  const told = [];
+  doc.lists.forEach((row) => {
+    const next = row.sources.filter((id) => gone.indexOf(id) < 0);
+    if (next.length !== row.sources.length) told.push(...row.members);
+    row.sources = next;
+  });
+  await afterChange(env, doc, deps || {}, told);
   return gone.length;
 }
 

@@ -76,9 +76,15 @@
   }
 
   /* Loads this device's copy. The timeline waits for it at most briefly. */
-  function useAccount(who) {
-    if (mem.account === who) return;
-    mem.account = who;
+  function sessionStamp() {
+    const accounts = window.ViktorychAccounts;
+    const gen = accounts && accounts.sessionGeneration ? String(accounts.sessionGeneration()) : "0";
+    return accountKey() + "\n" + gen;
+  }
+
+  function useAccount(stamp) {
+    if (mem.account === stamp) return;
+    mem.account = stamp;
     mem.meta = null;
     mem.docs = {};
     mem.ready = null;
@@ -86,10 +92,11 @@
 
   function ready() {
     const who = accountKey();
-    useAccount(who);
+    const stamp = sessionStamp();
+    useAccount(stamp);
     if (mem.ready) return mem.ready;
     mem.meta = readLocal(metaStoreKey(who));
-    if (!mem.meta || mem.meta.account !== who) mem.meta = null;
+    if (!mem.meta || mem.meta.account !== who || mem.meta.session !== stamp) mem.meta = null;
     const lists = (mem.meta && mem.meta.lists) || [];
     mem.ready = Promise.all(lists.filter((row) => row.hash).map((row) => readShardDoc(who, row).then((doc) => {
       if (doc && accountKey() === who) mem.docs[row.hash] = doc;
@@ -98,7 +105,7 @@
   }
 
   function activeDocs() {
-    if (!mem.meta || !signedIn() || mem.meta.account !== accountKey()) return [];
+    if (!mem.meta || !signedIn() || mem.meta.account !== accountKey() || mem.meta.session !== sessionStamp()) return [];
     const lists = (mem.meta && mem.meta.lists) || [];
     return lists.map((row) => mem.docs[row.hash]).filter(Boolean);
   }
@@ -180,15 +187,16 @@
     const meta = mem.meta || {};
     const pending = ((meta.lists) || []).some((row) => row && !row.hash && row.status !== "empty");
     const wait = pending ? PENDING_MS : ((meta.lists && meta.lists.length) ? CHECK_MS : NONE_MS);
-    if (force !== true && force !== "retry" && meta.checkedAt && Date.now() - meta.checkedAt < wait && meta.account === accountKey()) return false;
+    if (force !== true && force !== "retry" && meta.checkedAt && Date.now() - meta.checkedAt < wait && meta.account === accountKey() && meta.session === sessionStamp()) return false;
     const who = accountKey();
+    const stamp = sessionStamp();
     const token = hooks.accountToken();
-    useAccount(who);
+    useAccount(stamp);
     mem.busy = true;
     let switched = false;
     try {
       const res = await api("/v1/me/source-lists" + (force === "retry" ? "?retry=1" : ""), "GET", null, token);
-      if (accountKey() !== who) { switched = true; return false; }
+      if (sessionStamp() !== stamp) { switched = true; return false; }
       if (!res.ok || !res.body || !Array.isArray(res.body.lists)) return false;
       const lists = res.body.lists.filter((row) => row && /^s[a-f0-9]{8}$/.test(row.id)).map((row) => ({
         id: row.id,
@@ -199,22 +207,22 @@
         count: Number(row.count) || 0,
         status: String(row.status || "")
       }));
-      if (accountKey() !== who) { switched = true; return false; }
+      if (sessionStamp() !== stamp) { switched = true; return false; }
       const added = [];
       for (const row of lists) {
         if (!row.hash || mem.docs[row.hash]) continue;
         const doc = await pullShard(Object.assign({ token: token }, row));
-        if (accountKey() !== who) { switched = true; return false; }
+        if (sessionStamp() !== stamp) { switched = true; return false; }
         if (doc) { mem.docs[row.hash] = doc; added.push(row.hash); saveShardDoc(who, row, doc); }
       }
-      if (accountKey() !== who) {
+      if (sessionStamp() !== stamp) {
         switched = true;
         added.forEach((hash) => delete mem.docs[hash]);
         return false;
       }
       const before = JSON.stringify(((mem.meta && mem.meta.lists) || []).map((row) => row.hash));
       const old = (mem.meta && mem.meta.lists) || [];
-      mem.meta = { lists, checkedAt: Date.now(), account: who };
+      mem.meta = { lists, checkedAt: Date.now(), account: who, session: stamp };
       writeLocal(metaStoreKey(who), mem.meta);
       const keep = new Set(lists.map((row) => row.hash));
       const ids = new Set(lists.map((row) => row.id));
@@ -223,13 +231,13 @@
         if (!ids.has(row.id)) forgetShardDoc(who, row);
       });
       const changed = before !== JSON.stringify(lists.map((row) => row.hash));
-      if (changed && hooks.onChange && accountKey() === who) hooks.onChange();
+      if (changed && hooks.onChange && sessionStamp() === stamp) hooks.onChange();
       return changed;
     } catch (err) {
       return false;
     } finally {
       mem.busy = false;
-      if (switched && accountKey() && accountKey() !== who) refresh(true);
+      if (switched && sessionStamp() !== stamp) refresh(true);
     }
   }
 
