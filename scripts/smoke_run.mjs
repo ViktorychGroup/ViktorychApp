@@ -162,6 +162,10 @@ const PAGE_STEPS = [
     weight: 45, needs: ["pw", "browser"],
     paths: [file("instagram_media_test.mjs"), /^app\.js$/, /^accounts\.js$/, /^worker\/src\/index\.js$/]
   }),
+  step("source-assign", "node scripts/source_lists_client_test.mjs && node scripts/source_list_assign_test.mjs", {
+    weight: 40, needs: ["pw", "browser"],
+    paths: [file("source_list_assign_test.mjs"), file("source_lists_client_test.mjs"), /^source-lists\.js$/, /^app\.js$/, /^worker\/src\/source-lists\.js$/]
+  }),
   step("device-guard", "node scripts/device_guard_test.mjs", { needs: ["pw", "browser"], paths: [file("device_guard_test.mjs")] }),
   step("usernames", "node scripts/usernames_settings_test.mjs", { weight: 80, needs: ["pw", "browser"], paths: [file("usernames_settings_test.mjs")] }),
   step("owner-user-settings", "node scripts/owner_user_settings_test.mjs", { weight: 30, needs: ["pw", "browser"], paths: [file("owner_user_settings_test.mjs"), /^owner-inspector\.(js|css)$/, /^accounts\.js$/, ...APP] }),
@@ -286,7 +290,7 @@ const SHARDS = {
   home: ["home-tabs", "tab-member", "reply-lookup", "foryou-chunks", "foryou-off"],
   "compose-core": ["compose-ai", "compose-page"],
   "compose-a": ["community-home", "communities-hub", "own-post", "author-marks", "post-page"],
-  "compose-b": ["music-dock", "video-fallback", "ig-media", "device-guard", "usernames", "owner-user-settings"],
+  "compose-b": ["music-dock", "video-fallback", "ig-media", "source-assign", "device-guard", "usernames", "owner-user-settings"],
   "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile", "people-search", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync"],
   "compose-d": ["live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant"],
   "compose-e": ["profile-by-name", "communities-rows", "friend-privacy", "foryou-communities"],
@@ -307,7 +311,7 @@ const REQUIRED_PAGE = [
   "home-tabs", "tab-member", "reply-lookup", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
   "signup-flows",
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
-  "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media",
+  "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media", "source-assign",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
   "live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant", "profile-by-name", "people-search", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync",
   "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares",
