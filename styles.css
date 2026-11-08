@@ -8166,3 +8166,17 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
 @media (max-width: 699px) {
   .rd-card .rd-launch { min-height: 44px; }
 }
+/* The bar stays out of sight. Wheel, trackpad, touch, keys, and
+   scrollIntoView still move the page and every inner scroller. */
+html, body, * {
+  scrollbar-width: none !important;
+  scrollbar-color: transparent transparent !important;
+}
+*::-webkit-scrollbar,
+*::-webkit-scrollbar-thumb,
+*::-webkit-scrollbar-track {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
