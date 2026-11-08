@@ -14,6 +14,48 @@ function fail(message) {
   throw new Error(message);
 }
 
+const FOREIGN_PAGE_ERRORS = [
+  "this.api.isExternalMethodAvailable is not a function",
+  "this.api.logApiCall is not a function"
+];
+
+function firstStackUrl(stack) {
+  const lines = String(stack || "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(/(https?:\/\/[^\s)]+|chrome-extension:\/\/[^\s)]+)/);
+    if (match) return match[1];
+  }
+  return "";
+}
+
+/* A known player or extension throw is ignored only when its first stack
+   URL is another origin. The same text thrown by this app is kept. */
+function foreignPageError(err, pageOrigin) {
+  const message = String(err && err.message || "");
+  if (FOREIGN_PAGE_ERRORS.indexOf(message) < 0) return false;
+  const where = firstStackUrl(err && err.stack);
+  if (!where) return false;
+  if (where.indexOf("chrome-extension://") === 0) return true;
+  try { return new URL(where).origin !== pageOrigin; } catch (err2) { return false; }
+}
+
+function checkForeignErrorRules() {
+  const origin = "http://127.0.0.1:9";
+  const player = "this.api.isExternalMethodAvailable is not a function";
+  const logger = "this.api.logApiCall is not a function";
+  const appStack = "Error: x\n    at run (http://127.0.0.1:9/app.js:10:5)";
+  const pageStack = "Error: x\n    at http://127.0.0.1:9/index.html:2:9";
+  const extStack = "Error: x\n    at Yt (https://www.youtube.com/s/player/base.js:10:5)\n    at http://127.0.0.1:9/index.html:1:1";
+  const extLogger = "Error: x\n    at chrome-extension://abc/logger.js:1:1\n    at http://127.0.0.1:9/index.html:1:1";
+  if (foreignPageError({ message: player, stack: appStack }, origin)) fail("an app script throw of the player text was ignored");
+  if (foreignPageError({ message: player, stack: pageStack }, origin)) fail("a same-origin throw of the player text was ignored");
+  if (foreignPageError({ message: "wrapper " + player, stack: extStack }, origin)) fail("a different message was ignored");
+  if (!foreignPageError({ message: player, stack: extStack }, origin)) fail("an external player throw was kept");
+  if (foreignPageError({ message: logger, stack: appStack }, origin)) fail("an app script throw of the logger text was ignored");
+  if (!foreignPageError({ message: logger, stack: extLogger }, origin)) fail("an extension logger throw was kept");
+  if (foreignPageError({ message: player, stack: "Error: x" }, origin)) fail("a throw with no origin was ignored");
+}
+
 function mime(file) {
   if (file.endsWith(".js") || file.endsWith(".mjs")) return "text/javascript; charset=utf-8";
   if (file.endsWith(".css")) return "text/css; charset=utf-8";
@@ -118,7 +160,12 @@ async function open(browser, origin, opts) {
   const inset = async (top) => { await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top, topMax: top } }); await sleep(250); };
   await inset(opts.inset == null ? 24 : opts.inset);
   const errors = [];
-  page.on("pageerror", (err) => { if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(String(err && err.message || err).slice(0, 200)); });
+  page.on("pageerror", (err) => {
+    const message = String(err && err.message || err);
+    const stack = String(err && err.stack || "");
+    if (foreignPageError(err, origin)) return;
+    if (stack.indexOf(new URL(origin).host) >= 0) errors.push(message.slice(0, 200));
+  });
   await page.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#app .topbar.tall.compact-head .mhead .m-ava", { timeout: 20000 });
   await page.waitForFunction(() => document.querySelectorAll("#app article").length > 2, null, { timeout: 20000 });
@@ -205,13 +252,65 @@ async function cycle(run, ref, rows, sat, label) {
   atRest(await scrollUp(run.page, ref, sat), ref, sat, label + " back");
 }
 
+function listen(handler) {
+  return new Promise((resolve) => {
+    const server = http.createServer(handler);
+    server.listen(0, "127.0.0.1", () => resolve(server));
+  });
+}
+
+async function checkForeignErrorsInBrowser(browser) {
+  const player = "this.api.isExternalMethodAvailable is not a function";
+  const logger = "this.api.logApiCall is not a function";
+  const external = await listen((req, res) => {
+    res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "access-control-allow-origin": "*" });
+    res.end("setTimeout(function () { throw new Error(" + JSON.stringify(player) + "); }, 0);\n"
+      + "setTimeout(function () { throw new Error(" + JSON.stringify(logger) + "); }, 30);\n");
+  });
+  const app = await listen((req, res) => {
+    const ext = "http://127.0.0.1:" + external.address().port + "/noise.js";
+    const html = req.url.indexOf("external") >= 0
+      ? "<!doctype html><script src=\"" + ext + "\" crossorigin=\"anonymous\"></script>"
+      : "<!doctype html><script>setTimeout(function () { throw new Error(" + JSON.stringify(player) + "); }, 0);"
+        + "setTimeout(function () { throw new Error(" + JSON.stringify(logger) + "); }, 30);"
+        + "setTimeout(function () { throw new Error(" + JSON.stringify("app " + player) + "); }, 60);</script>";
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(html);
+  });
+  const origin = "http://127.0.0.1:" + app.address().port;
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const kept = [];
+  page.on("pageerror", (err) => {
+    if (foreignPageError(err, origin)) return;
+    const stack = String(err && err.stack || "");
+    if (stack.indexOf(new URL(origin).host) >= 0) kept.push(String(err && err.message || err));
+  });
+  await page.goto(origin + "/app", { waitUntil: "domcontentloaded" });
+  await sleep(200);
+  if (kept.indexOf(player) < 0 || kept.indexOf(logger) < 0 || kept.indexOf("app " + player) < 0) {
+    fail("an app-origin throw was dropped " + JSON.stringify(kept));
+  }
+  kept.length = 0;
+  await page.goto(origin + "/external", { waitUntil: "domcontentloaded" });
+  await sleep(200);
+  if (kept.indexOf(player) >= 0 || kept.indexOf(logger) >= 0) {
+    fail("an external throw was recorded " + JSON.stringify(kept));
+  }
+  await context.close();
+  external.close();
+  app.close();
+}
+
 async function main() {
+  checkForeignErrorRules();
   const chromium = await loadPlaywright();
   if (!chromium) fail("Playwright chromium is missing");
   const server = await startServer();
   const origin = "http://127.0.0.1:" + server.address().port;
   const browser = await chromium.launch({ channel: "chrome", headless: true, args: ["--no-sandbox", "--disable-gpu"] });
   try {
+    await checkForeignErrorsInBrowser(browser);
     // Browser tab with a 24px status-bar inset.
     let run = await open(browser, origin, {});
     let h = await run.page.evaluate(PROBE);
