@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DOC_KEY, INDEX_KEY, commitUpdates } from "../src/source-lists.js";
+import { DOC_KEY, INDEX_KEY, SHARD_PREFIX, commitUpdates, sweepIndex } from "../src/source-lists.js";
 
 const LIST = "s0000000a";
 const OLD_HASH = "a".repeat(64);
@@ -105,4 +105,95 @@ test("an older publish cleans up only its own row after a newer one commits", as
   assert.equal(store.index().lists[LIST].hash, NEW_HASH);
   assert.deepEqual(store.index().lists[LIST].sources, ["src-a"]);
   assert.equal(store.index().lists[LIST].sources.includes("src-b"), false);
+});
+
+function sweepStore(doc, index, shard) {
+  let docBody = JSON.stringify(doc);
+  let indexBody = JSON.stringify(index);
+  let indexEtag = "index-1";
+  let release = null;
+  let markWaiting = null;
+  const waiting = new Promise((resolve) => { markWaiting = resolve; });
+  let paused = false;
+  return {
+    waiting,
+    setDoc(next) { docBody = JSON.stringify(next); },
+    setIndex(next) { indexBody = JSON.stringify(next); indexEtag = "index-new"; },
+    index() { return JSON.parse(indexBody); },
+    release() { if (release) release(); },
+    env: {
+      DATA: {
+        get: async (key) => {
+          if (key === SHARD_PREFIX + OLD_HASH + ".json" && !paused) {
+            paused = true;
+            markWaiting();
+            await new Promise((resolve) => { release = resolve; });
+          }
+          if (key === DOC_KEY) return { etag: "doc", text: async () => docBody };
+          if (key === INDEX_KEY) return { etag: indexEtag, text: async () => indexBody };
+          if (key === SHARD_PREFIX + OLD_HASH + ".json") return { etag: "shard", text: async () => shard };
+          return null;
+        },
+        put: async (key, body, opts) => {
+          if (key !== INDEX_KEY) return { etag: "other" };
+          const onlyIf = (opts && opts.onlyIf) || {};
+          if (onlyIf.etagMatches && onlyIf.etagMatches !== indexEtag) return null;
+          if (onlyIf.etagDoesNotMatch === "*" && indexEtag) return null;
+          indexBody = body;
+          indexEtag = "index-put";
+          return { etag: indexEtag };
+        }
+      }
+    }
+  };
+}
+
+test("a sweep waiting on a shard keeps the newer publication", async () => {
+  const legacy = { hash: OLD_HASH, size: 10, count: 2, at: 1 };
+  const shard = JSON.stringify({ feeds: [{ id: "src-a" }, { id: "src-b" }], posts: [] });
+  const store = sweepStore(docWith(["src-a", "src-b"]), { v: 1, lists: { [LIST]: legacy } }, shard);
+  const pending = sweepIndex(store.env);
+  await store.waiting;
+  const newer = { hash: NEW_HASH, count: 1, at: 2, sources: ["src-a"], membersKey: "100000000001" };
+  store.setDoc(docWith(["src-a"]));
+  store.setIndex({ v: 1, lists: { [LIST]: newer } });
+  store.release();
+  await pending;
+  assert.equal(store.index().lists[LIST].hash, NEW_HASH);
+  assert.deepEqual(store.index().lists[LIST].sources, ["src-a"]);
+});
+
+test("a sweep that loses its conditional put keeps the publication that now matches", async () => {
+  const newer = { hash: NEW_HASH, count: 1, at: 2, sources: ["src-a"], membersKey: "100000000001" };
+  let docBody = JSON.stringify(docWith(["src-a", "src-b"]));
+  let indexBody = JSON.stringify({ v: 1, lists: { [LIST]: newer } });
+  let indexEtag = "index-1";
+  let nulls = 1;
+  const env = {
+    DATA: {
+      get: async (key) => {
+        if (key === DOC_KEY) return { etag: "doc", text: async () => docBody };
+        if (key === INDEX_KEY) return { etag: indexEtag, text: async () => indexBody };
+        return null;
+      },
+      put: async (key, body, opts) => {
+        if (key !== INDEX_KEY) return { etag: "other" };
+        const onlyIf = (opts && opts.onlyIf) || {};
+        if (nulls > 0) {
+          nulls -= 1;
+          docBody = JSON.stringify(docWith(["src-a"]));
+          return null;
+        }
+        if (onlyIf.etagMatches && onlyIf.etagMatches !== indexEtag) return null;
+        indexBody = body;
+        indexEtag = "index-2";
+        return { etag: indexEtag };
+      }
+    }
+  };
+  await sweepIndex(env);
+  const stored = JSON.parse(indexBody);
+  assert.equal(stored.lists[LIST].hash, NEW_HASH);
+  assert.deepEqual(stored.lists[LIST].sources, ["src-a"]);
+  assert.equal(nulls, 0);
 });

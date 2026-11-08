@@ -152,12 +152,13 @@ async function writeWanted(env, doc, now) {
   const all = [];
   doc.lists.forEach((row) => all.push(...row.members));
   const active = await activeMembers(env, all, now || Date.now());
+  const live = await readDoc(env);
   const lists = [];
   const sources = new Map();
-  doc.lists.forEach((row) => {
+  live.lists.forEach((row) => {
     if (!row.sources.length || !row.members.some((id) => active.has(id))) return;
     lists.push({ id: row.id, sources: row.sources.slice() });
-    row.sources.forEach((id) => { if (doc.sources[id] && !sources.has(id)) sources.set(id, sourceSpec(doc.sources[id])); });
+    row.sources.forEach((id) => { if (live.sources[id] && !sources.has(id)) sources.set(id, sourceSpec(live.sources[id])); });
   });
   const body = { v: 1, at: now || Date.now(), lists, sources: Array.from(sources.values()).slice(0, SOURCE_CAP) };
   const before = await readJson(env, WANTED_KEY);
@@ -572,26 +573,50 @@ async function shardFeedIds(env, row) {
   }
 }
 
-/* Drop a row whose sources are not the live list. A scheduled-sync row
-   that omits its sources is kept only when the shard's own feed ids are
-   exactly the live sources; otherwise it is removed and published again. */
-async function sweepIndex(env, doc) {
+function samePublication(left, right) {
+  if (!left || !right) return false;
+  return left.hash === right.hash
+    && String(left.membersKey || "") === String(right.membersKey || "")
+    && sameIds(left.sources, right.sources);
+}
+
+function listById(doc, id) {
+  return ((doc && doc.lists) || []).find((item) => item && item.id === id) || null;
+}
+
+/* Drop a row whose sources are not the live list. The owner document is
+   read again on every attempt and after every shard read, so a newer
+   publication is not deleted against sources that have already changed. */
+async function sweepIndex(env) {
   for (let attempt = 0; attempt < 5; attempt++) {
+    const doc = await readDoc(env);
     const current = await readEntry(env, INDEX_KEY);
     const index = Object.assign({ v: 1, lists: {}, sources: {}, sourcePosts: {} }, current.value || {});
     index.lists = index.lists || {};
     let changed = false;
+    let superseded = false;
     for (const id of Object.keys(index.lists)) {
       const row = index.lists[id];
       if (!row) continue;
-      const list = (doc.lists || []).find((item) => item && item.id === id);
+      let list = listById(doc, id);
       if (list && publicationMatches(row, list)) continue;
       if (list && Array.isArray(row.sources) && sameIds(row.sources, list.sources || [])) {
         index.lists[id] = Object.assign({}, row, { membersKey: (list.members || []).map(String).join("\n") });
         changed = true;
         continue;
       }
-      const feeds = list && !Array.isArray(row.sources) ? await shardFeedIds(env, row) : null;
+      let feeds = null;
+      if (list && !Array.isArray(row.sources)) {
+        feeds = await shardFeedIds(env, row);
+        const freshDoc = await readDoc(env);
+        const freshEntry = await readEntry(env, INDEX_KEY);
+        const freshRow = freshEntry.value && freshEntry.value.lists && freshEntry.value.lists[id];
+        if (freshEntry.etag !== current.etag || !samePublication(row, freshRow)) {
+          superseded = true;
+          break;
+        }
+        list = listById(freshDoc, id);
+      }
       if (list && feeds && sameIds(feeds, list.sources || [])) {
         index.lists[id] = Object.assign({}, row, {
           sources: list.sources.slice(),
@@ -600,6 +625,7 @@ async function sweepIndex(env, doc) {
         changed = true;
         continue;
       }
+      if (list && publicationMatches(row, list)) continue;
       const update = {
         expectMembers: String(row.membersKey || "").split("\n").filter((part) => part),
         expectSources: Array.isArray(row.sources) ? row.sources : [],
@@ -609,6 +635,7 @@ async function sweepIndex(env, doc) {
       delete index.lists[id];
       changed = true;
     }
+    if (superseded) continue;
     if (!changed) return;
     index.v = 1;
     index.at = Date.now();
@@ -656,8 +683,8 @@ async function afterChange(env, doc, deps, notifyList) {
   // newer document and is not replaced by this copy.
   await writeDoc(env, doc);
   try { await publishReady(env, null); } catch (err) { /* the member read tries once more */ }
+  try { await sweepIndex(env); } catch (err) { /* a stale index entry is ignored on read */ }
   const live = await readDoc(env);
-  try { await sweepIndex(env, live); } catch (err) { /* a stale index entry is ignored on read */ }
   const changed = await writeWanted(env, live, Date.now());
   if (changed && deps.dispatchWorkflows) {
     try { await deps.dispatchWorkflows(env, ["sync.yml"]); } catch (err) { /* the next scheduled sync fetches it */ }
@@ -790,23 +817,25 @@ async function handleMySourceLists(request, env, path, deps) {
   if (path === "/v1/me/source-lists" && method === "GET") {
     // Read only: no rate row is written, so the check costs no D1 write.
     const retry = new URL(request.url).searchParams.get("retry") === "1";
-    const live = await readDoc(env);
     // Identify a scheduled-sync copy before publishing, so a shard whose
     // feeds are still this list's sources is stamped instead of replaced.
-    try { await sweepIndex(env, live); } catch (err) { /* an unproven hash is still hidden below */ }
+    try { await sweepIndex(env); } catch (err) { /* an unproven hash is still hidden below */ }
     if (mine.some((row) => row.sources.length)) {
       try { await publishReady(env, null, mine.map((row) => row.id), retry); } catch (err) { /* answer with whatever is already published */ }
     }
-    try { await sweepIndex(env, await readDoc(env)); } catch (err) { /* the read still hides a stale entry */ }
-    const mineNow = live.lists.filter((row) => row.members.indexOf(id) >= 0);
-    const index = (await readJson(env, INDEX_KEY)) || {};
-    const freshShards = index.lists || {};
-    if (mineNow.length) {
+    try { await sweepIndex(env); } catch (err) { /* the read still hides a stale entry */ }
+    const prepared = await readDoc(env);
+    const preparedMine = prepared.lists.filter((row) => row.members.indexOf(id) >= 0);
+    if (preparedMine.length) {
       // A member who came back after a quiet month switches the fetch back on.
       const wanted = (await readJson(env, WANTED_KEY)) || {};
       const liveWanted = new Set(((wanted.lists) || []).map((row) => row.id));
-      if (mineNow.some((row) => row.sources.length && !liveWanted.has(row.id))) await writeWanted(env, live, Date.now());
+      if (preparedMine.some((row) => row.sources.length && !liveWanted.has(row.id))) await writeWanted(env, prepared, Date.now());
     }
+    const index = (await readJson(env, INDEX_KEY)) || {};
+    const freshShards = index.lists || {};
+    const answered = await readDoc(env);
+    const mineNow = answered.lists.filter((row) => row.members.indexOf(id) >= 0);
     return deps.json(200, {
       lists: mineNow.map((row) => {
         const shard = freshShards[row.id] || {};
@@ -826,19 +855,18 @@ async function handleMySourceLists(request, env, path, deps) {
   if (shardPath && method === "GET") {
     const hit = await deps.rateHit(env, "my-lists-shard:" + id, 240, 60 * 60 * 1000);
     if (!hit.ok) return deps.limited(hit);
-    const live = await readDoc(env);
-    try { await sweepIndex(env, live); } catch (err) { /* an unproven hash is still refused below */ }
-    const mineNow = live.lists.filter((row) => row.members.indexOf(id) >= 0);
+    try { await sweepIndex(env); } catch (err) { /* an unproven hash is still refused below */ }
     const index = (await readJson(env, INDEX_KEY)) || {};
+    const object = await env.DATA.get(SHARD_PREFIX + shardPath[1] + ".json");
+    const answered = await readDoc(env);
     const shards = index.lists || {};
-    const allowed = mineNow.some((row) => {
+    const allowed = object && answered.lists.some((row) => {
+      if (!row || row.members.indexOf(id) < 0) return false;
       const shard = shards[row.id];
       if (!shard || shard.hash !== shardPath[1]) return false;
       return publicationMatches(shard, row);
     });
     if (!allowed) return deps.json(404, { error: "not_found" });
-    const object = await env.DATA.get(SHARD_PREFIX + shardPath[1] + ".json");
-    if (!object) return deps.json(404, { error: "not_found" });
     return new Response(object.body, {
       status: 200,
       headers: { "content-type": "application/json; charset=utf-8", "cache-control": "private, max-age=31536000, immutable" }
@@ -928,4 +956,4 @@ async function dropSourceKeys(env, keys, deps) {
 }
 
 export { allowIntoList, listsSummary, dropSourceKeys };
-export { handleOwnerSourceLists, handleMySourceLists, refreshWanted, commitUpdates, DOC_KEY, WANTED_KEY, INDEX_KEY, SHARD_PREFIX };
+export { handleOwnerSourceLists, handleMySourceLists, refreshWanted, commitUpdates, sweepIndex, DOC_KEY, WANTED_KEY, INDEX_KEY, SHARD_PREFIX };

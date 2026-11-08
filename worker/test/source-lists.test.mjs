@@ -245,6 +245,7 @@ test("a removal during the fetch is not restored, and one budget covers every so
   if (releaseSlow) releaseSlow();
   const elapsed = Date.now() - started;
   assert.equal(body.late, undefined, "the read did not finish inside the budget");
+  assert.equal((body.body.lists || []).some((row) => row.id === lid), false, "the in-flight response still listed the removed account");
   assert.ok(elapsed < 6000, "the read ran past the whole-list budget (" + elapsed + "ms)");
   assert.equal(outboundHits.includes("/next.xml"), false, "a source past the budget was still fetched");
   const stored = await r2json("owner/source-lists.json");
