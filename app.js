@@ -7598,22 +7598,40 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   /* Another tab changed the rules: apply them here at once. The storage
      event is the fallback. A sync echo used to replace the new block list
      before that event landed, so the other tab kept the posts. */
+  function readSettingsRaw() {
+    // A test can supply the next reads, in order, to cover a list saved
+    // between them. Production always reads what is stored now.
+    const scripted = window.__settingsReads;
+    if (Array.isArray(scripted) && scripted.length) {
+      const next = scripted.shift();
+      return next == null ? null : String(next);
+    }
+    return readStored(localStorage, "settings-v1");
+  }
   function applyBlocksFromDisk() {
     if (!STATE.settings) return;
     let next = null;
-    try { next = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { next = null; }
+    try { next = JSON.parse(readSettingsRaw() || "null"); } catch (err) { next = null; }
     if (!next) return;
-    const diskBlocks = cleanBlocks(next.blocks);
-    const memAt = Number(STATE.settings.blocks && STATE.settings.blocks.at) || 0;
-    const diskAt = Number(diskBlocks.at) || 0;
-    // A full settings write from another tab can still be the list from before
-    // this block. The newer list stays, and is put back on disk.
-    if (memAt > diskAt) {
+    let diskBlocks = cleanBlocks(next.blocks);
+    const memBlocks = STATE.settings.blocks;
+    const memAt = Number(memBlocks && memBlocks.at) || 0;
+    // A full settings write can still carry the block list from before this
+    // block. Read the disk again and keep whichever whole list is newer, so
+    // an unblock saved between the two reads is not overwritten. Muted words,
+    // muted accounts and repost rules in that blob still apply.
+    if (memAt > (Number(diskBlocks.at) || 0)) {
       let latest = next;
-      try { latest = JSON.parse(readStored(localStorage, "settings-v1") || "null") || next; } catch (err) { latest = next; }
-      latest.blocks = STATE.settings.blocks;
-      writeStored(localStorage, "settings-v1", JSON.stringify(latest));
-      return;
+      try { latest = JSON.parse(readSettingsRaw() || "null") || next; } catch (err) { latest = next; }
+      const again = cleanBlocks(latest.blocks);
+      next = latest;
+      // The re-read is a whole list. A newer one (an unblock that landed
+      // after the first read) replaces this tab's copy. Otherwise this tab's
+      // list is still current and is written onto the blob that was re-read.
+      if ((Number(again.at) || 0) > memAt) diskBlocks = again;
+      else diskBlocks = cleanBlocks(memBlocks);
+      next.blocks = diskBlocks;
+      writeStored(localStorage, "settings-v1", JSON.stringify(next));
     }
     next.blocks = diskBlocks;
     if (blockSig(next) === blockSig(STATE.settings)) return;

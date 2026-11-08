@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-08T20:19:39.000Z-profile-reveal
+// cache-bust: 2026-11-08T20:25:42.000Z-block-filters
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
