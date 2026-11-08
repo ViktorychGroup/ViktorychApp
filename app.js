@@ -10289,9 +10289,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const plat = post.platform || "x";
     const ids = [String(post.statusId || ""), String(post.id || "")].filter(Boolean);
     const seen = {};
-    return publicPosts.filter((item) => {
+    const mine = signedAccount();
+    const me = mine ? String(mine.publicId || "") : "";
+    if (!me) return [];
+    return visiblePublicPosts().filter((item) => {
       const ext = item && item.extParent;
       if (!ext || seen[item.id] || !notGone(item)) return false;
+      if (String(item.authorId || "") !== me) return false;
       if ((ext.platform || "x") !== plat) return false;
       if (ids.indexOf(String(ext.statusId || ext.id || "")) < 0) return false;
       seen[item.id] = true;
@@ -13067,12 +13071,18 @@ const here = parseRoute();
     if (Date.now() - at > 600000) { delete goneOwn[item.id]; return true; }
     return false;
   }
+  function ownSentHere(entry) {
+    const mine = signedAccount();
+    const me = mine ? String(mine.publicId || "") : "";
+    return !!(entry && entry.post && me && String(entry.post.authorId || "") === me);
+  }
   function keepOwnPosts(list) {
     const next = list.filter(notGone);
     const ids = new Set(next.map((item) => item && item.id));
     const now = Date.now();
     Object.keys(ownSent).forEach((id) => {
       const entry = ownSent[id];
+      if (!ownSentHere(entry)) return;
       if (ids.has(id) || now - entry.at > 600000) {
         delete ownSent[id];
         return;
@@ -13081,7 +13091,8 @@ const here = parseRoute();
       next.unshift(entry.post);
     });
     Object.keys(ownSent).forEach((id) => {
-      if (String(id).indexOf("tmp-") === 0) next.unshift(ownSent[id].post);
+      if (String(id).indexOf("tmp-") !== 0 || !ownSentHere(ownSent[id])) return;
+      next.unshift(ownSent[id].post);
     });
     reconcilePostPreviews();
     return next.sort((a, b) => (Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
@@ -23284,7 +23295,14 @@ if (STATE.histClear) {
   function parkedReady(route) {
     const key = parkKey(route);
     const slot = key ? viewParks.get(key) : null;
-    return !!(slot && !slot.live && slot.root && !slot.force);
+    if (!slot || slot.live || !slot.root || slot.force) return false;
+    /* A parked page belongs to the account that built it. Putting it back
+       for someone else shows their reply until the later refresh. */
+    if (slot.scope && slot.scope !== viewerScope()) {
+      slot.force = true;
+      return false;
+    }
+    return true;
   }
   function scheduleViewRefresh(key, delayMs) {
     clearTimeout(viewRefreshTimer);

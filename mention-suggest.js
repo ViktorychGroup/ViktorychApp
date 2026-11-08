@@ -221,7 +221,19 @@
 
   document.addEventListener("focusout", function (event) {
     if (event.target !== state.el) return;
-    setTimeout(function () { if (document.activeElement !== state.el) close(); }, 150);
+    var previous = event.target;
+    setTimeout(function () {
+      var id = previous && previous.id;
+      var next = id ? document.getElementById(id) : null;
+      if (next && next !== previous && eligible(next)) {
+        var end = next.value.length;
+        if (end && next.selectionStart === 0 && next.selectionEnd === 0 && next.setSelectionRange) {
+          try { next.setSelectionRange(end, end); } catch (err) { /* the caret stays where the new field put it */ }
+        }
+        if (tokenAt(next)) { state.el = next; lookup(next); return; }
+      }
+      if (document.activeElement !== state.el) close();
+    }, 150);
   }, true);
   document.addEventListener("selectionchange", function () {
     if (open() && document.activeElement === state.el && !tokenAt(state.el)) close();

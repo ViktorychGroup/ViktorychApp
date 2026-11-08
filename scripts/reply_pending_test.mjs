@@ -103,18 +103,28 @@ async function run(browser, port, width) {
     return hit && !(hit.textContent || "").includes("Sending");
   }, null, { timeout: 4000 });
 
+  const postsAfterSwitch = page.waitForResponse((res) => res.url().indexOf("/v1/posts") >= 0 && res.request().method() === "GET");
   await page.evaluate(() => {
+    const btn = document.querySelector('button[data-act="public-reply"]');
+    if (btn) btn.dataset.oldReply = "1";
     localStorage.setItem("viktorychapp-account-v1", JSON.stringify({
       token: "local-test-token-b",
       account: { publicId: "500000000005", handle: "user_c", displayName: "User C", avatar: "" }
     }));
     location.hash = "#/";
   });
-  await page.waitForTimeout(200);
+  await postsAfterSwitch;
+  await page.waitForFunction(() => {
+    return !document.querySelector('[data-old-reply="1"]') && document.body.innerText.includes("Parent fixture");
+  }, null, { timeout: 8000 });
+  if (await page.evaluate(() => document.body.innerText.includes("Held reply"))) throw new Error("the other account saw the reply");
   await page.evaluate((id) => { location.hash = "#/app/user_b/status/" + id; }, POST);
-  await page.waitForTimeout(300);
-  const leaked = await page.evaluate(() => document.body.innerText.includes("Held reply"));
-  if (leaked) throw new Error("the other account saw the reply");
+  await page.waitForFunction((id) => {
+    const btn = document.querySelector('button[data-act="public-reply"]');
+    return location.hash.indexOf(id) >= 0 && btn && btn.dataset.oldReply !== "1" && document.body.innerText.includes("Parent fixture");
+  }, POST, { timeout: 8000 });
+  if (await page.evaluate(() => !!document.querySelector('[data-old-reply="1"]'))) throw new Error("the other account saw the previous account's post page");
+  if (await page.evaluate(() => document.body.innerText.includes("Held reply"))) throw new Error("the other account saw the reply");
 
   await page.evaluate((me) => {
     localStorage.setItem("viktorychapp-account-v1", JSON.stringify({
