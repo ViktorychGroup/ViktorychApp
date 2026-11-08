@@ -112,10 +112,13 @@
     if (!pop || !state.el) return;
     var point = caretPoint(state.el, state.start);
     var width = Math.min(320, window.innerWidth - 16);
-    var left = Math.max(8, Math.min(point.x, window.innerWidth - width - 8));
+    var z = parseFloat(document.documentElement.style.zoom);
+    var scale = z > 0 ? z : 1;
+    var viewW = window.innerWidth / scale;
+    var left = Math.max(8, Math.min(point.x / scale, viewW - width - 8));
     var vv = window.visualViewport;
-    var bottom = vv ? vv.height + vv.offsetTop : window.innerHeight;
-    var top = point.y + 4;
+    var bottom = (vv ? vv.height + vv.offsetTop : window.innerHeight) / scale;
+    var top = point.y / scale + 4;
     pop.style.width = width + "px";
     pop.style.left = (left + window.scrollX) + "px";
     pop.style.maxHeight = Math.max(120, Math.min(360, bottom - top - 8)) + "px";

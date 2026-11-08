@@ -25,6 +25,9 @@ function windowGuess(m) {
   if (ow <= aw - 80 || oh <= ah - 80) return "window";
   return "unknown";
 }
+function desktopGate(innerWidth) {
+  return (Number(innerWidth) || 0) >= 1000;
+}
 function clampScale(n) {
   var x = Math.round(Number(n) / 5) * 5;
   if (!isFinite(x)) return 100;
@@ -47,7 +50,7 @@ function scaleChoice(pref, guess, desktop) {
   return 100;
 }
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { windowGuess: windowGuess, clampScale: clampScale, scaleChoice: scaleChoice };
+  module.exports = { windowGuess: windowGuess, clampScale: clampScale, scaleChoice: scaleChoice, desktopGate: desktopGate };
 }
 
 (function () {
@@ -308,13 +311,10 @@ if (typeof module !== "undefined" && module.exports) {
       availH: screen.availHeight || 0
     };
   }
-  function zoomNow() {
-    var z = parseFloat(html.style.zoom);
-    return z > 0 ? z : 1;
-  }
   function desktopEnough() {
-    var width = (root.innerWidth || 0) * zoomNow();
-    return width >= 1000;
+    // innerWidth is the window's CSS width. Our page scale does not change it,
+    // so multiplying by the scale would keep a narrow window looking wide.
+    return desktopGate(root.innerWidth);
   }
   function applyScale() {
     if (!featureOn() || !desktopEnough()) {
@@ -367,7 +367,7 @@ if (typeof module !== "undefined" && module.exports) {
       return '<label class="desk-scale"><span>' + esc(label) + '</span><input type="range" min="100" max="200" step="5" data-desk-scale data-key="' + key + '" value="' + value + '" aria-label="' + esc(label) + '"><b data-desk-scale-out>' + value + "%</b></label>";
     }
     var out = '<h2>' + esc(tr("App size")) + "</h2>";
-    out += '<p class="phandle set-desc">' + esc(tr("This scales the app on this computer only. It does not change the browser’s zoom, and the two add together if both are on. It starts off.")) + "</p>";
+    out += '<p class="phandle set-desc">' + esc(tr("This scales the app in this browser on this computer. Everyone who uses this browser here shares it. It is not saved to an account and it is not sent anywhere. It does not change the browser’s zoom, and the two add together if both are on. It starts off.")) + "</p>";
     out += '<div class="theme-row">' + modeBtn("off", tr("Off")) + modeBtn("manual", tr("One size")) + modeBtn("window", tr("Match the window")) + "</div>";
     if (pref.mode === "manual") out += slider("manual", tr("One size"), pref.manual);
     if (pref.mode === "window") {

@@ -603,7 +603,9 @@
         drag.moved = true;
         dock.classList.add("is-dragging");
       }
-      dock.style.transform = "translate(" + dx + "px, " + dy + "px)";
+      var z = parseFloat(document.documentElement.style.zoom);
+      var scale = z > 0 ? z : 1;
+      dock.style.transform = "translate(" + (dx / scale) + "px, " + (dy / scale) + "px)";
     });
     var end = function (event) {
       if (!drag || event.pointerId !== drag.id) return;
@@ -1869,25 +1871,29 @@
       root.setTimeout(fitMarquee, 0);
     }
     html.classList.toggle("ytm-card", where === "card");
-    var rect = null;
+    var z = parseFloat(document.documentElement.style.zoom);
+    var scale = z > 0 ? z : 1;
+    var laid = null;
     if (where === "full") {
       var artBox = document.getElementById("mu-now-art");
-      rect = artBox && artBox.getBoundingClientRect();
+      var box = artBox && artBox.getBoundingClientRect();
+      if (box) laid = { left: box.left / scale, top: box.top / scale, width: box.width / scale, height: box.height / scale };
     } else if (where === "mini") {
       var slot = dock && dock.querySelector(".mu-yt-slot");
-      rect = slot && slot.getBoundingClientRect();
+      var slotBox = slot && slot.getBoundingClientRect();
+      if (slotBox) laid = { left: slotBox.left / scale, top: slotBox.top / scale, width: slotBox.width / scale, height: slotBox.height / scale };
     } else if (where === "card") {
-      var edge = dock && !dock.hidden ? dock.getBoundingClientRect().top : root.innerHeight;
-      var width = html.clientWidth || root.innerWidth;
-      rect = { left: width - 216, top: edge - 212, width: 200, height: 200 };
+      var edge = dock && !dock.hidden ? dock.getBoundingClientRect().top / scale : root.innerHeight / scale;
+      var width = root.innerWidth / scale;
+      laid = { left: width - 216, top: edge - 212, width: 200, height: 200 };
     }
     var key = "off";
-    if (rect && rect.width > 0) {
-      var size = Math.max(200, Math.round(Math.min(rect.width, rect.height)));
-      key = where + ":" + Math.round(rect.left) + ":" + Math.round(rect.top) + ":" + size;
+    if (laid && laid.width > 0) {
+      var size = Math.max(200, Math.round(Math.min(laid.width, laid.height)));
+      key = where + ":" + Math.round(laid.left) + ":" + Math.round(laid.top) + ":" + size;
       if (key !== placed) {
-        host.style.left = Math.round(rect.left) + "px";
-        host.style.top = Math.round(rect.top) + "px";
+        host.style.left = Math.round(laid.left) + "px";
+        host.style.top = Math.round(laid.top) + "px";
         host.style.width = size + "px";
         host.style.height = size + "px";
       }

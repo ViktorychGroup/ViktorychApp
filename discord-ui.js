@@ -2404,6 +2404,8 @@
 
   function pageZoom() {
     try {
+      const html = parseFloat(document.documentElement && document.documentElement.style.zoom);
+      if (isFinite(html) && html > 0) return html;
       if (typeof getComputedStyle !== "function" || !document.body) return 1;
       const z = parseFloat(getComputedStyle(document.body).zoom);
       return isFinite(z) && z > 0 ? z : 1;

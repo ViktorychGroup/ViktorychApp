@@ -5,7 +5,7 @@ import test from "node:test";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { windowGuess, scaleChoice } = require("../desktop-app.js");
+const { windowGuess, scaleChoice, desktopGate } = require("../desktop-app.js");
 
 const HD = { outerW: 1920, outerH: 1040, availW: 1920, availH: 1040 };
 const pref = { mode: "window", manual: 100, maximized: 150, windowed: 120 };
@@ -47,8 +47,12 @@ test("missing screen numbers are not a maximize", () => {
   assert.equal(windowGuess({ outerW: 0, outerH: 0, availW: 1920, availH: 1040 }), "unknown");
 });
 
+test("a 600px window stays narrow at a 200% page scale", () => {
+  assert.equal(desktopGate(600), false);
+  assert.equal(desktopGate(1280), true);
+});
+
 async function browserScale() {
-  if (process.env.APP_SCALE_BROWSER !== "1") return;
   const http = await import("node:http");
   const fs = await import("node:fs");
   const path = await import("node:path");
@@ -101,16 +105,75 @@ async function browserScale() {
       guess: window.ViktorychDesktop && window.ViktorychDesktop.windowGuess ? window.ViktorychDesktop.windowGuess() : ""
     }));
     if (scaled.zoom !== "1.5") throw new Error("manual 150 did not scale the page " + JSON.stringify(scaled));
-    await page.evaluate(() => document.querySelector('article[data-post="p00"] button[data-act="menu"]').click());
-    const hit = await page.evaluate(() => {
+    await page.locator('article[data-post="p00"] button[data-act="menu"]').focus();
+    await page.keyboard.press("Enter");
+    const keyed = await page.evaluate(() => {
       const menu = document.querySelector(".menu.post-menu");
       const btn = document.querySelector('article[data-post="p00"] button[data-act="menu"]');
       if (!menu || !btn) return null;
       const box = menu.getBoundingClientRect();
       const btnBox = btn.getBoundingClientRect();
-      return { near: Math.abs(box.top - btnBox.bottom) <= 16 || Math.abs(btnBox.top - box.bottom) <= 16 };
+      return Math.abs(box.top - btnBox.bottom) <= 20 || Math.abs(btnBox.top - box.bottom) <= 20;
     });
-    if (!hit || !hit.near) throw new Error("scaled menu left its button " + JSON.stringify(hit));
+    if (!keyed) throw new Error("keyboard did not keep the scaled menu on its button");
+    await page.evaluate(() => window.scrollTo(0, 120));
+    const beforeScroll = await page.evaluate(() => window.scrollY);
+    await page.evaluate(() => window.scrollBy(0, 240));
+    await page.waitForTimeout(200);
+    const afterScroll = await page.evaluate(() => {
+      const menu = document.querySelector(".menu.post-menu");
+      const btn = document.querySelector('article[data-post="p00"] button[data-act="menu"]');
+      const box = menu.getBoundingClientRect();
+      const btnBox = btn.getBoundingClientRect();
+      return { y: window.scrollY, near: Math.abs(box.top - btnBox.bottom) <= 24 || Math.abs(btnBox.top - box.bottom) <= 24 };
+    });
+    if (afterScroll.y <= beforeScroll + 40 || !afterScroll.near) throw new Error("scroll under scale " + JSON.stringify({ beforeScroll, afterScroll }));
+    await page.keyboard.press("Escape");
+    async function assignAt(scale) {
+      await page.evaluate((value) => {
+        const raw = JSON.parse(localStorage.getItem("viktorych-desktop-v1") || "{}");
+        raw.scale.mode = "manual";
+        raw.scale.manual = value;
+        localStorage.setItem("viktorych-desktop-v1", JSON.stringify(raw));
+        window.ViktorychDesktop.applyScale();
+      }, scale);
+      await page.evaluate(() => {
+        const article = document.querySelector('article[data-post="p00"]');
+        article.scrollIntoView({ block: "center" });
+      });
+      const point = await page.evaluate(() => {
+        const article = document.querySelector('article[data-post="p00"]');
+        const box = article.getBoundingClientRect();
+        for (let y = box.top + 8; y < box.bottom - 8; y += 8) {
+          for (let x = box.left + 8; x < Math.min(box.right - 8, box.left + 220); x += 12) {
+            const node = document.elementFromPoint(x, y);
+            if (!node || !article.contains(node)) continue;
+            if (node.closest("a, button, input, textarea, video, .menu")) continue;
+            return { x: Math.round(x), y: Math.round(y) };
+          }
+        }
+        return null;
+      });
+      if (!point) throw new Error("no right-click target on the post");
+      await page.mouse.click(point.x, point.y, { button: "right" });
+      await page.waitForSelector(".assign-menu", { timeout: 5000 });
+      const hit = await page.evaluate((at) => {
+        const menu = document.querySelector(".assign-menu");
+        const box = menu.getBoundingClientRect();
+        const sample = { x: box.left + 24, y: box.top + 24 };
+        const node = document.elementFromPoint(sample.x, sample.y);
+        return {
+          left: Math.round(box.left), top: Math.round(box.top),
+          dx: Math.abs(box.left - at.x), dy: Math.abs(box.top - at.y),
+          nearHit: Math.abs(sample.x - at.x) <= 48 && Math.abs(sample.y - at.y) <= 48,
+          inside: !!(node && menu.contains(node))
+        };
+      }, point);
+      if (hit.dx > 24 || hit.dy > 24 || !hit.nearHit || !hit.inside) throw new Error("scale " + scale + " assign menu " + JSON.stringify({ point, hit }));
+      await page.keyboard.press("Escape");
+    }
+    await assignAt(150);
+    await assignAt(200);
     await page.evaluate(() => {
       const raw = JSON.parse(localStorage.getItem("viktorych-desktop-v1") || "{}");
       raw.scale.mode = "off";
@@ -119,6 +182,23 @@ async function browserScale() {
     });
     const off = await page.evaluate(() => document.documentElement.style.zoom || "");
     if (off) throw new Error("off still scales " + off);
+    await page.evaluate(() => {
+      const raw = JSON.parse(localStorage.getItem("viktorych-desktop-v1") || "{}");
+      raw.scale.mode = "manual";
+      raw.scale.manual = 200;
+      localStorage.setItem("viktorych-desktop-v1", JSON.stringify(raw));
+      window.ViktorychDesktop.applyScale();
+    });
+    await page.setViewportSize({ width: 600, height: 800 });
+    await page.waitForTimeout(400);
+    const narrowZoom = await page.evaluate(() => document.documentElement.style.zoom || "");
+    await page.waitForTimeout(300);
+    const narrowAgain = await page.evaluate(() => ({ zoom: document.documentElement.style.zoom || "", width: window.innerWidth }));
+    if (narrowZoom || narrowAgain.zoom || narrowAgain.width >= 1000) throw new Error("narrow window kept the scale " + JSON.stringify({ narrowZoom, narrowAgain }));
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.waitForTimeout(400);
+    const wide = await page.evaluate(() => document.documentElement.style.zoom || "");
+    if (wide !== "2") throw new Error("wide window did not restore 200% " + wide);
     await context.close();
     const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: "block", hasTouch: true });
     await phone.addInitScript(() => {
@@ -141,4 +221,4 @@ async function browserScale() {
   }
 }
 
-test("browser: manual size, menu anchor, and a phone stays unscaled", { skip: process.env.APP_SCALE_BROWSER !== "1" }, browserScale);
+test("browser: scaled pointer menus, keyboard, scroll, off, and a narrow window", browserScale);

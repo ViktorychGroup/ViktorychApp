@@ -2254,7 +2254,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
       status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
-      app_scale: [tr("App size"), tr("On computers, an optional size for a maximized window and a smaller window. Off leaves the app at the browser’s own size.")],
+      app_scale: [tr("App size"), tr("On computers, an optional size for a maximized window and a smaller window. It stays in this browser, not on an account. Off leaves the app at the browser’s own size.")],
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
       update_notice: [tr("Visible updates"), tr("A short Updating notice while an update applies, then a full-screen What's new page.")],
       status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")],
@@ -21381,9 +21381,11 @@ if (STATE.histClear) {
     const margin = 8;
     const width = 280;
     const rows = target.kind === "group" ? 5 : (STATE.settings.groups || []).length + 2;
-    const height = Math.min(window.innerHeight - 16, 56 + rows * 48);
-    const left = Math.max(margin, Math.min(x, window.innerWidth - width - margin));
-    const top = Math.max(margin, Math.min(y, window.innerHeight - height - margin));
+    const view = layoutView();
+    const z = layoutZoom();
+    const height = Math.min(view.h - 16, 56 + rows * 48);
+    const left = Math.max(margin, Math.min(x / z, view.w - width - margin));
+    const top = Math.max(margin, Math.min(y / z, view.h - height - margin));
     STATE.groupMenu = { kind: target.kind, id: target.id, left: left, top: top };
     render();
   }
@@ -22446,8 +22448,9 @@ if (STATE.histClear) {
     const width = menu.offsetWidth || 300;
     const height = menu.offsetHeight || 240;
     const view = layoutView();
-    let left = Number(menu.dataset.x) || 8;
-    let top = Number(menu.dataset.y) || 8;
+    const z = layoutZoom();
+    let left = (Number(menu.dataset.x) || 8) / z;
+    let top = (Number(menu.dataset.y) || 8) / z;
     if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
     if (top + height > view.h - 8) top = Math.max(8, view.h - 8 - height);
     menu.style.left = left + "px";
@@ -26790,9 +26793,10 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
   }
 
   function placeNavMenu(el, anchor) {
-    const rect = anchor.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const rect = layoutRect(anchor);
+    const view = layoutView();
+    const vw = view.w;
+    const vh = view.h;
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     const gap = 8;
@@ -28171,9 +28175,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       seen = window.ViktorychPresence.linesHtml(pid);
     }
     box.innerHTML = `<div class="hcard">${banner}<div class="hbody"><div class="pava-row">${face}${followButtonClean(id)}</div><div class="name" style="font-weight:800;margin-top:8px">${esc(nickName(profile.platform, profile.handle, profile.name || profile.handle || ""))}${badge(profile.verifiedType)}${affSlot({ publicId: presenceIdOf(profile) })}</div>${handle ? `<div class="phandle">@${esc(handle)}</div>` : ""}${seen}${profile.bio ? `<div class="hbio">${esc(profile.bio)}</div>` : ""}${audienceCounts(profile)}</div></div>`;
-    const left = Math.min(rect.left, window.innerWidth - 320);
+    const boxRect = layoutRect(el);
+    const view = layoutView();
+    const left = Math.min(boxRect.left, view.w - 320);
     box.style.left = Math.max(8, left) + "px";
-    box.style.top = (rect.bottom + 8) + "px";
+    box.style.top = (boxRect.bottom + 8) + "px";
   }
 
   function showHover(el) {
@@ -34479,11 +34485,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       tip.style.display = "block";
       tip.classList.remove("is-visible");
 
-      const rect = el.getBoundingClientRect();
+      const rect = layoutRect(el);
       const tipW = tip.offsetWidth;
       const tipH = tip.offsetHeight;
-      const winW = window.innerWidth;
-      const winH = window.innerHeight;
+      const view = layoutView();
+      const winW = view.w;
+      const winH = view.h;
 
       const inNav = !!el.closest(".nav");
       const inBottomNav = !!el.closest(".bottom-nav");
