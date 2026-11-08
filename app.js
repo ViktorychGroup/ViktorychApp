@@ -22768,7 +22768,30 @@ if (STATE.histClear) {
     scheduleImageSweep();
     hscrollSettle({ reveal: true });
     if (window.ViktorychAccounts && window.ViktorychAccounts.bindProfileTabs) window.ViktorychAccounts.bindProfileTabs();
+    revealProfileTabs();
     reconcilePostPreviews();
+  }
+
+  /* The selected profile pill is measured after its label is laid out, then
+     kept inside the strip. A smooth arrow scroll still running on this node
+     is cancelled so it cannot pull the pill back to the start. */
+  function revealProfileTabs() {
+    const apply = () => {
+      const root = document.getElementById("app") || document.body;
+      const store = hscrollStore();
+      document.querySelectorAll(".ptabs").forEach((el) => {
+        const next = revealSelectedTab(el, false);
+        if (el.scrollTo) el.scrollTo({ left: el.scrollLeft, behavior: "auto" });
+        const id = el.dataset.hscrollKey || hscrollId(el, root);
+        el.dataset.hscrollKey = id;
+        if (typeof next === "number") store[id] = next;
+        el.dataset.hscrollRevealed = "1";
+      });
+      syncTabArrows();
+    };
+    apply();
+    const schedule = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+    schedule(apply);
   }
 
   function hscrollRestoreSaved(retry) {
@@ -22880,8 +22903,10 @@ if (STATE.histClear) {
     const max = scroller.scrollWidth - scroller.clientWidth;
     const canLeft = max > 2 && scroller.scrollLeft > 2;
     const canRight = max > 2 && scroller.scrollLeft < max - 2;
-    left.hidden = !canLeft;
-    right.hidden = !canRight;
+    // Hiding the focused arrow makes the browser drop focus and jump the
+    // strip back to the start, so a key that reaches the end keeps its button.
+    left.hidden = !canLeft && document.activeElement !== left;
+    right.hidden = !canRight && document.activeElement !== right;
     bar.classList.toggle("is-fade-left", canLeft);
     bar.classList.toggle("is-fade-right", canRight);
     if (!(scroller.scrollLeft === 0 && max <= 1 && tabScrollLeft > 1)) {
@@ -24713,7 +24738,9 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       tabScrollLeft = next;
       tabScrollRoute = routeScrollKey();
-      scroller.scrollTo({ left: next, behavior: reduced ? "auto" : "smooth" });
+      scroller.scrollLeft = next;
+      const profile = scroller.classList && scroller.classList.contains("ptabs");
+      if (!reduced && !profile && scroller.scrollTo) scroller.scrollTo({ left: next, behavior: "smooth" });
       hscrollRememberEl(scroller);
       syncTabArrows();
       return;
@@ -26386,6 +26413,28 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
       STATE.menu = null;
       render();
     }, 0);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const arrow = event.target.closest && event.target.closest(".tab-arrow[data-act='tab-scroll']");
+    if (arrow && (event.key === " " || event.key === "Enter")) {
+      event.preventDefault();
+      onAct(arrow);
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab']");
+    if (!tab) return;
+    const list = tab.closest(".ptabs");
+    if (!list) return;
+    const tabs = [...list.querySelectorAll("[role='tab']")];
+    const at = tabs.indexOf(tab);
+    if (at < 0) return;
+    const next = tabs[at + (event.key === "ArrowRight" ? 1 : -1)];
+    if (!next) return;
+    event.preventDefault();
+    next.focus();
+    next.click();
   });
   document.addEventListener("click", (event) => {
     const acct = event.target.closest && event.target.closest(".acct-menu [data-acct]");

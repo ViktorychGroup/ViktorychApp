@@ -98,7 +98,7 @@ const PAGE_STEPS = [
     weight: 45, needs: ["pw", "browser"],
     paths: [file("notifications_page_test.mjs"), file("notif_badge_test.mjs"), ...APP]
   }),
-  step("profile-tab-scroll", "node scripts/profile_tab_scroll_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_tab_scroll_test.mjs"), /^accounts\.js$/, /^styles\.css$/] }),
+  step("profile-tab-scroll", "node scripts/profile_tab_scroll_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_tab_scroll_test.mjs"), /^accounts\.js$/, /^app\.js$/, /^styles\.css$/] }),
   step("profile", "node scripts/profile_chrome_test.mjs", {
     weight: 70, needs: ["pw", "browser"],
     paths: [file("profile_chrome_test.mjs"), file("mention_suggest_test.mjs"), file("friend_state_test.mjs"), file("my_devices_test.mjs"), file("feeds_page_test.mjs"), file("feed_requests_approve_test.mjs"), ...APP]
