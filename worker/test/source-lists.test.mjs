@@ -6,17 +6,25 @@ import { Miniflare } from "miniflare";
 
 const OWNER = "ownerlane";
 const dispatches = [];
+let ownerToken = "";
 let mf;
 
 function rss(title) {
   return `<rss><channel><title>${title}</title><item><title>Hello</title><description>Hello from the sample</description><guid>p1</guid><link>https://feeds.example/p1</link></item></channel></rss>`;
 }
 
+const outboundHits = [];
+let releaseSlow = null;
 async function outbound(request) {
   const url = new URL(request.url);
+  outboundHits.push(url.pathname);
   if (url.hostname === "api.github.com") {
     dispatches.push(await request.text());
     return new Response(null, { status: 204 });
+  }
+  if (url.hostname === "feeds.example" && url.pathname === "/slow.xml") {
+    await new Promise((resolve) => { releaseSlow = resolve; setTimeout(resolve, 8000); });
+    return new Response(rss("Slow Wind"), { status: 200, headers: { "content-type": "application/rss+xml" } });
   }
   if (url.hostname === "feeds.example") return new Response(rss("Sample Wind"), { status: 200, headers: { "content-type": "application/rss+xml" } });
   return new Response("missing", { status: 404 });
@@ -72,6 +80,7 @@ test.after(async () => { if (mf) await mf.dispose(); });
 
 test("source lists reach only assigned accounts", async () => {
   const owner = await signup(OWNER, "203.0.113.20", { claimCode: "claim-test" });
+  ownerToken = owner.token;
   const member = await signup("membermaple", "203.0.113.21");
   const other = await signup("otherbirch", "203.0.113.22");
 
@@ -169,4 +178,99 @@ test("source lists reach only assigned accounts", async () => {
   assert.equal(wanted.sources.length, 0);
   const docAfter = await r2json("owner/source-lists.json");
   assert.equal(Object.keys(docAfter.sources).length, 1, "only the source of the remaining list is kept");
+});
+
+test("a removal during the fetch is not restored, and one budget covers every source", async () => {
+  const owner = { token: ownerToken };
+  const member = await signup("membercedar", "203.0.113.61");
+  const made = await call("/v1/owner/source-lists", { method: "POST", ip: "203.0.113.62", token: owner.token, body: { name: "Held" } });
+  const lid = made.body.created;
+  const src = await call(`/v1/owner/source-lists/${lid}/sources`, { method: "POST", ip: "203.0.113.63", token: owner.token, body: { input: "https://feeds.example/sample.xml" } });
+  assert.equal(src.status, 200, JSON.stringify(src.body));
+  await call(`/v1/owner/source-lists/${lid}/members`, { method: "POST", ip: "203.0.113.64", token: owner.token, body: { handle: "membercedar" } });
+  const rich = {
+    id: "full-post",
+    text: "X".repeat(600),
+    date: "2026-11-08T12:00:00.000Z",
+    url: "https://feeds.example/full",
+    media: [{ type: "photo", url: "https://cdn.example/full.jpg" }],
+    quoted: { id: "q-full", handle: "quotedlane", text: "quoted body" }
+  };
+  const doc = await r2json("owner/source-lists.json");
+  const sourceId = doc.lists.find((row) => row.id === lid).sources[0];
+  doc.sources[sourceId].cachedPosts = [rich];
+  doc.sources.slow = { id: "slow", platform: "rss", handle: "slow", url: "https://feeds.example/slow.xml", name: "Slow", cachedPosts: [] };
+  doc.sources.next = { id: "next", platform: "rss", handle: "next", url: "https://feeds.example/next.xml", name: "Next", cachedPosts: [] };
+  const list = doc.lists.find((row) => row.id === lid);
+  list.sources = [sourceId, "slow", "next"];
+  list.changedAt = Date.now();
+  const b = await mf.getBindings();
+  await b.DATA.put("owner/source-lists.json", JSON.stringify(doc));
+  const index = (await r2json("owner/lists/index.json")) || { v: 1, lists: {} };
+  delete index.lists[lid];
+  await b.DATA.put("owner/lists/index.json", JSON.stringify(index));
+  outboundHits.length = 0;
+  const started = Date.now();
+  const pending = call("/v1/me/source-lists", { ip: "203.0.113.65", token: member.token });
+  for (let i = 0; i < 50 && !outboundHits.includes("/slow.xml"); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+  const memberId = String(member.account.publicId);
+  await call(`/v1/owner/source-lists/${lid}/members/${memberId}`, { method: "DELETE", ip: "203.0.113.66", token: owner.token });
+  const body = await Promise.race([
+    pending,
+    new Promise((resolve) => setTimeout(() => resolve({ late: true }), 6000))
+  ]);
+  if (releaseSlow) releaseSlow();
+  const elapsed = Date.now() - started;
+  assert.equal(body.late, undefined, "the read did not finish inside the budget");
+  assert.ok(elapsed < 6000, "the read ran past the whole-list budget (" + elapsed + "ms)");
+  assert.equal(outboundHits.includes("/next.xml"), false, "a source past the budget was still fetched");
+  const stored = await r2json("owner/source-lists.json");
+  const storedList = stored.lists.find((row) => row.id === lid);
+  assert.equal(storedList.members.includes(memberId), false, "the removal was restored");
+  const again = await call("/v1/me/source-lists", { ip: "203.0.113.68", token: member.token });
+  assert.equal(again.body.lists.find((row) => row.id === lid), undefined);
+  const faithful = await r2json("owner/lists/index.json");
+  const shard = faithful && faithful.lists && faithful.lists[lid];
+  if (shard && shard.hash) {
+    const got = await call("/v1/me/source-lists/shard/" + shard.hash, { ip: "203.0.113.67", token: owner.token });
+    assert.equal(got.status, 404, "the removed account's shard stayed readable");
+  }
+});
+
+test("stored posts keep their text, media and quotes, and a failed source stays visible", async () => {
+  const owner = { token: ownerToken };
+  const member = await signup("memberalder", "203.0.113.71");
+  const made = await call("/v1/owner/source-lists", { method: "POST", ip: "203.0.113.72", token: owner.token, body: { name: "Full" } });
+  const lid = made.body.created;
+  await call(`/v1/owner/source-lists/${lid}/sources`, { method: "POST", ip: "203.0.113.73", token: owner.token, body: { input: "https://feeds.example/sample.xml" } });
+  await call(`/v1/owner/source-lists/${lid}/members`, { method: "POST", ip: "203.0.113.74", token: owner.token, body: { handle: "memberalder" } });
+  const rich = {
+    id: "full-post",
+    text: "Y".repeat(600),
+    date: "2026-11-08T12:00:00.000Z",
+    url: "https://feeds.example/full",
+    media: [{ type: "photo", url: "https://cdn.example/full.jpg" }],
+    quoted: { id: "q-full", handle: "quotedlane", text: "quoted body" }
+  };
+  const doc = await r2json("owner/source-lists.json");
+  const list = doc.lists.find((row) => row.id === lid);
+  const sourceId = list.sources[0];
+  doc.sources[sourceId].cachedPosts = [rich];
+  doc.sources.missing = { id: "missing", platform: "rss", handle: "missing", url: "https://feeds.example/missing.xml", name: "Missing", cachedPosts: [] };
+  list.sources = [sourceId, "missing"];
+  list.changedAt = Date.now();
+  const b = await mf.getBindings();
+  await b.DATA.put("owner/source-lists.json", JSON.stringify(doc));
+  const index = (await r2json("owner/lists/index.json")) || { v: 1, lists: {} };
+  delete index.lists[lid];
+  await b.DATA.put("owner/lists/index.json", JSON.stringify(index));
+  const mine = await call("/v1/me/source-lists", { ip: "203.0.113.75", token: member.token });
+  const row = mine.body.lists.find((item) => item.id === lid);
+  assert.equal(row.status, "error");
+  assert.match(row.hash, /^[a-f0-9]{64}$/);
+  const got = await call("/v1/me/source-lists/shard/" + row.hash, { ip: "203.0.113.76", token: member.token });
+  assert.equal(got.status, 200);
+  assert.equal(got.text.includes("Y".repeat(600)), true);
+  assert.equal(got.text.includes("https://cdn.example/full.jpg"), true);
+  assert.equal(got.text.includes("quotedlane"), true);
 });

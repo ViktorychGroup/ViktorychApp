@@ -115,8 +115,8 @@ async function run(chromium, port) {
     const desk = await open(browser, port, { width: 1280, height: 800 }, (pack) => {
       localStorage.setItem("viktorychapp-welcome-v1", JSON.stringify({ step: 2, done: true }));
       localStorage.setItem("viktorychapp-account-v1", JSON.stringify({ token: "local-test-token-a", account: { publicId: "100000000001", handle: "user_a", displayName: "User A", avatar: "" } }));
-      localStorage.setItem("viktorychapp-private-list-meta-v1", JSON.stringify({ lists: [{ id: "sa1b2c3d4", name: "Lane list", hash: pack.hash, size: pack.body.length, at: 1, count: 1, status: "ready" }], checkedAt: Date.now(), account: "100000000001" }));
-      localStorage.setItem("viktorychapp-private-list-doc:sa1b2c3d4", JSON.stringify({ hash: pack.hash, doc: JSON.parse(pack.body) }));
+      localStorage.setItem("viktorychapp-private-list-meta-v1:100000000001", JSON.stringify({ lists: [{ id: "sa1b2c3d4", name: "Lane list", hash: pack.hash, size: pack.body.length, at: 1, count: 1, status: "ready" }], checkedAt: Date.now(), account: "100000000001" }));
+      localStorage.setItem("viktorychapp-private-list-doc:100000000001:sa1b2c3d4", JSON.stringify({ hash: pack.hash, account: "100000000001", doc: JSON.parse(pack.body) }));
       window.VIKTORYCH_ACCOUNTS = { api: location.origin, gate: true, tiktokAudience: "owner" };
     }, { hash: cached.hash, body: cached.body });
     const started = Date.now();

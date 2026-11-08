@@ -31,8 +31,13 @@ function setup(opts) {
     setTimeout: () => 0, setInterval: () => 0,
     fetch: async (url) => {
       calls.push(url.replace("https://api.example", ""));
-      if (opts.hold) await opts.hold;
-      if (url.indexOf("/v1/me/source-lists") >= 0 && url.indexOf("/shard/") < 0) return { ok: true, status: 200, json: async () => ({ lists }) };
+      if (url.indexOf("/shard/") >= 0) {
+        if (opts.shardHold) await opts.shardHold;
+      } else if (opts.hold) await opts.hold;
+      if (url.indexOf("/v1/me/source-lists") >= 0 && url.indexOf("/shard/") < 0) {
+        const listsFor = opts.only && opts.who && opts.who.id !== opts.only ? [] : lists;
+        return { ok: true, status: 200, json: async () => ({ lists: listsFor }) };
+      }
       if (url.includes("/shard/")) return { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode(body).buffer };
       return { ok: false, status: 404, json: async () => ({}) };
     }
@@ -81,7 +86,7 @@ test("a list that arrives after the account changed is not kept", async () => {
   let release;
   const hold = new Promise((resolve) => { release = resolve; });
   const who = { id: "100000000001" };
-  const t = setup({ hold, who });
+  const t = setup({ hold, who, only: "100000000001" });
   const pending = t.SL.refresh(true);
   for (let i = 0; i < 20 && !t.calls.length; i++) await new Promise((resolve) => setImmediate(resolve));
   who.id = "100000000002";
@@ -89,6 +94,32 @@ test("a list that arrives after the account changed is not kept", async () => {
   assert.equal(await pending, false);
   assert.equal(t.SL.merge(base()).posts.length, 1);
   assert.equal(t.SL._mem.meta, null);
+});
+
+test("a shard that finishes after the account changed is not saved for the new account", async () => {
+  let release;
+  const shardHold = new Promise((resolve) => { release = resolve; });
+  const who = { id: "100000000001" };
+  const t = setup({ shardHold, who, only: "100000000001" });
+  const pending = t.SL.refresh(true);
+  for (let i = 0; i < 30 && !t.calls.some((item) => item.includes("/shard/")); i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(t.calls.some((item) => item.includes("/shard/")), "the shard request started");
+  who.id = "100000000002";
+  release();
+  assert.equal(await pending, false);
+  assert.equal(t.SL.merge(base()).posts.length, 1);
+  for (const [key, value] of t.store.entries()) {
+    if (String(key).indexOf("100000000002") >= 0) assert.equal(String(value).indexOf("quotedmaple") >= 0, false, key);
+  }
+});
+
+test("an open page refreshes when the assignment signal arrives", async () => {
+  const t = setup({ lists: false });
+  await t.SL.refresh(true);
+  const before = t.calls.length;
+  t.SL._mem.meta = { lists: [], checkedAt: Date.now(), account: "membermaple" };
+  await t.SL.notify({ lists: true });
+  assert.ok(t.calls.length > before, "the signal did not read the lists");
 });
 
 test("a failed list says retry instead of waiting for the scheduler", async () => {

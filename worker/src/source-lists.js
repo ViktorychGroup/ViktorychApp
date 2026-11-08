@@ -251,21 +251,36 @@ async function addSource(env, doc, list, input, opts) {
   return { id };
 }
 
+const PUBLISH_BUDGET_MS = 4000;
+const POSTS_PER_SOURCE = 8;
+
+/* Keep the post the source returned. Missing identity fields are filled in.
+   Text, media, quotes and every other field stay as they are. */
 function feedPost(source, post) {
-  const id = String((post && post.id) || "").slice(0, 120);
+  if (!post || typeof post !== "object") return null;
+  const id = String(post.id || post.statusId || "");
   if (!id) return null;
-  return {
-    id,
-    statusId: id,
-    platform: source.platform || "rss",
-    feedId: source.id,
-    kind: "post",
-    author: source.name || source.handle || "",
-    handle: source.handle || "",
-    text: String(post.text || "").slice(0, 500),
-    date: String(post.date || ""),
-    url: String(post.url || ""),
-    sourceList: true
+  const copy = Object.assign({}, post);
+  copy.id = id;
+  if (!copy.statusId) copy.statusId = id;
+  if (!copy.feedId) copy.feedId = source.id;
+  if (!copy.platform) copy.platform = source.platform || "";
+  if (!copy.handle) copy.handle = source.handle || "";
+  if (!copy.author) copy.author = source.name || source.handle || "";
+  if (!copy.kind) copy.kind = post.kind || "post";
+  copy.sourceList = true;
+  return copy;
+}
+
+function boundedFetch(deadline) {
+  return (url, init) => {
+    const left = deadline - Date.now();
+    if (left <= 50) {
+      const err = new Error("aborted");
+      err.name = "AbortError";
+      return Promise.reject(err);
+    }
+    return fetch(url, Object.assign({}, init || {}, { signal: AbortSignal.timeout(left) }));
   };
 }
 
@@ -284,23 +299,22 @@ async function sha256Hex(text) {
 /* A list the sync already published is kept. A list whose sources changed
    since that copy, or that has never had one, is built here from posts we
    already stored, then from one short public fetch. */
-function shardStale(index, list) {
+function shardStale(index, list, force) {
   const row = (index.lists || {})[list.id] || {};
   if (!list.sources.length) return hashOk(row.hash) || !row.empty;
   if (!hashOk(row.hash)) {
-    if (row.error && Date.now() - Number(row.at || 0) < 10000) return false;
+    if (!force && row.error && !row.partial && Date.now() - Number(row.at || 0) < 10000) return false;
     return true;
   }
+  if (force && (row.partial || row.error)) return true;
   return Number(list.changedAt) > Number(row.at || 0);
 }
 
-async function postsForSource(row, index) {
-  if (Array.isArray(row.cachedPosts) && row.cachedPosts.length) return { ok: true, posts: row.cachedPosts.slice(0, 8), cached: true };
+async function postsForSource(row, index, deadline) {
+  if (Array.isArray(row.cachedPosts) && row.cachedPosts.length) return { ok: true, posts: row.cachedPosts.slice(0, POSTS_PER_SOURCE), cached: true };
   const saved = index.sourcePosts && index.sourcePosts[row.id];
-  if (saved && Array.isArray(saved.posts) && saved.posts.length) {
-    row.cachedPosts = saved.posts.slice(0, 8);
-    return { ok: true, posts: row.cachedPosts, cached: true };
-  }
+  if (saved && Array.isArray(saved.posts) && saved.posts.length) return { ok: true, posts: saved.posts.slice(0, POSTS_PER_SOURCE), cached: true };
+  if (Date.now() >= deadline) return { ok: false, posts: [], cached: false };
   const spec = {
     platform: row.platform,
     handle: row.handle,
@@ -309,38 +323,50 @@ async function postsForSource(row, index) {
     channelId: row.channelId || "",
     redditKind: row.redditKind || ""
   };
-  const probed = await probeWithin(spec, 4000);
+  const probed = await probeWithin(spec, Math.max(1, deadline - Date.now()), boundedFetch(deadline));
   if (!probed || probed.error || probed.late) return { ok: false, posts: [], cached: false };
-  row.cachedPosts = (probed.posts || []).slice(0, 8);
-  return { ok: true, posts: row.cachedPosts, cached: false };
+  return { ok: true, posts: (probed.posts || []).slice(0, POSTS_PER_SOURCE), cached: false };
 }
 
-async function publishReady(env, doc, onlyIds) {
-  if (!env.DATA) return;
+function sameIds(left, right) {
+  const a = (left || []).map(String);
+  const b = (right || []).map(String);
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/* Build shard bytes first. The owner document is read again before anything
+   is published, so a removal that landed during the fetch is not written back. */
+async function publishReady(env, hintDoc, onlyIds, force) {
+  if (!env.DATA) return false;
+  const deadline = Date.now() + PUBLISH_BUDGET_MS;
+  const doc = hintDoc || await readDoc(env);
   const wanted = new Set(onlyIds || []);
   const due = doc.lists.filter((row) => row.members.length && (!wanted.size || wanted.has(row.id)));
-  if (!due.length) return;
-  const index = Object.assign({ v: 1, lists: {}, sources: {}, sourcePosts: {} }, (await readJson(env, INDEX_KEY)) || {});
-  index.lists = index.lists || {};
-  index.sources = index.sources || {};
-  index.sourcePosts = index.sourcePosts || {};
-  let wrote = false;
+  if (!due.length) return false;
+  const seen = await readJson(env, INDEX_KEY) || {};
+  const pending = [];
   for (const list of due) {
-    if (!shardStale(index, list)) continue;
+    if (Date.now() >= deadline && pending.length) break;
+    if (!shardStale(seen, list, force)) continue;
+    const expectMembers = list.members.slice();
+    const expectSources = list.sources.slice();
     const now = Date.now();
     if (!list.sources.length) {
-      index.lists[list.id] = { hash: "", count: 0, at: now, empty: true, sources: [] };
-      wrote = true;
+      pending.push({ id: list.id, expectMembers, expectSources, entry: { hash: "", count: 0, at: now, empty: true, sources: [] }, health: {}, posts: {} });
       continue;
     }
     const feeds = [];
     const posts = [];
+    const health = {};
+    const kept = {};
     let failed = false;
     for (const id of list.sources) {
       const source = doc.sources[id];
       if (!source) continue;
-      const got = await postsForSource(source, index);
-      if (!got.ok && !got.posts.length) failed = true;
+      const got = await postsForSource(source, seen, deadline);
+      if (!got.ok) failed = true;
       const feed = {
         id: source.id,
         platform: source.platform,
@@ -356,35 +382,69 @@ async function publishReady(env, doc, onlyIds) {
         const row = feedPost(source, post);
         if (row) posts.push(row);
       });
-      index.sources[id] = { ok: got.ok === true, count: got.posts.length, at: now };
-      if (got.posts.length) index.sourcePosts[id] = { profile: feed, posts: got.posts };
+      health[id] = { ok: got.ok === true, count: got.posts.length, at: now };
+      if (got.posts.length) kept[id] = { profile: feed, posts: got.posts };
+      if (Date.now() >= deadline) break;
     }
     if (failed && !posts.length) {
-      index.lists[list.id] = { hash: "", count: 0, at: now, error: "down", sources: list.sources.slice() };
-      wrote = true;
+      pending.push({ id: list.id, expectMembers, expectSources, entry: { hash: "", count: 0, at: now, error: "down", sources: expectSources }, health, posts: kept });
       continue;
     }
     const body = stableJson({ v: 1, feeds, posts }) + "\n";
     const hash = await sha256Hex(body);
     await env.DATA.put(SHARD_PREFIX + hash + ".json", body, JSON_TYPE);
-    index.lists[list.id] = { hash, size: new TextEncoder().encode(body).byteLength, count: posts.length, at: now, sources: list.sources.slice() };
+    pending.push({
+      id: list.id,
+      expectMembers,
+      expectSources,
+      entry: { hash, size: new TextEncoder().encode(body).byteLength, count: posts.length, at: now, sources: expectSources, partial: failed },
+      health,
+      posts: kept
+    });
+  }
+  if (!pending.length) return false;
+  const live = await readDoc(env);
+  const index = Object.assign({ v: 1, lists: {}, sources: {}, sourcePosts: {} }, (await readJson(env, INDEX_KEY)) || {});
+  index.lists = index.lists || {};
+  index.sources = index.sources || {};
+  index.sourcePosts = index.sourcePosts || {};
+  let wrote = false;
+  pending.forEach((update) => {
+    const list = live.lists.find((row) => row.id === update.id);
+    if (!list) return;
+    if (!sameIds(list.members, update.expectMembers) || !sameIds(list.sources, update.expectSources)) return;
+    index.lists[update.id] = update.entry;
+    Object.keys(update.health).forEach((id) => { index.sources[id] = update.health[id]; });
+    Object.keys(update.posts).forEach((id) => { index.sourcePosts[id] = update.posts[id]; });
     wrote = true;
+  });
+  if (!wrote) return false;
+  index.v = 1;
+  index.at = Date.now();
+  await env.DATA.put(INDEX_KEY, JSON.stringify(index), JSON_TYPE);
+  return true;
+}
+
+async function notifyMembers(env, doc, publish) {
+  if (!publish) return;
+  const told = new Set();
+  (doc.lists || []).forEach((row) => (row.members || []).forEach((id) => told.add(String(id))));
+  for (const id of told) {
+    try { await publish(env, id, "sync", { lists: true }, id); } catch (err) { /* the next open still reads the shard */ }
   }
-  if (wrote) {
-    index.v = 1;
-    index.at = Date.now();
-    await env.DATA.put(INDEX_KEY, JSON.stringify(index), JSON_TYPE);
-  }
-  return wrote;
 }
 
 async function afterChange(env, doc, deps) {
-  try { await publishReady(env, doc); } catch (err) { /* the member read tries once more */ }
+  // Membership is committed before the fetch, so a later removal is the
+  // newer document and is not replaced by this copy.
   await writeDoc(env, doc);
-  const changed = await writeWanted(env, doc, Date.now());
+  try { await publishReady(env, null); } catch (err) { /* the member read tries once more */ }
+  const live = await readDoc(env);
+  const changed = await writeWanted(env, live, Date.now());
   if (changed && deps.dispatchWorkflows) {
     try { await deps.dispatchWorkflows(env, ["sync.yml"]); } catch (err) { /* the next scheduled sync fetches it */ }
   }
+  await notifyMembers(env, live, deps.publish);
 }
 
 async function handleOwnerSourceLists(request, env, path, deps) {
@@ -511,35 +571,29 @@ async function handleMySourceLists(request, env, path, deps) {
   if (path === "/v1/me/source-lists" && method === "GET") {
     // Read only: no rate row is written, so the check costs no D1 write.
     const retry = new URL(request.url).searchParams.get("retry") === "1";
-    if (retry) {
-      const prior = (await readJson(env, INDEX_KEY)) || {};
-      const lists = prior.lists || {};
-      mine.forEach((row) => { if (lists[row.id] && lists[row.id].error) delete lists[row.id].error; });
-      if (prior.lists) await env.DATA.put(INDEX_KEY, JSON.stringify(prior), JSON_TYPE);
-    }
     if (mine.some((row) => row.sources.length)) {
-      let wrote = false;
-      try { wrote = await publishReady(env, doc, mine.map((row) => row.id)); } catch (err) { wrote = false; }
-      if (wrote) await writeDoc(env, doc);
+      try { await publishReady(env, null, mine.map((row) => row.id), retry); } catch (err) { /* answer with whatever is already published */ }
     }
+    const live = await readDoc(env);
+    const mineNow = live.lists.filter((row) => row.members.indexOf(id) >= 0);
     const index = (await readJson(env, INDEX_KEY)) || {};
     const shards = index.lists || {};
-    if (mine.length) {
+    if (mineNow.length) {
       // A member who came back after a quiet month switches the fetch back on.
       const wanted = (await readJson(env, WANTED_KEY)) || {};
-      const live = new Set(((wanted.lists) || []).map((row) => row.id));
-      if (mine.some((row) => row.sources.length && !live.has(row.id))) await writeWanted(env, doc, Date.now());
+      const liveWanted = new Set(((wanted.lists) || []).map((row) => row.id));
+      if (mineNow.some((row) => row.sources.length && !liveWanted.has(row.id))) await writeWanted(env, live, Date.now());
     }
     return deps.json(200, {
-      lists: mine.map((row) => {
+      lists: mineNow.map((row) => {
         const shard = shards[row.id] || {};
         const hash = hashOk(shard.hash) ? shard.hash : "";
         const count = Number(shard.count) || 0;
         let status = "loading";
         if (!row.sources.length || shard.empty) status = "empty";
+        else if (shard.partial || shard.error) status = "error";
         else if (hash && count) status = "ready";
         else if (hash) status = "empty";
-        else if (shard.error) status = "error";
         return { id: row.id, name: row.name, hash, size: Number(shard.size) || 0, at: Number(shard.at) || 0, count, status };
       })
     }, { "cache-control": "private, no-store" });

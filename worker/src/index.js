@@ -6099,7 +6099,7 @@ async function route(request, env, ctx) {
     return json(made.status, Object.assign({ ok: made.status === 200 }, made.body));
   }
   if (path === "/v1/owner/source-lists" || path.startsWith("/v1/owner/source-lists/")) {
-    return handleOwnerSourceLists(request, env, path, { json, readJson, rateHit, limited, requireOwnerHidden, dispatchWorkflows });
+    return handleOwnerSourceLists(request, env, path, { json, readJson, rateHit, limited, requireOwnerHidden, dispatchWorkflows, publish: publishToAccount });
   }
   if (path === "/v1/me/source-lists" || path.startsWith("/v1/me/source-lists/")) {
     return handleMySourceLists(request, env, path, { json, readJson, rateHit, limited, sessionAccount });
