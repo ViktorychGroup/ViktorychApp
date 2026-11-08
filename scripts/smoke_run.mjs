@@ -170,6 +170,7 @@ const PAGE_STEPS = [
   step("games-mobile", "node scripts/games_mobile_test.mjs", { needs: ["pw", "browser"], paths: [file("games_mobile_test.mjs")] }),
   step("live-translate", "node scripts/live_translate_test.mjs", { needs: ["pw", "browser"], paths: [file("live_translate_test.mjs")] }),
   step("friend-p2p", "node scripts/friend_p2p_test.mjs", { needs: ["pw", "browser"], paths: [file("friend_p2p_test.mjs")] }),
+  step("friend-refresh", "node scripts/friend_refresh_test.mjs", { needs: ["pw", "browser"], paths: [file("friend_refresh_test.mjs"), /^accounts\.js$/] }),
   step("communities-instant", "node scripts/communities_instant_test.mjs", { needs: ["pw", "browser"], paths: [file("communities_instant_test.mjs")] }),
   step("routes-instant", "node scripts/routes_instant_test.mjs", { needs: ["pw", "browser"], paths: [file("routes_instant_test.mjs")] }),
   step("profile-by-name", "node scripts/profile_by_name_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_by_name_test.mjs")] }),
@@ -286,7 +287,7 @@ const SHARDS = {
   "compose-a": ["community-home", "communities-hub", "own-post", "author-marks", "post-page"],
   "compose-b": ["music-dock", "video-fallback", "ig-media", "device-guard", "usernames", "owner-user-settings"],
   "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile", "people-search", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync"],
-  "compose-d": ["live-translate", "friend-p2p", "communities-instant", "routes-instant"],
+  "compose-d": ["live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant"],
   "compose-e": ["profile-by-name", "communities-rows", "friend-privacy", "foryou-communities"],
   "signup-flows": ["signup-flows"]
 };
@@ -307,7 +308,7 @@ const REQUIRED_PAGE = [
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
   "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
-  "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name", "people-search", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync",
+  "live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant", "profile-by-name", "people-search", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync",
   "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares",
   "storage-recordings", "storage-page"
 ];

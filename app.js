@@ -1739,6 +1739,13 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (STATE.settings && STATE.settings.devicePerf && window.ViktorychDevice && window.ViktorychDevice.persist) {
       STATE.settings.devicePerf = window.ViktorychDevice.persist(STATE.settings.devicePerf);
     }
+    // Another tab may have saved a newer block list since this copy was read.
+    // Keep that list. This tab's own newer list still wins.
+    if (STATE.settings && window.ViktorychAccounts && window.ViktorychAccounts.pickBlocks) {
+      let disk = null;
+      try { disk = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { disk = null; }
+      if (disk && disk.blocks) STATE.settings.blocks = window.ViktorychAccounts.pickBlocks(disk.blocks, STATE.settings.blocks);
+    }
     writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings));
     blocksChanged();
     syncFeatureFlags();
