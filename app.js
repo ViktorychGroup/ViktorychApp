@@ -2149,7 +2149,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "app_scale", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2254,6 +2254,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
       status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
+      app_scale: [tr("App size"), tr("On computers, an optional size for a maximized window and a smaller window. Off leaves the app at the browser’s own size.")],
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
       update_notice: [tr("Visible updates"), tr("A short Updating notice while an update applies, then a full-screen What's new page.")],
       status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")],
@@ -22331,6 +22332,23 @@ if (STATE.histClear) {
     location.hash = wanted;
   }
 
+  /* CSS zoom on the page multiplies a fixed top/left again. Rects are visual
+     pixels, so menu positions are stored in the page's own pixels. */
+  function layoutZoom() {
+    const z = parseFloat(document.documentElement.style.zoom);
+    return z > 0 ? z : 1;
+  }
+  function layoutRect(el) {
+    const z = layoutZoom();
+    const r = el.getBoundingClientRect();
+    if (z === 1) return r;
+    return { top: r.top / z, right: r.right / z, bottom: r.bottom / z, left: r.left / z, width: r.width / z, height: r.height / z };
+  }
+  function layoutView() {
+    const z = layoutZoom();
+    return { w: window.innerWidth / z, h: window.innerHeight / z };
+  }
+
   function placeTabMenu() {
     const menu = document.querySelector(".tab-menu");
     const caret = document.querySelector('.tab-caret[aria-expanded="true"]');
@@ -22340,10 +22358,11 @@ if (STATE.histClear) {
       menu.style.top = "";
       return;
     }
-    const item = caret.getBoundingClientRect();
+    const item = layoutRect(caret);
     const width = menu.offsetWidth || 220;
+    const view = layoutView();
     let left = item.left;
-    const limit = window.innerWidth - 8;
+    const limit = view.w - 8;
     if (left + width > limit) left = Math.max(8, limit - width);
     menu.style.left = Math.max(8, left) + "px";
     menu.style.top = (item.bottom + 4) + "px";
@@ -22358,14 +22377,15 @@ if (STATE.histClear) {
       menu.style.top = "";
       return;
     }
-    const item = btn.getBoundingClientRect();
+    const item = layoutRect(btn);
     const width = menu.offsetWidth || 300;
     const height = menu.offsetHeight || 220;
+    const view = layoutView();
     let left = item.right - width;
     if (left < 8) left = 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
     let top = item.bottom + 6;
-    if (top + height > window.innerHeight - 8) top = Math.max(8, item.top - height - 6);
+    if (top + height > view.h - 8) top = Math.max(8, item.top - height - 6);
     menu.style.left = left + "px";
     menu.style.top = top + "px";
   }
@@ -22379,13 +22399,14 @@ if (STATE.histClear) {
       : 'button[data-act="menu"][data-id="' + id.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
     const btn = id ? document.querySelector(sel) : null;
     if (!btn) return;
-    const item = btn.getBoundingClientRect();
+    const item = layoutRect(btn);
     const width = menu.offsetWidth || 220;
+    const view = layoutView();
     const nav = document.querySelector(".bottom-nav");
     const navShown = nav && nav.getBoundingClientRect().height > 0 && getComputedStyle(nav).display !== "none";
-    const limitBottom = (navShown ? nav.getBoundingClientRect().top : window.innerHeight) - 8;
+    const limitBottom = (navShown ? layoutRect(nav).top : view.h) - 8;
     const header = document.querySelector(".topbar");
-    const limitTop = header ? Math.max(8, header.getBoundingClientRect().bottom + 4) : 8;
+    const limitTop = header ? Math.max(8, layoutRect(header).bottom + 4) : 8;
     const spaceBelow = limitBottom - (item.bottom + 4);
     const spaceAbove = item.top - 4 - limitTop;
     const want = menu.scrollHeight || menu.offsetHeight || 200;
@@ -22401,12 +22422,12 @@ if (STATE.histClear) {
     // The reply row under a post stays clickable while this menu is open.
     const reply = document.querySelector('[data-act="xc-expand-reply"], .composer');
     if (reply) {
-      const replyTop = reply.getBoundingClientRect().top;
+      const replyTop = layoutRect(reply).top;
       if (top < replyTop && top + maxH > replyTop - 8) maxH = Math.max(72, replyTop - 8 - top);
     }
     let left = item.right - width;
     if (left < 8) left = 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
     menu.style.maxHeight = Math.round(maxH) + "px";
     menu.style.left = Math.round(left) + "px";
     menu.style.top = Math.round(top) + "px";
@@ -22424,10 +22445,11 @@ if (STATE.histClear) {
     }
     const width = menu.offsetWidth || 300;
     const height = menu.offsetHeight || 240;
+    const view = layoutView();
     let left = Number(menu.dataset.x) || 8;
     let top = Number(menu.dataset.y) || 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
-    if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - height);
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
+    if (top + height > view.h - 8) top = Math.max(8, view.h - 8 - height);
     menu.style.left = left + "px";
     menu.style.top = top + "px";
   }

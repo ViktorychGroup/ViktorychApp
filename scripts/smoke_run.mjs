@@ -258,6 +258,7 @@ const NAV_STEPS = [
   step("compact-header", "node scripts/compact_header_test.mjs", { needs: ["pw", "browser"], paths: [file("compact_header_test.mjs"), ...APP] }),
   step("quote-gutter", "node scripts/quote_gutter_test.mjs", { needs: ["pw", "browser"], paths: [file("quote_gutter_test.mjs"), ...APP] }),
   step("zoom-lock", "node scripts/zoom_lock_test.mjs", { needs: ["pw", "browser"], paths: [file("zoom_lock_test.mjs"), ...APP] }),
+  step("app-scale", "node scripts/app_scale_test.mjs", { paths: [file("app_scale_test.mjs"), /^desktop-app\.js$/] }),
   step("update-notice", "node scripts/update_notice_test.mjs", { needs: ["pw", "browser"], paths: [file("update_notice_test.mjs"), /^update\.js$/, ...APP] }),
   step("header-stable", "node scripts/header_stable_test.mjs", { needs: ["pw", "browser"], paths: [file("header_stable_test.mjs"), ...APP] }),
   step("post-ring", "node scripts/post_ring_test.mjs", { needs: ["pw", "browser"], paths: [file("post_ring_test.mjs"), /^keys\.(js|css)$/, ...APP] }),
@@ -280,7 +281,7 @@ const NAV_STEPS = [
 ];
 
 const SHARDS = {
-  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings"],
+  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings", "app-scale"],
   site: ["about-layout", "points-layout", "stories-layout", "assemble-site", "smoke-site", "smoke-mirror", "yt-embed", "x-video", "ios", "live"],
   "ui-fast": ["notifications", "pill-fit", "sidebar", "privacy", "title-privacy", "desktop-squares", "storage-page"],
   sw: ["sw-update"],
@@ -314,7 +315,7 @@ const REQUIRED_PAGE = [
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
   "live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant", "profile-by-name", "people-search", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync",
   "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares",
-  "storage-recordings", "storage-page"
+  "storage-recordings", "storage-page", "app-scale"
 ];
 
 export function stepsFor(suite) {
