@@ -108,6 +108,14 @@ const PAGE_STEPS = [
     weight: 170, needs: ["pw", "browser"], timing: true,
     paths: [file("home_tabs_test.mjs"), file("boot_speed_test.mjs"), file("custom_tab_reload_test.mjs"), ...APP]
   }),
+  step("tab-member", "node scripts/tab_member_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("tab_member_test.mjs"), /^app\.js$/]
+  }),
+  step("reply-lookup", "node scripts/reply_lookup_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("reply_lookup_test.mjs"), /^app\.js$/]
+  }),
   step("pill-fit", "node scripts/pill_fit_test.mjs", {
     weight: 20, needs: ["pw", "browser"],
     paths: [file("pill_fit_test.mjs"), /^styles\.css$/]
@@ -265,7 +273,7 @@ const SHARDS = {
   sw: ["sw-update"],
   "ui-profile": ["profile"],
   "ui-drawer": ["drawer"],
-  home: ["home-tabs", "foryou-chunks", "foryou-off"],
+  home: ["home-tabs", "tab-member", "reply-lookup", "foryou-chunks", "foryou-off"],
   "compose-core": ["compose-ai", "compose-page"],
   "compose-a": ["community-home", "communities-hub", "own-post", "author-marks", "post-page"],
   "compose-b": ["music-dock", "video-fallback", "ig-media", "device-guard", "usernames", "owner-user-settings"],
@@ -286,7 +294,7 @@ const REQUIRED_PAGE = [
   "action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n",
   "about-layout", "points-layout", "telegram-stories", "stories", "stories-layout",
   "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "profile",
-  "home-tabs", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
+  "home-tabs", "tab-member", "reply-lookup", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
   "signup-flows",
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
   "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media",

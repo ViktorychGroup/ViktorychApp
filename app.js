@@ -2726,6 +2726,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const slim = slimPost(post);
     if (!slim || !slim.id) return;
     slim.kind = post.kind || "post";
+    if (post.platform === "app" || post.appPost) slim.viewerScope = post.viewerScope || viewerScope();
     if (post.repostedBy) slim.repostedBy = { handle: post.repostedBy.handle || "", name: post.repostedBy.name || "", avatar: post.repostedBy.avatar || "" };
     const list = openedList().filter((item) => item && item.id !== slim.id);
     list.unshift(slim);
@@ -2735,7 +2736,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
 
   function openedPost(id) {
     const key = String(id || "");
-    return openedList().find((item) => item && (item.id === key || String(item.statusId || "") === key)) || null;
+    const item = openedList().find((row) => row && (row.id === key || String(row.statusId || "") === key)) || null;
+    if (item && (item.platform === "app" || item.appPost) && item.viewerScope !== viewerScope()) return null;
+    return item;
   }
 
   function loadTimelineSnap() {
@@ -2774,7 +2777,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   }
 
   function findPost(platform, handle, id) {
-    const shared = STATE.shared[String(id)];
+    const shared = sharedForViewer(id);
     if (shared) return shared;
     const h = handle && handle !== "_" ? handle.toLowerCase() : "";
     const all = posts();
@@ -2788,9 +2791,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
     const buckets = Object.keys(STATE.replies);
     for (let i = 0; i < buckets.length; i++) {
-      const list = (STATE.replies[buckets[i]] && STATE.replies[buckets[i]].replies) || [];
+      const bucket = replyBucketForViewer(STATE.replies[buckets[i]]);
+      if (!bucket) continue;
+      const list = bucket.replies || [];
       for (let j = 0; j < list.length; j++) {
-        const reply = list[j];
+        const reply = replyCardForViewer(list[j]);
+        if (!reply) continue;
         if (String(reply.statusId || reply.id) !== String(id)) continue;
         if (h && (reply.handle || "").toLowerCase() !== h) continue;
         if (platform && reply.platform && reply.platform !== platform) continue;
@@ -3386,7 +3392,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function playPost(el) {
     const id = el && el.dataset.pid;
     if (!id) return null;
-    const direct = posts().find((item) => item && (item.id === id || String(item.statusId || "") === id)) || STATE.shared[id] || null;
+    const direct = posts().find((item) => item && (item.id === id || String(item.statusId || "") === id)) || sharedForViewer(id) || null;
     if (direct) return direct;
     const list = posts();
     for (let i = 0; i < list.length; i++) {
@@ -8592,11 +8598,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       });
     };
     posts().forEach(touch);
-    Object.keys(STATE.shared).forEach((key) => touch(STATE.shared[key]));
+    Object.keys(STATE.shared).forEach((key) => { if (sharedForViewer(key)) touch(STATE.shared[key]); });
     Object.keys(STATE.replies).forEach((key) => {
-      const bucket = STATE.replies[key] || {};
-      (bucket.replies || []).forEach(touch);
-      commentRows(bucket.doc).forEach(touch);
+      const bucket = replyBucketForViewer(STATE.replies[key]);
+      if (!bucket) return;
+      (bucket.replies || []).forEach((row) => { if (replyCardForViewer(row)) touch(row); });
+      commentRows(bucket.doc).forEach((row) => { if (replyCardForViewer(row)) touch(row); });
     });
   }
 
@@ -8671,39 +8678,45 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function appReplyBucket(post, id, want) {
     const fresh = String(STATE.forceReply || "") === id;
     if (fresh) STATE.forceReply = "";
+    const sender = sessionNow();
+    const scope = viewerScope();
     const bucket = STATE.replies[id];
-    if (!fresh && bucket && (bucket.loading || (bucket.fetchedAt && Date.now() - bucket.fetchedAt < 30000))) return bucket;
-    STATE.replies[id] = { loading: true, replies: (bucket && bucket.replies) || [], missing: false, cap: want, fetchedAt: (bucket && bucket.fetchedAt) || 0 };
+    const owned = bucket && bucket.scope === scope;
+    if (!fresh && owned && (bucket.loading || (bucket.fetchedAt && Date.now() - bucket.fetchedAt < 30000))) return bucket;
+    STATE.replies[id] = { loading: true, replies: owned ? (bucket.replies || []) : [], missing: false, cap: want, fetchedAt: owned ? (bucket.fetchedAt || 0) : 0, scope: scope };
     accountCall("/v1/posts/thread?id=" + encodeURIComponent(id) + "&sort=" + replySortMode()).then((res) => {
+      if (!sameSession(sender)) return;
       if (res && res.status === 410) {
         dropAppItem(id);
-        STATE.replies[id] = { loading: false, replies: [], missing: true, cap: want, fetchedAt: Date.now(), settled: true, gone: true };
+        STATE.replies[id] = { loading: false, replies: [], missing: true, cap: want, fetchedAt: Date.now(), settled: true, gone: true, scope: viewerScope() };
         render();
         return;
       }
       if (!res || res.status !== 200 || !Array.isArray(res.replies)) {
-        STATE.replies[id] = { loading: false, replies: (bucket && bucket.replies) || [], missing: !(bucket && bucket.replies && bucket.replies.length), cap: want, fetchedAt: Date.now(), settled: true };
+        STATE.replies[id] = { loading: false, replies: owned ? (bucket.replies || []) : [], missing: !(owned && bucket.replies && bucket.replies.length), cap: want, fetchedAt: Date.now(), settled: true, scope: viewerScope() };
         render();
         return;
       }
       if (res.post && res.post.id) {
-        appThreadItems[res.post.id] = res.post;
+        appThreadItems[res.post.id] = { scope: viewerScope(), item: res.post };
         patchAppItem(res.post.id, res.post);
-        const card = appCardPost(res.post);
-        STATE.shared[card.id] = Object.assign(STATE.shared[card.id] || {}, card);
+        const card = stampAppCard(appCardPost(res.post));
+        const prev = sharedForViewer(card.id);
+        STATE.shared[card.id] = Object.assign(prev || {}, card);
       }
       const replies = res.replies.filter(notGone).map((item) => {
-        appThreadItems[item.id] = item;
-        const card = appCardPost(item);
+        appThreadItems[item.id] = { scope: viewerScope(), item: item };
+        const card = stampAppCard(appCardPost(item));
         card.replyingTo = { id: id, handle: post.handle || "" };
         STATE.shared[card.id] = card;
         return card;
       });
-      STATE.replies[id] = { loading: false, replies: replies.slice(0, want), missing: false, cap: want, fetchedAt: Date.now(), settled: true };
+      STATE.replies[id] = { loading: false, replies: replies.slice(0, want), missing: false, cap: want, fetchedAt: Date.now(), settled: true, scope: viewerScope() };
       addNostrReplies(id, post);
       render();
     }).catch(() => {
-      STATE.replies[id] = { loading: false, replies: (bucket && bucket.replies) || [], missing: true, cap: want, fetchedAt: Date.now(), settled: true };
+      if (!sameSession(sender)) return;
+      STATE.replies[id] = { loading: false, replies: owned ? (bucket.replies || []) : [], missing: true, cap: want, fetchedAt: Date.now(), settled: true, scope: viewerScope() };
       render();
     });
     return STATE.replies[id];
@@ -10627,7 +10640,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function blockKeyLabel(key) {
     const text = String(key || "");
     if (text.indexOf("app:") === 0) {
-      const found = (publicPosts || []).find((item) => item && item.authorId === text.slice(4));
+      const found = visiblePublicPosts().find((item) => item && item.authorId === text.slice(4));
       return found && found.handle ? "@" + found.handle : tr("Account on this app");
     }
     const at = text.indexOf(":");
@@ -10679,7 +10692,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!key) return null;
     const found = findAnyPost(key);
     if (found) return found;
-    const pub = (publicPosts || []).find((item) => item && (item.id === key || postKey(item) === key));
+    const pub = visiblePublicPosts().find((item) => item && (item.id === key || postKey(item) === key));
     return pub || null;
   }
 
@@ -12134,8 +12147,17 @@ const here = parseRoute();
   }
 
   function listMembersPosts(list) {
-    const ids = new Set(list.members || []);
-    return posts().filter((p) => ids.has(p.feedId) || ids.has((p.platform || "x") + ":" + p.handle)).sort(byStamp);
+    const ids = (list && list.members) || [];
+    const tab = "list:" + (list && list.id || "");
+    const seen = {};
+    const out = posts().filter((post) => profileMatch(post, ids));
+    out.forEach((post) => { if (post && post.id) seen[post.id] = true; });
+    appHomePosts(tab).concat(deviceFollowPosts(tab)).forEach((post) => {
+      if (!post || !post.id || seen[post.id]) return;
+      seen[post.id] = true;
+      out.push(post);
+    });
+    return out.sort(byStamp);
   }
 
   const FEED_PAGE = ((window.ViktorychIos && window.ViktorychIos.lite) || (window.ViktorychTVMode && window.ViktorychTVMode.pref("fewerPosts") === true)) ? 12 : 25;
@@ -12842,6 +12864,9 @@ const here = parseRoute();
   const WELCOME_KEY = "viktorychapp-welcome-v1";
   let publicPosts = [];
   let publicStamp = 0;
+  let publicStampId = "";
+  let publicGen = 0;
+  let publicOwner = "";
   let welcomePhoto = "";
   const welcomeFollows = {};
 
@@ -12869,20 +12894,61 @@ const here = parseRoute();
     return !!(window.ViktorychGames && window.ViktorychGames.busy && window.ViktorychGames.busy());
   }
 
+  function viewerScope() {
+    const now = sessionNow();
+    return now.id + "\n" + String(now.gen || 0);
+  }
+  function visiblePublicPosts() {
+    return publicOwner === viewerScope() ? publicPosts : [];
+  }
+  /* An app post was fetched for one signed-in account. Another account on
+     this page must not read that copy. Catalog posts from other networks
+     stay available. */
+  function stampAppCard(card) {
+    if (card && (card.platform === "app" || card.appPost)) card.viewerScope = viewerScope();
+    return card;
+  }
+  function sharedForViewer(id) {
+    const card = STATE.shared[String(id || "")];
+    if (!card) return null;
+    if ((card.platform === "app" || card.appPost) && card.viewerScope !== viewerScope()) return null;
+    return card;
+  }
+  /* A thread fetched for one account stays in STATE.replies. Lookups for
+     share, bookmarks, history and the media viewer have to use the same
+     rule as the thread itself. A bucket with no scope is a public source. */
+  function replyBucketForViewer(bucket) {
+    if (!bucket) return null;
+    if (bucket.scope && bucket.scope !== viewerScope()) return null;
+    return bucket;
+  }
+  function replyCardForViewer(reply) {
+    if (!reply) return null;
+    if ((reply.platform === "app" || reply.appPost) && reply.viewerScope && reply.viewerScope !== viewerScope()) return null;
+    return reply;
+  }
   function schedulePublicPosts() {
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
     if (!accountToken()) return;
     const now = Date.now();
-    if (now - publicStamp < 20000) return;
+    const viewerId = sessionNow().id;
+    // The session generation moves when the account module first reads the
+    // same account. Only a different account should fetch again inside the window.
+    if (viewerId === publicStampId && now - publicStamp < 20000) return;
+    const sender = sessionNow();
+    const gen = ++publicGen;
     publicStamp = now;
+    publicStampId = viewerId;
     accountCall("/v1/posts").then((res) => {
+      if (gen !== publicGen || !sameSession(sender)) return;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
       if (typeof res.communitiesHome === "boolean") STATE.settings.communitiesHome = res.communitiesHome;
       if (res.communityPrefs) cmFyPrefs(res.communityPrefs);
       const merged = keepOwnPosts(res.posts);
-      if (samePublicPosts(merged)) return;
+      if (samePublicPosts(merged) && publicOwner === viewerScope()) return;
       publicPosts = merged;
+      publicOwner = viewerScope();
       render();
     }).catch(() => {});
   }
@@ -12962,9 +13028,11 @@ const here = parseRoute();
     const current = mine ? String(mine.publicId || "") : "";
     if (ownerId && current !== String(ownerId)) return;
     ownSent[post.id] = { post: post, at: Date.now() };
+    if (publicOwner !== viewerScope()) publicPosts = [];
+    publicOwner = viewerScope();
     publicPosts = [post].concat(publicPosts.filter((item) => item && item.id !== post.id));
     const cache = current ? authorPostCache[current] : null;
-    if (cache) cache.posts = [post].concat(cache.posts.filter((item) => item && item.id !== post.id));
+    if (cache && cache.scope === viewerScope()) cache.posts = [post].concat((cache.posts || []).filter((item) => item && item.id !== post.id));
   }
   function forgetOwnPost(id) {
     delete ownSent[id];
@@ -13047,35 +13115,58 @@ const here = parseRoute();
     const name = key.slice(1);
     return (item) => item && String(item.authorHandle || "").replace(/^@/, "").toLowerCase() === name;
   }
+  function authorLive(key, entry, gen, sender) {
+    return !!(entry && authorPostCache[key] === entry && entry.gen === gen && entry.scope === viewerScope() && sameSession(sender));
+  }
+  function startAuthorLoad(key) {
+    const sender = sessionNow();
+    const scope = viewerScope();
+    const prev = authorPostCache[key];
+    const keep = prev && prev.scope === scope ? prev : null;
+    const entry = {
+      at: Date.now(),
+      posts: keep ? (keep.posts || []).slice() : [],
+      more: keep ? !!keep.more : false,
+      before: keep ? (keep.before || 0) : 0,
+      loading: true,
+      loadingMore: false,
+      scope: scope,
+      gen: (keep ? (keep.gen || 0) : 0) + 1,
+      sender: sender
+    };
+    authorPostCache[key] = entry;
+    const gen = entry.gen;
+    accountCall("/v1/posts?" + authorQuery(key)).then((res) => {
+      if (!authorLive(key, entry, gen, sender)) return;
+      entry.loading = false;
+      if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
+      const mine = signedAccount();
+      const next = mine && String(mine.publicId) === key ? keepOwnPosts(res.posts).filter((item) => String(item.authorId) === key) : res.posts;
+      const sig = (list) => list.map((item) => [item.id, item.replyCount, item.quoteCount, item.likes, item.reposts, item.editedAt, item.body].join("|")).join(",");
+      const before = sig(entry.posts);
+      const edge = Number(res.before) || 0;
+      const older = (entry.posts || []).filter((item) => edge && (Number(item.createdAt) || 0) < edge && !next.some((row) => row.id === item.id));
+      if (!authorLive(key, entry, gen, sender)) return;
+      if (!older.length) { entry.more = !!res.more; entry.before = edge; }
+      entry.posts = next.concat(older);
+      if (before !== sig(entry.posts)) render();
+    }).catch(() => {
+      if (authorPostCache[key] === entry) entry.loading = false;
+    });
+  }
   function authorPosts(publicId) {
     const key = String(publicId || "");
     if (!/^\d{12}$/.test(key) && !/^@[^\s/?#]{1,64}$/.test(key)) return [];
+    const scope = viewerScope();
     const cache = authorPostCache[key];
+    const live = cache && cache.scope === scope ? cache : null;
     const now = Date.now();
-    if ((!cache || now - cache.at > 30000) && accountToken() && !(cache && cache.loading)) {
-      const entry = authorPostCache[key] = cache || { at: 0, posts: [] };
-      entry.loading = true;
-      entry.at = now;
-      accountCall("/v1/posts?" + authorQuery(key)).then((res) => {
-        entry.loading = false;
-        if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
-        const mine = signedAccount();
-        const next = mine && String(mine.publicId) === key ? keepOwnPosts(res.posts).filter((item) => String(item.authorId) === key) : res.posts;
-        const sig = (list) => list.map((item) => [item.id, item.replyCount, item.quoteCount, item.likes, item.reposts, item.editedAt, item.body].join("|")).join(",");
-        const before = sig(entry.posts);
-        // Keep pages already read further back; the first page replaces only its own span.
-        const edge = Number(res.before) || 0;
-        const older = (entry.posts || []).filter((item) => edge && (Number(item.createdAt) || 0) < edge && !next.some((row) => row.id === item.id));
-        if (!older.length) { entry.more = !!res.more; entry.before = edge; }
-        entry.posts = next.concat(older);
-        if (before !== sig(entry.posts)) render();
-      }).catch(() => { entry.loading = false; });
-    }
-    // Local first: posts already on this device (Home) paint before the server answers.
-    const have = (authorPostCache[key] && authorPostCache[key].posts) || [];
+    if ((!live || now - live.at > 30000) && accountToken() && !(live && live.loading)) startAuthorLoad(key);
+    const shown = authorPostCache[key];
+    const have = shown && shown.scope === scope ? (shown.posts || []) : [];
     const ids = new Set(have.map((item) => item.id));
     const own = byAuthorKey(key);
-    const extra = publicPosts.filter((item) => own(item) && !ids.has(item.id));
+    const extra = visiblePublicPosts().filter((item) => own(item) && !ids.has(item.id));
     return have.concat(extra);
   }
 
@@ -13083,19 +13174,25 @@ const here = parseRoute();
   function loadOlderAuthorPosts(publicId) {
     const key = String(publicId || "");
     const entry = authorPostCache[key];
-    if (!entry || !entry.more || entry.loadingMore || !entry.before) return;
+    if (!entry || entry.scope !== viewerScope() || !entry.more || entry.loadingMore || !entry.before) return;
+    const sender = sessionNow();
+    const gen = entry.gen || 0;
     entry.loadingMore = true;
     accountCall("/v1/posts?" + authorQuery(key) + "&before=" + entry.before).then((res) => {
+      if (!authorLive(key, entry, gen, sender)) return;
       entry.loadingMore = false;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
       const ids = new Set((entry.posts || []).map((item) => item.id));
       const own = byAuthorKey(key);
       const add = res.posts.filter((item) => item && !ids.has(item.id) && own(item));
+      if (!authorLive(key, entry, gen, sender)) return;
       entry.posts = (entry.posts || []).concat(add);
       entry.before = Number(res.before) || 0;
       entry.more = !!res.more && add.length > 0 && !!entry.before;
       render();
-    }).catch(() => { entry.loadingMore = false; });
+    }).catch(() => {
+      if (authorPostCache[key] === entry) entry.loadingMore = false;
+    });
   }
 
   function hydratePublicMedia() {
@@ -13689,12 +13786,16 @@ const here = parseRoute();
   var appThreadItems = {};
   function findAppItem(id) {
     if (!id) return null;
-    const hit = publicPosts.find((item) => item && item.id === id);
+    const hit = visiblePublicPosts().find((item) => item && item.id === id);
     if (hit) return hit;
-    if (appThreadItems[id]) return appThreadItems[id];
+    const thread = appThreadItems[id];
+    if (thread && thread.item && thread.scope === viewerScope()) return thread.item;
+    const scope = viewerScope();
     const keys = Object.keys(authorPostCache);
     for (let i = 0; i < keys.length; i++) {
-      const found = (authorPostCache[keys[i]].posts || []).find((item) => item && item.id === id);
+      const bag = authorPostCache[keys[i]];
+      if (!bag || bag.scope !== scope) continue;
+      const found = (bag.posts || []).find((item) => item && item.id === id);
       if (found) return found;
     }
     return null;
@@ -13705,8 +13806,15 @@ const here = parseRoute();
   function patchAppItem(id, change) {
     const apply = (item) => { if (item && item.id === id) Object.assign(item, change); };
     publicPosts.forEach(apply);
-    Object.keys(appThreadItems).forEach((key) => apply(appThreadItems[key]));
-    Object.keys(authorPostCache).forEach((key) => (authorPostCache[key].posts || []).forEach(apply));
+    const scope = viewerScope();
+    Object.keys(appThreadItems).forEach((key) => {
+      const bag = appThreadItems[key];
+      if (bag && bag.item && bag.scope === scope) apply(bag.item);
+    });
+    Object.keys(authorPostCache).forEach((key) => {
+      const bag = authorPostCache[key];
+      if (bag && bag.scope === scope) (bag.posts || []).forEach(apply);
+    });
   }
   function dropAppItem(id) {
     publicPosts = publicPosts.filter((item) => item && item.id !== id);
@@ -13730,12 +13838,76 @@ const here = parseRoute();
     render();
   }
 
+  function filteredHomeTab(tab) {
+    return !!(tab && (tab.indexOf("cat:") === 0 || tab.indexOf("list:") === 0));
+  }
+  function tabMembers(tab) {
+    if (tab && tab.indexOf("list:") === 0) {
+      const found = (STATE.settings.lists || []).find((item) => item.id === tab.slice(5));
+      return (found && found.members) || [];
+    }
+    if (tab && tab.indexOf("cat:") === 0) {
+      const found = feedTabById(tab.slice(4));
+      if (!found || found.showHome === false) return [];
+      return found.members || [];
+    }
+    return [];
+  }
+  function memberPostHit(post, ids) {
+    if (!post || !ids || !ids.length) return false;
+    if (profileMatch(post, ids)) return true;
+    const author = post.authorId ? "app:" + post.authorId : "";
+    return !!author && ids.some((id) => String(id) === author);
+  }
+  function authorCacheKey(memberId) {
+    const text = String(memberId || "");
+    if (text.indexOf("app:") !== 0) return "";
+    const key = text.slice(4).replace(/^@/, "");
+    if (/^\d{12}$/.test(key)) return key;
+    return key ? "@" + key.toLowerCase() : "";
+  }
+  function memberFetchPending(tab) {
+    const now = Date.now();
+    const ids = tabMembers(tab);
+    for (let i = 0; i < ids.length; i++) {
+      const cacheKey = authorCacheKey(ids[i]);
+      if (cacheKey) {
+        const entry = authorPostCache[cacheKey];
+        if (entry && entry.scope === viewerScope() && entry.loading && now - (entry.at || 0) < 8000) return true;
+      }
+      const text = String(ids[i] || "");
+      const cut = text.indexOf(":");
+      if (cut < 1) continue;
+      const platform = text.slice(0, cut);
+      if (DEVICE_FOLLOW.indexOf(platform) < 0) continue;
+      const row = STATE.liveUsers[liveKey(platform, text.slice(cut + 1))];
+      if (row && row.loading && !row.settled && now - (row.askedAt || 0) < 8000) return true;
+    }
+    return false;
+  }
   function appHomePosts(tab) {
-    if (tab !== "foryou" && tab !== "following") return [];
+    const onTab = filteredHomeTab(tab);
+    if (tab !== "foryou" && tab !== "following" && !onTab) return [];
     if (!STATE.publicSpam) STATE.publicSpam = {};
     const mine = signedAccount();
     const meId = mine && mine.publicId ? String(mine.publicId) : "";
-    const list = publicPosts.filter((item) => item && item.id).map((item) => {
+    const members = onTab ? tabMembers(tab) : null;
+    const seen = {};
+    const items = [];
+    const take = (item) => {
+      if (!item || !item.id || seen[item.id]) return;
+      seen[item.id] = true;
+      items.push(item);
+    };
+    visiblePublicPosts().forEach(take);
+    if (onTab) {
+      members.forEach((id) => {
+        const cacheKey = authorCacheKey(id);
+        if (!cacheKey) return;
+        authorPosts(cacheKey).forEach(take);
+      });
+    }
+    const list = items.map((item) => {
       const post = appCardPost(item);
       if (publicPostSpam(item) && !STATE.publicSpam[item.id]) post.spamHidden = true;
       return post;
@@ -13743,6 +13915,7 @@ const here = parseRoute();
     const byId = {};
     list.forEach((post) => {
       byId[post.id] = post;
+      stampAppCard(post);
       STATE.shared[post.id] = post;
     });
     list.forEach((post) => {
@@ -13750,16 +13923,22 @@ const here = parseRoute();
       const parent = byId[post.parentId];
       post.replyingTo = { id: post.parentId, handle: parent ? parent.handle : ((post.replyingTo && post.replyingTo.handle) || "") };
     });
-    // A parent shown above its reply (as a thread) is not listed again on its own.
-    const threaded = {};
-    list.forEach((post) => { if (post.parentId && byId[post.parentId] && !post.spamHidden) threaded[post.parentId] = true; });
-    return list.filter((post) => {
-      if (threaded[post.id] || hiddenPost(post)) return false;
+    const eligible = list.filter((post) => {
+      if (hiddenPost(post)) return false;
+      if (onTab) return memberPostHit(post, members);
       if (tab === "foryou") return true;
       if (meId && post.authorId === meId) return true;
       if (post.community) return true;
       return !!post.feedId && isFollowed(post.feedId);
     });
+    const eligibleIds = {};
+    eligible.forEach((post) => { eligibleIds[post.id] = true; });
+    /* A reply that will not be shown must not remove its parent. */
+    const threaded = {};
+    eligible.forEach((post) => {
+      if (post.parentId && eligibleIds[post.parentId] && !post.spamHidden) threaded[post.parentId] = true;
+    });
+    return eligible.filter((post) => !threaded[post.id]);
   }
 
   function mergeAppPosts(list, extra) {
@@ -13817,10 +13996,14 @@ const here = parseRoute();
       : "";
     const tabLoading = !list.length && tabStillLoading(tab);
     if (tabLoading && !tabFlights[tab] && !(tabRetries[tab] && tabRetries[tab].timer)) setTimeout(() => refreshHomeTabs([tab]), 0);
+    const memberTab = catTab || tab.indexOf("list:") === 0;
+    const retry = !list.length && !tabLoading && memberTab
+      ? `<p class="empty-action"><button type="button" class="save" data-act="tab-retry" data-tab="${esc(tab)}">${esc(tr("Try again"))}</button></p>`
+      : "";
     const body = tabLoading ? `<div class="tab-loading" role="progressbar" aria-label="${esc(tr("Loading"))}">` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("") + `</div>` : (list.length ? withSuggestions(groupThreads(list).map((p, i) => p && p.busyGroup ? busyRow(p) : card(p, null, { eager: i < 4 })), tab) : emptyBlock(
       repostsOnly ? tr("No reposts yet") : tab === "following" ? tr("Nothing to see here — yet") : catTab ? tr("No posts in this tab") : tab.startsWith("list:") ? tr("No posts in this List") : tr("No posts yet"),
       repostsOnly ? tr("Reposts and forwards on this tab show up here.") : tab === "following" ? tr("When you follow accounts, their posts show up here.") : catTab ? tr("Posts from accounts in this tab show up here.") : tab.startsWith("list:") ? tr("Posts from members of this List will show up here.") : tr("Posts from your feeds will show up here.")
-    ) + findAccounts);
+    ) + findAccounts + retry);
     const bar = STATE.homeFreshBar ? `<div class="home-fresh" role="progressbar" aria-label="${esc(tr("Loading"))}"><span></span></div>` : "";
     const inline = (tab === "foryou" || tab === "following") && STATE.modal !== "compose" && window.ViktorychXCompose && window.ViktorychXCompose.inlineHtml
       ? window.ViktorychXCompose.inlineHtml("home")
@@ -13886,7 +14069,9 @@ const here = parseRoute();
 
   function rememberLive(post) {
     const id = String((post && (post.statusId || post.id)) || "");
-    if (id) STATE.shared[id] = post;
+    if (!id) return;
+    stampAppCard(post);
+    STATE.shared[id] = post;
   }
 
   function rememberedPerson(platform, handle) {
@@ -13894,9 +14079,10 @@ const here = parseRoute();
     if (!h) return null;
     const pool = posts().slice();
     Object.keys(STATE.replies || {}).forEach((key) => {
-      const bucket = STATE.replies[key] || {};
-      (bucket.replies || []).forEach((row) => pool.push(row));
-      commentRows(bucket.doc).forEach((row) => pool.push(row));
+      const bucket = replyBucketForViewer(STATE.replies[key]);
+      if (!bucket) return;
+      (bucket.replies || []).forEach((row) => { if (replyCardForViewer(row)) pool.push(row); });
+      commentRows(bucket.doc).forEach((row) => { if (replyCardForViewer(row)) pool.push(row); });
     });
     return pool.find((post) => post && (post.platform || "x") === platform && String(post.handle || "").toLowerCase() === h) || null;
   }
@@ -15025,10 +15211,12 @@ const here = parseRoute();
      (fediverse, Bluesky, Nostr) are read live here and join Home. */
   const DEVICE_FOLLOW = ["mastodon", "bsky", "nostr", "news"];
   function deviceFollowPosts(tab) {
-    if (tab !== "foryou" && tab !== "following") return [];
+    const onTab = filteredHomeTab(tab);
+    if (tab !== "foryou" && tab !== "following" && !onTab) return [];
     const out = [];
     let kicked = 0;
-    (STATE.settings.follows || []).forEach((id) => {
+    const source = onTab ? tabMembers(tab) : (STATE.settings.follows || []);
+    source.forEach((id) => {
       const cut = String(id).indexOf(":");
       const platform = cut > 0 ? String(id).slice(0, cut) : "";
       const handle = cut > 0 ? String(id).slice(cut + 1) : "";
@@ -15041,7 +15229,7 @@ const here = parseRoute();
       }
       ((row && row.posts) || []).slice(0, 20).forEach((post) => {
         if (!post || hiddenPost(post)) return;
-        if (tab === "following" && post.kind === "reply") return;
+        if ((tab === "following" || onTab) && post.kind === "reply") return;
         post.feedId = id;
         out.push(post);
       });
@@ -15080,6 +15268,7 @@ const here = parseRoute();
     if (row.pageTask) return row;
     if (row.settled && row.fetchedAt && Date.now() - row.fetchedAt < COMMENT_TTL) return row;
     row.loading = !row.profile;
+    row.askedAt = Date.now();
     const clean = String(handle || "").replace(/^@/, "");
     const job = platform === "youtube" ? loadYtLive(row, clean)
       : platform === "bsky" ? loadBskyLive(row, clean)
@@ -15862,11 +16051,19 @@ const here = parseRoute();
   }
 
   function statusView(route) {
-    if (route.platform === "app" && !STATE.shared[String(route.id)]) {
+    if (route.platform === "app" && !sharedForViewer(route.id)) {
       const sameId = (item) => item && String(item.id) === String(route.id);
-      let sent = publicPosts.find(sameId);
-      if (!sent) Object.keys(authorPostCache).some((key) => { sent = (authorPostCache[key].posts || []).find(sameId); return !!sent; });
-      if (sent) STATE.shared[String(route.id)] = appCardPost(sent);
+      let sent = visiblePublicPosts().find(sameId);
+      if (!sent) {
+        const scope = viewerScope();
+        Object.keys(authorPostCache).some((key) => {
+          const bag = authorPostCache[key];
+          if (!bag || bag.scope !== scope) return false;
+          sent = (bag.posts || []).find(sameId);
+          return !!sent;
+        });
+      }
+      if (sent) STATE.shared[String(route.id)] = stampAppCard(appCardPost(sent));
     }
     if (route.platform === "tiktok" && isShortsLocked() && !isTiktokUnlocked(route.handle)) {
       return pageHead(tr("Post noun"), "", true) + emptyBlock(tr("Post unavailable"), tr("This post isn’t in the current snapshot."));
@@ -18333,18 +18530,49 @@ const here = parseRoute();
 
   function openAssignFromPost(postId, x, y) {
     const post = posts().find((item) => item && (item.id === postId || String(item.statusId || "") === String(postId)));
-    if (!post) return;
-    const feed = feedOf(post);
-    openAssign((feed && feed.id) || post.feedId || ((post.platform || "x") + ":" + (post.handle || "")), x, y);
+    if (post) {
+      const feed = feedOf(post);
+      openAssign((feed && feed.id) || post.feedId || ((post.platform || "x") + ":" + (post.handle || "")), x, y);
+      return;
+    }
+    const app = findAppItem(postId);
+    if (!app || !app.authorId) return;
+    openAssign("app:" + app.authorId, x, y);
   }
 
+  function seenAppAccounts() {
+    const out = [];
+    const seen = {};
+    const scope = viewerScope();
+    const take = (item) => {
+      if (!item || !item.authorId) return;
+      const id = "app:" + item.authorId;
+      if (seen[id] || feeds().some((feed) => feed && feed.id === id)) return;
+      seen[id] = true;
+      out.push({ id: id, name: item.authorName || item.authorHandle || id, handle: item.authorHandle || "", platform: "app", avatar: item.authorAvatar || "" });
+    };
+    visiblePublicPosts().forEach(take);
+    Object.keys(authorPostCache).forEach((key) => {
+      const bag = authorPostCache[key];
+      if (!bag || bag.scope !== scope) return;
+      (bag.posts || []).forEach(take);
+    });
+    return out;
+  }
   function feedTabEditor() {
     const draft = STATE.draft || { name: "", emoji: "", color: "", showHome: true, showNotes: true, members: [], q: "" };
     const q = String(draft.q || "").trim().toLowerCase();
     const memberSet = draft.members || [];
+    const pool = [];
+    const pooled = {};
+    feeds().concat(seenAppAccounts()).forEach((feed) => {
+      if (!feed || !feed.id || pooled[feed.id]) return;
+      pooled[feed.id] = true;
+      pool.push(feed);
+    });
     const inDraft = (feed) => tabHasProfile({ members: memberSet }, feed.id);
-    const memberRows = feeds().filter((feed) => inDraft(feed));
-    const found = q ? feeds().filter((feed) => {
+    const memberRows = pool.filter((feed) => inDraft(feed));
+    const found = q ? pool.filter((feed) => {
       if (inDraft(feed)) return false;
       return ((feed.name || "") + " " + (feed.handle || "") + " " + (feed.platform || "")).toLowerCase().indexOf(q) >= 0;
     }).slice(0, 40) : [];
@@ -20316,7 +20544,10 @@ if (STATE.histClear) {
       const post = lib.toProfilePost(row, account, { self: mine });
       if (!post) return;
       if (post.kind === "quote" && mine) post.ownQuote = true;
-      if (post.platform === "app" || !findAnyPost(post.id)) STATE.shared[String(post.id)] = post;
+      if (post.platform === "app" || !findAnyPost(post.id)) {
+        stampAppCard(post);
+        STATE.shared[String(post.id)] = post;
+      }
       addPost(post);
     });
     if (identities.length) {
@@ -20343,6 +20574,7 @@ if (STATE.histClear) {
       });
     }
     ownApp.forEach((post) => {
+      stampAppCard(post);
       STATE.shared[post.id] = post;
       addPost(post);
     });
@@ -20352,7 +20584,7 @@ if (STATE.histClear) {
     else if (tab === "media") shown = postList.filter((post) => (post.media || []).length || post.appMediaCount);
     else if (tab === "posts" || !tab) shown = postList.filter((post) => post.kind !== "reply");
     const entry = ownKey ? authorPostCache[ownKey] : null;
-    const more = entry && entry.more ? `<div id="author-more" class="reply-empty" data-id="${esc(ownKey)}"><button type="button" class="link-btn" data-act="author-more" data-id="${esc(ownKey)}">${tr("Show more")}</button></div>` : "";
+    const more = entry && entry.scope === viewerScope() && entry.more ? `<div id="author-more" class="reply-empty" data-id="${esc(ownKey)}"><button type="button" class="link-btn" data-act="author-more" data-id="${esc(ownKey)}">${tr("Show more")}</button></div>` : "";
     /* Optional platform filters: All, Posts, X, Instagram… The default is the mixed timeline. */
     const pills = lpMod ? lpMod.filterHtml(account, postList) : "";
     if (pills) shown = shown.filter((post) => lpMod.filterPost(post, account));
@@ -21397,13 +21629,15 @@ if (STATE.histClear) {
   function findAnyPost(id) {
     const key = String(id || "");
     if (!key) return null;
-    if (STATE.shared[key]) return STATE.shared[key];
+    const shared = sharedForViewer(key);
+    if (shared) return shared;
     const direct = posts().find((item) => item.id === key || postKey(item) === key);
     if (direct) return direct;
     const buckets = Object.keys(STATE.replies);
     for (let i = 0; i < buckets.length; i++) {
-      const bucket = STATE.replies[buckets[i]] || {};
-      const found = findComment(commentRows(bucket.doc).concat(bucket.replies || []), key);
+      const bucket = replyBucketForViewer(STATE.replies[buckets[i]]);
+      if (!bucket) continue;
+      const found = replyCardForViewer(findComment(commentRows(bucket.doc).concat(bucket.replies || []), key));
       if (found) return found;
     }
     const nested = commentInDocs(key);
@@ -21924,7 +22158,7 @@ if (STATE.histClear) {
       ensureLazy("tv");
       return lazySkeleton(tr("TV"));
     }
-    if (route.name === "status" && route.id && STATE.shared && STATE.shared[String(route.id)]) return statusView(route);
+    if (route.name === "status" && route.id && sharedForViewer(route.id)) return statusView(route);
     if (route.name === "notifications") {
       try {
         return notificationsView(route);
@@ -22957,7 +23191,8 @@ if (STATE.histClear) {
       document.documentElement.lang || "",
       document.documentElement.getAttribute("data-theme") || "",
       document.documentElement.getAttribute("data-fs") || "",
-      ARCHIVE.posts.length
+      ARCHIVE.posts.length,
+      viewerScope()
     ].join("|");
   }
   function parkKey(route) {
@@ -22970,7 +23205,7 @@ if (STATE.histClear) {
   function viewStamp(route) {
     if (route.name === "home") return homeStamp(route);
     const posts = STATE.data && STATE.data.posts ? STATE.data.posts.length : 0;
-    return [(location.hash || "#/"), STATE.loading ? 1 : 0, STATE.error ? 1 : 0, posts].join("|");
+    return [(location.hash || "#/"), STATE.loading ? 1 : 0, STATE.error ? 1 : 0, posts, viewerScope()].join("|");
   }
   function evictParks() {
     if (viewParks.size <= VIEW_PARK_MAX) return;
@@ -23183,6 +23418,7 @@ if (STATE.histClear) {
       const stamp = key ? viewStamp(route) : "";
       const slot = key ? viewParks.get(key) : null;
       decision = commitFrameDecision({ token: STATE.renderGen, builtHash: location.hash || "#/" }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
+      if (slot && slot.scope && slot.scope !== viewerScope()) slot.force = true;
       const parkedAway = !!(decision && decision.commit && slot && !slot.live && slot.root && !slot.force);
       if (parkedAway) parkLiveView();
       if (parkedAway && restoreView(slot)) {
@@ -23235,7 +23471,7 @@ if (STATE.histClear) {
           const prev = viewParks.get(key);
           if (prev && prev.root) prev.root.remove();
           const appNow = document.getElementById("app");
-          viewParks.set(key, { stamp: viewStamp(route), live: true, root: appNow ? wrapLive(appNow) : null, y: window.scrollY || 0, at: Date.now(), force: false, shown: false });
+          viewParks.set(key, { stamp: viewStamp(route), scope: viewerScope(), live: true, root: appNow ? wrapLive(appNow) : null, y: window.scrollY || 0, at: Date.now(), force: false, shown: false });
           evictParks();
         }
       }
@@ -25302,7 +25538,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const id = el.dataset.id || "";
       if (!tab || !id) return;
       const now = Date.now();
-      const on = (tab.members || []).indexOf(id) < 0;
+      const previous = { members: (tab.members || []).slice(), adds: Object.assign({}, tab.memberAdds || {}), drops: Object.assign({}, tab.memberDrops || {}), updatedAt: tab.updatedAt };
+      const on = previous.members.indexOf(id) < 0;
       freezeFeedMembers(tab);
       tab.members = toggleMemberIds(tab.members, id);
       tab.memberAdds = Object.assign({}, tab.memberAdds || {});
@@ -25310,7 +25547,14 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (on) { tab.memberAdds[id] = now; delete tab.memberDrops[id]; }
       else { tab.memberDrops[id] = now; delete tab.memberAdds[id]; }
       tab.updatedAt = now;
-      saveSettings();
+      try { saveSettings(); }
+      catch (err) {
+        tab.members = previous.members;
+        tab.memberAdds = previous.adds;
+        tab.memberDrops = previous.drops;
+        tab.updatedAt = previous.updatedAt;
+        toast(tr("Try again"));
+      }
       render();
       return;
     }
@@ -25696,11 +25940,34 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "member-add" || act === "member-remove") {
       const list = STATE.settings.lists.find((l) => l.id === STATE.draft.id);
       if (list) {
-        list.members = list.members || [];
-        if (act === "member-add" && !list.members.includes(el.dataset.id)) list.members.push(el.dataset.id);
-        if (act === "member-remove") list.members = list.members.filter((id) => id !== el.dataset.id);
-        saveSettings();
+        const previous = (list.members || []).slice();
+        list.members = previous.slice();
+        const id = el.dataset.id || "";
+        if (act === "member-add" && id && list.members.indexOf(id) < 0) list.members.push(id);
+        if (act === "member-remove") list.members = list.members.filter((item) => item !== id);
+        try { saveSettings(); }
+        catch (err) {
+          list.members = previous;
+          toast(tr("Try again"));
+        }
       }
+      render();
+      return;
+    }
+    if (act === "tab-retry") {
+      const id = String(el.dataset.tab || "");
+      if (id.indexOf("cat:") !== 0 && id.indexOf("list:") !== 0) return;
+      const row = tabRetries[id];
+      if (row) { clearTimeout(row.timer); row.timer = 0; row.n = 0; }
+      delete tabTried[id];
+      delete tabAsked[id];
+      if (tabBoundTimer[id]) { clearTimeout(tabBoundTimer[id]); tabBoundTimer[id] = 0; }
+      tabMembers(id).forEach((member) => {
+        const cacheKey = authorCacheKey(member);
+        const entry = cacheKey && authorPostCache[cacheKey];
+        if (entry) { entry.at = 0; entry.loading = false; }
+      });
+      refreshHomeTabs([id]);
       render();
       return;
     }
@@ -29233,6 +29500,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
      session, or a retry is waiting. Retries back off: 4 s, 12 s, 36 s. */
   const tabFlights = {};
   const tabTried = {};
+  const tabAsked = {};
+  const tabBoundTimer = {};
   const tabRetries = {};
   const TAB_RETRY_MS = [4000, 12000, 36000];
   function tabHasPosts(tab) {
@@ -29252,8 +29521,19 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
   function tabStillLoading(tab) {
     if (!(tab.indexOf("cat:") === 0 || tab.indexOf("list:") === 0)) return false;
-    if (!feedsForTab(tab).length) return false;
+    if (!feedsForTab(tab).length && !memberFetchPending(tab)) return false;
+    const asked = tabAsked[tab] || (tabAsked[tab] = Date.now());
+    const left = 8000 - (Date.now() - asked);
+    if (left <= 0) return false;
+    if (!tabBoundTimer[tab]) {
+      tabBoundTimer[tab] = setTimeout(() => {
+        tabBoundTimer[tab] = 0;
+        const route = parseRoute();
+        if (route && route.name === "home" && route.tab === tab) render({ y: window.scrollY });
+      }, left + 30);
+    }
     if (!tabHydrated[tab]) { hydrateTab(tab); return true; }
+    if (memberFetchPending(tab)) return true;
     if ((tabFlights[tab] || 0) > 0 || !tabTried[tab]) return true;
     const row = tabRetries[tab];
     return !!(row && row.timer);
@@ -32803,7 +33083,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (post) {
         const chain = ancestorChain(post);
         const parent = chain.nodes.length ? chain.nodes[chain.nodes.length - 1] : (post.replyParent || null);
-        const replies = orderedUnique(bucket.replies || []).slice(0, 20).map(cacheRow).filter(Boolean);
+        const replies = (replyBucketForViewer(bucket) ? orderedUnique(bucket.replies || []) : []).slice(0, 20).map(cacheRow).filter((row) => replyCardForViewer(row));
         local.saveDoc("threads", String(route.id), {
           order: "utc",
           post: cacheRow(post),
@@ -32936,8 +33216,13 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (window.ProfileGifts) {
       window.ProfileGifts.onReply = function (parentId, post) {
         const key = String(parentId || "");
-        const bucket = STATE.replies[key] || (STATE.replies[key] = { replies: [], loading: false });
-        bucket.replies = (bucket.replies || []).filter((item) => item && item.id !== post.id).concat([post]);
+        const scope = viewerScope();
+        let bucket = STATE.replies[key];
+        if (!bucket || (bucket.scope && bucket.scope !== scope)) bucket = { replies: [], loading: false, scope: scope };
+        bucket.scope = scope;
+        stampAppCard(post);
+        bucket.replies = (bucket.replies || []).filter((item) => item && replyCardForViewer(item) && item.id !== post.id).concat([post]);
+        STATE.replies[key] = bucket;
         render();
       };
       window.ProfileGifts.start();
@@ -33603,7 +33888,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
   function aiPersonKeys(handle) {
     const keys = [];
-    (publicPosts || []).forEach((item) => {
+    visiblePublicPosts().forEach((item) => {
       if (item && item.authorId && String(item.handle || "").replace(/^@/, "").toLowerCase() === handle) keys.push("app:" + String(item.authorId));
     });
     feeds().forEach((f) => {
