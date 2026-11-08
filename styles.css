@@ -1651,6 +1651,21 @@ img[data-ia-wait] { visibility: hidden; }
   max-height: min(70vh, 480px);
   overflow: auto;
 }
+/* Desktop only. The Viktrych mark has no size of its own, so it painted
+   about 200px tall and the menu had to scroll. Text stays 15px. */
+@media (min-width: 1000px) {
+  .menu.post-menu button,
+  .menu.post-menu a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .menu.post-menu svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
+}
 
 .side-search { position: sticky; top: 0; background: var(--topbar); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: calc(6px + var(--sat, env(safe-area-inset-top, 0px))) 0 12px; z-index: 4; }
 .search {
