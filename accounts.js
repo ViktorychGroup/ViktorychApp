@@ -4745,6 +4745,12 @@ function signupPayload() {
   }
 
   var friendsOwnerView = {};
+  function friendUiStamp(row) {
+    row = row || {};
+    var can = row.canRequest === false ? "0" : row.canRequest === true ? "1" : "";
+    var mutual = row.mutualFriendsCount == null ? "" : String(row.mutualFriendsCount);
+    return [row.friends == null ? "" : String(row.friends), row.friendStatus || "", row.friendsOff ? "1" : "0", can, mutual].join("|");
+  }
   function ensureFriends(targetId) {
     var session = readSession();
     var key = String(targetId || "");
@@ -4760,8 +4766,7 @@ function signupPayload() {
       if (!res || res.status !== 200) { friendsFailedAt[key] = Date.now(); return; }
       var id = key;
       var prevList = JSON.stringify(friendsCache[key] || []);
-      var prevCount = graphCounts[id] && graphCounts[id].friends;
-      var prevStatus = graphCounts[id] && graphCounts[id].friendStatus;
+      var prevUi = friendUiStamp(graphCounts[id]);
       friendsCache[key] = Array.isArray(res.friends) ? res.friends : [];
       // Owner view: the server shows the app owner every friendship and logs it.
       friendsOwnerView[key] = res.ownerView === true;
@@ -4771,7 +4776,8 @@ function signupPayload() {
       if (res.mutualCount != null) graphCounts[id].mutualFriendsCount = res.mutualCount;
       graphCounts[id].friendsOff = res.friendsOff === true;
       if (typeof res.canRequest === "boolean") graphCounts[id].canRequest = res.canRequest;
-      var unchanged = JSON.stringify(friendsCache[key]) === prevList && graphCounts[id].friends === prevCount && graphCounts[id].friendStatus === prevStatus;
+      // The button and the mutual line sit on the profile, not only in the friends list.
+      var unchanged = JSON.stringify(friendsCache[key]) === prevList && friendUiStamp(graphCounts[id]) === prevUi;
       // A background refresh that changes nothing must not rebuild the profile.
       // That rebuild dropped counters painted on the open page.
       if (unchanged && !friendsSurfaceOpen()) return;
