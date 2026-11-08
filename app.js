@@ -10289,20 +10289,37 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const plat = post.platform || "x";
     const ids = [String(post.statusId || ""), String(post.id || "")].filter(Boolean);
     const seen = {};
-    return publicPosts.filter((item) => {
+    return visiblePublicPosts().filter((item) => {
       const ext = item && item.extParent;
       if (!ext || seen[item.id] || !notGone(item)) return false;
       if ((ext.platform || "x") !== plat) return false;
       if (ids.indexOf(String(ext.statusId || ext.id || "")) < 0) return false;
       seen[item.id] = true;
       return true;
+    }).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)).map(appCardPost).filter((cardPost) => cardPost && !hiddenPost(cardPost));
+  }
+
+  /* A reply this account just sent is in the local list before the thread
+     request comes back. Show it under the parent, and drop it once the thread
+     has the same id. Another account's pending reply stays hidden. */
+  function ownThreadReplies(post, slice) {
+    const mine = signedAccount();
+    const me = mine ? String(mine.publicId || "") : "";
+    if (!me || !post || !(post.appPost || (post.platform || "") === "app")) return [];
+    const parentId = String(post.id || post.statusId || "");
+    const seen = {};
+    ((slice && slice.shown) || []).forEach((item) => { if (item && item.id) seen[String(item.id)] = true; });
+    return visiblePublicPosts().filter((item) => {
+      if (!item || !notGone(item) || seen[String(item.id)]) return false;
+      if (String(item.authorId || "") !== me) return false;
+      return String(item.parentId || "") === parentId;
     }).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)).map(appCardPost);
   }
 
   function replyList(post) {
     const tools = "";
-    const mine = appRepliesFor(post).map((item) => card(item, "reply", { focus: post })).join("");
     const slice = replySlice(post);
+    const mine = appRepliesFor(post).concat(ownThreadReplies(post, slice)).map((item) => card(item, "reply", { focus: post })).join("");
     if (slice.loading) return tools + mine + replySkeleton(3);
     if (slice.error) return tools + mine + replyError(postKey(post));
     if (!slice.shown.length && !slice.more && !slice.spam) {
@@ -13050,12 +13067,18 @@ const here = parseRoute();
     if (Date.now() - at > 600000) { delete goneOwn[item.id]; return true; }
     return false;
   }
+  function ownSentHere(entry) {
+    const mine = signedAccount();
+    const me = mine ? String(mine.publicId || "") : "";
+    return !!(entry && entry.post && me && String(entry.post.authorId || "") === me);
+  }
   function keepOwnPosts(list) {
     const next = list.filter(notGone);
     const ids = new Set(next.map((item) => item && item.id));
     const now = Date.now();
     Object.keys(ownSent).forEach((id) => {
       const entry = ownSent[id];
+      if (!ownSentHere(entry)) return;
       if (ids.has(id) || now - entry.at > 600000) {
         delete ownSent[id];
         return;
@@ -13064,7 +13087,8 @@ const here = parseRoute();
       next.unshift(entry.post);
     });
     Object.keys(ownSent).forEach((id) => {
-      if (String(id).indexOf("tmp-") === 0) next.unshift(ownSent[id].post);
+      if (String(id).indexOf("tmp-") !== 0 || !ownSentHere(ownSent[id])) return;
+      next.unshift(ownSent[id].post);
     });
     reconcilePostPreviews();
     return next.sort((a, b) => (Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
@@ -13329,9 +13353,11 @@ const here = parseRoute();
       STATE.composeParent = "";
       STATE.composeQuote = "";
       STATE.composeSeed = "";
-      render();
     }
-    if (!posts.length) return;
+    if (!posts.length) {
+      if (!quiet) render();
+      return;
+    }
     const scheduled = !!(posts[0] && posts[0].scheduleAt);
     if (scheduled && (!navigator.onLine || !token || !root)) {
       posts.forEach((part) => revokeBlobList(blobUrls(part)));
@@ -13340,6 +13366,7 @@ const here = parseRoute();
         replyControl: posts[0].replyControl || "everyone", location: posts[0].location || "", poll: posts[0].poll || null
       }]));
       toast(tr("If you’re signed in, the server publishes this when it’s due. Otherwise it stays on this device until the app is open."));
+      if (!quiet) render();
       return;
     }
     // Offline with an account: text and polls wait in the outbox, with the post they
@@ -13349,6 +13376,7 @@ const here = parseRoute();
       const slim = posts.map((part) => ({ text: part.text || "", media: [], poll: part.poll || null, location: part.location || "", audience: part.audience || "everyone", listIds: part.listIds || [], replyControl: part.replyControl || "everyone", scheduleAt: 0 }));
       queueOffline({ type: "app-post", id: "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), on: true, snapshot: { posts: slim, parentId: payload.parentId || "", quoteId: payload.quoteId || "", extParent: payload.extParent || null } });
       toast(tr("Sends when you’re back online."));
+      if (!quiet) render();
       return;
     }
     if (!navigator.onLine || !token || !root) {
@@ -13357,6 +13385,7 @@ const here = parseRoute();
       if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
       if (!navigator.onLine && text) queueOffline({ type: "reply", id: "compose", on: true, body: text });
       toast(navigator.onLine && !token ? tr("Saved on this device. This reader doesn’t publish.") : tr("Could not send that post. It is still saved on this device."));
+      if (!quiet) render();
       return;
     }
     let firstSent = null;
@@ -13375,7 +13404,7 @@ const here = parseRoute();
       const sender = sessionNow();
       const blobs = blobUrls(part);
       const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null, part.media);
-      if (tempId) render();
+      if (tempId || (!quiet && index === 0)) render();
       const done = (res) => {
         const stale = !sameSession(sender);
         const kept = !stale && res && res.status === 201 && res.post && !later && !res.scheduled;
@@ -13693,6 +13722,7 @@ const here = parseRoute();
     const poll = appPollHtml(item);
     const place = item.location ? `<p class="phandle">${esc(item.location)}</p>` : "";
     const edited = Number(item.editedAt) > 0 ? `<p class="phandle app-edited">${esc(tr("Edited"))}</p>` : "";
+    const sending = item.pending ? `<p class="phandle app-pending">${esc(tr("Sending…"))}</p>` : "";
     const post = {
       id: String(item.id || ""),
       statusId: String(item.id || ""),
@@ -13721,7 +13751,8 @@ const here = parseRoute();
       media: [],
       // Site posts paint their media in appExtra; the profile Media tab counts them here.
       appMediaCount: (item.media || []).length,
-      appExtra: place + poll + (media ? `<div class="public-media">${media}</div>` : "") + edited,
+      pending: !!item.pending,
+      appExtra: place + poll + (media ? `<div class="public-media">${media}</div>` : "") + edited + sending,
       community: community,
       parentId: String(item.parentId || ""),
       url: ""
@@ -23260,7 +23291,14 @@ if (STATE.histClear) {
   function parkedReady(route) {
     const key = parkKey(route);
     const slot = key ? viewParks.get(key) : null;
-    return !!(slot && !slot.live && slot.root && !slot.force);
+    if (!slot || slot.live || !slot.root || slot.force) return false;
+    /* A parked page belongs to the account that built it. Putting it back
+       for someone else shows their reply until the later refresh. */
+    if (slot.scope && slot.scope !== viewerScope()) {
+      slot.force = true;
+      return false;
+    }
+    return true;
   }
   function scheduleViewRefresh(key, delayMs) {
     clearTimeout(viewRefreshTimer);
