@@ -98,6 +98,23 @@ test("source lists reach only assigned accounts", async () => {
   assert.deepEqual(wanted.sources.map((row) => row.id), [sid]);
   assert.ok(!JSON.stringify(wanted).includes(member.account.publicId || "membermaple"), "no account ids in wanted");
   assert.equal(dispatches.length, 1);
+  const health = assign.body.lists[0].sources[0].health;
+  assert.equal(health && health.ok, true, "the owner sees posts as soon as the account is assigned");
+  assert.ok((health && health.count) >= 1);
+
+  const started = Date.now();
+  const immediate = await call("/v1/me/source-lists", { ip: "203.0.113.38", token: member.token });
+  const readMs = Date.now() - started;
+  assert.equal(immediate.status, 200);
+  const nowList = immediate.body.lists.find((row) => row.id === lid);
+  assert.equal(nowList.status, "ready");
+  assert.match(nowList.hash, /^[a-f0-9]{64}$/);
+  const quick = await call("/v1/me/source-lists/shard/" + nowList.hash, { ip: "203.0.113.39", token: member.token });
+  assert.equal(quick.status, 200);
+  assert.match(quick.text, /Hello/);
+  assert.equal(quick.text.includes(String(member.account.publicId)), false);
+  assert.ok(readMs < 3000, "assigned posts were not waiting on the scheduler (" + readMs + "ms)");
+  assert.deepEqual((await call("/v1/me/source-lists", { ip: "203.0.113.39", token: other.token })).body.lists, []);
 
   // A second list with the same source keeps one fetch.
   const second = await call("/v1/owner/source-lists", { method: "POST", ip: "203.0.113.35", token: owner.token, body: { name: "Second" } });
@@ -113,7 +130,7 @@ test("source lists reach only assigned accounts", async () => {
   const hash = createHash("sha256").update(shard).digest("hex");
   const b = await mf.getBindings();
   await b.DATA.put("lists/shards/" + hash + ".json", shard);
-  await b.DATA.put("owner/lists/index.json", JSON.stringify({ v: 1, lists: { [lid]: { hash, size: shard.length, count: 1, at: 1 } } }));
+  await b.DATA.put("owner/lists/index.json", JSON.stringify({ v: 1, lists: { [lid]: { hash, size: shard.length, count: 1, at: Date.now() + 60000 } } }));
 
   const mine = await call("/v1/me/source-lists", { ip: "203.0.113.40", token: member.token });
   assert.equal(mine.status, 200);

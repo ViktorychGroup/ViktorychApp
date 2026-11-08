@@ -29795,6 +29795,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const lists = window.SourceLists;
     if (!lists || !doc || !Array.isArray(doc.posts)) return doc;
     await Promise.race([lists.ready(), new Promise((done) => setTimeout(done, 400))]);
+    lists.refresh(false).catch(() => null);
     return lists.merge(doc);
   }
 

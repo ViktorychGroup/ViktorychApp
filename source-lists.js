@@ -9,7 +9,8 @@
   const META_KEY = "private-list-meta-v1";
   const DOC_PREFIX = "private-list-doc:";
   const CHECK_MS = 30 * 60 * 1000;
-  const NONE_MS = 6 * 60 * 60 * 1000;
+  const NONE_MS = 2 * 60 * 1000;
+  const PENDING_MS = 15 * 1000;
   let hooks = null;
   const mem = { meta: null, docs: {}, ready: null, busy: false };
   const page = { owner: null, mine: null, loading: false, error: "", busy: "", requests: null };
@@ -161,15 +162,25 @@
     if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
     await ready();
     const meta = mem.meta || {};
-    const wait = (meta.lists && meta.lists.length) ? CHECK_MS : NONE_MS;
-    if (!force && meta.checkedAt && Date.now() - meta.checkedAt < wait && meta.account === accountKey()) return false;
+    const pending = ((meta.lists) || []).some((row) => row && !row.hash && row.status !== "empty");
+    const wait = pending ? PENDING_MS : ((meta.lists && meta.lists.length) ? CHECK_MS : NONE_MS);
+    if (force !== true && force !== "retry" && meta.checkedAt && Date.now() - meta.checkedAt < wait && meta.account === accountKey()) return false;
+    const who = accountKey();
     mem.busy = true;
     try {
-      const res = await api("/v1/me/source-lists");
+      const res = await api("/v1/me/source-lists" + (force === "retry" ? "?retry=1" : ""));
+      if (accountKey() !== who) return false;
       if (!res.ok || !res.body || !Array.isArray(res.body.lists)) return false;
       const lists = res.body.lists.filter((row) => row && /^s[a-f0-9]{8}$/.test(row.id)).map((row) => ({
-        id: row.id, name: String(row.name || ""), hash: /^[a-f0-9]{64}$/.test(row.hash || "") ? row.hash : "", size: Number(row.size) || 0, at: Number(row.at) || 0
+        id: row.id,
+        name: String(row.name || ""),
+        hash: /^[a-f0-9]{64}$/.test(row.hash || "") ? row.hash : "",
+        size: Number(row.size) || 0,
+        at: Number(row.at) || 0,
+        count: Number(row.count) || 0,
+        status: String(row.status || "")
       }));
+      if (accountKey() !== who) return false;
       for (const row of lists) {
         if (!row.hash || mem.docs[row.hash]) continue;
         const doc = await pullShard(row);
@@ -274,9 +285,16 @@
       ${(doc.lists || []).map(listCard).join("") || `<div class="feeds-empty"><b>${esc(tr("No lists yet"))}</b><span>${esc(tr("Create a list, add sources, then assign the accounts that should see them."))}</span></div>`}`;
   }
 
+  function listLine(list) {
+    if (list.status === "error") return tr("Something went wrong. Try again.");
+    if (list.status === "empty" || (list.hash && !list.count)) return tr("No posts yet");
+    if (list.hash) return tr("In your timeline");
+    return tr("Loading…");
+  }
+
   function memberView() {
     const lists = (mem.meta && mem.meta.lists) || [];
-    const rows = lists.map((l) => `<article class="feeds-row"><span class="feeds-copy"><span class="feeds-name">${esc(l.name)}</span><span class="feeds-sub">${esc(l.hash ? tr("In your timeline") : tr("Waiting for the next refresh"))}</span></span></article>`).join("");
+    const rows = lists.map((l) => `<article class="feeds-row"><span class="feeds-copy"><span class="feeds-name">${esc(l.name)}</span><span class="feeds-sub">${esc(listLine(l))}</span></span>${l.status === "error" ? `<span class="feeds-row-end"><button type="button" class="feeds-pill" data-sl-act="retry-lists">${esc(tr("Retry"))}</button></span>` : ""}</article>`).join("");
     const pending = (page.requests || []).map((r) => `<article class="feeds-row"><span class="feeds-copy"><span class="feeds-name">${esc(r.input)}</span><span class="feeds-sub">${esc(tr("Waiting for approval"))}</span></span></article>`).join("");
     return `<p class="feeds-hint">${esc(tr("Extra sources the owner added for you. Mute any account from its posts to hide it."))}</p>
       <section class="feeds-section"><h2>${esc(tr("Your extra sources"))}</h2>${rows || `<p class="feeds-hint">${esc(tr("None yet"))}</p>`}</section>
@@ -342,6 +360,7 @@
       return;
     }
     if (act === "reject") { run(api(L + "/requests/" + id, "DELETE"), tr("Rejected")); return; }
+    if (act === "retry-lists") { refresh("retry").then(() => paint()); return; }
     if (act === "request") {
       const input = field("request");
       if (!input) return;
@@ -359,6 +378,9 @@
     if (attach.bound) return;
     attach.bound = true;
     document.addEventListener("click", onClick);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") refresh(false);
+    });
     setTimeout(() => refresh(false), 4000);
     setInterval(() => { if (document.visibilityState === "visible") refresh(false); }, 10 * 60 * 1000);
   }

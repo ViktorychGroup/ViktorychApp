@@ -14,10 +14,11 @@ function setup(opts) {
   const calls = [];
   const shard = JSON.stringify({ feeds: [{ id: "rss:feeds.example", name: "Example", handle: "feeds.example" }], posts: [{ id: "p1", feedId: "rss:feeds.example", platform: "rss", quoted: { id: "q1", handle: "quotedmaple" } }] });
   const hash = sha(shard);
-  const lists = opts.lists === false ? [] : [{ id: "sa1b2c3d4", name: "Extra", hash, size: shard.length, at: 1 }];
+  const lists = opts.lists === false ? [] : (opts.lists || [{ id: "sa1b2c3d4", name: "Extra", hash, size: shard.length, at: 1, count: 1, status: "ready" }]);
   const body = opts.badShard ? shard + " " : shard;
+  const who = opts.who || { id: "membermaple" };
   const window = {
-    ViktorychAccounts: { account: () => ({ publicId: "membermaple" }) },
+    ViktorychAccounts: { account: () => ({ publicId: who.id }) },
     ViktorychPool: opts.pool ? {
       getBlob: async (h) => { calls.push("pool:" + h.slice(0, 6)); return h === hash ? new TextEncoder().encode(shard) : null; },
       putBlob: async () => { calls.push("offer"); return hash; }
@@ -30,7 +31,8 @@ function setup(opts) {
     setTimeout: () => 0, setInterval: () => 0,
     fetch: async (url) => {
       calls.push(url.replace("https://api.example", ""));
-      if (url.endsWith("/v1/me/source-lists")) return { ok: true, status: 200, json: async () => ({ lists }) };
+      if (opts.hold) await opts.hold;
+      if (url.indexOf("/v1/me/source-lists") >= 0 && url.indexOf("/shard/") < 0) return { ok: true, status: 200, json: async () => ({ lists }) };
       if (url.includes("/shard/")) return { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode(body).buffer };
       return { ok: false, status: 404, json: async () => ({}) };
     }
@@ -40,7 +42,7 @@ function setup(opts) {
   let changed = 0;
   const SL = window.SourceLists;
   SL.attach({ accountsApi: () => "https://api.example", accountToken: () => "t", signedOwner: () => false, STATE: { settings: {} }, onChange: () => { changed += 1; } });
-  return { SL, calls, hash, store, changed: () => changed };
+  return { SL, calls, hash, store, who, changed: () => changed };
 }
 
 const base = () => ({ feeds: [{ id: "x:globalpine" }], posts: [{ id: "g1", feedId: "x:globalpine", platform: "x" }] });
@@ -73,6 +75,39 @@ test("a shard that fails its hash is dropped", async () => {
   const t = setup({ badShard: true });
   await t.SL.refresh(true);
   assert.equal(t.SL.merge(base()).posts.length, 1);
+});
+
+test("a list that arrives after the account changed is not kept", async () => {
+  let release;
+  const hold = new Promise((resolve) => { release = resolve; });
+  const who = { id: "100000000001" };
+  const t = setup({ hold, who });
+  const pending = t.SL.refresh(true);
+  for (let i = 0; i < 20 && !t.calls.length; i++) await new Promise((resolve) => setImmediate(resolve));
+  who.id = "100000000002";
+  release();
+  assert.equal(await pending, false);
+  assert.equal(t.SL.merge(base()).posts.length, 1);
+  assert.equal(t.SL._mem.meta, null);
+});
+
+test("a failed list says retry instead of waiting for the scheduler", async () => {
+  const t = setup({ lists: [{ id: "sa1b2c3d4", name: "Extra", hash: "", count: 0, status: "error" }] });
+  await t.SL.refresh(true);
+  t.SL.attach({
+    accountsApi: () => "https://api.example",
+    accountToken: () => "t",
+    signedOwner: () => false,
+    STATE: { settings: {} },
+    tr: (key) => key,
+    esc: (value) => String(value == null ? "" : value),
+    pageHead: () => "",
+    render: () => {}
+  });
+  const html = t.SL.view();
+  assert.equal(html.includes("Waiting for the next refresh"), false);
+  assert.match(html, /Something went wrong/);
+  assert.match(html, /data-sl-act="retry-lists"/);
 });
 
 test("accounts without lists download no shard and stale list posts go away", async () => {
