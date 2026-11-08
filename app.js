@@ -22435,6 +22435,7 @@ if (STATE.histClear) {
   let tabScrollLeft = null;
   let tabScrollRoute = "";
   let hscrollNav = false;
+  let profileTabHold = "";
   let hscrollTouching = false;
   let hscrollHolding = false;
   let hscrollHoldGen = 0;
@@ -22768,7 +22769,45 @@ if (STATE.histClear) {
     scheduleImageSweep();
     hscrollSettle({ reveal: true });
     if (window.ViktorychAccounts && window.ViktorychAccounts.bindProfileTabs) window.ViktorychAccounts.bindProfileTabs();
+    revealProfileTabs();
     reconcilePostPreviews();
+  }
+
+  /* The selected profile pill is measured after its label is laid out, then
+     kept inside the strip. A smooth arrow scroll still running on this node
+     is cancelled so it cannot pull the pill back to the start. */
+  function focusHeldProfileTab(fallback) {
+    const raw = String(profileTabHold || fallback || "");
+    if (!raw) return;
+    const sel = window.CSS && CSS.escape
+      ? '.ptabs [role="tab"][data-ptab-id="' + CSS.escape(raw) + '"]'
+      : '.ptabs [role="tab"][data-ptab-id="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+    const el = document.querySelector(sel);
+    if (!el) return;
+    if (document.activeElement !== el) {
+      try { el.focus({ preventScroll: true }); } catch (err) { el.focus(); }
+    }
+  }
+
+  function revealProfileTabs() {
+    const apply = () => {
+      const root = document.getElementById("app") || document.body;
+      const store = hscrollStore();
+      document.querySelectorAll(".ptabs").forEach((el) => {
+        const next = revealSelectedTab(el, false);
+        if (el.scrollTo) el.scrollTo({ left: el.scrollLeft, behavior: "auto" });
+        const id = el.dataset.hscrollKey || hscrollId(el, root);
+        el.dataset.hscrollKey = id;
+        if (typeof next === "number") store[id] = next;
+        el.dataset.hscrollRevealed = "1";
+      });
+      syncTabArrows();
+    };
+    const follow = profileTabHold;
+    apply();
+    if (!follow) return;
+    const schedule = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+    schedule(apply);
   }
 
   function hscrollRestoreSaved(retry) {
@@ -22855,7 +22894,7 @@ if (STATE.histClear) {
 
   function revealSelectedTab(scroller, smooth) {
     if (!scroller) return 0;
-    const current = scroller.querySelector(".tab-pair.on") || scroller.querySelector(".tab.on") || scroller.querySelector("[role='tab'][aria-selected='true']");
+    const current = scroller.querySelector(".tab-pair.on") || scroller.querySelector(".tab.on") || scroller.querySelector(".ptab-edit.on") || scroller.querySelector("[role='tab'][aria-selected='true']");
     if (!current) return scroller.scrollLeft || 0;
     const pad = 8;
     const box = current.getBoundingClientRect();
@@ -22880,8 +22919,10 @@ if (STATE.histClear) {
     const max = scroller.scrollWidth - scroller.clientWidth;
     const canLeft = max > 2 && scroller.scrollLeft > 2;
     const canRight = max > 2 && scroller.scrollLeft < max - 2;
-    left.hidden = !canLeft;
-    right.hidden = !canRight;
+    // Hiding the focused arrow makes the browser drop focus and jump the
+    // strip back to the start, so a key that reaches the end keeps its button.
+    left.hidden = !canLeft && document.activeElement !== left;
+    right.hidden = !canRight && document.activeElement !== right;
     bar.classList.toggle("is-fade-left", canLeft);
     bar.classList.toggle("is-fade-right", canRight);
     if (!(scroller.scrollLeft === 0 && max <= 1 && tabScrollLeft > 1)) {
@@ -23480,6 +23521,8 @@ if (STATE.histClear) {
     let y = STATE.holdY != null ? STATE.holdY : (reset ? 0 : window.scrollY);
     const focus = document.activeElement;
     const focusId = focus && focus.id;
+    const focusTabNode = focus && focus.closest ? (focus.matches && focus.matches("[data-ptab-id]") ? focus : focus.closest(".ptabs [data-ptab-id]")) : null;
+    const focusTab = focusTabNode ? String(focusTabNode.getAttribute("data-ptab-id") || "") : "";
     const caret = focus && typeof focus.selectionStart === "number" ? focus.selectionStart : null;
     const focusValue = focusId === "explore-q" ? focus.value : null;
     if (leavingWatch) stopWatchPlayback();
@@ -23658,6 +23701,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (opts && opts.pinAnchor && opts.anchorId) watchPostAnchor(String(opts.anchorId), Number(opts.anchorTop) || 0);
         });
       }
+      let focusRestored = false;
       if (focusId) {
         const el = document.getElementById(focusId);
         if (el) {
@@ -23666,8 +23710,10 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (caret != null && el.setSelectionRange) {
             try { el.setSelectionRange(caret, caret); } catch (err) { /* ignore */ }
           }
+          focusRestored = true;
         }
       }
+      if (!focusRestored) focusHeldProfileTab(focusTab);
       paintChromeHidden(STATE.headerHidden && window.innerWidth < 500);
       if (route.name === "subscriptions" && route.channel && (routeChanged || !STATE.scrollKey)) revealSubsChannel();
       STATE.scrollKey = nextKey;
@@ -24711,9 +24757,11 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const amount = scroller.clientWidth || 240;
       const next = Math.max(0, Math.min(max, scroller.scrollLeft + dir * amount));
       const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const profile = scroller.classList && scroller.classList.contains("ptabs");
       tabScrollLeft = next;
       tabScrollRoute = routeScrollKey();
-      scroller.scrollTo({ left: next, behavior: reduced ? "auto" : "smooth" });
+      if (profile || reduced || !scroller.scrollTo) scroller.scrollLeft = next;
+      else scroller.scrollTo({ left: next, behavior: "smooth" });
       hscrollRememberEl(scroller);
       syncTabArrows();
       return;
@@ -26386,6 +26434,52 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
       STATE.menu = null;
       render();
     }, 0);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const arrow = event.target.closest && event.target.closest(".tab-arrow[data-act='tab-scroll']");
+    if (arrow && (event.key === " " || event.key === "Enter")) {
+      event.preventDefault();
+      onAct(arrow);
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab']");
+    if (!tab) return;
+    const list = tab.closest(".ptabs");
+    if (!list) return;
+    const tabs = [...list.querySelectorAll("[role='tab']")];
+    const at = tabs.indexOf(tab);
+    if (at < 0) return;
+    const next = tabs[at + (event.key === "ArrowRight" ? 1 : -1)];
+    if (!next) return;
+    event.preventDefault();
+    profileTabHold = next.getAttribute("data-ptab-id") || "";
+    next.click();
+    const held = profileTabHold;
+    const restore = () => {
+      if (profileTabHold !== held) return;
+      focusHeldProfileTab(held);
+    };
+    restore();
+    setTimeout(restore, 0);
+    setTimeout(restore, 160);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) profileTabHold = tab.getAttribute("data-ptab-id") || "";
+  }, true);
+  document.addEventListener("click", (event) => {
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) profileTabHold = tab.getAttribute("data-ptab-id") || "";
+  }, true);
+  document.addEventListener("focusin", (event) => {
+    if (!profileTabHold) return;
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) return;
+    const node = event.target;
+    if (!node || node === document.body || node === document.documentElement) return;
+    profileTabHold = "";
   });
   document.addEventListener("click", (event) => {
     const acct = event.target.closest && event.target.closest(".acct-menu [data-acct]");

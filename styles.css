@@ -1980,6 +1980,9 @@ a.follow { display: inline-flex; align-items: center; justify-content: center; w
 .connect-bio { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; color: var(--text); font-size: 15px; line-height: 20px; margin-top: 2px; }
 .ptabs-wrap { position: sticky; top: 0; z-index: 4; background: var(--topbar); }
 .ptabs-wrap .ptabs { position: static; top: auto; }
+.ptabs-bar { height: 44px; border-bottom: 0; }
+.ptabs-bar .tab-arrow.right { right: 8px; }
+.ptabs-bar.is-fade-right::after { right: 0; }
 .ptabs {
   position: sticky;
   top: 0;
