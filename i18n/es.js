@@ -6411,5 +6411,13 @@ SI18n.addPack("es", {
   "Folder path": "Ruta de la carpeta",
   "Folders": "Carpetas",
   "Sort by size": "Ordenar por tamaño",
-  "Sort by date modified": "Ordenar por fecha de modificación"
+  "Sort by date modified": "Ordenar por fecha de modificación",
+  "Copy image": "Copiar imagen",
+  "On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.": "En el ordenador, el clic derecho en una imagen copia la completa como PNG. El PNG no es el archivo original. Apagado deja el menú del navegador.",
+  "Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.": "Copia un PNG de la imagen completa. No es el archivo original. El color, el HDR y la animación pueden no coincidir.",
+  "Saves the original file as it is. It is not compressed again.": "Guarda el archivo original tal cual. No se vuelve a comprimir.",
+  "Copied the picture": "Imagen copiada",
+  "The full picture did not load": "La imagen completa no se cargó",
+  "Copy the picture on screen": "Copiar la imagen de la pantalla",
+  "This is the picture on the screen, not the full file.": "Esta es la imagen que se ve, no el archivo completo."
 });

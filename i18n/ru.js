@@ -6410,5 +6410,13 @@ SI18n.addPack("ru", {
   "Folder path": "Путь к папке",
   "Folders": "Папки",
   "Sort by size": "Сортировать по размеру",
-  "Sort by date modified": "Сортировать по дате изменения"
+  "Sort by date modified": "Сортировать по дате изменения",
+  "Copy image": "Копировать изображение",
+  "On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.": "На компьютере правый клик по картинке копирует полную как PNG. PNG — не исходный файл. Выключено оставляет меню браузера.",
+  "Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.": "Копирует PNG полной картинки. Это не исходный файл. Цвет, HDR и анимация могут не совпасть.",
+  "Saves the original file as it is. It is not compressed again.": "Сохраняет исходный файл как есть. Повторно не сжимается.",
+  "Copied the picture": "Изображение скопировано",
+  "The full picture did not load": "Полная картинка не загрузилась",
+  "Copy the picture on screen": "Копировать картинку с экрана",
+  "This is the picture on the screen, not the full file.": "Это картинка на экране, а не полный файл."
 });

@@ -241,7 +241,8 @@ const PAGE_STEPS = [
   step("storage-page", "node scripts/storage_page_test.mjs", {
     weight: 45, needs: ["pw", "browser"],
     paths: [file("storage_page_test.mjs"), /^storage-recordings\.js$/, /^drive\.(js|css)$/, /^shared\/storage-/, ...APP]
-  })
+  }),
+  step("image-copy", "node scripts/image_copy_test.mjs", { needs: ["pw", "browser"], paths: [file("image_copy_test.mjs"), /^image-copy\.js$/] })
 ];
 
 const NAV_STEPS = [
@@ -280,7 +281,7 @@ const NAV_STEPS = [
 ];
 
 const SHARDS = {
-  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings"],
+  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings", "image-copy"],
   site: ["about-layout", "points-layout", "stories-layout", "assemble-site", "smoke-site", "smoke-mirror", "yt-embed", "x-video", "ios", "live"],
   "ui-fast": ["notifications", "pill-fit", "sidebar", "privacy", "title-privacy", "desktop-squares", "storage-page"],
   sw: ["sw-update"],
@@ -314,7 +315,7 @@ const REQUIRED_PAGE = [
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
   "live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant", "profile-by-name", "people-search", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync",
   "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares",
-  "storage-recordings", "storage-page"
+  "storage-recordings", "storage-page", "image-copy"
 ];
 
 export function stepsFor(suite) {

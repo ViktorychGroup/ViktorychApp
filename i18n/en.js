@@ -6408,5 +6408,13 @@ SI18n.addPack("en", {
   "Folder path": "Folder path",
   "Folders": "Folders",
   "Sort by size": "Sort by size",
-  "Sort by date modified": "Sort by date modified"
+  "Sort by date modified": "Sort by date modified",
+  "Copy image": "Copy image",
+  "On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.": "On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.",
+  "Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.": "Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.",
+  "Saves the original file as it is. It is not compressed again.": "Saves the original file as it is. It is not compressed again.",
+  "Copied the picture": "Copied the picture",
+  "The full picture did not load": "The full picture did not load",
+  "Copy the picture on screen": "Copy the picture on screen",
+  "This is the picture on the screen, not the full file.": "This is the picture on the screen, not the full file."
 });

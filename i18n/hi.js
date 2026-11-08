@@ -6398,5 +6398,13 @@ SI18n.addPack("hi", {
   "Folder path": "फ़ोल्डर का पथ",
   "Folders": "फ़ोल्डर",
   "Sort by size": "आकार से क्रम",
-  "Sort by date modified": "बदलाव की तिथि से क्रम"
+  "Sort by date modified": "बदलाव की तिथि से क्रम",
+  "Copy image": "चित्र कॉपी करें",
+  "On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.": "कंप्यूटर पर तस्वीर पर दायाँ क्लिक पूरी तस्वीर को PNG के रूप में कॉपी करता है। PNG मूल फ़ाइल नहीं है। बंद होने पर ब्राउज़र का अपना मेनू रहता है।",
+  "Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.": "पूरी तस्वीर का PNG कॉपी करता है। यह मूल फ़ाइल नहीं है। रंग, HDR और एनिमेशन मेल नहीं खा सकते।",
+  "Saves the original file as it is. It is not compressed again.": "मूल फ़ाइल को जैसा है वैसा सहेजता है। उसे दोबारा संपीड़ित नहीं किया जाता।",
+  "Copied the picture": "तस्वीर कॉपी हो गई",
+  "The full picture did not load": "पूरी तस्वीर लोड नहीं हुई",
+  "Copy the picture on screen": "स्क्रीन पर दिख रही तस्वीर कॉपी करें",
+  "This is the picture on the screen, not the full file.": "यह स्क्रीन पर दिख रही तस्वीर है, पूरी फ़ाइल नहीं।"
 });
