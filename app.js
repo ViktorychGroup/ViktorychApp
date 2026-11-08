@@ -1734,18 +1734,21 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return n ? `<p class="phandle set-block owner-locks-note">${esc(n === 1 ? tr("The site owner manages 1 of your settings.") : tr("The site owner manages {count} of your settings.", { count: String(n) }))}</p>` : "";
   }
 
+  function keepNewerBlocks() {
+    // Another tab may have saved a newer block list since this copy was read.
+    // Keep that list. This tab's own newer list still wins.
+    if (!STATE.settings || !window.ViktorychAccounts || !window.ViktorychAccounts.pickBlocks) return;
+    let disk = null;
+    try { disk = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { disk = null; }
+    if (disk && disk.blocks) STATE.settings.blocks = window.ViktorychAccounts.pickBlocks(disk.blocks, STATE.settings.blocks);
+  }
+
   function saveSettings() {
     if (enforceSettingLocks()) toast(tr("The site owner locked this setting."));
     if (STATE.settings && STATE.settings.devicePerf && window.ViktorychDevice && window.ViktorychDevice.persist) {
       STATE.settings.devicePerf = window.ViktorychDevice.persist(STATE.settings.devicePerf);
     }
-    // Another tab may have saved a newer block list since this copy was read.
-    // Keep that list. This tab's own newer list still wins.
-    if (STATE.settings && window.ViktorychAccounts && window.ViktorychAccounts.pickBlocks) {
-      let disk = null;
-      try { disk = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { disk = null; }
-      if (disk && disk.blocks) STATE.settings.blocks = window.ViktorychAccounts.pickBlocks(disk.blocks, STATE.settings.blocks);
-    }
+    keepNewerBlocks();
     writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings));
     blocksChanged();
     syncFeatureFlags();
@@ -7595,12 +7598,42 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   /* Another tab changed the rules: apply them here at once. The storage
      event is the fallback. A sync echo used to replace the new block list
      before that event landed, so the other tab kept the posts. */
+  function readSettingsRaw() {
+    // A test can supply the next reads, in order, to cover a list saved
+    // between them. Production always reads what is stored now.
+    const scripted = window.__settingsReads;
+    if (Array.isArray(scripted) && scripted.length) {
+      const next = scripted.shift();
+      return next == null ? null : String(next);
+    }
+    return readStored(localStorage, "settings-v1");
+  }
   function applyBlocksFromDisk() {
     if (!STATE.settings) return;
     let next = null;
-    try { next = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { next = null; }
+    try { next = JSON.parse(readSettingsRaw() || "null"); } catch (err) { next = null; }
     if (!next) return;
-    next.blocks = cleanBlocks(next.blocks);
+    let diskBlocks = cleanBlocks(next.blocks);
+    const memBlocks = STATE.settings.blocks;
+    const memAt = Number(memBlocks && memBlocks.at) || 0;
+    // A full settings write can still carry the block list from before this
+    // block. Read the disk again and keep whichever whole list is newer, so
+    // an unblock saved between the two reads is not overwritten. Muted words,
+    // muted accounts and repost rules in that blob still apply.
+    if (memAt > (Number(diskBlocks.at) || 0)) {
+      let latest = next;
+      try { latest = JSON.parse(readSettingsRaw() || "null") || next; } catch (err) { latest = next; }
+      const again = cleanBlocks(latest.blocks);
+      next = latest;
+      // The re-read is a whole list. A newer one (an unblock that landed
+      // after the first read) replaces this tab's copy. Otherwise this tab's
+      // list is still current and is written onto the blob that was re-read.
+      if ((Number(again.at) || 0) > memAt) diskBlocks = again;
+      else diskBlocks = cleanBlocks(memBlocks);
+      next.blocks = diskBlocks;
+      writeStored(localStorage, "settings-v1", JSON.stringify(next));
+    }
+    next.blocks = diskBlocks;
     if (blockSig(next) === blockSig(STATE.settings)) return;
     STATE.settings.mutedWords = Array.isArray(next.mutedWords) ? next.mutedWords : [];
     STATE.settings.mutedAccounts = Array.isArray(next.mutedAccounts) ? next.mutedAccounts : [];
@@ -11467,7 +11500,7 @@ const here = parseRoute();
     }, true);
     window.addEventListener("viktorych-setting-locks", () => {
       paintSettingLocks();
-      if (enforceSettingLocks()) { writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings)); if (typeof applyTheme === "function") applyTheme(); }
+      if (enforceSettingLocks()) { keepNewerBlocks(); writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings)); if (typeof applyTheme === "function") applyTheme(); }
       render({ y: window.scrollY });
     });
     setTimeout(paintSettingLocks, 0);
@@ -22789,10 +22822,22 @@ if (STATE.histClear) {
     }
   }
 
+  function profileTabClipped(scroller) {
+    const current = scroller.querySelector("[role='tab'][aria-selected='true']");
+    if (!current) return false;
+    const box = current.getBoundingClientRect();
+    const host = scroller.getBoundingClientRect();
+    if (!host.width || !box.width) return true;
+    return box.right > host.right + 8 || box.left < host.left - 8;
+  }
+
   function revealProfileTabs() {
+    const started = STATE.renderGen || 0;
+    let frames = 0;
     const apply = () => {
       const root = document.getElementById("app") || document.body;
       const store = hscrollStore();
+      let clipped = false;
       document.querySelectorAll(".ptabs").forEach((el) => {
         const next = revealSelectedTab(el, false);
         if (el.scrollTo) el.scrollTo({ left: el.scrollLeft, behavior: "auto" });
@@ -22800,14 +22845,20 @@ if (STATE.histClear) {
         el.dataset.hscrollKey = id;
         if (typeof next === "number") store[id] = next;
         el.dataset.hscrollRevealed = "1";
+        if (profileTabClipped(el)) clipped = true;
       });
       syncTabArrows();
+      return clipped;
     };
-    const follow = profileTabHold;
-    apply();
-    if (!follow) return;
+    const clipped = apply();
+    if (!clipped && !profileTabHold) return;
     const schedule = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
-    schedule(apply);
+    const again = () => {
+      if ((STATE.renderGen || 0) !== started) return;
+      frames += 1;
+      if (apply() && frames < 8) schedule(again);
+    };
+    schedule(again);
   }
 
   function hscrollRestoreSaved(retry) {
@@ -23565,6 +23616,10 @@ if (STATE.histClear) {
         if (window.SIntelMusic && window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(route);
         window.scrollTo(0, y);
         xcastArm();
+        /* The strip's scroll position does not survive being detached.
+           The selected pill is measured again, including after a keyboard move. */
+        focusHeldProfileTab(focusTab);
+        revealProfileTabs();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
       } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force) {
@@ -26460,6 +26515,7 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     const restore = () => {
       if (profileTabHold !== held) return;
       focusHeldProfileTab(held);
+      revealProfileTabs();
     };
     restore();
     setTimeout(restore, 0);
@@ -32019,6 +32075,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       STATE.settings.bellNotes = [];
       STATE.settings.bellSeen = [];
       STATE.settings.bellRead = 0;
+      keepNewerBlocks();
       writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings));
     }
     removeStored(localStorage, "notes-server");

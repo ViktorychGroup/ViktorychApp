@@ -93,7 +93,7 @@ async function main() {
   const port = server.address().port;
   const browser = await chromium.launch({ headless: true, channel: "chrome" });
   try {
-    const desk = await openProfile(browser, port, 1100, 800, null);
+    const desk = await openProfile(browser, port, 1000, 700, null);
     let info = await strip(desk.page);
     if (info.max <= 2) {
       await desk.page.setViewportSize({ width: 1000, height: 700 });
