@@ -5555,10 +5555,16 @@ function signupPayload() {
         ? '<div class="ptabs-tools"><button type="button" class="outline" data-ptab="reset">' + esc(tr("Reset to default")) + '</button><button type="button" class="outline ptabs-share' + (layout.share ? " on" : "") + '" data-ptab="share" aria-pressed="' + (layout.share ? "true" : "false") + '">' + esc(tr("Show this order to visitors")) + '</button><button type="button" class="outline" data-ptab="done">' + esc(tr("Done")) + "</button></div>"
         : '<div class="ptabs-tools"><button type="button" class="outline ptabs-edit" data-ptab="edit">' + esc(tr("Edit tabs")) + "</button></div>";
     }
+    var arrow = function (dir) {
+      var name = dir < 0 ? "chevL" : "chevR";
+      var mark = window.ViktorychIcons && window.ViktorychIcons.svg ? window.ViktorychIcons.svg(name) : "";
+      var label = dir < 0 ? tr("Scroll tabs left") : tr("Scroll tabs right");
+      return '<button class="tab-arrow ' + (dir < 0 ? "left" : "right") + '" type="button" data-act="tab-scroll" data-dir="' + dir + '" aria-label="' + esc(label) + '" hidden>' + mark + "</button>";
+    };
     return {
       active: active,
       highlightHtml: highlightHtml,
-      html: '<div class="ptabs-wrap' + (editing ? " is-editing" : "") + '"><div class="tabs ptabs" role="tablist" aria-label="' + esc(tr("Profile")) + '">' + html + "</div>" + tools + "</div>"
+      html: '<div class="ptabs-wrap' + (editing ? " is-editing" : "") + '"><div class="tabs-bar ptabs-bar">' + arrow(-1) + '<div class="tabs ptabs" role="tablist" data-hscroll="profile-tabs" aria-label="' + esc(tr("Profile")) + '">' + html + "</div>" + arrow(1) + "</div>" + tools + "</div>"
     };
   }
   function onProfileTabAct(node) {

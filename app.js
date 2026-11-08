@@ -22855,7 +22855,7 @@ if (STATE.histClear) {
 
   function revealSelectedTab(scroller, smooth) {
     if (!scroller) return 0;
-    const current = scroller.querySelector(".tab-pair.on") || scroller.querySelector(".tab.on") || scroller.querySelector("[role='tab'][aria-selected='true']");
+    const current = scroller.querySelector(".tab-pair.on") || scroller.querySelector(".tab.on") || scroller.querySelector(".ptab-edit.on") || scroller.querySelector("[role='tab'][aria-selected='true']");
     if (!current) return scroller.scrollLeft || 0;
     const pad = 8;
     const box = current.getBoundingClientRect();
