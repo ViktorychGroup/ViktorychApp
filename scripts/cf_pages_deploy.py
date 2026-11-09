@@ -215,7 +215,11 @@ def payload_sha(payload) -> str:
 
 
 def default_live(url: str):
-    """Public version.json only. The API token is not sent."""
+    """Public files only. The API token is not sent.
+
+    JSON stays a dict so version.json keeps its sha. sw.js is not JSON, and
+    turning that body into {} would hide the build SHA.
+    """
     req = urllib.request.Request(url, headers={
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
@@ -226,7 +230,7 @@ def default_live(url: str):
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError:
-            payload = {}
+            payload = raw
         return status, payload
 
 
@@ -407,7 +411,9 @@ class _Response:
 def selftest() -> int:
     import io
     import tempfile
+    import threading
     from contextlib import redirect_stdout
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     if not permission_denied(403, {}):
         return 1
@@ -619,6 +625,66 @@ def selftest() -> int:
             return 1
         if "did not serve this build" not in text or token in text:
             print("a stuck manifest passed")
+            return 1
+
+        seen_paths = []
+
+        class LiveHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen_paths.append(self.path)
+                path = self.path.split("?", 1)[0]
+                if path.endswith("/sw.js"):
+                    body = ('const VERSION = "viktorych-a281-' + build + '";\n').encode("utf-8")
+                    kind = "text/javascript"
+                elif path.endswith("/version.json"):
+                    body = json.dumps({"sha": build}).encode("utf-8")
+                    kind = "application/json"
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                return
+
+        live_http = ThreadingHTTPServer(("127.0.0.1", 0), LiveHandler)
+        live_thread = threading.Thread(target=live_http.serve_forever, daemon=True)
+        live_thread.start()
+        global LIVE_SW, LIVE_VERSION
+        saved_sw, saved_version = LIVE_SW, LIVE_VERSION
+        LIVE_SW = "http://127.0.0.1:%d/sw.js" % live_http.server_address[1]
+        LIVE_VERSION = "http://127.0.0.1:%d/version.json" % live_http.server_address[1]
+        (directory / "version.json").write_text(json.dumps({"sha": build}) + "\n", encoding="utf-8")
+        real_uploads = {"n": 0}
+
+        def real_upload(cmd, cwd, env, text, capture_output):
+            real_uploads["n"] += 1
+            return _Result(0, "Deployment complete\nEnvironment: Production\n", "")
+
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = deploy(directory, run=real_upload, sleep=lambda _s: None, project=lambda _a, _b: "exists", live=default_live)
+            text = buf.getvalue()
+        finally:
+            LIVE_SW, LIVE_VERSION = saved_sw, saved_version
+            live_http.shutdown()
+            live_http.server_close()
+            if (directory / "version.json").is_file():
+                (directory / "version.json").unlink()
+        if code != 0 or real_uploads["n"] != 1 or "serving this build" not in text:
+            print("real default_live missed the shell", code, real_uploads["n"], text)
+            return 1
+        if not any(path.startswith("/sw.js?t=") for path in seen_paths) or not any(path.startswith("/version.json?t=") for path in seen_paths):
+            print("real default_live did not cache-bust", seen_paths)
+            return 1
+        if token in text:
+            print("real default_live leaked")
             return 1
 
         hits = {"n": 0}
