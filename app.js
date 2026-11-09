@@ -708,7 +708,7 @@
     if (!img || img.dataset.metaEmbed === "1") return false;
     const tile = img.closest(".tile");
     if (!tile) return false;
-    const id = String(tile.dataset.id || "");
+    const id = String(tile.dataset.id || tile.dataset.pid || "");
     const post = id ? posts().find((row) => String(row.id) === id || String(row.statusId) === id || canonicalId(row) === id) : null;
     if (!post || (post.platform !== "instagram" && post.platform !== "threads")) return false;
     // Instagram's embed page is an error document with X-Frame-Options: DENY.
@@ -4656,7 +4656,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!img || !img.isConnected || img.dataset.igCover === "1") return false;
     const tile = img.closest(".tile");
     if (!tile) return false;
-    const id = String(tile.dataset.id || "");
+    const id = String(tile.dataset.id || tile.dataset.pid || "");
     const post = id ? posts().find((row) => String(row.id) === id || String(row.statusId) === id || canonicalId(row) === id) : null;
     if (!post || post.platform !== "instagram") return false;
     const api = accountsApi();
@@ -27968,6 +27968,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (player) {
       if (img.tagName === "VIDEO") return;
       if (useArchiveMedia(img)) return;
+      // A reel poster that cannot load still has the public media image.
+      // Leaving the error here kept a black frame after the stored file failed.
+      if (img.dataset.igCover !== "1" && tryInstagramCover(img)) return;
       return;
     }
     const next = img.dataset.refresh || "";

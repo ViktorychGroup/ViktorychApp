@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-09T21:30:05.000Z-nav-fix
+// cache-bust: 2026-11-09T21:30:10.000Z-ig-cover
 try { importScripts("./shorts-enabled.js"); } catch (err) { /* Shorts stays off when the switch file is missing */ }
 
 const ACCOUNTS_WALL = false;

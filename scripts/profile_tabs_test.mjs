@@ -61,14 +61,19 @@ function idsOf(page) {
 }
 
 async function drag(page, id, dx) {
-  const handle = page.locator(`[data-ptab-id="${id}"]`).first();
-  const box = await handle.boundingBox();
+  const grip = page.locator(`[data-ptab-id="${id}"] .ptab-grip`).first();
+  await grip.scrollIntoViewIfNeeded();
+  const box = await grip.boundingBox();
   if (!box) fail("missing tab " + id);
-  const x = box.x + Math.min(24, box.width / 2);
+  const bar = await page.locator(".ptabs").first().boundingBox();
+  if (!bar) fail("missing tab strip");
+  const x = box.x + box.width / 2;
   const y = box.y + box.height / 2;
+  const end = dx < 0 ? bar.x + 8 : Math.min(bar.x + bar.width - 8, x + dx);
   await page.mouse.move(x, y);
   await page.mouse.down();
-  await page.mouse.move(x + dx, y, { steps: 8 });
+  await page.mouse.move(end, y, { steps: 16 });
+  for (let i = 0; i < 16; i++) await page.mouse.move(end, y);
   await page.mouse.up();
 }
 
