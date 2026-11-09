@@ -39,6 +39,7 @@ import { handleTvPair } from "./tv-pair.js";
 import { handleMediaSwarm } from "./media-swarm.js";
 import { handlePool, notePoolDocument, poolSignable, poolUsage } from "./peer-pool.js";
 import { handleLive, LIVE_SCHEMA, sweepLive } from "./live.js";
+import { clipEmoji } from "../../shared/presence.js";
 import { PRESENCE_SCHEMA, ensurePresenceColumns, handleFriendPresence, handlePresence, sweepExpiredStatuses } from "./presence.js";
 import { NOTIFICATION_SCHEMA, drainOutbox, handleNotificationRoutes, notifyFollow, planRepostNotification, notifyLiveStarted, emitNotification } from "./notifications.js";
 import { MENTION_SCHEMA, commitBundled, handleBlockMuteRoutes, handleContentRoutes, planMentions } from "./mention-store.js";
@@ -1479,7 +1480,7 @@ function cleanDrawerMenuSync(raw) {
     const id = String(section.id || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
     if (!id) return;
     const name = String(section.name || "").replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 40) || "Folder";
-    const emoji = String(section.emoji || "").replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 8);
+    const emoji = clipEmoji(section.emoji, 8);
     const items = [];
     (Array.isArray(section.items) ? section.items : []).slice(0, 24).forEach((item) => {
       if (ids.indexOf(item) >= 0 && items.indexOf(item) < 0) items.push(item);

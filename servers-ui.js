@@ -727,7 +727,7 @@
     html = html.replace(/(^|[\s(>])_([^_<]+)_(?=[\s).,!?:<]|$)/g, "$1<em>$2</em>");
     html = html.replace(/\|\|([\s\S]+?)\|\|/g, '<span class="vsrv-spoiler" data-vs="spoiler" role="button" tabindex="0">$1</span>');
     html = html.replace(/\u0000(\d+)\u0000/g, function (_m, i) { return blocks[Number(i)] || ""; });
-    return html;
+    return root && root.ViktorychEmoji ? root.ViktorychEmoji.mark(html) : html;
   }
   var EMOJI_ONLY = null;
   function emojiOnly(raw) {

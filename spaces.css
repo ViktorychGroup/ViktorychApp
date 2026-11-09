@@ -235,7 +235,7 @@ a.sp-live-wrap { position: relative; display: inline-block; text-decoration: non
     radial-gradient(900px 420px at 50% -8%, #3a1a8f 0%, rgba(42, 15, 107, 0.35) 46%, transparent 70%),
     #140824;
   color: #fff;
-  font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, "Noto Sans Devanagari", "Nirmala UI", "Mangal", "Kohinoor Devanagari", "Devanagari Sangam MN", Arial, sans-serif;
+  font-family: var(--font);
 }
 .sp-sheet-bar {
   display: grid;
