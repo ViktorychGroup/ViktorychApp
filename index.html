@@ -892,6 +892,7 @@
     <script src="keys.js" defer></script>
     <script src="keys-ui.js" defer></script>
   </template>
+  <script src="shorts-enabled.js"></script>
   <script>
     (function () {
       function assetRef(node) {
@@ -948,6 +949,7 @@
           /* For You off (allowed unless the owner switched foryou_off off): no ranking code. */
           if (localStorage.getItem("viktorychapp-off-foryou") === "1" && server.indexOf("foryou_off") < 0) off.push("shared/for-you.js");
         } catch (err) { /* storage blocked */ }
+        if (window.SHORTS_ENABLED !== true) off.push("shared/shorts-play.js");
         function wanted(node) {
           var ref = (node.getAttribute("src") || node.getAttribute("href") || "").replace(/^\.\//, "").split("?")[0];
           return off.indexOf(ref) < 0;

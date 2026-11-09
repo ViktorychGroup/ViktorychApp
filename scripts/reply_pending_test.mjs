@@ -267,6 +267,9 @@ async function externalReplies(browser, port, width) {
   await watchAdded(page, ["Blocked author reply", "Friends author reply"]);
   await page.evaluate((id) => { location.hash = "#/instagram/lane_photo/status/" + id; }, IG);
   await page.waitForSelector("text=Open author reply", { timeout: 8000 });
+  // The open reply and the friends reply are one list. A slow paint used to
+  // read the page in the frame before that list was on screen.
+  await page.waitForFunction(() => document.body.innerText.includes("Friends author reply"), null, { timeout: 8000 }).catch(() => null);
   if (!(await page.evaluate(() => document.body.innerText.includes("Friends author reply")))) throw new Error("a friends reply the server included was hidden");
   if (await page.evaluate(() => document.body.innerText.includes("Blocked author reply"))) throw new Error("a blocked author reply was shown");
   let flashed = await addedWords(page);
