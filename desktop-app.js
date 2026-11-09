@@ -1,5 +1,6 @@
 /* Installed desktop app chrome: the title bar we draw with Window Controls
    Overlay, the hidden page scrollbar, a Close button and an opt-in full screen.
+   App size is a separate scale of this page only. It is not the browser's zoom.
 
    What a web app can and cannot do here:
    - The OS minimize, maximize and close buttons always stay. Window Controls
@@ -10,6 +11,48 @@
      refuse it after in-app navigation, so we check and show the OS shortcut.
    - Full screen is only entered from a user's click or shortcut, never on load.
    - Firefox has no desktop install, so none of the installed-only parts show. */
+// A maximized window with the toolbar fills the work area. Full screen (F11
+// or the Fullscreen API) is not that. Anything in between is not a guess.
+function windowGuess(m) {
+  m = m || {};
+  if (m.fullscreen || m.fullDisplay) return "fullscreen";
+  var ow = Number(m.outerW) || 0;
+  var oh = Number(m.outerH) || 0;
+  var aw = Number(m.availW) || 0;
+  var ah = Number(m.availH) || 0;
+  if (ow < 200 || oh < 200 || aw < 200 || ah < 200) return "unknown";
+  if (ow >= aw - 16 && oh >= ah - 16) return "maximized";
+  if (ow <= aw - 80 || oh <= ah - 80) return "window";
+  return "unknown";
+}
+function desktopGate(innerWidth) {
+  return (Number(innerWidth) || 0) >= 1000;
+}
+function clampScale(n) {
+  var x = Math.round(Number(n) / 5) * 5;
+  if (!isFinite(x)) return 100;
+  if (x < 100) return 100;
+  if (x > 200) return 200;
+  return x;
+}
+// null means the window guess is unsure, so the current size must stay.
+function scaleChoice(pref, guess, desktop) {
+  if (!desktop) return 100;
+  pref = pref || {};
+  var mode = pref.mode || "off";
+  if (mode === "off") return 100;
+  if (mode === "manual") return clampScale(pref.manual == null ? 100 : pref.manual);
+  if (mode === "window") {
+    if (guess === "maximized") return clampScale(pref.maximized == null ? 150 : pref.maximized);
+    if (guess === "window") return clampScale(pref.windowed == null ? 120 : pref.windowed);
+    return null;
+  }
+  return 100;
+}
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { windowGuess: windowGuess, clampScale: clampScale, scaleChoice: scaleChoice, desktopGate: desktopGate };
+}
+
 (function () {
   "use strict";
   var root = typeof window !== "undefined" ? window : globalThis;
@@ -240,10 +283,53 @@
   }
 
   // ---- settings and menus ----
+  function featureOn() {
+    try {
+      var off = JSON.parse(root.localStorage.getItem("viktorychapp-server-off") || "[]");
+      if (off && off.indexOf && off.indexOf("app_scale") >= 0) return false;
+    } catch (err) { /* a bad list means the feature stays available */ }
+    return true;
+  }
+  function scalePref() {
+    var raw = read().scale;
+    raw = raw && typeof raw === "object" ? raw : {};
+    return {
+      mode: raw.mode === "manual" || raw.mode === "window" ? raw.mode : "off",
+      manual: clampScale(raw.manual == null ? 100 : raw.manual),
+      maximized: clampScale(raw.maximized == null ? 150 : raw.maximized),
+      windowed: clampScale(raw.windowed == null ? 120 : raw.windowed)
+    };
+  }
+  function metrics() {
+    var screen = root.screen || {};
+    return {
+      fullscreen: !!fsElement(),
+      fullDisplay: mq("(display-mode: fullscreen)") && !fsElement(),
+      outerW: root.outerWidth || 0,
+      outerH: root.outerHeight || 0,
+      availW: screen.availWidth || 0,
+      availH: screen.availHeight || 0
+    };
+  }
+  function desktopEnough() {
+    // innerWidth is the window's CSS width. Our page scale does not change it,
+    // so multiplying by the scale would keep a narrow window looking wide.
+    return desktopGate(root.innerWidth);
+  }
+  function applyScale() {
+    if (!featureOn() || !desktopEnough()) {
+      if (html.style.zoom) html.style.zoom = "";
+      return;
+    }
+    var choice = scaleChoice(scalePref(), windowGuess(metrics()), true);
+    if (choice == null) return;
+    html.style.zoom = choice === 100 ? "" : String(choice / 100);
+  }
   function applyPrefs() {
     var prefs = read();
     html.classList.toggle("vk-show-scrollbar", prefs.showScrollbar === true);
     html.classList.toggle("vk-installed", installed());
+    applyScale();
   }
   function setPref(key, value) {
     var prefs = read();
@@ -266,7 +352,30 @@
     if (installed()) {
       out += '<p class="phandle set-desc">' + esc(tr("Your computer’s own minimize, maximize and close buttons always stay in the corner. The app draws its title bar next to them.")) + "</p>";
     }
+    if (featureOn() && desktopEnough()) out += scaleHtml(prefs);
     return out + "</div>";
+  }
+  function scaleHtml() {
+    var pref = scalePref();
+    var guess = windowGuess(metrics());
+    var guessText = guess === "maximized" ? tr("Maximized with the toolbar") : guess === "window" ? tr("In a window") : guess === "fullscreen" ? tr("Full screen") : tr("Not sure");
+    function modeBtn(id, label) {
+      var on = pref.mode === id;
+      return '<button class="outline' + (on ? " on" : "") + '" type="button" data-act="desk-scale-mode" data-value="' + id + '" aria-pressed="' + (on ? "true" : "false") + '">' + esc(label) + "</button>";
+    }
+    function slider(key, label, value) {
+      return '<label class="desk-scale"><span>' + esc(label) + '</span><input type="range" min="100" max="200" step="5" data-desk-scale data-key="' + key + '" value="' + value + '" aria-label="' + esc(label) + '"><b data-desk-scale-out>' + value + "%</b></label>";
+    }
+    var out = '<h2>' + esc(tr("App size")) + "</h2>";
+    out += '<p class="phandle set-desc">' + esc(tr("This scales the app in this browser on this computer. Everyone who uses this browser here shares it. It is not saved to an account and it is not sent anywhere. It does not change the browser’s zoom, and the two add together if both are on. It starts off.")) + "</p>";
+    out += '<div class="theme-row">' + modeBtn("off", tr("Off")) + modeBtn("manual", tr("One size")) + modeBtn("window", tr("Match the window")) + "</div>";
+    if (pref.mode === "manual") out += slider("manual", tr("One size"), pref.manual);
+    if (pref.mode === "window") {
+      out += slider("maximized", tr("Maximized with the toolbar"), pref.maximized);
+      out += slider("windowed", tr("In a window"), pref.windowed);
+      out += '<p class="phandle set-desc">' + esc(tr("The app guesses a maximized window when it fills the work area, with the toolbar still showing. Full screen is left alone. If the guess is unsure, the size stays as it is.")) + " " + esc(guessText) + ".</p>";
+    }
+    return out;
   }
   // Rows for the side menu (drawer) and the profile popup.
   function menuRowsHtml(kind) {
@@ -288,6 +397,16 @@
     if (act === "desk-fullscreen") { toggleFullscreen(); return true; }
     if (act === "desk-close") { closeApp(); return true; }
     if (act === "desk-pref") { setPref(el && el.dataset.key, el && el.dataset.value); return true; }
+    if (act === "desk-scale-mode") {
+      var prefs = read();
+      var scale = scalePref();
+      var next = el && el.dataset.value;
+      scale.mode = next === "manual" || next === "window" ? next : "off";
+      prefs.scale = scale;
+      write(prefs);
+      applyScale();
+      return true;
+    }
     return false;
   }
 
@@ -317,8 +436,27 @@
         else if (list.addListener) list.addListener(fn);
       } catch (err) { /* no matchMedia */ }
     });
-    doc.addEventListener("fullscreenchange", syncFullscreen);
-    doc.addEventListener("webkitfullscreenchange", syncFullscreen);
+    doc.addEventListener("input", function (event) {
+      var el = event.target;
+      if (!el || !el.getAttribute || el.getAttribute("data-desk-scale") == null) return;
+      var key = el.getAttribute("data-key");
+      if (key !== "manual" && key !== "maximized" && key !== "windowed") return;
+      var prefs = read();
+      var scale = scalePref();
+      scale[key] = clampScale(el.value);
+      prefs.scale = scale;
+      write(prefs);
+      var out = el.parentNode && el.parentNode.querySelector("[data-desk-scale-out]");
+      if (out) out.textContent = scale[key] + "%";
+      applyScale();
+    });
+    var scaleTimer = 0;
+    root.addEventListener("resize", function () {
+      clearTimeout(scaleTimer);
+      scaleTimer = setTimeout(applyScale, 120);
+    });
+    doc.addEventListener("fullscreenchange", function () { syncFullscreen(); applyScale(); });
+    doc.addEventListener("webkitfullscreenchange", function () { syncFullscreen(); applyScale(); });
     doc.addEventListener("keydown", onKey, true);
     doc.addEventListener("click", function (event) {
       var hit = event.target && event.target.closest ? event.target.closest("[data-desk]") : null;
@@ -365,6 +503,9 @@
     closeApp: closeApp,
     protectDrafts: protectDrafts,
     settingsHtml: settingsHtml,
+    windowGuess: function () { return windowGuess(metrics()); },
+    scaleNow: function () { return html.style.zoom || ""; },
+    applyScale: applyScale,
     menuRowsHtml: menuRowsHtml,
     onAct: onAct,
     setPref: setPref

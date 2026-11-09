@@ -4,7 +4,8 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-07T15:32:10.000Z-emoji-text
+// cache-bust: 2026-11-09T16:50:30.000Z-emoji
+try { importScripts("./shorts-enabled.js"); } catch (err) { /* Shorts stays off when the switch file is missing */ }
 
 const ACCOUNTS_WALL = false;
 let accountsAuthed = false;
@@ -50,6 +51,13 @@ async function brandManifestResponse(response) {
     return response;
   }
 }
+function shortsPrefetchOn() {
+  return typeof SHORTS_ENABLED !== "undefined" && SHORTS_ENABLED === true;
+}
+function withoutParkedShorts(list) {
+  if (shortsPrefetchOn()) return list;
+  return list.filter((path) => path !== "./shorts.js" && path !== "./shorts.css" && path !== "./shared/shorts-play.js");
+}
 const SHELL = "shell-" + VERSION;
 // Saved feeds, media and live parts outlive app updates. Only the shell is
 // versioned; these names stay the same so a deploy does not wipe the cache.
@@ -80,6 +88,8 @@ const SHELL_FILES = [
   "./i18n/hi.js",
   "./app.js",
   "./emoji.js",
+  "./image-copy.js",
+  "./shorts-enabled.js",
   "./update.js",
   "./storage.js",
   "./storage.css",
@@ -315,6 +325,7 @@ const SHELL_CORE = [
   "./shared/short-link.js",
   "./privacy-screen.js",
   "./shared/lazy-modules.js",
+  "./shorts-enabled.js",
   "./shared/mirror.js",
   "./favicon.svg",
   "./favicon.ico",
@@ -1364,7 +1375,7 @@ async function cacheFriendCopy(url, blob) {
 }
 
 let lastReportAt = 0;
-let progressState = { files: 0, totalFiles: SHELL_FILES.length, bytes: 0, totalBytes: 0 };
+let progressState = { files: 0, totalFiles: withoutParkedShorts(SHELL_FILES).length, bytes: 0, totalBytes: 0 };
 
 function shellOptional(path) {
   return /\.(?:png|ico|svg)$/i.test(String(path || ""));
@@ -1741,6 +1752,7 @@ async function doPrecache(report, generation, signal, mode) {
   const skip = await offFeatureFiles();
   const coreOnly = mode === "core";
   let files = SHELL_FILES.filter((path) => skip.indexOf(path) < 0);
+  files = withoutParkedShorts(files);
   files.sort((a, b) => (SHELL_CORE.indexOf(a) >= 0 ? 0 : 1) - (SHELL_CORE.indexOf(b) >= 0 ? 0 : 1));
   if (coreOnly) files = files.filter((path) => SHELL_CORE.indexOf(path) >= 0);
   const state = { files: 0, totalFiles: files.length, bytes: 0, totalBytes: 0, reused: 0, fetched: 0, reuse: null };
@@ -1772,7 +1784,7 @@ async function doPrecache(report, generation, signal, mode) {
     }
   };
   const workers = [];
-  const width = Math.min(4, SHELL_FILES.length);
+  const width = Math.min(4, withoutParkedShorts(SHELL_FILES).length);
   for (let i = 0; i < width; i++) workers.push(pull());
   let ok = false;
   try {
@@ -1846,7 +1858,7 @@ async function runApply(fresh) {
   const task = precacheShell(true, fresh !== false, mode);
   const generation = task.generation;
   try {
-    if (fresh !== false) broadcastProgress({ step: "download", files: 0, totalFiles: mode === "core" ? SHELL_CORE.length : SHELL_FILES.length, bytes: 0, totalBytes: 0 }, true);
+    if (fresh !== false) broadcastProgress({ step: "download", files: 0, totalFiles: mode === "core" ? SHELL_CORE.length : withoutParkedShorts(SHELL_FILES).length, bytes: 0, totalBytes: 0 }, true);
     const state = await task;
     if (generation !== precacheGeneration) return;
     broadcastProgress({ step: "install", files: state.files, totalFiles: state.totalFiles, bytes: state.bytes, totalBytes: state.totalBytes }, true);

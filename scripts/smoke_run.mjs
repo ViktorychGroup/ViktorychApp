@@ -98,6 +98,7 @@ const PAGE_STEPS = [
     weight: 45, needs: ["pw", "browser"],
     paths: [file("notifications_page_test.mjs"), file("notif_badge_test.mjs"), ...APP]
   }),
+  step("profile-tab-scroll", "node scripts/profile_tab_scroll_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_tab_scroll_test.mjs"), /^accounts\.js$/, /^app\.js$/, /^styles\.css$/] }),
   step("profile", "node scripts/profile_chrome_test.mjs", {
     weight: 70, needs: ["pw", "browser"],
     paths: [file("profile_chrome_test.mjs"), file("mention_suggest_test.mjs"), file("friend_state_test.mjs"), file("my_devices_test.mjs"), file("feeds_page_test.mjs"), file("feed_requests_approve_test.mjs"), ...APP]
@@ -107,6 +108,14 @@ const PAGE_STEPS = [
   step("home-tabs", "node scripts/home_tabs_test.mjs", {
     weight: 170, needs: ["pw", "browser"], timing: true,
     paths: [file("home_tabs_test.mjs"), file("boot_speed_test.mjs"), file("custom_tab_reload_test.mjs"), ...APP]
+  }),
+  step("tab-member", "node scripts/tab_member_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("tab_member_test.mjs"), /^app\.js$/]
+  }),
+  step("reply-lookup", "node scripts/reply_lookup_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("reply_lookup_test.mjs"), /^app\.js$/]
   }),
   step("pill-fit", "node scripts/pill_fit_test.mjs", {
     weight: 20, needs: ["pw", "browser"],
@@ -153,6 +162,10 @@ const PAGE_STEPS = [
     weight: 45, needs: ["pw", "browser"],
     paths: [file("instagram_media_test.mjs"), /^app\.js$/, /^accounts\.js$/, /^worker\/src\/index\.js$/]
   }),
+  step("source-assign", "node scripts/source_lists_client_test.mjs && node scripts/source_list_assign_test.mjs", {
+    weight: 40, needs: ["pw", "browser"],
+    paths: [file("source_list_assign_test.mjs"), file("source_lists_client_test.mjs"), /^source-lists\.js$/, /^app\.js$/, /^worker\/src\/source-lists\.js$/]
+  }),
   step("device-guard", "node scripts/device_guard_test.mjs", { needs: ["pw", "browser"], paths: [file("device_guard_test.mjs")] }),
   step("usernames", "node scripts/usernames_settings_test.mjs", { weight: 80, needs: ["pw", "browser"], paths: [file("usernames_settings_test.mjs")] }),
   step("owner-user-settings", "node scripts/owner_user_settings_test.mjs", { weight: 30, needs: ["pw", "browser"], paths: [file("owner_user_settings_test.mjs"), /^owner-inspector\.(js|css)$/, /^accounts\.js$/, ...APP] }),
@@ -162,6 +175,7 @@ const PAGE_STEPS = [
   step("games-mobile", "node scripts/games_mobile_test.mjs", { needs: ["pw", "browser"], paths: [file("games_mobile_test.mjs")] }),
   step("live-translate", "node scripts/live_translate_test.mjs", { needs: ["pw", "browser"], paths: [file("live_translate_test.mjs")] }),
   step("friend-p2p", "node scripts/friend_p2p_test.mjs", { needs: ["pw", "browser"], paths: [file("friend_p2p_test.mjs")] }),
+  step("friend-refresh", "node scripts/friend_refresh_test.mjs", { needs: ["pw", "browser"], paths: [file("friend_refresh_test.mjs"), /^accounts\.js$/] }),
   step("communities-instant", "node scripts/communities_instant_test.mjs", { needs: ["pw", "browser"], paths: [file("communities_instant_test.mjs")] }),
   step("routes-instant", "node scripts/routes_instant_test.mjs", { needs: ["pw", "browser"], paths: [file("routes_instant_test.mjs")] }),
   step("profile-by-name", "node scripts/profile_by_name_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_by_name_test.mjs")] }),
@@ -176,6 +190,26 @@ const PAGE_STEPS = [
   step("emoji-text", "node scripts/emoji_text_test.mjs", {
     needs: ["pw", "browser"],
     paths: [file("emoji_text_test.mjs"), file("emoji.js"), /^styles\.css$/]
+  }),
+  step("post-menu", "node scripts/post_menu_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("post_menu_test.mjs"), /^app\.js$/, /^styles\.css$/]
+  }),
+  step("show-more-scroll", "node scripts/show_more_scroll_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("show_more_scroll_test.mjs"), /^app\.js$/]
+  }),
+  step("action-speed", "node scripts/action_speed_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("action_speed_test.mjs"), file("action_speed_bench.mjs"), /^app\.js$/, /^accounts\.js$/]
+  }),
+  step("reply-pending", "node scripts/reply_pending_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("reply_pending_test.mjs"), file("relation_reply_bench.mjs"), /^app\.js$/, /^x-compose\.js$/]
+  }),
+  step("tab-sync", "node scripts/tab_sync_test.mjs", {
+    needs: ["pw", "browser"],
+    paths: [file("tab_sync_test.mjs"), file("device_sync_test.js"), /^app\.js$/, /^accounts\.js$/]
   }),
   step("translate", "node scripts/translate_test.js", { paths: [file("translate_test.js")] }),
   step("ondevice-ai", "node scripts/ondevice_ai_test.js", { paths: [file("ondevice_ai_test.js")] }),
@@ -212,7 +246,9 @@ const PAGE_STEPS = [
   step("storage-page", "node scripts/storage_page_test.mjs", {
     weight: 45, needs: ["pw", "browser"],
     paths: [file("storage_page_test.mjs"), /^storage-recordings\.js$/, /^drive\.(js|css)$/, /^shared\/storage-/, ...APP]
-  })
+  }),
+  step("app-scale", "node scripts/app_scale_test.mjs", { needs: ["pw", "browser"], paths: [file("app_scale_test.mjs"), /^desktop-app\.js$/, /^app\.js$/, /^mention-suggest\.js$/] }),
+  step("image-copy", "node scripts/image_copy_test.mjs", { needs: ["pw", "browser"], paths: [file("image_copy_test.mjs"), /^image-copy\.js$/] })
 ];
 
 const NAV_STEPS = [
@@ -251,18 +287,18 @@ const NAV_STEPS = [
 ];
 
 const SHARDS = {
-  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings"],
+  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings", "app-scale", "image-copy"],
   site: ["about-layout", "points-layout", "stories-layout", "assemble-site", "smoke-site", "smoke-mirror", "yt-embed", "x-video", "ios", "live"],
   "ui-fast": ["notifications", "pill-fit", "sidebar", "privacy", "title-privacy", "desktop-squares", "storage-page"],
   sw: ["sw-update"],
-  "ui-profile": ["profile"],
+  "ui-profile": ["profile", "profile-tab-scroll"],
   "ui-drawer": ["drawer"],
-  home: ["home-tabs", "foryou-chunks", "foryou-off"],
+  home: ["home-tabs", "tab-member", "reply-lookup", "foryou-chunks", "foryou-off"],
   "compose-core": ["compose-ai", "compose-page"],
   "compose-a": ["community-home", "communities-hub", "own-post", "author-marks", "post-page"],
-  "compose-b": ["music-dock", "video-fallback", "ig-media", "device-guard", "usernames", "owner-user-settings"],
-  "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile", "people-search", "emoji-text"],
-  "compose-d": ["live-translate", "friend-p2p", "communities-instant", "routes-instant"],
+  "compose-b": ["music-dock", "video-fallback", "ig-media", "source-assign", "device-guard", "usernames", "owner-user-settings"],
+  "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile", "people-search", "emoji-text", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync"],
+  "compose-d": ["live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant"],
   "compose-e": ["profile-by-name", "communities-rows", "friend-privacy", "foryou-communities"],
   "signup-flows": ["signup-flows"]
 };
@@ -277,15 +313,15 @@ const NAV_SHARDS = {
 const REQUIRED_PAGE = [
   "action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n",
   "about-layout", "points-layout", "telegram-stories", "stories", "stories-layout",
-  "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "profile",
-  "home-tabs", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
+  "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "profile", "profile-tab-scroll",
+  "home-tabs", "tab-member", "reply-lookup", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
   "signup-flows",
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
-  "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media",
+  "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media", "source-assign",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
-  "live-translate", "friend-p2p", "communities-instant", "routes-instant", "profile-by-name", "people-search", "emoji-text",
+  "live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant", "profile-by-name", "people-search", "emoji-text", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync",
   "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares",
-  "storage-recordings", "storage-page"
+  "storage-recordings", "storage-page", "app-scale", "image-copy"
 ];
 
 export function stepsFor(suite) {

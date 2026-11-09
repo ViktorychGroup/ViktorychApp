@@ -206,11 +206,16 @@ async function check(browser, port, size, lang) {
 
   // Composer: someone you can't mention gets a neutral hint, not a row.
   await page.goto("http://127.0.0.1:" + port + "/index.html#/compose/post", { waitUntil: "domcontentloaded" });
-  const box = await page.waitForSelector("textarea", { timeout: 15000 }).catch(() => null);
+  await page.waitForFunction(() => document.querySelector('[data-act="xc-expand"]') || document.querySelector("textarea.xc-text"), null, { timeout: 15000 }).catch(() => null);
+  const slim = page.locator('[data-act="xc-expand"]').first();
+  if (await slim.count()) await slim.click({ timeout: 15000 });
+  const composer = page.locator("textarea.xc-text").first();
+  const box = await composer.waitFor({ timeout: 15000 }).then(() => true).catch(() => null);
   if (box) {
-    /* The composer can repaint once right after the route opens; click by selector so a fresh box is used. */
-    await page.locator("textarea").first().click({ timeout: 15000 });
-    await page.keyboard.type("hi @blocked_b");
+    /* The welcome bio is also a textarea. Fill the post composer so one
+       input event carries the whole @ token. */
+    await composer.click({ timeout: 15000 });
+    await composer.fill("hi @blocked_b");
     await page.waitForSelector(".mention-hint", { timeout: 5000 }).catch(() => fail(label + ": no can't-mention hint"));
     const hint = await page.textContent(".mention-hint");
     const wantHint = { en: "You can't mention this account.", es: "No puedes mencionar esta cuenta.", ru: "Вы не можете упомянуть этот аккаунт." }[lang];

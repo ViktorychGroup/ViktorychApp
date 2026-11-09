@@ -297,6 +297,36 @@ async function main() {
   const est = await app.seal.estimate();
   assert.deepStrictEqual(est, { usage: 2048, quota: 1 << 30 });
 
+  // 9. A vault write already encrypting must not return after clear().
+  const dev5 = makeDevice();
+  app = openApp(dev5);
+  await app.seal.ready();
+  const held = JSON.stringify({ token: "held-secret-999", account: { publicId: "100000000001", temporary: { expiresAt: 1 } } });
+  app.ls.setItem("viktorychapp-account-v1", held);
+  const realEncrypt = webcrypto.subtle.encrypt.bind(webcrypto.subtle);
+  let releaseEncrypt = null;
+  const encryptGate = new Promise((resolve) => { releaseEncrypt = resolve; });
+  webcrypto.subtle.encrypt = function () {
+    const args = arguments;
+    return encryptGate.then(() => realEncrypt.apply(webcrypto.subtle, args));
+  };
+  try {
+    app.ls.setItem("viktorychapp-account-v1", held);
+    await wait(50);
+    app.ls.clear();
+    releaseEncrypt();
+    await wait(80);
+    assert.ok(!dev5.ls._d.has(Seal.VAULT_KEY), "clear wins over an in-flight vault write");
+    assert.strictEqual(app.ls.getItem("viktorychapp-account-v1"), null, "the cleared session stays gone");
+    const again = JSON.stringify({ token: "next-secret-111", account: { publicId: "200000000002" } });
+    app.ls.setItem("viktorychapp-account-v1", again);
+    await app.seal.flush();
+    assert.ok(dev5.ls._d.has(Seal.VAULT_KEY), "a later sign-in is still sealed");
+    assert.ok(![...dev5.ls._d.values()].join("\n").includes("next-secret-111"), "the later token is not plaintext");
+  } finally {
+    webcrypto.subtle.encrypt = realEncrypt;
+  }
+
   console.log("device seal ok (encryption, key destroy, wipe, expiry)");
 }
 

@@ -112,6 +112,7 @@
     names(suffix).forEach(function (name) {
       try { localStorage.removeItem(name); } catch (err) { /* already gone */ }
     });
+    if (suffix === "account-v1") noteSession(null);
   }
   function readSession() {
     try {
@@ -124,8 +125,27 @@
       return null;
     }
   }
+  var sessionGeneration = 0;
+  var sessionSeen = null;
+  function sessionStampOf(session) {
+    if (!session || !session.token || !session.account) return "";
+    return String(session.account.publicId || "") + "\n" + String(session.token || "");
+  }
+  function noteSession(session) {
+    var stamp = sessionStampOf(session);
+    if (sessionSeen === null) { sessionSeen = stamp; sessionGeneration = 1; return; }
+    if (stamp !== sessionSeen) {
+      sessionSeen = stamp;
+      sessionGeneration += 1;
+      try { window.dispatchEvent(new CustomEvent("viktorych-session")); } catch (err) { /* the page is closing */ }
+      try {
+        if (window.ViktorychLocal && window.ViktorychLocal.onAccountChange) window.ViktorychLocal.onAccountChange();
+      } catch (err) { /* a missing cache still must not keep the old account's page */ }
+    }
+  }
   function writeSession(session) {
     writeStored("account-v1", JSON.stringify(session));
+    noteSession(session && session.token && session.account ? session : null);
   }
   function readPending() {
     try {
@@ -2563,7 +2583,7 @@ var numberNote = form.passkey
       mutedWords: settings.mutedWords || [],
       mutedAccounts: settings.mutedAccounts || [],
       repostOff: settings.repostOff || [],
-      blocks: settings.blocks && typeof settings.blocks === "object" ? settings.blocks : { at: 0 },
+      blocks: settings.blocks && typeof settings.blocks === "object" ? JSON.parse(JSON.stringify(settings.blocks)) : { at: 0 },
       groups: settings.groups || [],
       groupsOwn: !!settings.groupsOwn,
       subsGroup: settings.subsGroup || "",
@@ -2717,6 +2737,206 @@ var numberNote = form.passkey
     (local || []).forEach(function (item) { if (item && item.id) map[item.id] = item; });
     return Object.keys(map).map(function (key) { return map[key]; });
   }
+  /* Custom Home tabs. A newer rename wins. A newer drag wins the whole
+     order. Adding or removing an account sticks unless a later removal or
+     add says otherwise. A listed account with no event is still a member.
+     A deleted tab stays deleted unless a newer restore says otherwise. */
+  function feedMemberEvents(tab) {
+    var adds = {};
+    var drops = {};
+    var explicit = !!(tab && (tab.memberAdds || tab.memberDrops));
+    if (tab && tab.memberAdds && typeof tab.memberAdds === "object") {
+      Object.keys(tab.memberAdds).forEach(function (id) {
+        var t = Number(tab.memberAdds[id]);
+        if (id && isFinite(t) && t > 0) adds[id] = t;
+      });
+    }
+    if (tab && tab.memberDrops && typeof tab.memberDrops === "object") {
+      Object.keys(tab.memberDrops).forEach(function (id) {
+        var t = Number(tab.memberDrops[id]);
+        if (id && isFinite(t) && t > 0) drops[id] = t;
+      });
+    }
+    var when = Number(tab && tab.updatedAt) || 1;
+    (tab && tab.members || []).forEach(function (id) {
+      id = String(id || "");
+      if (!id || adds[id] || drops[id]) return;
+      // Time 1 is older than any real removal, so a partial event map
+      // cannot drop the accounts that were saved before events existed.
+      adds[id] = explicit ? 1 : when;
+    });
+    return { adds: adds, drops: drops };
+  }
+  function mergeFeedMembers(a, b) {
+    var left = feedMemberEvents(a);
+    var right = feedMemberEvents(b);
+    var ids = {};
+    function note(id) { if (id) ids[String(id)] = true; }
+    Object.keys(left.adds).forEach(note);
+    Object.keys(left.drops).forEach(note);
+    Object.keys(right.adds).forEach(note);
+    Object.keys(right.drops).forEach(note);
+    var order = [];
+    function pushOrder(tab) {
+      (tab && tab.members || []).forEach(function (id) {
+        id = String(id || "");
+        if (id && order.indexOf(id) < 0) order.push(id);
+      });
+    }
+    var aAt = Number(a && a.updatedAt) || 0;
+    var bAt = Number(b && b.updatedAt) || 0;
+    if (aAt >= bAt) { pushOrder(a); pushOrder(b); }
+    else { pushOrder(b); pushOrder(a); }
+    Object.keys(ids).forEach(function (id) { if (order.indexOf(id) < 0) order.push(id); });
+    var adds = {};
+    var drops = {};
+    var members = [];
+    order.forEach(function (id) {
+      var add = Math.max(left.adds[id] || 0, right.adds[id] || 0);
+      var drop = Math.max(left.drops[id] || 0, right.drops[id] || 0);
+      if (add) adds[id] = add;
+      if (drop) drops[id] = drop;
+      if (add > drop) members.push(id);
+    });
+    return { members: members, memberAdds: adds, memberDrops: drops };
+  }
+  function mergeOneFeedTab(a, b) {
+    var aAt = Number(a && a.updatedAt) || 0;
+    var bAt = Number(b && b.updatedAt) || 0;
+    var newer = aAt >= bAt ? a : b;
+    var next = {};
+    Object.keys(newer || {}).forEach(function (key) { next[key] = newer[key]; });
+    next.id = String((a && a.id) || (b && b.id) || "");
+    next.updatedAt = Math.max(aAt, bAt);
+    next.readAt = Math.max(Number(a && a.readAt) || 0, Number(b && b.readAt) || 0);
+    var deleted = Math.max(Number(a && a.deletedAt) || 0, Number(b && b.deletedAt) || 0);
+    var restored = Math.max(Number(a && a.restoredAt) || 0, Number(b && b.restoredAt) || 0);
+    if (restored > deleted) {
+      next.deletedAt = 0;
+      next.restoredAt = restored;
+    } else {
+      next.deletedAt = deleted;
+      if (restored) next.restoredAt = restored;
+      else delete next.restoredAt;
+      // A later edit must not bring a deleted tab back.
+      if (deleted && next.updatedAt > deleted) next.updatedAt = deleted;
+    }
+    var aPos = Number(a && a.posAt) || 0;
+    var bPos = Number(b && b.posAt) || 0;
+    if (bPos > aPos && typeof b.pos === "number") { next.pos = b.pos; next.posAt = bPos; }
+    else if (aPos > 0 && typeof a.pos === "number") { next.pos = a.pos; next.posAt = aPos; }
+    else if (typeof newer.pos === "number") next.pos = newer.pos;
+    var members = mergeFeedMembers(a, b);
+    next.members = members.members;
+    next.memberAdds = members.memberAdds;
+    next.memberDrops = members.memberDrops;
+    return next;
+  }
+  function mergeFeedTabs(local, remote) {
+    var map = {};
+    function take(tab) {
+      if (!tab || !tab.id) return;
+      var id = String(tab.id);
+      map[id] = map[id] ? mergeOneFeedTab(map[id], tab) : tab;
+    }
+    (remote || []).forEach(take);
+    (local || []).forEach(take);
+    function tombstone(tab) {
+      var deleted = Number(tab && tab.deletedAt) || 0;
+      return deleted > 0 && deleted >= (Number(tab && tab.restoredAt) || 0);
+    }
+    function dragGen(list) {
+      var n = 0;
+      (list || []).forEach(function (tab) {
+        if (!tab || tombstone(tab)) return;
+        var at = Number(tab.posAt) || 0;
+        if (at > n) n = at;
+      });
+      return n;
+    }
+    function bySavedPos(list) {
+      return (list || []).filter(function (tab) {
+        return tab && tab.id && map[String(tab.id)] && !tombstone(tab);
+      }).slice().sort(function (a, b) {
+        var ha = Number(a.posAt) > 0 && typeof a.pos === "number";
+        var hb = Number(b.posAt) > 0 && typeof b.pos === "number";
+        if (ha && hb && a.pos !== b.pos) return a.pos - b.pos;
+        if (ha !== hb) return ha ? -1 : 1;
+        return 0;
+      });
+    }
+    var lg = dragGen(local);
+    var rg = dragGen(remote);
+    if (lg !== rg) {
+      var winGen = lg > rg ? lg : rg;
+      var winner = lg > rg ? local : remote;
+      var loser = winner === local ? remote : local;
+      var seen = {};
+      var out = [];
+      var maxPos = -1;
+      bySavedPos(winner).forEach(function (tab) {
+        var id = String(tab.id);
+        if (seen[id]) return;
+        seen[id] = true;
+        var merged = map[id];
+        if (Number(tab.posAt) > 0 && typeof tab.pos === "number") {
+          merged.pos = tab.pos;
+          merged.posAt = winGen;
+          if (tab.pos > maxPos) maxPos = tab.pos;
+        }
+        out.push(merged);
+      });
+      bySavedPos(loser).forEach(function (tab) {
+        var id = String(tab.id);
+        if (seen[id]) return;
+        seen[id] = true;
+        maxPos += 1;
+        var merged = map[id];
+        merged.pos = maxPos;
+        merged.posAt = winGen;
+        out.push(merged);
+      });
+      function appendMissed(list) {
+        (list || []).forEach(function (tab) {
+          if (!tab || !tab.id || seen[String(tab.id)] || !map[String(tab.id)]) return;
+          seen[String(tab.id)] = true;
+          out.push(map[String(tab.id)]);
+        });
+      }
+      appendMissed(winner);
+      appendMissed(loser);
+      return out;
+    }
+    var tabs = Object.keys(map).map(function (id) { return map[id]; });
+    if (tabs.some(function (tab) { return Number(tab.posAt) > 0; })) {
+      return tabs.slice().sort(function (a, b) {
+        var ha = Number(a.posAt) > 0 && typeof a.pos === "number";
+        var hb = Number(b.posAt) > 0 && typeof b.pos === "number";
+        if (ha && hb && a.pos !== b.pos) return a.pos - b.pos;
+        if (ha !== hb) return ha ? -1 : 1;
+        return 0;
+      });
+    }
+    function maxAt(list) {
+      var n = 0;
+      (list || []).forEach(function (tab) { n = Math.max(n, Number(tab && tab.updatedAt) || 0); });
+      return n;
+    }
+    var first = maxAt(local) > maxAt(remote) ? local : remote;
+    var second = first === local ? remote : local;
+    var seen = {};
+    var out = [];
+    function push(list) {
+      (list || []).forEach(function (tab) {
+        if (!tab || !tab.id || seen[tab.id] || !map[tab.id]) return;
+        seen[tab.id] = true;
+        out.push(map[tab.id]);
+      });
+    }
+    push(first);
+    push(second);
+    return out;
+  }
   function historyCutOf(local, remote) {
     function n(src, key) {
       var value = src && src.historyCut ? Number(src.historyCut[key]) : 0;
@@ -2828,7 +3048,7 @@ var numberNote = form.passkey
       bookmarks: unionObjects(local.bookmarks, remote.bookmarks),
       reposts: unionObjects(local.reposts, remote.reposts),
       savedPosts: unionObjects(local.savedPosts, remote.savedPosts),
-      feedTabs: unionById(local.feedTabs, remote.feedTabs),
+      feedTabs: mergeFeedTabs(local.feedTabs, remote.feedTabs),
       communityTabs: pickCommunityTabs(local.communityTabs, remote.communityTabs),
       communityFolders: pickCommunityFolders(local.communityFolders, remote.communityFolders),
       noteTabs: mergeNoteTabs(local.noteTabs, remote.noteTabs),
@@ -2947,6 +3167,11 @@ var numberNote = form.passkey
     // this device's own copy and its keep-on-this-device choices.
     var locks = settingLocks();
     Object.keys(locks).forEach(function (key) { if (key !== "lang") settings[key] = locks[key]; });
+    // Another tab can save a newer block list while this echo is applied.
+    // The newer list stays. An older echo must not bring the blocked posts back.
+    var disk = null;
+    try { disk = JSON.parse(readStored("settings-v1") || "null"); } catch (err) { disk = null; }
+    if (disk && disk.blocks) settings.blocks = pickBlocks(disk.blocks, settings.blocks);
     writeStored("settings-v1", JSON.stringify(settings));
     if (reg) reg.remember(taken);
     if (window.ViktorychAccounts && window.ViktorychAccounts.writeHistory) window.ViktorychAccounts.writeHistory(payload);
@@ -2988,23 +3213,25 @@ var numberNote = form.passkey
     if (!session || !hasApi()) return Promise.resolve();
     pushing = true;
     return api("/v1/sync", { method: "PUT", token: session.token, body: { payload: payload, baseUpdatedAt: base || 0, device: syncDeviceId() } }).then(function (body) {
-      pushing = false;
       if (body.status === 409 && body.payload) {
         var merged = mergePayload(localSnapshot(), body.payload);
         applySnapshot(merged);
         return pushPayload(merged, body.updatedAt);
       }
+      pushing = false;
       if (body.status === 200) {
         rememberLocks(body);
         rememberSync(body.updatedAt);
-        /* The server echoes the body we sent. Writing that copy back drops
-           a block or other edit made while the request was in flight, so
-           another open tab never sees it. Merge with what is on disk now;
-           a newer block list wins. */
-        var echoed = body.payload || payload;
-        applySnapshot(mergePayload(localSnapshot(), echoed));
+        /* Only a payload the server actually stored is merged. An empty
+           acknowledgement is not a copy of the request, and replaying the
+           outbound snapshot would put an older block list back. */
+        if (body.payload && typeof body.payload === "object") applySnapshot(mergePayload(localSnapshot(), body.payload));
       }
-    }).catch(function () { pushing = false; });
+      return pushMissedEdit();
+    }).catch(function () {
+      pushing = false;
+      return pushMissedEdit();
+    });
   }
   function mergeSync(pullOnly) {
     var session = readSession();
@@ -3088,14 +3315,24 @@ var numberNote = form.passkey
     setTimeout(bindLiveSync, 3000);
     if (readSession()) mergeSync().then(function () { return syncFollows(); }, function () { return syncFollows(); });
   }
+  var pushAgain = false;
   function onLocalChange() {
-    if (!readSession() || !hasApi() || pushing) return;
+    if (!readSession() || !hasApi()) return;
+    if (pushing) { pushAgain = true; return; }
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () {
+      if (pushing) { pushAgain = true; return; }
       var session = readSession();
       if (!session) return;
       pushPayload(localSnapshot(), session.syncAt || 0);
     }, 700);
+  }
+  function pushMissedEdit() {
+    if (!pushAgain) return Promise.resolve();
+    pushAgain = false;
+    var session = readSession();
+    if (!session || !hasApi()) return Promise.resolve();
+    return pushPayload(localSnapshot(), session.syncAt || 0);
   }
   function commitSession(token, account) {
     clearPending();
@@ -4245,6 +4482,9 @@ function signupPayload() {
   function releaseFollow(id) {
     if (id) followInflight[id] = false;
   }
+  function clearFollowPending(id) {
+    if (id && graphCounts[id]) graphCounts[id].pending = false;
+  }
   function previewFollow(id, follow) {
     if (!id) return;
     graphCounts[id] = graphCounts[id] || {};
@@ -4301,7 +4541,9 @@ function signupPayload() {
       graphCounts[id].followers = Math.max(0, prevTarget + (follow ? 1 : -1));
       if (hadMine) graphCounts[me].following = Math.max(0, prevMine + (follow ? 1 : -1));
     }
-    if (follow) graphCounts[id].pending = false;
+    var optimisticFollowers = graphCounts[id].followers;
+    var optimisticFollowing = hadMine ? graphCounts[me].following : null;
+    graphCounts[id].pending = false;
     dirtyLists();
     var body = { id: id };
     if (profile && typeof profile === "object") body.profile = profile;
@@ -4311,6 +4553,7 @@ function signupPayload() {
       if (!res || res.status !== 200) {
         if (!skipCounts) rollbackCounts(id, me, hadTarget, prevTarget, hadMine, prevMine);
         else if (opts.replay) previewFollow(id, !follow);
+        if (!follow && wasPending) graphCounts[id].pending = true;
         if (window.ViktorychAccounts && window.ViktorychAccounts.toast) window.ViktorychAccounts.toast(followErrorText(res));
         if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
         return false;
@@ -4350,14 +4593,16 @@ function signupPayload() {
         graphCounts[me].fresh = true;
       }
       dirtyLists();
-      refreshProfileMedia();
-      if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+      var followersDrift = res.followersCount != null && res.followersCount !== optimisticFollowers;
+      var followingDrift = !!(me && res.followingCount != null && optimisticFollowing != null && res.followingCount !== optimisticFollowing);
+      if ((followersDrift || followingDrift) && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       return true;
     }).catch(function () {
       releaseFollow(id);
       if (epoch !== followEpoch) return false;
       if (!skipCounts) rollbackCounts(id, me, hadTarget, prevTarget, hadMine, prevMine);
       else if (opts.replay) previewFollow(id, !follow);
+      if (!follow && wasPending) graphCounts[id].pending = true;
       if (window.ViktorychAccounts && window.ViktorychAccounts.toast) window.ViktorychAccounts.toast(tr("Couldn’t update that follow. Try again."));
       if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       return false;
@@ -4407,6 +4652,8 @@ function signupPayload() {
       else if (res && res.status === 200) {
         var me = "app:" + session.account.publicId;
         graphCounts[me] = graphCounts[me] || {};
+        var prevFollowing = graphCounts[me].following;
+        var prevFollowers = graphCounts[me].followers;
         if (res.followingCount != null) graphCounts[me].following = res.followingCount;
         if (res.followersCount != null) graphCounts[me].followers = res.followersCount;
         if (res.requestsCount != null) graphCounts[me].requests = res.requestsCount;
@@ -4419,8 +4666,10 @@ function signupPayload() {
           graphCounts[oid] = graphCounts[oid] || {};
           graphCounts[oid].pending = true;
         });
-        if (window.ViktorychAccounts.onServerFollows) window.ViktorychAccounts.onServerFollows(Array.isArray(res.ids) ? res.ids : []);
-        if (window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+        var listChanged = false;
+        if (window.ViktorychAccounts.onServerFollows) listChanged = window.ViktorychAccounts.onServerFollows(Array.isArray(res.ids) ? res.ids : []) === true;
+        var countsDrift = (res.followingCount != null && res.followingCount !== prevFollowing) || (res.followersCount != null && res.followersCount !== prevFollowers);
+        if ((listChanged || countsDrift) && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       }
       if (syncAgain) {
         syncAgain = false;
@@ -4501,6 +4750,12 @@ function signupPayload() {
   }
 
   var friendsOwnerView = {};
+  function friendUiStamp(row) {
+    row = row || {};
+    var can = row.canRequest === false ? "0" : row.canRequest === true ? "1" : "";
+    var mutual = row.mutualFriendsCount == null ? "" : String(row.mutualFriendsCount);
+    return [row.friends == null ? "" : String(row.friends), row.friendStatus || "", row.friendsOff ? "1" : "0", can, mutual].join("|");
+  }
   function ensureFriends(targetId) {
     var session = readSession();
     var key = String(targetId || "");
@@ -4514,16 +4769,23 @@ function signupPayload() {
     api("/v1/friends?id=" + encodeURIComponent(key) + "&tab=friends", { token: session.token }).then(function (res) {
       friendsLoads[key] = false;
       if (!res || res.status !== 200) { friendsFailedAt[key] = Date.now(); return; }
+      var id = key;
+      var prevList = JSON.stringify(friendsCache[key] || []);
+      var prevUi = friendUiStamp(graphCounts[id]);
       friendsCache[key] = Array.isArray(res.friends) ? res.friends : [];
       // Owner view: the server shows the app owner every friendship and logs it.
       friendsOwnerView[key] = res.ownerView === true;
-      var id = key;
       graphCounts[id] = graphCounts[id] || {};
       if (res.friendsCount != null) graphCounts[id].friends = res.friendsCount;
       if (friendWord(res)) graphCounts[id].friendStatus = friendWord(res);
       if (res.mutualCount != null) graphCounts[id].mutualFriendsCount = res.mutualCount;
       graphCounts[id].friendsOff = res.friendsOff === true;
       if (typeof res.canRequest === "boolean") graphCounts[id].canRequest = res.canRequest;
+      // The button and the mutual line sit on the profile, not only in the friends list.
+      var unchanged = JSON.stringify(friendsCache[key]) === prevList && friendUiStamp(graphCounts[id]) === prevUi;
+      // A background refresh that changes nothing must not rebuild the profile.
+      // That rebuild dropped counters painted on the open page.
+      if (unchanged && !friendsSurfaceOpen()) return;
       if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
     }).catch(function () { friendsLoads[key] = false; friendsFailedAt[key] = Date.now(); });
   }
@@ -4539,12 +4801,15 @@ function signupPayload() {
     api("/v1/friends?tab=requests", { token: session.token }).then(function (res) {
       friendRequestsLoading = false;
       if (!res || res.status !== 200) return;
+      var prevReqs = JSON.stringify(friendRequestsCache);
       friendRequestsCache = {
         incoming: Array.isArray(res.incoming) ? res.incoming : [],
         outgoing: Array.isArray(res.outgoing) ? res.outgoing : []
       };
+      var reqsSame = prevReqs === JSON.stringify(friendRequestsCache);
       friendRequestsLoaded = true;
       saveFriendReqs();
+      if (reqsSame && !friendsSurfaceOpen()) return;
       if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
     }).catch(function () { friendRequestsLoading = false; });
   }
@@ -4571,6 +4836,67 @@ function signupPayload() {
     return Promise.resolve();
   }
 
+  function countHandle(href, field) {
+    var hash = String(href || "");
+    if (hash.charAt(0) !== "#") return "";
+    var q = hash.indexOf("?");
+    var path = (q >= 0 ? hash.slice(0, q) : hash).replace(/^#/, "");
+    var parts = path.split("/").filter(Boolean);
+    if (!parts.length || parts[0].charAt(0) !== "@") return "";
+    var handle = "";
+    try { handle = decodeURIComponent(parts[0].slice(1)); } catch (err) { handle = parts[0].slice(1); }
+    if (field === "friends") {
+      if (parts.length !== 1) return "";
+      var tab = "";
+      (q >= 0 ? hash.slice(q + 1) : "").split("&").forEach(function (pair) {
+        var bits = pair.split("=");
+        if (bits[0] === "tab") tab = bits.slice(1).join("=");
+      });
+      try { tab = decodeURIComponent(tab); } catch (err) { /* keep the raw value */ }
+      return tab === "friends" ? handle : "";
+    }
+    return parts.length === 2 && parts[1] === field ? handle : "";
+  }
+  function paintStat(handle, field, value) {
+    if (!handle || value == null || typeof document === "undefined") return;
+    var want = String(handle).replace(/^@/, "");
+    var links = document.querySelectorAll(".counts a");
+    for (var i = 0; i < links.length; i++) {
+      if (countHandle(links[i].getAttribute("href") || "", field) !== want) continue;
+      var bold = links[i].querySelector("b");
+      if (!bold || bold.classList.contains("count-skel")) continue;
+      bold.textContent = formatNum(value);
+    }
+  }
+  function paintFriendCounts(handle, idKey, meHandle, meKey) {
+    paintStat(handle, "friends", graphCounts[idKey] && graphCounts[idKey].friends);
+    paintStat(meHandle, "friends", graphCounts[meKey] && graphCounts[meKey].friends);
+  }
+  function friendsSurfaceOpen() {
+    return !!(document.querySelector(".friends-grid, .friends-pills, [data-friend-sub]"));
+  }
+  function paintFriendButtons(idKey, handle) {
+    if (typeof document === "undefined") return false;
+    var bare = String(idKey || "").replace(/^app:/, "");
+    var html = friendButtonHtml({ handle: handle || "", publicId: bare });
+    if (!html) return false;
+    var keys = {};
+    keys[String(idKey)] = true;
+    keys[bare] = true;
+    keys["app:" + bare] = true;
+    var nodes = Array.prototype.slice.call(document.querySelectorAll("[data-friend-id]"));
+    var replaced = [];
+    var painted = false;
+    nodes.forEach(function (node) {
+      if (!node.isConnected || !keys[node.getAttribute("data-friend-id")]) return;
+      var wrap = node.parentElement && node.parentElement.classList.contains("friend-btn-group") ? node.parentElement : node;
+      if (replaced.indexOf(wrap) >= 0) return;
+      wrap.outerHTML = html;
+      replaced.push(wrap);
+      painted = true;
+    });
+    return painted;
+  }
   function doFriendAction(action, targetId, handle) {
     var session = readSession();
     if (!session || !hasApi() || !targetId) return;
@@ -4618,7 +4944,8 @@ function signupPayload() {
     }
 
     saveFriendReqs();
-    if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+    paintFriendCounts(reqHandle, idKey, session.account && session.account.handle, meKey);
+    if (!paintFriendButtons(idKey, reqHandle) && window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
 
     var ep = "/v1/friends/" + action;
     api(ep, { method: "POST", token: session.token, body: { targetId: tId } }).then(function (res) {
@@ -4645,10 +4972,18 @@ function signupPayload() {
         }
         return;
       }
-      if (friendWord(res)) graphCounts[idKey].friendStatus = friendWord(res);
+      var agreed = friendWord(res);
+      var statusDrift = !!(agreed && agreed !== graphCounts[idKey].friendStatus);
+      if (agreed) graphCounts[idKey].friendStatus = agreed;
+      var friendCountDrift = res.friendsCount != null && graphCounts[meKey] && res.friendsCount !== graphCounts[meKey].friends;
       if (res.friendsCount != null && graphCounts[meKey]) graphCounts[meKey].friends = res.friendsCount;
-      refreshFriends();
-      refreshProfileMedia();
+      paintFriendCounts(reqHandle, idKey, session.account && session.account.handle, meKey);
+      if (friendsSurfaceOpen()) refreshFriends();
+      else {
+        friendsCache = {};
+        friendsLoads = {};
+        friendsFailedAt = {};
+      }
       if (window.ViktorychAccounts && window.ViktorychAccounts.toast) {
         if (action === "request") window.ViktorychAccounts.toast(tr("Friend request sent"));
         else if (action === "accept") window.ViktorychAccounts.toast(tr("Friend request accepted"));
@@ -4656,7 +4991,7 @@ function signupPayload() {
         else if (action === "cancel") window.ViktorychAccounts.toast(tr("Friend request cancelled"));
         else if (action === "remove") window.ViktorychAccounts.toast(tr("Friend removed"));
       }
-      if (window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+      if ((statusDrift || friendCountDrift) && window.ViktorychAccounts && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
     }).catch(function () {
       graphCounts[idKey].friendStatus = prevStatus;
       graphCounts[idKey].friendAt = 0;
@@ -5161,6 +5496,9 @@ function signupPayload() {
     var settings = {};
     try { settings = JSON.parse(readStored("settings-v1") || "{}"); } catch (err) { settings = {}; }
     settings.profileTabs = cleaned;
+    var diskNow = null;
+    try { diskNow = JSON.parse(readStored("settings-v1") || "null"); } catch (err) { diskNow = null; }
+    if (diskNow && diskNow.blocks) settings.blocks = pickBlocks(diskNow.blocks, settings.blocks);
     writeStored("settings-v1", JSON.stringify(settings));
     onLocalChange();
     publishProfileTabs(cleaned);
@@ -5222,10 +5560,16 @@ function signupPayload() {
         ? '<div class="ptabs-tools"><button type="button" class="outline" data-ptab="reset">' + esc(tr("Reset to default")) + '</button><button type="button" class="outline ptabs-share' + (layout.share ? " on" : "") + '" data-ptab="share" aria-pressed="' + (layout.share ? "true" : "false") + '">' + esc(tr("Show this order to visitors")) + '</button><button type="button" class="outline" data-ptab="done">' + esc(tr("Done")) + "</button></div>"
         : '<div class="ptabs-tools"><button type="button" class="outline ptabs-edit" data-ptab="edit">' + esc(tr("Edit tabs")) + "</button></div>";
     }
+    var arrow = function (dir) {
+      var name = dir < 0 ? "chevL" : "chevR";
+      var mark = window.ViktorychIcons && window.ViktorychIcons.svg ? window.ViktorychIcons.svg(name) : "";
+      var label = dir < 0 ? tr("Scroll tabs left") : tr("Scroll tabs right");
+      return '<button class="tab-arrow ' + (dir < 0 ? "left" : "right") + '" type="button" data-act="tab-scroll" data-dir="' + dir + '" aria-label="' + esc(label) + '" hidden>' + mark + "</button>";
+    };
     return {
       active: active,
       highlightHtml: highlightHtml,
-      html: '<div class="ptabs-wrap' + (editing ? " is-editing" : "") + '"><div class="tabs ptabs" role="tablist" aria-label="' + esc(tr("Profile")) + '">' + html + "</div>" + tools + "</div>"
+      html: '<div class="ptabs-wrap' + (editing ? " is-editing" : "") + '"><div class="tabs-bar ptabs-bar">' + arrow(-1) + '<div class="tabs ptabs" role="tablist" data-hscroll="profile-tabs" aria-label="' + esc(tr("Profile")) + '">' + html + "</div>" + arrow(1) + "</div>" + tools + "</div>"
     };
   }
   function onProfileTabAct(node) {
@@ -7535,6 +7879,7 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     changeFollow: changeFollow,
     pressFollow: pressFollow,
     releaseFollow: releaseFollow,
+    clearFollowPending: clearFollowPending,
     previewFollow: previewFollow,
     followControlHtml: followControlHtml,
     graphListHtml: graphListHtml,
@@ -7543,6 +7888,7 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     fitRequestPills: fitRequestPills,
     setGraphQuery: setGraphQuery,
     relationWrite: relationWrite,
+    pickBlocks: pickBlocks,
     blockSet: function () {
       var ids = {};
       (relationCache.blocks || []).forEach(function (item) {
@@ -7568,6 +7914,10 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
     account: function () {
       var session = readSession();
       return session && session.account ? session.account : null;
+    },
+    sessionGeneration: function () {
+      noteSession(readSession());
+      return sessionGeneration;
     },
     token: function () {
       var session = readSession();

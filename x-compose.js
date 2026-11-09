@@ -611,14 +611,24 @@
     var kept = draftMedia[item.id];
     if (kept) slot.media = kept.slice();
   }
+  function draftAccount() {
+    try {
+      var doc = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+      var id = doc && doc.account && (doc.account.publicId || doc.account.id);
+      return id ? String(id) : "";
+    } catch (err) { return ""; }
+  }
   function saveSoon(slotName) {
     clearTimeout(saveTimer);
+    var scope = draftAccount();
+    var snap = snapshot(slotName);
+    var doc = draftDoc();
+    var next = doc.items.filter(function (item) { return item.id !== snap.id; });
+    next.unshift(snap);
+    var payload = { items: next.slice(0, 21) };
     saveTimer = setTimeout(function () {
-      var doc = draftDoc();
-      var snap = snapshot(slotName);
-      var next = doc.items.filter(function (item) { return item.id !== snap.id; });
-      next.unshift(snap);
-      writeStore(DRAFT_KEY, { items: next.slice(0, 21) });
+      if (draftAccount() !== scope) return;
+      writeStore(DRAFT_KEY, payload);
     }, 400);
   }
   // Write every open draft now (closing the app skips the 400 ms save delay).
@@ -740,6 +750,8 @@
     var next = slot.media.slice();
     incoming.forEach(function (file) {
       if (!file || file.size > MAX_BYTES) return;
+      // Keep a copy. Clearing the file input afterwards must not drop the bytes.
+      try { file = new File([file], file.name || "upload", { type: file.type || "" }); } catch (err) { /* the original file is still used */ }
       var typed = fileType(file);
       var useKind = kind;
       if (kind === "camera") useKind = "image";
@@ -773,7 +785,7 @@
       posts: slot.posts.map(function (post, index) {
         return {
           text: String(post.text || "").slice(0, 2000),
-          media: index === 0 ? slot.media.map(function (item) { return { file: item.file, alt: item.alt || "", type: item.type, kind: item.kind }; }) : [],
+          media: index === 0 ? slot.media.map(function (item) { return { file: item.file, alt: item.alt || "", type: item.type, kind: item.kind, url: item.url || "" }; }) : [],
           poll: index === 0 && pollReady(slot) ? { options: slot.poll.options.map(function (item) { return String(item || "").trim(); }).filter(Boolean), minutes: slot.poll.minutes } : null,
           location: index === 0 ? slot.location : "",
           audience: slot.audience,
@@ -790,9 +802,9 @@
       link: slot.link || ""
     };
   }
-  function clearContent(slotName) {
+  function clearContent(slotName, keepPreview) {
     var slot = slots[slotName];
-    slot.media.forEach(function (media) { if (media.url) URL.revokeObjectURL(media.url); });
+    if (!keepPreview) slot.media.forEach(function (media) { if (media.url) URL.revokeObjectURL(media.url); });
     var keepParent = slot.appParent;
     var keepExt = slot.extParent;
     var keepQuote = slot.appQuote;
@@ -827,10 +839,11 @@
       return;
     }
     var payload = payloadOf(slotName);
-    clearContent(slotName);
+    var handed = !!(host && host.publish);
+    clearContent(slotName, handed);
     panel = "";
     aiMenu = "";
-    if (host && host.publish) host.publish(payload);
+    if (handed) host.publish(payload);
     else if (payload.posts[0]) window.open(intentFor(slot, 0), "_blank", "noopener");
   }
   function closeSheet() {

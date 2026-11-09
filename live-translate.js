@@ -263,12 +263,20 @@
   function place() {
     if (!session || !media) return;
     var r = media.getBoundingClientRect();
-    var on = r.bottom > 0 && r.top < innerHeight && r.width > 120;
-    var bottom = on ? Math.max(8, innerHeight - r.bottom + 12) : 96;
+    var z = parseFloat(document.documentElement.style.zoom);
+    var scale = z > 0 ? z : 1;
+    var viewW = innerWidth / scale;
+    var viewH = innerHeight / scale;
+    var top = r.top / scale;
+    var bottomEdge = r.bottom / scale;
+    var leftEdge = r.left / scale;
+    var width = r.width / scale;
+    var on = bottomEdge > 0 && top < viewH && width > 120;
+    var bottom = on ? Math.max(8, viewH - bottomEdge + 12) : 96;
     if (subs) {
       subs.style.bottom = bottom + "px";
-      subs.style.left = (on ? Math.max(8, r.left + 12) : 12) + "px";
-      subs.style.width = (on ? Math.min(r.width, innerWidth - 16) - 24 : innerWidth - 24) + "px";
+      subs.style.left = (on ? Math.max(8, leftEdge + 12) : 12) + "px";
+      subs.style.width = (on ? Math.min(width, viewW - 16) - 24 : viewW - 24) + "px";
     }
   }
 

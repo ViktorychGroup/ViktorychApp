@@ -10,6 +10,7 @@
 })(typeof self !== "undefined" ? self : this, function () {
   var SCREEN_KEY = "viktorych-screen-v1";
   var SCROLL_KEY = "viktorych-scrolls-v1";
+  var SCROLL_KEY_V2 = "viktorych-scrolls-v2:";
   var PILL_KEY = "viktorych-pill-v1";
   var QUEUE_KEY = "viktorych-actions-v1";
   var OPENS_KEY = "viktorych-opens-v1";
@@ -397,7 +398,8 @@
     writeJson(local(), SCREEN_KEY, screen);
     if (info && info.scrolls) {
       state.scrolls = info.scrolls;
-      writeJson(local(), SCROLL_KEY, info.scrolls);
+      state.scrollScope = accountScope();
+      writeJson(local(), scrollKeyFor(state.scrollScope), info.scrolls);
     }
     return screen;
   }
@@ -409,16 +411,37 @@
     return rankOpens(state.opens, 3);
   }
 
+  function scrollKeyFor(scope) {
+    return SCROLL_KEY_V2 + (scope || accountScope());
+  }
+  function copyScrolls(map) {
+    var copy = {};
+    if (!map || typeof map !== "object") return copy;
+    Object.keys(map).forEach(function (name) { copy[name] = map[name]; });
+    return copy;
+  }
+  function adoptScrolls(scope) {
+    if (state.scrollScope === scope) return;
+    state.scrollScope = scope;
+    state.scrolls = readJson(local(), scrollKeyFor(scope)) || {};
+  }
   function noteScroll(key, y, map) {
     if (!key) return;
+    var scope = accountScope();
+    adoptScrolls(scope);
+    if (map) state.scrolls = copyScrolls(map);
     state.scrolls[key] = y;
-    if (map) state.scrolls = map;
+    var payload = copyScrolls(state.scrolls);
     clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(function () { writeJson(local(), SCROLL_KEY, state.scrolls); }, 300);
+    scrollTimer = setTimeout(function () {
+      if (accountScope() !== scope) return;
+      writeJson(local(), scrollKeyFor(scope), payload);
+    }, 300);
   }
 
   function readScrolls() {
-    return state.scrolls && Object.keys(state.scrolls).length ? state.scrolls : (readJson(local(), SCROLL_KEY) || {});
+    adoptScrolls(accountScope());
+    return state.scrolls || {};
   }
 
   function savePill(posts) {
@@ -570,7 +593,8 @@
 
   function restoreEarly() {
     var saved = readJson(local(), SCREEN_KEY);
-    state.scrolls = readJson(local(), SCROLL_KEY) || {};
+    state.scrollScope = accountScope();
+    state.scrolls = readJson(local(), scrollKeyFor(state.scrollScope)) || {};
     state.queue = readJson(local(), QUEUE_KEY) || [];
     state.opens = readJson(local(), OPENS_KEY) || {};
     if (!Array.isArray(state.queue)) state.queue = [];
@@ -1011,13 +1035,41 @@
      keep their snapshot under a "private-list" key, so the device seal encrypts
      it and the private wipe removes it with the rest of the private lists. */
   var PRIVATE_ROUTE = /^#\/(?:messages|chat|bookmarks|lists?|drafts|notifications)(?:[/?]|$)/;
+  /* v2 keys are the only ones a page may paint. v1 keys (route:<account>:#/...)
+     were writable under whichever account was signed in when a delayed save
+     fired, so a friends-only page could be stored for someone else. */
+  var ROUTE_VERSION = "v2";
   function notifyRoute(key) {
     if (typeof window === "undefined" || !window.dispatchEvent) return;
     try { window.dispatchEvent(new CustomEvent("viktorych-route", { detail: { key: key || "" } })); } catch (err) { /* the next open still reads the copy */ }
   }
 
   function routeKey(hash) {
-    return (PRIVATE_ROUTE.test(String(hash)) ? "private-list:route:" : "route:") + accountScope() + ":" + hash;
+    var text = String(hash || "");
+    var prefix = PRIVATE_ROUTE.test(text) ? "private-list:route:" : "route:";
+    return prefix + ROUTE_VERSION + ":" + accountScope() + ":" + text;
+  }
+  function legacyRouteKey(key) {
+    var text = String(key || "");
+    if (text.indexOf("private-list:route:" + ROUTE_VERSION + ":") === 0) return false;
+    if (text.indexOf("route:" + ROUTE_VERSION + ":") === 0) return false;
+    return text.indexOf("private-list:route:") === 0 || text.indexOf("route:") === 0;
+  }
+  function purgeLegacyRoutes(store) {
+    store = store || local();
+    var drop = function (key) {
+      if (legacyRouteKey(key)) swrDrop(key, store);
+    };
+    Object.keys(swrReadIndex(store)).forEach(drop);
+    if (store) swrLocalKeys(store).forEach(drop);
+    Object.keys(swrMemo).forEach(drop);
+    Object.keys(swrDbMeta).forEach(drop);
+    var ready = swrDb() ? swrDbReady() : Promise.resolve(null);
+    ready.then(function () {
+      Object.keys(swrDbMeta).forEach(drop);
+    }).catch(function () {});
+    swrWriteIndex(store);
+    writeJson(store, SCROLL_KEY, null);
   }
   function wipePrivateRoutes(store) {
     var index = swrReadIndex(store);
@@ -1028,12 +1080,18 @@
   }
   function saveRoute(hash, html) {
     if (!hash || !html || html.length > 150000 || /<script/i.test(html)) return false;
+    /* The write waits so a burst of paints stores one copy. The account is
+       the one on screen now. Reading it again when the timer fires would
+       file this account's page under whoever signs in during the wait. */
+    var key = routeKey(hash);
+    var scope = accountScope();
     clearTimeout(saveRoute.timers && saveRoute.timers[hash]);
     saveRoute.timers = saveRoute.timers || {};
     saveRoute.timers[hash] = setTimeout(function () {
-      var memo = swrMemo[routeKey(hash)];
+      if (accountScope() !== scope) return;
+      var memo = swrMemo[key];
       if (memo && memo.value === html) return;
-      swrPut(routeKey(hash), html);
+      swrPut(key, html);
     }, 400);
     return true;
   }
@@ -1049,7 +1107,7 @@
     state.screen = null;
     state.restored = false;
     var store = local();
-    [SCREEN_KEY, SCROLL_KEY, PILL_KEY, QUEUE_KEY, OPENS_KEY].forEach(function (key) { writeJson(store, key, null); });
+    [SCREEN_KEY, SCROLL_KEY, scrollKeyFor(accountScope()), PILL_KEY, QUEUE_KEY, OPENS_KEY].forEach(function (key) { writeJson(store, key, null); });
     swrClear(store);
     var api = storageApi();
     if (api && typeof indexedDB !== "undefined") {
@@ -1082,7 +1140,15 @@
     catch (err) { return false; }
   }
 
+  function onAccountChange() {
+    clearTimeout(scrollTimer);
+    state.scrolls = {};
+    state.scrollScope = "";
+    purgeLegacyRoutes(local());
+  }
+
   function start() {
+    purgeLegacyRoutes(local());
     restoreEarly();
     document.addEventListener("play", function (event) {
       var el = event.target;
@@ -1154,6 +1220,8 @@
     migrateLocal: migrateLocal,
     saveRoute: saveRoute,
     readRoute: readRoute,
+    purgeLegacyRoutes: function (store) { purgeLegacyRoutes(store || local()); },
+    onAccountChange: onAccountChange,
     /* Forget one page's saved copy (For You off drops the Home copy). */
     dropRoute: function (hash) {
       if (hash == null) return;
