@@ -204,21 +204,52 @@ async function followAndFriend(page, label) {
   if ((await friendCount.textContent()) !== "4") fail(label + " friend count did not start at 4");
   await page.evaluate(() => {
     const host = document.querySelector(".counts") || document.body;
-    host.insertAdjacentHTML("beforeend", '<div class="counts">'
+    host.insertAdjacentHTML("beforeend", '<div class="counts" data-probe="friend-counts">'
       + '<a href="#/@user_b?tab=friends"><b>4</b> <span>Friends</span></a>'
       + '<a href="#/@user_b2?tab=friends"><b>9</b> <span>Friends</span></a>'
       + '<a href="#/@user_a?tab=friends"><b>0</b> <span>Friends</span></a>'
       + "</div>");
+    const probe = document.querySelector('[data-probe="friend-counts"]');
+    const putBack = () => {
+      if (!probe || probe.isConnected) return;
+      const home = document.querySelector(".counts") || document.body;
+      if (!home || home === probe) return;
+      home.insertAdjacentElement("beforeend", probe);
+    };
+    const obs = new MutationObserver(putBack);
+    obs.observe(document.body, { childList: true, subtree: true });
+    window.__friendProbeObs = obs;
   });
-  const renders0 = await page.evaluate(() => window.__renderInvocations || 0);
+  const renders0 = await page.evaluate(() => {
+    window.__acceptRenders0 = window.__renderInvocations || 0;
+    window.__acceptIdle = null;
+    return window.__acceptRenders0;
+  });
   await page.locator('button[data-friend-act="accept"]').click();
-  await page.waitForFunction(() => {
-    const bold = document.querySelector('.counts a[href*="tab=friends"] b');
+  const settled = await page.waitForFunction(() => {
+    const n = window.__renderInvocations || 0;
+    const start = window.__acceptRenders0 || 0;
+    if (n - start > 2) return "over";
+    const slot = window.__acceptIdle || (window.__acceptIdle = { n: -1, t: 0 });
+    if (slot.n !== n) { window.__acceptIdle = { n: n, t: performance.now() }; return false; }
+    if (performance.now() - slot.t < 200) return false;
     const btn = document.querySelector('button[data-friend-act="unfriend"], button.friend-mutual');
-    return bold && bold.textContent === "5" && btn;
-  }, null, { timeout: 8000 });
-  const renders1 = await page.evaluate(() => window.__renderInvocations || 0);
-  if (renders1 - renders0 > 2) fail(label + " accepting a friend rebuilt too often " + (renders1 - renders0));
+    const counts = {
+      b: [...document.querySelectorAll('.counts a[href="#/@user_b?tab=friends"] b')].map((el) => el.textContent),
+      b2: [...document.querySelectorAll('.counts a[href="#/@user_b2?tab=friends"] b')].map((el) => el.textContent),
+      self: [...document.querySelectorAll('.counts a[href="#/@user_a?tab=friends"] b')].map((el) => el.textContent)
+    };
+    if (!btn) return false;
+    if (counts.b.length < 2 || counts.b.some((text) => text !== "5")) return false;
+    if (!counts.b2.length || counts.b2.some((text) => text !== "9")) return false;
+    if (!counts.self.length || counts.self.some((text) => text !== "1")) return false;
+    return "ok";
+  }, null, { timeout: 8000 }).then((handle) => handle.jsonValue());
+  const renders1 = await page.evaluate(() => {
+    if (window.__friendProbeObs) window.__friendProbeObs.disconnect();
+    return window.__renderInvocations || 0;
+  });
+  if (settled === "over" || renders1 - renders0 > 2) fail(label + " accepting a friend rebuilt too often " + (renders1 - renders0));
   const counts = await page.evaluate(() => ({
     b: [...document.querySelectorAll('.counts a[href="#/@user_b?tab=friends"] b')].map((el) => el.textContent),
     b2: [...document.querySelectorAll('.counts a[href="#/@user_b2?tab=friends"] b')].map((el) => el.textContent),
