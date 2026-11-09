@@ -25074,7 +25074,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "follow") {
       const ids = String(el.dataset.ids || el.dataset.id || "").split(",").map((part) => part.trim()).filter(Boolean);
       if (!ids.length) return;
-      const rowPending = ids.some((item) => {
+      const rowPending = el.classList.contains("pending") || ids.some((item) => {
         const html = window.ViktorychAccounts && window.ViktorychAccounts.followControlHtml && window.ViktorychAccounts.followControlHtml(item, false);
         return html && html.indexOf("pending") >= 0;
       });
