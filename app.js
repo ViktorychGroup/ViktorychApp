@@ -23531,7 +23531,11 @@ if (STATE.histClear) {
       scrollLock = true;
       slot.root.remove();
       scrollLock = false;
-      slot.y = SCROLLS[key] || window.scrollY || slot.y || 0;
+      // 0 is a real position. A truthy fallback kept the previous
+      // offset after the reader had already returned to the top.
+      if (Object.prototype.hasOwnProperty.call(SCROLLS, key)) slot.y = SCROLLS[key] || 0;
+      else if ((window.scrollY || 0) > 0) slot.y = window.scrollY;
+
       slot.live = false;
       slot.at = Date.now();
     });
@@ -23729,7 +23733,7 @@ if (STATE.histClear) {
       const parkedAway = !!(decision && decision.commit && slot && !slot.live && slot.root && !slot.force);
       if (parkedAway) parkLiveView();
       if (parkedAway && restoreView(slot)) {
-        y = SCROLLS[key] || slot.y || 0;
+        y = Object.prototype.hasOwnProperty.call(SCROLLS, key) ? (SCROLLS[key] || 0) : (slot.y || 0);
         STATE.holdY = y;
         applied = true;
         paintedHash = decision.hash;
@@ -28525,19 +28529,29 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (!anchor || anchor.key !== key) return;
     const el = [...document.querySelectorAll("#app article.post[data-post]")].find((node) => node.getAttribute("data-post") === anchor.id);
     if (!el) return;
-    const off = el.getBoundingClientRect().top - anchor.top;
-    if (Math.abs(off) > 2) window.scrollBy(0, off);
-    // Media frames above can still settle; keep lining up for a moment unless the reader touches the page.
+    let placed = window.scrollY || 0;
+    const align = () => {
+      const late = el.getBoundingClientRect().top - anchor.top;
+      if (Math.abs(late) > 2) window.scrollBy(0, late);
+      placed = window.scrollY || 0;
+    };
+    align();
+    // Media frames above can still settle. A later scroll, including one the
+    // page itself asked for, means the reader has left that card.
     let stop = false;
     const quit = () => { stop = true; };
     const evs = ["wheel", "touchstart", "keydown", "pointerdown"];
     evs.forEach((ev) => window.addEventListener(ev, quit, { once: true, passive: true }));
+    const finish = () => {
+      stop = true;
+      evs.forEach((ev) => window.removeEventListener(ev, quit));
+    };
     [120, 350, 700].forEach((ms, i, all) => setTimeout(() => {
       if (!stop && routeScrollKey() === key && el.isConnected) {
-        const late = el.getBoundingClientRect().top - anchor.top;
-        if (Math.abs(late) > 2) window.scrollBy(0, late);
+        if (Math.abs((window.scrollY || 0) - placed) > 4) finish();
+        else align();
       }
-      if (i === all.length - 1) evs.forEach((ev) => window.removeEventListener(ev, quit));
+      if (i === all.length - 1) finish();
     }, ms));
   }
   /* After Show more, the new tree guesses off-screen cards at 220px, so the
@@ -28749,7 +28763,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (parkedReady(nextRoute)) {
       const fastKey = parkKey(nextRoute);
       const fastSlot = viewParks.get(fastKey);
-      const fastY = SCROLLS[fastKey] || (fastSlot && fastSlot.y) || 0;
+      const fastY = Object.prototype.hasOwnProperty.call(SCROLLS, fastKey) ? (SCROLLS[fastKey] || 0) : ((fastSlot && fastSlot.y) || 0);
       routing = true;
       scrollFreeze = true;
       parkLiveView();
