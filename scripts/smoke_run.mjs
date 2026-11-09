@@ -99,6 +99,7 @@ const PAGE_STEPS = [
     paths: [file("notifications_page_test.mjs"), file("notif_badge_test.mjs"), ...APP]
   }),
   step("scrollbar-hidden", "node scripts/scrollbar_hidden_test.mjs", { needs: ["pw", "browser"], paths: [file("scrollbar_hidden_test.mjs"), /^styles\.css$/] }),
+  step("profile-tab-scroll", "node scripts/profile_tab_scroll_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_tab_scroll_test.mjs"), /^accounts\.js$/, /^app\.js$/, /^styles\.css$/] }),
   step("profile", "node scripts/profile_chrome_test.mjs", {
     weight: 70, needs: ["pw", "browser"],
     paths: [file("profile_chrome_test.mjs"), file("mention_suggest_test.mjs"), file("friend_state_test.mjs"), file("my_devices_test.mjs"), file("feeds_page_test.mjs"), file("feed_requests_approve_test.mjs"), ...APP]
@@ -161,6 +162,10 @@ const PAGE_STEPS = [
   step("ig-media", "node scripts/instagram_media_test.mjs", {
     weight: 45, needs: ["pw", "browser"],
     paths: [file("instagram_media_test.mjs"), /^app\.js$/, /^accounts\.js$/, /^worker\/src\/index\.js$/]
+  }),
+  step("source-assign", "node scripts/source_lists_client_test.mjs && node scripts/source_list_assign_test.mjs", {
+    weight: 40, needs: ["pw", "browser"],
+    paths: [file("source_list_assign_test.mjs"), file("source_lists_client_test.mjs"), /^source-lists\.js$/, /^app\.js$/, /^worker\/src\/source-lists\.js$/]
   }),
   step("device-guard", "node scripts/device_guard_test.mjs", { needs: ["pw", "browser"], paths: [file("device_guard_test.mjs")] }),
   step("usernames", "node scripts/usernames_settings_test.mjs", { weight: 80, needs: ["pw", "browser"], paths: [file("usernames_settings_test.mjs")] }),
@@ -238,7 +243,9 @@ const PAGE_STEPS = [
   step("storage-page", "node scripts/storage_page_test.mjs", {
     weight: 45, needs: ["pw", "browser"],
     paths: [file("storage_page_test.mjs"), /^storage-recordings\.js$/, /^drive\.(js|css)$/, /^shared\/storage-/, ...APP]
-  })
+  }),
+  step("app-scale", "node scripts/app_scale_test.mjs", { needs: ["pw", "browser"], paths: [file("app_scale_test.mjs"), /^desktop-app\.js$/, /^app\.js$/, /^mention-suggest\.js$/] }),
+  step("image-copy", "node scripts/image_copy_test.mjs", { needs: ["pw", "browser"], paths: [file("image_copy_test.mjs"), /^image-copy\.js$/] })
 ];
 
 const NAV_STEPS = [
@@ -277,16 +284,16 @@ const NAV_STEPS = [
 ];
 
 const SHARDS = {
-  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings"],
+  checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings", "app-scale", "image-copy"],
   site: ["about-layout", "points-layout", "stories-layout", "assemble-site", "smoke-site", "smoke-mirror", "yt-embed", "x-video", "ios", "live"],
   "ui-fast": ["notifications", "scrollbar-hidden", "pill-fit", "sidebar", "privacy", "title-privacy", "desktop-squares", "storage-page"],
   sw: ["sw-update"],
-  "ui-profile": ["profile"],
+  "ui-profile": ["profile", "profile-tab-scroll"],
   "ui-drawer": ["drawer"],
   home: ["home-tabs", "tab-member", "reply-lookup", "foryou-chunks", "foryou-off"],
   "compose-core": ["compose-ai", "compose-page"],
   "compose-a": ["community-home", "communities-hub", "own-post", "author-marks", "post-page"],
-  "compose-b": ["music-dock", "video-fallback", "ig-media", "device-guard", "usernames", "owner-user-settings"],
+  "compose-b": ["music-dock", "video-fallback", "ig-media", "source-assign", "device-guard", "usernames", "owner-user-settings"],
   "compose-c": ["display-names", "settings-assistant", "nostr-settings", "games-mobile", "people-search", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync"],
   "compose-d": ["live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant"],
   "compose-e": ["profile-by-name", "communities-rows", "friend-privacy", "foryou-communities"],
@@ -303,15 +310,15 @@ const NAV_SHARDS = {
 const REQUIRED_PAGE = [
   "action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n",
   "about-layout", "points-layout", "telegram-stories", "stories", "stories-layout",
-  "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "scrollbar-hidden", "profile",
+  "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "scrollbar-hidden", "profile", "profile-tab-scroll",
   "home-tabs", "tab-member", "reply-lookup", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
   "signup-flows",
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
-  "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media",
+  "community-home", "communities-hub", "own-post", "post-page", "music-dock", "video-fallback", "ig-media", "source-assign",
   "device-guard", "usernames", "display-names", "settings-assistant", "nostr-settings", "games-mobile",
   "live-translate", "friend-p2p", "friend-refresh", "communities-instant", "routes-instant", "profile-by-name", "people-search", "post-menu", "show-more-scroll", "action-speed", "reply-pending", "tab-sync",
   "communities-rows", "friend-privacy", "foryou-communities", "foryou-chunks", "author-marks", "foryou-off", "title-privacy", "desktop-squares",
-  "storage-recordings", "storage-page"
+  "storage-recordings", "storage-page", "app-scale", "image-copy"
 ];
 
 export function stepsFor(suite) {

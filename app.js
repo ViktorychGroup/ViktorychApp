@@ -9,6 +9,9 @@
     var fn = (typeof window !== "undefined" && window.tn) ? window.tn : ((typeof self !== "undefined" && self.tn) ? self.tn : null);
     return fn ? fn(key, n, vars) : String(n);
   }
+  function shortsEnabled() {
+    return typeof SHORTS_ENABLED !== "undefined" && SHORTS_ENABLED === true;
+  }
   function productName(kind) {
     var api = (typeof SI18n !== "undefined") ? SI18n : ((typeof window !== "undefined" && window.SI18n) ? window.SI18n : ((typeof self !== "undefined" && self.SI18n) ? self.SI18n : null));
     return (api && api.productName) ? api.productName(kind) : "";
@@ -1734,18 +1737,21 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return n ? `<p class="phandle set-block owner-locks-note">${esc(n === 1 ? tr("The site owner manages 1 of your settings.") : tr("The site owner manages {count} of your settings.", { count: String(n) }))}</p>` : "";
   }
 
+  function keepNewerBlocks() {
+    // Another tab may have saved a newer block list since this copy was read.
+    // Keep that list. This tab's own newer list still wins.
+    if (!STATE.settings || !window.ViktorychAccounts || !window.ViktorychAccounts.pickBlocks) return;
+    let disk = null;
+    try { disk = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { disk = null; }
+    if (disk && disk.blocks) STATE.settings.blocks = window.ViktorychAccounts.pickBlocks(disk.blocks, STATE.settings.blocks);
+  }
+
   function saveSettings() {
     if (enforceSettingLocks()) toast(tr("The site owner locked this setting."));
     if (STATE.settings && STATE.settings.devicePerf && window.ViktorychDevice && window.ViktorychDevice.persist) {
       STATE.settings.devicePerf = window.ViktorychDevice.persist(STATE.settings.devicePerf);
     }
-    // Another tab may have saved a newer block list since this copy was read.
-    // Keep that list. This tab's own newer list still wins.
-    if (STATE.settings && window.ViktorychAccounts && window.ViktorychAccounts.pickBlocks) {
-      let disk = null;
-      try { disk = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { disk = null; }
-      if (disk && disk.blocks) STATE.settings.blocks = window.ViktorychAccounts.pickBlocks(disk.blocks, STATE.settings.blocks);
-    }
+    keepNewerBlocks();
     writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings));
     blocksChanged();
     syncFeatureFlags();
@@ -2149,7 +2155,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "app_scale", "image_copy", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2254,6 +2260,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
       status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
+      app_scale: [tr("App size"), tr("On computers, an optional size for a maximized window and a smaller window. It stays in this browser, not on an account. Off leaves the app at the browser’s own size.")],
+      image_copy: [tr("Copy image"), tr("On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.")],
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
       update_notice: [tr("Visible updates"), tr("A short Updating notice while an update applies, then a full-screen What's new page.")],
       status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")],
@@ -7595,12 +7603,42 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   /* Another tab changed the rules: apply them here at once. The storage
      event is the fallback. A sync echo used to replace the new block list
      before that event landed, so the other tab kept the posts. */
+  function readSettingsRaw() {
+    // A test can supply the next reads, in order, to cover a list saved
+    // between them. Production always reads what is stored now.
+    const scripted = window.__settingsReads;
+    if (Array.isArray(scripted) && scripted.length) {
+      const next = scripted.shift();
+      return next == null ? null : String(next);
+    }
+    return readStored(localStorage, "settings-v1");
+  }
   function applyBlocksFromDisk() {
     if (!STATE.settings) return;
     let next = null;
-    try { next = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { next = null; }
+    try { next = JSON.parse(readSettingsRaw() || "null"); } catch (err) { next = null; }
     if (!next) return;
-    next.blocks = cleanBlocks(next.blocks);
+    let diskBlocks = cleanBlocks(next.blocks);
+    const memBlocks = STATE.settings.blocks;
+    const memAt = Number(memBlocks && memBlocks.at) || 0;
+    // A full settings write can still carry the block list from before this
+    // block. Read the disk again and keep whichever whole list is newer, so
+    // an unblock saved between the two reads is not overwritten. Muted words,
+    // muted accounts and repost rules in that blob still apply.
+    if (memAt > (Number(diskBlocks.at) || 0)) {
+      let latest = next;
+      try { latest = JSON.parse(readSettingsRaw() || "null") || next; } catch (err) { latest = next; }
+      const again = cleanBlocks(latest.blocks);
+      next = latest;
+      // The re-read is a whole list. A newer one (an unblock that landed
+      // after the first read) replaces this tab's copy. Otherwise this tab's
+      // list is still current and is written onto the blob that was re-read.
+      if ((Number(again.at) || 0) > memAt) diskBlocks = again;
+      else diskBlocks = cleanBlocks(memBlocks);
+      next.blocks = diskBlocks;
+      writeStored(localStorage, "settings-v1", JSON.stringify(next));
+    }
+    next.blocks = diskBlocks;
     if (blockSig(next) === blockSig(STATE.settings)) return;
     STATE.settings.mutedWords = Array.isArray(next.mutedWords) ? next.mutedWords : [];
     STATE.settings.mutedAccounts = Array.isArray(next.mutedAccounts) ? next.mutedAccounts : [];
@@ -10836,7 +10874,7 @@ const here = parseRoute();
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
             ${asAccount ? linkedSourceBadge(post.platform) : postSourceBadges(post)}
-            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}" aria-haspopup="menu" aria-expanded="${STATE.menu === post.id ? "true" : "false"}">${icon("more")}</button></span>
+            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" type="button" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}" aria-haspopup="menu" aria-expanded="${STATE.menu === post.id ? "true" : "false"}">${icon("more")}</button></span>
           </div>
           ${reply}
           ${discordMeta(post)}
@@ -11164,7 +11202,7 @@ const here = parseRoute();
       case "contacts":
         return { id: "contacts", href: "#/contacts", icon: "phone", label: tr("Contacts"), active: (r) => r.name === "contacts", visible: () => featureOn("contacts") };
       case "shorts":
-        return { id: "shorts", href: "#/shorts", icon: "shorts", label: tr("Shorts"), active: (r) => r.name === "shorts", visible: () => !!(window.ViktorychShorts && window.ViktorychShorts.visible()) };
+        return { id: "shorts", href: "#/shorts", icon: "shorts", label: tr("Shorts"), active: (r) => r.name === "shorts", visible: () => shortsEnabled() && !!(window.ViktorychShorts && window.ViktorychShorts.visible()) };
       case "games":
         return { id: "games", href: "#/games", icon: "games", label: tr("Games"), active: (r) => r.name === "games" };
       case "tv":
@@ -11467,7 +11505,7 @@ const here = parseRoute();
     }, true);
     window.addEventListener("viktorych-setting-locks", () => {
       paintSettingLocks();
-      if (enforceSettingLocks()) { writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings)); if (typeof applyTheme === "function") applyTheme(); }
+      if (enforceSettingLocks()) { keepNewerBlocks(); writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings)); if (typeof applyTheme === "function") applyTheme(); }
       render({ y: window.scrollY });
     });
     setTimeout(paintSettingLocks, 0);
@@ -12922,6 +12960,22 @@ const here = parseRoute();
     const now = sessionNow();
     return now.id + "\n" + String(now.gen || 0);
   }
+  /* A hash change can put back a page built for the previous account. Mark
+     those pages so the next paint does not show their posts. */
+  function dropForeignViewer() {
+    const scope = viewerScope();
+    viewParks.forEach((slot) => {
+      if (slot && slot.scope && slot.scope !== scope) slot.force = true;
+    });
+    Object.keys(authorPostCache).forEach((key) => {
+      const entry = authorPostCache[key];
+      if (entry && entry.scope && entry.scope !== scope) delete authorPostCache[key];
+    });
+    if (publicOwner && publicOwner !== scope) {
+      publicPosts = [];
+      publicOwner = "";
+    }
+  }
   function visiblePublicPosts() {
     return publicOwner === viewerScope() ? publicPosts : [];
   }
@@ -13170,7 +13224,12 @@ const here = parseRoute();
     accountCall("/v1/posts?" + authorQuery(key)).then((res) => {
       if (!authorLive(key, entry, gen, sender)) return;
       entry.loading = false;
-      if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
+      /* An empty answer is still an answer. Leaving the loading shell up
+         would keep whatever stood in for it, including another account's page. */
+      if (!res || res.status !== 200 || !Array.isArray(res.posts)) {
+        if (document.querySelector(".tab-loading")) render();
+        return;
+      }
       const mine = signedAccount();
       const next = mine && String(mine.publicId) === key ? keepOwnPosts(res.posts).filter((item) => String(item.authorId) === key) : res.posts;
       const sig = (list) => list.map((item) => [item.id, item.replyCount, item.quoteCount, item.likes, item.reposts, item.editedAt, item.body].join("|")).join(",");
@@ -13180,9 +13239,12 @@ const here = parseRoute();
       if (!authorLive(key, entry, gen, sender)) return;
       if (!older.length) { entry.more = !!res.more; entry.before = edge; }
       entry.posts = next.concat(older);
-      if (before !== sig(entry.posts)) render();
+      if (before !== sig(entry.posts) || document.querySelector(".tab-loading")) render();
     }).catch(() => {
-      if (authorPostCache[key] === entry) entry.loading = false;
+      if (authorPostCache[key] === entry) {
+        entry.loading = false;
+        if (document.querySelector(".tab-loading")) render();
+      }
     });
   }
   function authorPosts(publicId) {
@@ -17103,10 +17165,19 @@ const here = parseRoute();
   }
 
   function queueHist(entry, soon) {
+    const scope = viewerScope();
+    if (STATE.histScope && STATE.histScope !== scope) STATE.histPending = {};
+    STATE.histScope = scope;
     STATE.histPending = STATE.histPending || {};
     STATE.histPending[entry.key] = entry;
     clearTimeout(STATE.histTimer);
-    STATE.histTimer = setTimeout(flushHist, soon ? 40 : 700);
+    STATE.histTimer = setTimeout(() => {
+      if (viewerScope() !== scope) {
+        STATE.histPending = {};
+        return;
+      }
+      flushHist();
+    }, soon ? 40 : 700);
   }
 
   function readHistLocal() {
@@ -20788,7 +20859,7 @@ if (STATE.histClear) {
   }
 
   function watchHash(post) {
-    if (post && post.platform === "tiktok") return "#/shorts?v=" + encodeURIComponent(post.statusId || post.id || "");
+    if (shortsEnabled() && post && post.platform === "tiktok") return "#/shorts?v=" + encodeURIComponent(post.statusId || post.id || "");
     return "#/watch/" + (post.platform || "x") + ":" + (post.statusId || post.id);
   }
 
@@ -21380,9 +21451,11 @@ if (STATE.histClear) {
     const margin = 8;
     const width = 280;
     const rows = target.kind === "group" ? 5 : (STATE.settings.groups || []).length + 2;
-    const height = Math.min(window.innerHeight - 16, 56 + rows * 48);
-    const left = Math.max(margin, Math.min(x, window.innerWidth - width - margin));
-    const top = Math.max(margin, Math.min(y, window.innerHeight - height - margin));
+    const view = layoutView();
+    const z = layoutZoom();
+    const height = Math.min(view.h - 16, 56 + rows * 48);
+    const left = Math.max(margin, Math.min(x / z, view.w - width - margin));
+    const top = Math.max(margin, Math.min(y / z, view.h - height - margin));
     STATE.groupMenu = { kind: target.kind, id: target.id, left: left, top: top };
     render();
   }
@@ -22096,15 +22169,18 @@ if (STATE.histClear) {
   function localFirstView(route, html) {
     const local = window.ViktorychLocal;
     if (!local || !local.readRoute || !route || SNAP_SKIP[route.name]) return html;
-    const key = String(location.hash || "#/").slice(0, 300);
-    if (key !== lfKey) { lfKey = key; lfLive = false; }
+    const hash = String(location.hash || "#/").slice(0, 300);
+    /* The viewer id only decides whether this paint is still the live one.
+       saveRoute and readRoute classify private pages from the plain hash. */
+    const liveKey = viewerScope() + "|" + hash;
+    if (liveKey !== lfKey) { lfKey = liveKey; lfLive = false; }
     if (routeLoading(html)) {
       if (lfLive) return html;
-      const saved = local.readRoute(key);
+      const saved = local.readRoute(hash);
       return saved || html;
     }
     lfLive = true;
-    if (html.length < 150000 && !/type="password"|<script/i.test(html)) local.saveRoute(key, html);
+    if (html.length < 150000 && !/type="password"|<script/i.test(html)) local.saveRoute(hash, html);
     return html;
   }
   window.addEventListener("viktorych-route", () => {
@@ -22130,6 +22206,7 @@ if (STATE.histClear) {
       return lazySkeleton(tr("Contacts"));
     }
     if (route.name === "shorts") {
+      if (!shortsEnabled()) return "";
       if (window.ViktorychShorts && window.ViktorychShorts.visible()) return window.ViktorychShorts.page(route);
       if (!window.ViktorychShorts) { ensureLazy("shorts"); return lazySkeleton(tr("Shorts")); }
       return pageHead(tr("Shorts")) + emptyBlock(tr("Shorts"), tr("Reload the page."));
@@ -22331,6 +22408,34 @@ if (STATE.histClear) {
     location.hash = wanted;
   }
 
+  /* CSS zoom on the page multiplies a fixed top/left again. Rects are visual
+     pixels, so menu positions are stored in the page's own pixels. */
+  function layoutZoom() {
+    const declared = parseFloat(document.documentElement.style.zoom);
+    const z = declared > 0 ? declared : 1;
+    if (z === 1) return 1;
+    // The property can be set when this browser is not scaling boxes. Dividing
+    // by that unused number parks a fixed menu away from its button.
+    const html = document.documentElement;
+    const layout = html.offsetWidth;
+    const visual = html.getBoundingClientRect().width;
+    if (layout > 40 && visual > 40) {
+      const ratio = visual / layout;
+      if (ratio > 0.25 && ratio < 5) return ratio;
+    }
+    return z;
+  }
+  function layoutRect(el) {
+    const z = layoutZoom();
+    const r = el.getBoundingClientRect();
+    if (z === 1) return r;
+    return { top: r.top / z, right: r.right / z, bottom: r.bottom / z, left: r.left / z, width: r.width / z, height: r.height / z };
+  }
+  function layoutView() {
+    const z = layoutZoom();
+    return { w: window.innerWidth / z, h: window.innerHeight / z };
+  }
+
   function placeTabMenu() {
     const menu = document.querySelector(".tab-menu");
     const caret = document.querySelector('.tab-caret[aria-expanded="true"]');
@@ -22340,10 +22445,11 @@ if (STATE.histClear) {
       menu.style.top = "";
       return;
     }
-    const item = caret.getBoundingClientRect();
+    const item = layoutRect(caret);
     const width = menu.offsetWidth || 220;
+    const view = layoutView();
     let left = item.left;
-    const limit = window.innerWidth - 8;
+    const limit = view.w - 8;
     if (left + width > limit) left = Math.max(8, limit - width);
     menu.style.left = Math.max(8, left) + "px";
     menu.style.top = (item.bottom + 4) + "px";
@@ -22358,14 +22464,15 @@ if (STATE.histClear) {
       menu.style.top = "";
       return;
     }
-    const item = btn.getBoundingClientRect();
+    const item = layoutRect(btn);
     const width = menu.offsetWidth || 300;
     const height = menu.offsetHeight || 220;
+    const view = layoutView();
     let left = item.right - width;
     if (left < 8) left = 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
     let top = item.bottom + 6;
-    if (top + height > window.innerHeight - 8) top = Math.max(8, item.top - height - 6);
+    if (top + height > view.h - 8) top = Math.max(8, item.top - height - 6);
     menu.style.left = left + "px";
     menu.style.top = top + "px";
   }
@@ -22379,13 +22486,14 @@ if (STATE.histClear) {
       : 'button[data-act="menu"][data-id="' + id.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
     const btn = id ? document.querySelector(sel) : null;
     if (!btn) return;
-    const item = btn.getBoundingClientRect();
+    const item = layoutRect(btn);
     const width = menu.offsetWidth || 220;
+    const view = layoutView();
     const nav = document.querySelector(".bottom-nav");
     const navShown = nav && nav.getBoundingClientRect().height > 0 && getComputedStyle(nav).display !== "none";
-    const limitBottom = (navShown ? nav.getBoundingClientRect().top : window.innerHeight) - 8;
+    const limitBottom = (navShown ? layoutRect(nav).top : view.h) - 8;
     const header = document.querySelector(".topbar");
-    const limitTop = header ? Math.max(8, header.getBoundingClientRect().bottom + 4) : 8;
+    const limitTop = header ? Math.max(8, layoutRect(header).bottom + 4) : 8;
     const spaceBelow = limitBottom - (item.bottom + 4);
     const spaceAbove = item.top - 4 - limitTop;
     const want = menu.scrollHeight || menu.offsetHeight || 200;
@@ -22401,15 +22509,26 @@ if (STATE.histClear) {
     // The reply row under a post stays clickable while this menu is open.
     const reply = document.querySelector('[data-act="xc-expand-reply"], .composer');
     if (reply) {
-      const replyTop = reply.getBoundingClientRect().top;
+      const replyTop = layoutRect(reply).top;
       if (top < replyTop && top + maxH > replyTop - 8) maxH = Math.max(72, replyTop - 8 - top);
     }
     let left = item.right - width;
     if (left < 8) left = 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
     menu.style.maxHeight = Math.round(maxH) + "px";
     menu.style.left = Math.round(left) + "px";
     menu.style.top = Math.round(top) + "px";
+    // Sit the menu on the button in the pixels this browser actually paints.
+    // A fixed top under page scale is not always the CSS pixel we wrote.
+    const openedAbove = top + maxH <= item.bottom;
+    const beforeTop = parseFloat(menu.style.top) || 0;
+    const beforeBox = menu.getBoundingClientRect();
+    menu.style.top = (beforeTop + 16) + "px";
+    const stepped = menu.getBoundingClientRect();
+    const per = (stepped.top - beforeBox.top) / 16 || 1;
+    const btnNow = btn.getBoundingClientRect();
+    const wantTop = openedAbove ? (btnNow.top - 4 - stepped.height) : (btnNow.bottom + 4);
+    menu.style.top = (beforeTop + 16 + (wantTop - stepped.top) / per) + "px";
   }
   window.addEventListener("scroll", () => { if (STATE.menu) placePostMenu(); }, { passive: true });
   window.addEventListener("resize", () => { if (STATE.menu) placePostMenu(); });
@@ -22424,10 +22543,12 @@ if (STATE.histClear) {
     }
     const width = menu.offsetWidth || 300;
     const height = menu.offsetHeight || 240;
-    let left = Number(menu.dataset.x) || 8;
-    let top = Number(menu.dataset.y) || 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
-    if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - height);
+    const view = layoutView();
+    const z = layoutZoom();
+    let left = (Number(menu.dataset.x) || 8) / z;
+    let top = (Number(menu.dataset.y) || 8) / z;
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
+    if (top + height > view.h - 8) top = Math.max(8, view.h - 8 - height);
     menu.style.left = left + "px";
     menu.style.top = top + "px";
   }
@@ -22435,6 +22556,7 @@ if (STATE.histClear) {
   let tabScrollLeft = null;
   let tabScrollRoute = "";
   let hscrollNav = false;
+  let profileTabHold = "";
   let hscrollTouching = false;
   let hscrollHolding = false;
   let hscrollHoldGen = 0;
@@ -22458,10 +22580,13 @@ if (STATE.histClear) {
   }
 
   function hscrollSaveSoon() {
-    if (hscrollSaveTimer) return;
+    clearTimeout(hscrollSaveTimer);
+    const scope = viewerScope();
+    const payload = JSON.stringify(hscrollStore());
     hscrollSaveTimer = setTimeout(() => {
       hscrollSaveTimer = 0;
-      hscrollFlush();
+      if (viewerScope() !== scope) return;
+      try { writeStored(sessionStorage, "hscroll-v1", payload); } catch (err) { /* the in-memory copy still covers this visit */ }
     }, 200);
   }
 
@@ -22768,7 +22893,63 @@ if (STATE.histClear) {
     scheduleImageSweep();
     hscrollSettle({ reveal: true });
     if (window.ViktorychAccounts && window.ViktorychAccounts.bindProfileTabs) window.ViktorychAccounts.bindProfileTabs();
+    revealProfileTabs();
     reconcilePostPreviews();
+  }
+
+  /* The selected profile pill is measured after its label is laid out, then
+     kept inside the strip. A smooth arrow scroll still running on this node
+     is cancelled so it cannot pull the pill back to the start. */
+  function focusHeldProfileTab(fallback) {
+    const raw = String(profileTabHold || fallback || "");
+    if (!raw) return;
+    const sel = window.CSS && CSS.escape
+      ? '.ptabs [role="tab"][data-ptab-id="' + CSS.escape(raw) + '"]'
+      : '.ptabs [role="tab"][data-ptab-id="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+    const el = document.querySelector(sel);
+    if (!el) return;
+    if (document.activeElement !== el) {
+      try { el.focus({ preventScroll: true }); } catch (err) { el.focus(); }
+    }
+  }
+
+  function profileTabClipped(scroller) {
+    const current = scroller.querySelector("[role='tab'][aria-selected='true']");
+    if (!current) return false;
+    const box = current.getBoundingClientRect();
+    const host = scroller.getBoundingClientRect();
+    if (!host.width || !box.width) return true;
+    return box.right > host.right + 8 || box.left < host.left - 8;
+  }
+
+  function revealProfileTabs() {
+    const started = STATE.renderGen || 0;
+    let frames = 0;
+    const apply = () => {
+      const root = document.getElementById("app") || document.body;
+      const store = hscrollStore();
+      let clipped = false;
+      document.querySelectorAll(".ptabs").forEach((el) => {
+        const next = revealSelectedTab(el, false);
+        if (el.scrollTo) el.scrollTo({ left: el.scrollLeft, behavior: "auto" });
+        const id = el.dataset.hscrollKey || hscrollId(el, root);
+        el.dataset.hscrollKey = id;
+        if (typeof next === "number") store[id] = next;
+        el.dataset.hscrollRevealed = "1";
+        if (profileTabClipped(el)) clipped = true;
+      });
+      syncTabArrows();
+      return clipped;
+    };
+    const clipped = apply();
+    if (!clipped && !profileTabHold) return;
+    const schedule = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+    const again = () => {
+      if ((STATE.renderGen || 0) !== started) return;
+      frames += 1;
+      if (apply() && frames < 8) schedule(again);
+    };
+    schedule(again);
   }
 
   function hscrollRestoreSaved(retry) {
@@ -22855,7 +23036,7 @@ if (STATE.histClear) {
 
   function revealSelectedTab(scroller, smooth) {
     if (!scroller) return 0;
-    const current = scroller.querySelector(".tab-pair.on") || scroller.querySelector(".tab.on") || scroller.querySelector("[role='tab'][aria-selected='true']");
+    const current = scroller.querySelector(".tab-pair.on") || scroller.querySelector(".tab.on") || scroller.querySelector(".ptab-edit.on") || scroller.querySelector("[role='tab'][aria-selected='true']");
     if (!current) return scroller.scrollLeft || 0;
     const pad = 8;
     const box = current.getBoundingClientRect();
@@ -22880,8 +23061,10 @@ if (STATE.histClear) {
     const max = scroller.scrollWidth - scroller.clientWidth;
     const canLeft = max > 2 && scroller.scrollLeft > 2;
     const canRight = max > 2 && scroller.scrollLeft < max - 2;
-    left.hidden = !canLeft;
-    right.hidden = !canRight;
+    // Hiding the focused arrow makes the browser drop focus and jump the
+    // strip back to the start, so a key that reaches the end keeps its button.
+    left.hidden = !canLeft && document.activeElement !== left;
+    right.hidden = !canRight && document.activeElement !== right;
     bar.classList.toggle("is-fade-left", canLeft);
     bar.classList.toggle("is-fade-right", canRight);
     if (!(scroller.scrollLeft === 0 && max <= 1 && tabScrollLeft > 1)) {
@@ -23406,6 +23589,8 @@ if (STATE.histClear) {
       history.replaceState(null, "", location.pathname + location.search + "#/history/bookmarks");
     } else if (bare === "#/drive" || bare.startsWith("#/drive/")) {
       history.replaceState(null, "", location.pathname + location.search + "#/storage" + bare.slice("#/drive".length) + (qCut >= 0 ? hashNow.slice(qCut) : ""));
+    } else if (!shortsEnabled() && (bare === "#/shorts" || bare.startsWith("#/shorts/"))) {
+      history.replaceState(null, "", location.pathname + location.search + "#/");
     }
     const hashAtStart = location.hash || "#/";
     paintToken = routePaintState.token;
@@ -23480,6 +23665,8 @@ if (STATE.histClear) {
     let y = STATE.holdY != null ? STATE.holdY : (reset ? 0 : window.scrollY);
     const focus = document.activeElement;
     const focusId = focus && focus.id;
+    const focusTabNode = focus && focus.closest ? (focus.matches && focus.matches("[data-ptab-id]") ? focus : focus.closest(".ptabs [data-ptab-id]")) : null;
+    const focusTab = focusTabNode ? String(focusTabNode.getAttribute("data-ptab-id") || "") : "";
     const caret = focus && typeof focus.selectionStart === "number" ? focus.selectionStart : null;
     const focusValue = focusId === "explore-q" ? focus.value : null;
     if (leavingWatch) stopWatchPlayback();
@@ -23522,6 +23709,10 @@ if (STATE.histClear) {
         if (window.SIntelMusic && window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(route);
         window.scrollTo(0, y);
         xcastArm();
+        /* The strip's scroll position does not survive being detached.
+           The selected pill is measured again, including after a keyboard move. */
+        focusHeldProfileTab(focusTab);
+        revealProfileTabs();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
       } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force) {
@@ -23580,7 +23771,7 @@ if (STATE.histClear) {
         else if (window.ViktorychContacts.unmount) window.ViktorychContacts.unmount();
       }
       if (window.ViktorychShorts) {
-        if (route.name === "shorts") window.ViktorychShorts.mount(route);
+        if (shortsEnabled() && route.name === "shorts") window.ViktorychShorts.mount(route);
         else window.ViktorychShorts.unmount();
       }
       if (window.ViktorychDrive) {
@@ -23637,7 +23828,12 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
             const raw = String(opts.anchorId);
             const sel = window.CSS && CSS.escape ? 'article[data-post="' + CSS.escape(raw) + '"]' : 'article[data-post="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
             const el = document.querySelector(sel);
-            if (el) next = Math.max(0, window.scrollY + (el.getBoundingClientRect().top - (Number(opts.anchorTop) || 0)));
+            if (el) {
+              // The rect is visual pixels. scrollY is CSS pixels. Under page
+              // scale the two differ, and adding them raw jumps the post.
+              const shift = el.getBoundingClientRect().top - (Number(opts.anchorTop) || 0);
+              next = Math.max(0, window.scrollY + shift / layoutZoom());
+            }
           }
           window.scrollTo(0, next);
           if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = next;
@@ -23646,6 +23842,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (opts && opts.focusMenu) {
             const item = document.querySelector(".menu.post-menu button, .menu.post-menu a");
             if (item) { try { item.focus({ preventScroll: true }); } catch (err) { item.focus(); } }
+            placePostMenu();
           }
           if (opts && opts.focusReturn) {
             const raw = String(opts.focusReturn);
@@ -23658,6 +23855,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (opts && opts.pinAnchor && opts.anchorId) watchPostAnchor(String(opts.anchorId), Number(opts.anchorTop) || 0);
         });
       }
+      let focusRestored = false;
       if (focusId) {
         const el = document.getElementById(focusId);
         if (el) {
@@ -23666,8 +23864,10 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (caret != null && el.setSelectionRange) {
             try { el.setSelectionRange(caret, caret); } catch (err) { /* ignore */ }
           }
+          focusRestored = true;
         }
       }
+      if (!focusRestored) focusHeldProfileTab(focusTab);
       paintChromeHidden(STATE.headerHidden && window.innerWidth < 500);
       if (route.name === "subscriptions" && route.channel && (routeChanged || !STATE.scrollKey)) revealSubsChannel();
       STATE.scrollKey = nextKey;
@@ -23860,6 +24060,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     };
   }
 
+  let menuKeyGuard = "";
   function onAct(el) {
     const act = el.dataset.act;
     if (act === "stop") return;
@@ -24711,9 +24912,11 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const amount = scroller.clientWidth || 240;
       const next = Math.max(0, Math.min(max, scroller.scrollLeft + dir * amount));
       const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const profile = scroller.classList && scroller.classList.contains("ptabs");
       tabScrollLeft = next;
       tabScrollRoute = routeScrollKey();
-      scroller.scrollTo({ left: next, behavior: reduced ? "auto" : "smooth" });
+      if (profile || reduced || !scroller.scrollTo) scroller.scrollLeft = next;
+      else scroller.scrollTo({ left: next, behavior: "smooth" });
       hscrollRememberEl(scroller);
       syncTabArrows();
       return;
@@ -25763,6 +25966,14 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "menu") {
+      // The key handler opens the menu with one click. Rendering replaces that
+      // button, and the key can then click the new button and toggle it shut.
+      // That follow-up is ignored. The click from the key itself runs first,
+      // while this guard is still clear, so it still opens or closes once.
+      if (menuKeyGuard && el.dataset.id === menuKeyGuard) {
+        menuKeyGuard = "";
+        return;
+      }
       const opening = STATE.menu !== el.dataset.id;
       const article = el.closest("article");
       const anchorId = article ? (article.getAttribute("data-post") || "") : "";
@@ -26387,6 +26598,70 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
       render();
     }, 0);
   });
+  document.addEventListener("keydown", (event) => {
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest("button[data-act='menu']");
+    const btn = (event.target && event.target.closest && event.target.closest("button[data-act='menu']")) || focused;
+    if (!btn) return;
+    // A zoomed page can focus the button and still not synthesize a click, or
+    // it can click again after render replaces the button. One click applies
+    // the toggle. menuKeyGuard drops the extra click, matched by id because
+    // the node from this keydown is no longer in the page.
+    event.preventDefault();
+    menuKeyGuard = "";
+    const id = btn.getAttribute("data-id") || "";
+    btn.click();
+    menuKeyGuard = id;
+    setTimeout(() => { if (menuKeyGuard === id) menuKeyGuard = ""; }, 400);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const arrow = event.target.closest && event.target.closest(".tab-arrow[data-act='tab-scroll']");
+    if (arrow && (event.key === " " || event.key === "Enter")) {
+      event.preventDefault();
+      onAct(arrow);
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab']");
+    if (!tab) return;
+    const list = tab.closest(".ptabs");
+    if (!list) return;
+    const tabs = [...list.querySelectorAll("[role='tab']")];
+    const at = tabs.indexOf(tab);
+    if (at < 0) return;
+    const next = tabs[at + (event.key === "ArrowRight" ? 1 : -1)];
+    if (!next) return;
+    event.preventDefault();
+    profileTabHold = next.getAttribute("data-ptab-id") || "";
+    next.click();
+    const held = profileTabHold;
+    const restore = () => {
+      if (profileTabHold !== held) return;
+      focusHeldProfileTab(held);
+      revealProfileTabs();
+    };
+    restore();
+    setTimeout(restore, 0);
+    setTimeout(restore, 160);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) profileTabHold = tab.getAttribute("data-ptab-id") || "";
+  }, true);
+  document.addEventListener("click", (event) => {
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) profileTabHold = tab.getAttribute("data-ptab-id") || "";
+  }, true);
+  document.addEventListener("focusin", (event) => {
+    if (!profileTabHold) return;
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) return;
+    const node = event.target;
+    if (!node || node === document.body || node === document.documentElement) return;
+    profileTabHold = "";
+  });
   document.addEventListener("click", (event) => {
     const acct = event.target.closest && event.target.closest(".acct-menu [data-acct]");
     if (!acct) return;
@@ -26624,6 +26899,7 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     }
     const article = event.target.closest && event.target.closest("article.post[data-post]");
     if (!article || (event.target.closest && event.target.closest("a, button, input, textarea, video, .menu"))) return;
+    if (window.ViktorychImageCopy && window.ViktorychImageCopy.owns && window.ViktorychImageCopy.owns(event.target)) return;
     event.preventDefault();
     openAssignFromPost(article.dataset.post, event.clientX, event.clientY);
   });
@@ -26768,9 +27044,10 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
   }
 
   function placeNavMenu(el, anchor) {
-    const rect = anchor.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const rect = layoutRect(anchor);
+    const view = layoutView();
+    const vw = view.w;
+    const vh = view.h;
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     const gap = 8;
@@ -28149,9 +28426,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       seen = window.ViktorychPresence.linesHtml(pid);
     }
     box.innerHTML = `<div class="hcard">${banner}<div class="hbody"><div class="pava-row">${face}${followButtonClean(id)}</div><div class="name" style="font-weight:800;margin-top:8px">${esc(nickName(profile.platform, profile.handle, profile.name || profile.handle || ""))}${badge(profile.verifiedType)}${affSlot({ publicId: presenceIdOf(profile) })}</div>${handle ? `<div class="phandle">@${esc(handle)}</div>` : ""}${seen}${profile.bio ? `<div class="hbio">${esc(profile.bio)}</div>` : ""}${audienceCounts(profile)}</div></div>`;
-    const left = Math.min(rect.left, window.innerWidth - 320);
+    const boxRect = layoutRect(el);
+    const view = layoutView();
+    const left = Math.min(boxRect.left, view.w - 320);
     box.style.left = Math.max(8, left) + "px";
-    box.style.top = (rect.bottom + 8) + "px";
+    box.style.top = (boxRect.bottom + 8) + "px";
   }
 
   function showHover(el) {
@@ -28397,6 +28676,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }, true);
   window.addEventListener("hashchange", () => {
     if (window.ViktorychAccounts?.blocking?.()) return;
+    dropForeignViewer();
     showPill(pendingPillPosts());
     const nextHash = location.hash || "#/";
     const prevHash = lastKey || "";
@@ -29795,6 +30075,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const lists = window.SourceLists;
     if (!lists || !doc || !Array.isArray(doc.posts)) return doc;
     await Promise.race([lists.ready(), new Promise((done) => setTimeout(done, 400))]);
+    lists.refresh(false).catch(() => null);
     return lists.merge(doc);
   }
 
@@ -29902,8 +30183,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (!STATE.data) {
         notePublished(doc);
         STATE.data = withMemory(doc);
-        if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
-        if (window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
+        if (shortsEnabled() && window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
+        if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
         STATE.error = null;
         STATE.pendingFeed = null;
         if (!(STATE.pendingLive || []).length) showPill([]);
@@ -31808,6 +32089,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     if (msg.op === "event" && msg.topic === "notifications" && msg.data) applyHubEvent(msg.data);
     if (msg.op === "event" && msg.topic === "games" && msg.data && window.ViktorychGameSocial) window.ViktorychGameSocial.onChannel(msg.data);
+    if (msg.op === "event" && msg.topic === "sync" && msg.data && msg.data.lists && window.SourceLists && window.SourceLists.notify) window.SourceLists.notify(msg.data);
     if (msg.op === "event" && msg.topic === "posts") {
       clearTimeout(postsLiveTimer);
       postsLiveTimer = setTimeout(refreshAppPosts, 600);
@@ -31923,6 +32205,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       STATE.settings.bellNotes = [];
       STATE.settings.bellSeen = [];
       STATE.settings.bellRead = 0;
+      keepNewerBlocks();
       writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings));
     }
     removeStored(localStorage, "notes-server");
@@ -33243,7 +33526,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }
     }
     if (STATE.composeSeed) local.saveDoc("drafts", "compose", { text: STATE.composeSeed });
-    if (window.ViktorychShorts && window.ViktorychShorts.snapshot) window.ViktorychShorts.snapshot();
+    if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.snapshot) window.ViktorychShorts.snapshot();
     if (window.SIntelMusic && window.SIntelMusic.snapshot) window.SIntelMusic.snapshot();
     if (window.FeedsDiscord && window.FeedsDiscord.snapshot) window.FeedsDiscord.snapshot();
     if (window.ViktorychCommunities && window.ViktorychCommunities.snapshot) window.ViktorychCommunities.snapshot();
@@ -33375,7 +33658,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       notePublished(snap);
       STATE.data = snap;
       STATE.settings = loadSettings();
-      if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
+      if (shortsEnabled() && window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
       STATE.loading = false;
       if (!routeDomReady && parseRoute().name !== "home") followRoute();
       else render({ reset: true });
@@ -33444,8 +33727,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         }
         saveHomeSnapshot();
       }
-      if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
-      if (window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
+      if (shortsEnabled() && window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
+      if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
       ensureVideoOwners();
       applyIaPreview(STATE.data);
       STATE.settings = loadSettings();
@@ -33508,7 +33791,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       /* The archive list does not depend on the catalog. Without it every
          picture that failed would wait for a list that never comes. */
       if (!IA.ready) loadNewestShard().catch(() => installIaManifest(null));
-      if (window.ViktorychShorts && window.ViktorychShorts.visible()) {
+      if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.visible()) {
         if (!STATE.data) STATE.data = { posts: [], feeds: [] };
         try { await window.ViktorychShorts.pull(); } catch (ignore) { /* shorts keeps the last copy */ }
       }
@@ -33862,12 +34145,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
      was moving the page under an open phone drawer. The server off-switch
      still skips it. Opening Shorts still paints, because that call is not
      quiet. */
-  if (window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure("shorts", true);
+  if (shortsEnabled() && window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure("shorts", true);
   if (musicSessionOpen() || parseRoute().name === "music") ensureMusic();
   setTimeout(() => {
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();
-      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers"];
+      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers"].filter((name) => name !== "shorts" || shortsEnabled());
       if (saver) saver.whenRoomy(() => window.ViktorychLazy.preload(list));
       else window.ViktorychLazy.preload(list);
     }
@@ -34455,11 +34738,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       tip.style.display = "block";
       tip.classList.remove("is-visible");
 
-      const rect = el.getBoundingClientRect();
+      const rect = layoutRect(el);
       const tipW = tip.offsetWidth;
       const tipH = tip.offsetHeight;
-      const winW = window.innerWidth;
-      const winH = window.innerHeight;
+      const view = layoutView();
+      const winW = view.w;
+      const winH = view.h;
 
       const inNav = !!el.closest(".nav");
       const inBottomNav = !!el.closest(".bottom-nav");

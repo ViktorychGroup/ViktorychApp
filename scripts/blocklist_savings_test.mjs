@@ -234,6 +234,73 @@ try {
       return kept && !shown;
     }, target, { timeout: 8000 }).catch(() => fail("a save on the other tab removed the block or showed the posts again"));
     console.log("cross-tab block check passed", JSON.stringify({ otherTabMs: Date.now() - t0 }));
+    // A later write of the settings from before the block (another tab still
+    // holding that copy) must not bring the posts back.
+    await b.evaluate((text) => { localStorage.setItem("viktorychapp-settings-v1", text); }, JSON.stringify(settingsFor(false)));
+    await a.waitForFunction((h) => {
+      const settings = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}");
+      const kept = ((settings.blocks || {}).accounts || []).some((item) => String(item).indexOf(h) >= 0);
+      const shown = Array.from(document.querySelectorAll("#app article.post .handle")).some((el) => el.textContent.replace(/^@/, "") === h);
+      return kept && !shown;
+    }, target, { timeout: 8000 }).catch(() => fail("an older settings write brought a blocked account back"));
+    console.log("older settings write kept the block");
+    const shownHandles = await a.evaluate(() => Array.from(document.querySelectorAll("#app article.post .handle")).map((el) => el.textContent.replace(/^@/, "")));
+    const muteHandle = shownHandles.find((h) => h !== target);
+    const wordHandle = shownHandles.find((h) => h !== target && h !== muteHandle);
+    if (!muteHandle || !wordHandle) fail("the feed had no second account to mute");
+    const phrase = "from account " + String(Number(wordHandle.slice(-2))) + " with";
+    const repostKey = "x:" + handles.find((h) => h !== target && h !== muteHandle && h !== wordHandle);
+    const withFilters = await a.evaluate(() => JSON.parse(localStorage.getItem("viktorychapp-settings-v1")));
+    withFilters.blocks = { at: 1, accounts: [], posts: [], sources: [], types: {}, showHidden: false };
+    withFilters.mutedWords = [phrase];
+    withFilters.mutedAccounts = ["x:" + muteHandle];
+    withFilters.repostOff = [repostKey];
+    await b.evaluate((text) => { localStorage.setItem("viktorychapp-settings-v1", text); }, JSON.stringify(withFilters));
+    await a.waitForFunction((spec) => {
+      const settings = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}");
+      const blocks = settings.blocks || {};
+      const kept = (blocks.accounts || []).some((item) => String(item).indexOf(spec.target) >= 0);
+      const words = settings.mutedWords || [];
+      const accounts = settings.mutedAccounts || [];
+      const reposts = settings.repostOff || [];
+      if (!kept || words.indexOf(spec.phrase) < 0 || accounts.indexOf("x:" + spec.mute) < 0 || reposts.indexOf(spec.repost) < 0) return false;
+      const handlesNow = Array.from(document.querySelectorAll("#app article.post .handle")).map((el) => el.textContent.replace(/^@/, ""));
+      if (handlesNow.indexOf(spec.target) >= 0 || handlesNow.indexOf(spec.mute) >= 0 || handlesNow.indexOf(spec.word) >= 0) return false;
+      const api = window.ViktorychBlocklist;
+      if (!api || typeof api.reason !== "function") return false;
+      const word = api.reason({ id: "w", platform: "x", handle: "sample_other", text: "note " + spec.phrase + " here" });
+      const account = api.reason({ id: "m", platform: "x", handle: spec.mute, feedId: "x:" + spec.mute, text: "hello" });
+      const repost = api.reason({ id: "p", platform: "x", handle: "sample_other", text: "hello", repostedBy: { handle: spec.repost.slice(2), platform: "x", feedId: spec.repost } });
+      return word === "word" && account === "account" && repost === "type";
+    }, { target: target, mute: muteHandle, word: wordHandle, phrase: phrase, repost: repostKey }, { timeout: 8000 }).catch(() => fail("an older block list dropped the new mute filters or the block"));
+    console.log("older blocks kept and new filters applied");
+    const memAt = await a.evaluate(() => Number(JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}").blocks.at) || 0);
+    const baseSettings = await a.evaluate(() => JSON.parse(localStorage.getItem("viktorychapp-settings-v1")));
+    const stale = Object.assign({}, baseSettings, { blocks: { at: 1, accounts: [], posts: [], sources: [], types: {}, showHidden: false } });
+    const unblockPhrase = "from account " + String(Number(handles.find((h) => h !== target && h !== muteHandle && h !== wordHandle).slice(-2))) + " with";
+    const unblocked = Object.assign({}, baseSettings, {
+      blocks: { at: memAt + 1000, accounts: [], posts: [], sources: [], types: {}, showHidden: false },
+      mutedWords: [unblockPhrase],
+      mutedAccounts: [],
+      repostOff: baseSettings.repostOff || []
+    });
+    await a.evaluate((pair) => {
+      localStorage.setItem("viktorychapp-settings-v1", pair.fresh);
+      window.__settingsReads = [pair.stale, pair.fresh];
+      window.dispatchEvent(new StorageEvent("storage", { key: "viktorychapp-settings-v1", newValue: pair.fresh }));
+    }, { stale: JSON.stringify(stale), fresh: JSON.stringify(unblocked) });
+    await a.waitForFunction((spec) => {
+      const settings = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "{}");
+      const accounts = (settings.blocks || {}).accounts || [];
+      if (accounts.some((item) => String(item).indexOf(spec.target) >= 0)) return false;
+      if ((Number(settings.blocks && settings.blocks.at) || 0) !== spec.at) return false;
+      if ((settings.mutedWords || []).indexOf(spec.phrase) < 0) return false;
+      const handlesNow = Array.from(document.querySelectorAll("#app article.post .handle")).map((el) => el.textContent.replace(/^@/, ""));
+      if (handlesNow.indexOf(spec.target) < 0) return false;
+      const api = window.ViktorychBlocklist;
+      return api && api.reason({ id: "w2", platform: "x", handle: "sample_other", text: "note " + spec.phrase + " here" }) === "word";
+    }, { target: target, at: memAt + 1000, phrase: unblockPhrase }, { timeout: 8000 }).catch(() => fail("a newer unblock between the two reads was overwritten"));
+    console.log("newer unblock between reads kept");
     await ctx.close();
   }
 } finally {

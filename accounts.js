@@ -134,7 +134,14 @@
   function noteSession(session) {
     var stamp = sessionStampOf(session);
     if (sessionSeen === null) { sessionSeen = stamp; sessionGeneration = 1; return; }
-    if (stamp !== sessionSeen) { sessionSeen = stamp; sessionGeneration += 1; }
+    if (stamp !== sessionSeen) {
+      sessionSeen = stamp;
+      sessionGeneration += 1;
+      try { window.dispatchEvent(new CustomEvent("viktorych-session")); } catch (err) { /* the page is closing */ }
+      try {
+        if (window.ViktorychLocal && window.ViktorychLocal.onAccountChange) window.ViktorychLocal.onAccountChange();
+      } catch (err) { /* a missing cache still must not keep the old account's page */ }
+    }
   }
   function writeSession(session) {
     writeStored("account-v1", JSON.stringify(session));
@@ -2576,7 +2583,7 @@ var numberNote = form.passkey
       mutedWords: settings.mutedWords || [],
       mutedAccounts: settings.mutedAccounts || [],
       repostOff: settings.repostOff || [],
-      blocks: settings.blocks && typeof settings.blocks === "object" ? settings.blocks : { at: 0 },
+      blocks: settings.blocks && typeof settings.blocks === "object" ? JSON.parse(JSON.stringify(settings.blocks)) : { at: 0 },
       groups: settings.groups || [],
       groupsOwn: !!settings.groupsOwn,
       subsGroup: settings.subsGroup || "",
@@ -3215,12 +3222,10 @@ var numberNote = form.passkey
       if (body.status === 200) {
         rememberLocks(body);
         rememberSync(body.updatedAt);
-        /* The server echoes the body we sent. Writing that copy back drops
-           a block or other edit made while the request was in flight, so
-           another open tab never sees it. Merge with what is on disk now;
-           a newer block list wins. */
-        var echoed = body.payload || payload;
-        applySnapshot(mergePayload(localSnapshot(), echoed));
+        /* Only a payload the server actually stored is merged. An empty
+           acknowledgement is not a copy of the request, and replaying the
+           outbound snapshot would put an older block list back. */
+        if (body.payload && typeof body.payload === "object") applySnapshot(mergePayload(localSnapshot(), body.payload));
       }
       return pushMissedEdit();
     }).catch(function () {
@@ -5555,10 +5560,16 @@ function signupPayload() {
         ? '<div class="ptabs-tools"><button type="button" class="outline" data-ptab="reset">' + esc(tr("Reset to default")) + '</button><button type="button" class="outline ptabs-share' + (layout.share ? " on" : "") + '" data-ptab="share" aria-pressed="' + (layout.share ? "true" : "false") + '">' + esc(tr("Show this order to visitors")) + '</button><button type="button" class="outline" data-ptab="done">' + esc(tr("Done")) + "</button></div>"
         : '<div class="ptabs-tools"><button type="button" class="outline ptabs-edit" data-ptab="edit">' + esc(tr("Edit tabs")) + "</button></div>";
     }
+    var arrow = function (dir) {
+      var name = dir < 0 ? "chevL" : "chevR";
+      var mark = window.ViktorychIcons && window.ViktorychIcons.svg ? window.ViktorychIcons.svg(name) : "";
+      var label = dir < 0 ? tr("Scroll tabs left") : tr("Scroll tabs right");
+      return '<button class="tab-arrow ' + (dir < 0 ? "left" : "right") + '" type="button" data-act="tab-scroll" data-dir="' + dir + '" aria-label="' + esc(label) + '" hidden>' + mark + "</button>";
+    };
     return {
       active: active,
       highlightHtml: highlightHtml,
-      html: '<div class="ptabs-wrap' + (editing ? " is-editing" : "") + '"><div class="tabs ptabs" role="tablist" aria-label="' + esc(tr("Profile")) + '">' + html + "</div>" + tools + "</div>"
+      html: '<div class="ptabs-wrap' + (editing ? " is-editing" : "") + '"><div class="tabs-bar ptabs-bar">' + arrow(-1) + '<div class="tabs ptabs" role="tablist" data-hscroll="profile-tabs" aria-label="' + esc(tr("Profile")) + '">' + html + "</div>" + arrow(1) + "</div>" + tools + "</div>"
     };
   }
   function onProfileTabAct(node) {

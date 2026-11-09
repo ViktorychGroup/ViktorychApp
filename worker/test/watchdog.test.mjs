@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { planWorkflows, planVersion, tokenDaysLeft, usageProblems, shouldPause, runWatchdog, publicSummary, WATCH_KEY } from "../src/watchdog.js";
+import { STATUS_PAUSED, applyPaused } from "../src/status-paused.js";
 
 const H = 36e5;
 
@@ -37,6 +38,34 @@ test("a lagging version is redeployed after two hours, forced from the third try
   const third = planVersion("old", "new", now - 13 * H, now, { attempts: 2, lastDispatchAt: now - 4 * H });
   assert.equal(third.source, "watchdog-force");
   assert.equal(third.problem, true);
+});
+
+test("paused items are not alerts, and any other failure still is", () => {
+  const problems = [
+    { code: "workflow_off_tiktok-live.yml", level: "warn", text: "tiktok-live.yml is turned off by hand in the Actions tab." },
+    { code: "workflow_failing_media-extract.yml", level: "warn", text: "media-extract.yml failed three runs in a row." },
+    { code: "workflow_failing_telegram-backup.yml", level: "warn", text: "telegram-backup.yml failed three runs in a row." },
+    { code: "tiktok_save_queue", level: "warn", text: "TikTok save queue: 81 videos have been waiting over six hours." },
+    { code: "tiktok_save_queue", level: "warn", text: "TikTok save queue: 2 videos failed and will retry." },
+    { code: "workflow_failing_reddit.yml", level: "warn", text: "reddit.yml failed three runs in a row." }
+  ];
+  const shown = applyPaused({ ok: false, problems });
+  assert.deepEqual(shown.problems.map((row) => row.code), [
+    "workflow_failing_media-extract.yml",
+    "workflow_failing_telegram-backup.yml",
+    "tiktok_save_queue",
+    "workflow_failing_reddit.yml"
+  ]);
+  assert.equal(shown.problems.find((row) => row.code === "tiktok_save_queue").text.includes("failed"), true);
+  assert.deepEqual(shown.paused.map((row) => row.id), ["tiktok-live", "tiktok-save-age"]);
+  assert.ok(shown.paused.every((row) => row.level === "paused" && row.reason.startsWith("Paused:")));
+  assert.equal(shown.ok, true);
+  const summary = publicSummary({ ok: false, problems });
+  assert.equal(summary.problems.some((row) => row.code === "workflow_off_tiktok-live.yml"), false);
+  assert.equal(summary.paused.length, 2);
+  const reenabled = applyPaused({ problems }, STATUS_PAUSED.filter((row) => row.id !== "tiktok-live"));
+  assert.equal(reenabled.problems.some((row) => row.code === "workflow_off_tiktok-live.yml"), true);
+  assert.equal(reenabled.paused.some((row) => row.id === "tiktok-live"), false);
 });
 
 test("token expiry header and usage thresholds", () => {

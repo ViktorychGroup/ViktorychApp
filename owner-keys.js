@@ -379,7 +379,10 @@
   function problemsOf(doc) {
     var list = doc && Array.isArray(doc.problems) ? doc.problems : [];
     var room = poolHasRoom();
-    return list.filter(function (p) { return !(p && p.code === "usage_worker_requests" && room); });
+    return list.filter(function (p) { return p && p.level !== "paused" && !(p.code === "usage_worker_requests" && room); });
+  }
+  function pausedOf(doc) {
+    return doc && Array.isArray(doc.paused) ? doc.paused.filter(function (p) { return p && (p.level === "paused" || p.reason); }) : [];
   }
   function utcMidnightLocal() {
     var d = new Date();
@@ -463,11 +466,14 @@
     var items = list.map(function (p) {
       return '<p class="xk-problem keys-status ' + (p.level === "down" ? "down" : "warn") + '">' + esc(problemText(p)) + "</p>";
     }).join("");
+    var parked = pausedOf(health).map(function (p) {
+      return '<p class="xk-problem keys-status paused">' + esc(p.reason || p.text || "") + "</p>";
+    }).join("");
     return '<section class="xk-group"><h2 class="xk-h2">' + esc(tr("Site health")) + "</h2>" +
       '<div class="xk-row xk-health"><span class="xk-ico">' + svg("pulse") + '</span><span class="xk-copy"><span class="xk-line">' + statusLine(t) + "</span>" +
       (when2 ? '<span class="xk-sub">' + esc(when2) + "</span>" : "") + "</span>" +
       '<button class="xk-pill outline small" type="button" data-act="keys-health-check" data-slot="health">' + esc(tr("Check now")) + "</button></div>" +
-      items + "</section>";
+      items + parked + "</section>";
   }
   function pasteValue(slot) {
     var field = document.querySelector('[data-keys-paste="' + slot + '"]');

@@ -467,7 +467,10 @@
       out.push({ kind: "Commands", label: K.label(cmd), hay: cmd.label + " " + cmd.keywords, seq: firstBinding(cmd.id),
         run: function () { K.run(cmd.id); } });
     });
-    PAGES.forEach(function (p) { out.push({ kind: "Pages", label: tr(p[0]), hay: p[0], href: p[1] }); });
+    PAGES.forEach(function (p) {
+      if (p[1] === "#/shorts" && window.SHORTS_ENABLED !== true) return;
+      out.push({ kind: "Pages", label: tr(p[0]), hay: p[0], href: p[1] });
+    });
     SETTINGS.forEach(function (p) { out.push({ kind: "Settings", label: tr(p[0]), hay: p[0] + " settings", href: p[1] }); });
     (call("themes") || []).forEach(function (id) {
       out.push({ kind: "Themes", label: call("themeLabel", id) || id, hay: id + " theme", run: function () { call("act", "theme", { theme: id }); } });

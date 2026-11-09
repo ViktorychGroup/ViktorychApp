@@ -60,6 +60,8 @@ const OWNER_CHECK = `(() => {
     owner: !!(account && account.owner === true && account.handle === "mirathorn"),
     health: settings.indexOf("TikTok health") >= 0,
     kept: settings.indexOf('data-acct="open-delete"') < 0,
+    parked: window.SHORTS_ENABLED !== true,
+    link: !!document.querySelector('a[href="#/shorts"], a[href^="#/shorts/"]'),
     shortsOff,
     shorts: !!(shorts && shorts.isUnlocked && shorts.setUnlocked),
     unlocks,
@@ -373,7 +375,10 @@ async function probe(session, pageUrl, opts) {
       while (Date.now() < ownerDeadline) {
         const checked = await send("Runtime.evaluate", { expression: OWNER_CHECK, returnByValue: true });
         ownerInfo = checked && checked.result && checked.result.value || null;
-        if (ownerInfo && ownerInfo.owner && ownerInfo.health && ownerInfo.kept && (ownerInfo.shortsOff ? !ownerInfo.shorts : (ownerInfo.shorts && ownerInfo.unlocks && ownerInfo.shown))) break;
+        const shortsReady = ownerInfo && (ownerInfo.parked
+          ? !ownerInfo.shorts && !ownerInfo.shown && !ownerInfo.link
+          : (ownerInfo.shortsOff ? !ownerInfo.shorts : (ownerInfo.shorts && ownerInfo.unlocks && ownerInfo.shown)));
+        if (ownerInfo && ownerInfo.owner && ownerInfo.health && ownerInfo.kept && shortsReady) break;
         await sleep(400);
       }
     } else {
@@ -427,7 +432,11 @@ async function probe(session, pageUrl, opts) {
       if (!row.owner) problems.push("owner session was not recognized");
       if (!row.health) problems.push("owner menu missing");
       if (!row.kept) problems.push("owner account was deletable");
-      if (row.shortsOff) {
+      if (row.parked) {
+        if (row.shorts) problems.push("shorts loaded although the switch is off");
+        if (row.shown) problems.push("shorts shown although the switch is off");
+        if (row.link) problems.push("a Shorts link is visible although the switch is off");
+      } else if (row.shortsOff) {
         if (row.shorts) problems.push("shorts loaded although the server switched it off");
       } else {
         if (!row.shorts) problems.push("shorts module missing");
