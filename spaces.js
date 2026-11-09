@@ -1809,8 +1809,10 @@
     const el = document.createElement("span");
     el.className = "sp-burst";
     el.textContent = emoji;
-    el.style.left = x + "px";
-    el.style.top = y + "px";
+    const z = parseFloat(document.documentElement.style.zoom);
+    const scale = z > 0 ? z : 1;
+    el.style.left = (x / scale) + "px";
+    el.style.top = (y / scale) + "px";
     document.body.appendChild(el);
     setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 1100);
   }

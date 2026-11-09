@@ -3470,6 +3470,10 @@ html.vk-wco-narrow .wco-title { display: none; }
 }
 .wco-btn svg { width: 20px; height: 20px; fill: currentColor; }
 .wco-btn:hover { background: rgba(231, 233, 234, 0.1); }
+.desk-scale { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+.desk-scale span { flex: 0 1 220px; }
+.desk-scale input { flex: 1; min-width: 0; }
+.desk-scale b { flex: none; min-width: 3.2em; font-weight: 700; }
 .wco-close:hover { background: rgba(244, 33, 46, 0.1); color: #f4212e; }
 
 /* Page scrollbar: hidden in the installed app (and in full screen) unless
