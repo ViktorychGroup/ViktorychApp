@@ -76,6 +76,7 @@ async function run(browser, port, width, height, name) {
   if (bars.htmlOverflow === "hidden" || bars.bodyOverflow === "hidden") throw new Error(name + " page scrolling turned off " + JSON.stringify(bars));
   if (bars.htmlBar !== "none" || (bars.navBar && bars.navBar !== "none")) throw new Error(name + " a bar is still shown " + JSON.stringify(bars));
   if (bars.arrows < 2) throw new Error(name + " tab arrows removed " + bars.arrows);
+  if (name === "desktop") await expectFeedAnchor(page);
   const before = await page.evaluate(() => window.scrollY);
   await page.mouse.move(width / 2, height / 2);
   await page.mouse.wheel(0, 500);
@@ -120,6 +121,63 @@ async function run(browser, port, width, height, name) {
     await page.waitForFunction(() => document.querySelector(".menu.post-menu").scrollTop > 10, null, { timeout: 4000 });
   }
   await context.close();
+}
+
+/* An image above the viewport that grows must not shove the post the
+   reader is looking at. That is the browser anchor, so it has to stay on
+   once the drawer and the resize have settled. */
+async function expectFeedAnchor(page) {
+  const resting = await page.evaluate(() => ({
+    anchor: getComputedStyle(document.documentElement).overflowAnchor,
+    hold: document.documentElement.classList.contains("vk-anchor-hold")
+  }));
+  if (resting.hold || resting.anchor === "none") throw new Error("document anchoring is off at rest " + JSON.stringify(resting));
+  await page.waitForFunction(() => document.querySelectorAll("article.post").length >= 8);
+  await page.evaluate(async () => {
+    const posts = [...document.querySelectorAll("article.post")];
+    const img = document.createElement("img");
+    img.className = "anchor-probe";
+    img.alt = "";
+    img.style.cssText = "display:block;width:200px;height:40px;overflow-anchor:none";
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const bytes = Uint8Array.from(atob(png), (ch) => ch.charCodeAt(0));
+    img.src = URL.createObjectURL(new Blob([bytes], { type: "image/png" }));
+    await img.decode();
+    const target = posts[4];
+    target.setAttribute("data-anchor-target", "1");
+    document.body.insertBefore(img, document.body.firstChild);
+    target.scrollIntoView({ block: "center", behavior: "instant" });
+  });
+  await page.waitForTimeout(250);
+  const placed = await page.evaluate(() => {
+    const img = document.querySelector("img.anchor-probe");
+    const target = document.querySelector("[data-anchor-target='1']");
+    return {
+      img: img ? Math.round(img.getBoundingClientRect().bottom) : null,
+      top: target ? Math.round(target.getBoundingClientRect().top) : null,
+      y: Math.round(window.scrollY),
+      n: document.querySelectorAll("article.post").length
+    };
+  });
+  if (!(placed.img < 0 && placed.top > 40 && placed.top < 760)) throw new Error("visible post was not below the image " + JSON.stringify(placed));
+  const moved = await page.evaluate(() => new Promise((resolve) => {
+    const target = document.querySelector("[data-anchor-target='1']");
+    const img = document.querySelector("img.anchor-probe");
+    const before = { top: target.getBoundingClientRect().top, y: window.scrollY, off: target.offsetTop };
+    img.style.height = "360px";
+    setTimeout(() => {
+      resolve({
+        before,
+        after: { top: target.getBoundingClientRect().top, y: window.scrollY, off: target.offsetTop },
+        hold: document.documentElement.classList.contains("vk-anchor-hold")
+      });
+    }, 150);
+  }));
+  const before = moved.before;
+  const after = moved.after;
+  if (moved.hold) throw new Error("anchor hold was still on while a feed image grew");
+  if (after.y < before.y + 200) throw new Error("page did not follow the growing image " + JSON.stringify({ before, after }));
+  if (Math.abs(after.top - before.top) > 12) throw new Error("growing image moved the visible post " + JSON.stringify({ before, after }));
 }
 
 async function main() {

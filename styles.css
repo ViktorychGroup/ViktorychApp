@@ -8229,10 +8229,9 @@ html, body, * {
   scrollbar-color: transparent transparent !important;
   scrollbar-gutter: auto !important;
 }
-/* Hidden bars and fully laid-out cards change height on a resize. The
-   browser's scroll anchor would pull the page back to the offset from
-   before the drawer opened. */
-html, body { overflow-anchor: none; }
+/* Only while the drawer opens or the window is resizing. A feed image
+   that grows above the viewport still anchors the post on screen. */
+html.vk-anchor-hold { overflow-anchor: none; }
 *::-webkit-scrollbar,
 *::-webkit-scrollbar-thumb,
 *::-webkit-scrollbar-track {
