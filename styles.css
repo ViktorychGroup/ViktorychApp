@@ -3485,6 +3485,10 @@ html.vk-wco-narrow .wco-title { display: none; }
 }
 .wco-btn svg { width: 20px; height: 20px; fill: currentColor; }
 .wco-btn:hover { background: rgba(231, 233, 234, 0.1); }
+.desk-scale { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+.desk-scale span { flex: 0 1 220px; }
+.desk-scale input { flex: 1; min-width: 0; }
+.desk-scale b { flex: none; min-width: 3.2em; font-weight: 700; }
 .wco-close:hover { background: rgba(244, 33, 46, 0.1); color: #f4212e; }
 
 /* Page scrollbar: hidden in the installed app (and in full screen) unless
@@ -5015,6 +5019,8 @@ html[data-theme="default"] .xk-status.warn { color: #b26b00; }
 .xk-problem { margin: 0; padding: 12px 16px 12px 52px; border-bottom: 1px solid var(--line); font-size: 15px; line-height: 20px; position: relative; }
 .xk-problem::before { content: ""; position: absolute; left: 24px; top: 18px; width: 8px; height: 8px; border-radius: 50%; background: #ffad1f; }
 .xk-problem.down::before { background: var(--red); }
+.xk-problem.paused { color: var(--muted); }
+.xk-problem.paused::before { background: var(--muted); }
 .xk-form { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .xk-key .xk-form { padding-left: 52px; border-bottom: 0; }
 .xk-field { display: block; margin-bottom: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 4px; transition: border-color .15s; }

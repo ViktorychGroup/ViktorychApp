@@ -2580,7 +2580,7 @@ var numberNote = form.passkey
       mutedWords: settings.mutedWords || [],
       mutedAccounts: settings.mutedAccounts || [],
       repostOff: settings.repostOff || [],
-      blocks: settings.blocks && typeof settings.blocks === "object" ? settings.blocks : { at: 0 },
+      blocks: settings.blocks && typeof settings.blocks === "object" ? JSON.parse(JSON.stringify(settings.blocks)) : { at: 0 },
       groups: settings.groups || [],
       groupsOwn: !!settings.groupsOwn,
       subsGroup: settings.subsGroup || "",
@@ -3219,12 +3219,10 @@ var numberNote = form.passkey
       if (body.status === 200) {
         rememberLocks(body);
         rememberSync(body.updatedAt);
-        /* The server echoes the body we sent. Writing that copy back drops
-           a block or other edit made while the request was in flight, so
-           another open tab never sees it. Merge with what is on disk now;
-           a newer block list wins. */
-        var echoed = body.payload || payload;
-        applySnapshot(mergePayload(localSnapshot(), echoed));
+        /* Only a payload the server actually stored is merged. An empty
+           acknowledgement is not a copy of the request, and replaying the
+           outbound snapshot would put an older block list back. */
+        if (body.payload && typeof body.payload === "object") applySnapshot(mergePayload(localSnapshot(), body.payload));
       }
       return pushMissedEdit();
     }).catch(function () {

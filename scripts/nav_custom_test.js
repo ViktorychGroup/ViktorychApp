@@ -33,6 +33,9 @@ const icon = (name) => `<svg data-icon="${name}"></svg>`;
 
 // Extract DEFAULT_NAV_CUSTOM, ALL_NAV_IDS, cleanNavCustom, navItemDef, folderDisplayName, etc.
 const scriptSandbox = `
+function shortsEnabled() {
+  return typeof SHORTS_ENABLED !== "undefined" && SHORTS_ENABLED === true;
+}
 ${appCode.slice(appCode.indexOf("const DEFAULT_NAV_CUSTOM ="), appCode.indexOf("function brandLink() {"))}
 `;
 

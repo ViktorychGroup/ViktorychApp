@@ -22,6 +22,7 @@ import { usageReport, FREE_LIMITS } from "./usage.js";
 import { ownerKeyAlerts } from "./owner-keys.js";
 import { RENDER_BACKUP, quietHours, renderHours } from "./render-warm.js";
 import { tiktokSaveProblems } from "./tiktok-save-health.js";
+import { applyPaused } from "./status-paused.js";
 
 export const WATCH_KEY = "owner/watchdog.json";
 export const REPO = "ViktorychGroup/ViktorychApp";
@@ -374,16 +375,21 @@ export async function runWatchdog(env, now, fetcher) {
     } catch (err) { /* a missing queue is healthy */ }
   }
 
-  // Keep when each problem was first seen.
+  // Keep when each problem was first seen, then park the owner's paused items.
   const since = {};
   (prev.problems || []).forEach((p) => { since[p.code] = p.since; });
+  (prev.paused || []).forEach((p) => { if (since[p.code] == null) since[p.code] = p.since; });
   problems.forEach((p) => { p.since = since[p.code] || at; });
+  const shown = applyPaused({ problems });
+  const alerts = shown.problems;
+  const paused = shown.paused;
 
   const doc = {
     at,
-    ok: !problems.some((p) => p.level === "down"),
-    problems,
-    pause: shouldPause(problems),
+    ok: !alerts.some((p) => p.level === "down"),
+    problems: alerts,
+    paused,
+    pause: shouldPause(alerts),
     version: versionState,
     dailyAt: daily ? at : prev.dailyAt,
     dailyProblems,
@@ -451,11 +457,12 @@ export async function watchdogPause(env, now) {
 }
 
 export function publicSummary(doc) {
-  const d = doc || {};
+  const d = applyPaused(doc || {});
   return {
     ok: d.ok !== false,
     at: Number(d.at) || 0,
     problems: (d.problems || []).map((p) => ({ code: p.code, level: p.level, text: p.text, since: p.since })),
+    paused: (d.paused || []).map((p) => ({ id: p.id, code: p.code, level: "paused", text: p.text, reason: p.reason, since: p.since })),
     signups: d.signups || null
   };
 }
@@ -501,7 +508,7 @@ export async function handleWatchdog(request, env, path, deps) {
   if (path === "/v1/owner/health" && request.method === "GET") {
     const gate = await deps.requireOwner(request, env);
     if (gate.error) return gate.error;
-    return deps.json(200, await readDoc(env));
+    return deps.json(200, applyPaused(await readDoc(env)));
   }
   if (path === "/v1/owner/health" && request.method === "POST") {
     const gate = await deps.requireOwner(request, env);

@@ -75,6 +75,9 @@ export const FEATURES = {
   // Desktop right-click copies a picture. No server endpoints. The clipboard
   // gets a PNG of the decoded pixels, not the original file bytes.
   image_copy: { paths: [] },
+  // Optional app size on a computer. No server endpoints. The choice stays
+  // on this device and starts off, so nobody else is scaled.
+  app_scale: { paths: [] },
   // Visible updates: a short Updating notice while an update applies, then
   // the full-screen What's new page. No tap-to-update prompt. No endpoints.
   update_notice: { paths: [] },

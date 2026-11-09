@@ -672,10 +672,14 @@
       '<div class="ytm-menu-sep" role="separator"></div><a role="menuitem" href="' + esc(s.source) + '" target="_blank" rel="noopener">' + esc(tr("Open on YouTube")) + "</a>";
     document.body.appendChild(box);
     var r = el.getBoundingClientRect();
+    var z = parseFloat(document.documentElement.style.zoom);
+    var scale = z > 0 ? z : 1;
     var w = box.offsetWidth || 240;
     var h = box.offsetHeight || 300;
-    var left = Math.max(8, Math.min(r.right - w, root.innerWidth - w - 8));
-    var top = r.bottom + 4 + h > root.innerHeight - 8 ? Math.max(8, r.top - h - 4) : r.bottom + 4;
+    var viewW = root.innerWidth / scale;
+    var viewH = root.innerHeight / scale;
+    var left = Math.max(8, Math.min(r.right / scale - w, viewW - w - 8));
+    var top = r.bottom / scale + 4 + h > viewH - 8 ? Math.max(8, r.top / scale - h - 4) : r.bottom / scale + 4;
     box.style.left = left + "px";
     box.style.top = top + "px";
     view.menu = { id: s.id, focus: el };

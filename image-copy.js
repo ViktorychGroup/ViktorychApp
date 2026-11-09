@@ -197,8 +197,21 @@
   }
 
   function layoutZoom() {
-    var z = parseFloat(root.document && root.document.documentElement && root.document.documentElement.style.zoom);
-    return z > 0 ? z : 1;
+    var doc = root.document;
+    var html = doc && doc.documentElement;
+    var declared = parseFloat(html && html.style && html.style.zoom);
+    var z = declared > 0 ? declared : 1;
+    if (!html || z === 1) return 1;
+    // A declared zoom that this browser is not painting must not move the menu.
+    // When the page is scaled, the painted width over the layout width is the
+    // number that fixed left/top will be multiplied by again.
+    var layout = html.offsetWidth;
+    var visual = html.getBoundingClientRect ? html.getBoundingClientRect().width : 0;
+    if (layout > 40 && visual > 40) {
+      var ratio = visual / layout;
+      if (ratio > 0.25 && ratio < 5) return ratio;
+    }
+    return z;
   }
 
   if (typeof module !== "undefined" && module.exports) {

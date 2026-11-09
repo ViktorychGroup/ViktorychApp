@@ -344,11 +344,12 @@ async function main() {
   if (JSON.stringify(initial) !== JSON.stringify(expectedDefault)) fail("Default bar " + portrait.hrefs);
 
   await evaluate(`location.hash = "#/settings/display/navigation"; true`);
-  await waitFor(`document.querySelector("[data-bottom-id=shorts]") && document.querySelector(".bottom-nav-preview")`, "customize screen");
+  await waitFor(`document.querySelector(".bottom-nav-preview")`, "customize screen");
   const screen = await evaluate(`(() => {
     const home = document.querySelector('[data-act="bottom-nav-toggle"][data-id="home"]');
     const help = document.querySelector(".bnav-screen > .phandle");
     return {
+      enabled: window.SHORTS_ENABLED === true,
       shorts: !!document.querySelector('[data-bottom-id="shorts"]'),
       vault: !!document.querySelector('[data-bottom-id="vault"]'),
       homeOff: !!(home && home.disabled && home.getAttribute("aria-checked") === "true"),
@@ -356,7 +357,9 @@ async function main() {
       preview: [...document.querySelectorAll("[data-preview-id]")].map((el) => el.getAttribute("data-preview-id")).join(",")
     };
   })()`);
-  if (!screen.shorts) fail("Shorts row missing for the owner");
+  if (screen.enabled) {
+    if (!screen.shorts) fail("Shorts row missing for the owner");
+  } else if (screen.shorts) fail("Shorts row is visible while Shorts is turned off");
   if (screen.vault) fail("Vault row is visible while signed out");
   if (!screen.homeOff) fail("Home switch can be turned off");
   if (!screen.help.includes("Home always stays")) fail("Help text missing: " + screen.help);
@@ -764,6 +767,27 @@ async function main() {
   })()`);
   if (storedLayout.layout !== "bar" || !storedLayout.land || storedLayout.sync) fail("Layout was not saved on this device: " + JSON.stringify(storedLayout));
   if (!storedLayout.remoteKept || !storedLayout.localWins || !storedLayout.snapOff || !storedLayout.snapOn || !storedLayout.snapClear || !storedLayout.snapAfter || !storedLayout.dropped) fail("Layout sync rules failed: " + JSON.stringify(storedLayout));
+
+  await evaluate(`(() => {
+    window.__shortsRouteErrors = [];
+    window.addEventListener("error", (event) => window.__shortsRouteErrors.push(String(event.message || event.error || "error")));
+    return true;
+  })()`);
+  await evaluate(`location.hash = "#/shorts"; true`);
+  await waitFor(`window.SHORTS_ENABLED === true || location.hash === "#/" || location.hash === "" || location.hash === "#"`, "shorts route leaves for home");
+  await evaluate(`location.hash = "#/shorts/live/past"; true`);
+  await waitFor(`window.SHORTS_ENABLED === true || location.hash === "#/" || location.hash === "" || location.hash === "#"`, "shorts live route leaves for home");
+  const parked = await evaluate(`(() => ({
+    hash: location.hash || "",
+    enabled: window.SHORTS_ENABLED === true,
+    link: !!document.querySelector('a[href="#/shorts"], a[href^="#/shorts/"]'),
+    errors: window.__shortsRouteErrors || []
+  }))()`);
+  if (!parked.enabled) {
+    if (parked.hash !== "#/" && parked.hash !== "" && parked.hash !== "#") fail("Shorts route stayed open " + JSON.stringify(parked));
+    if (parked.link) fail("A Shorts link is still on the page " + JSON.stringify(parked));
+    if (parked.errors.length) fail("Shorts route raised " + parked.errors.join(" | "));
+  }
 
   console.log("bottom nav selftest ok");
   stop();
