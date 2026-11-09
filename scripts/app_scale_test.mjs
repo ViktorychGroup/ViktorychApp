@@ -107,6 +107,10 @@ async function browserScale() {
     if (scaled.zoom !== "1.5") throw new Error("manual 150 did not scale the page " + JSON.stringify(scaled));
     await page.locator('article[data-post="p00"] button[data-act="menu"]').focus();
     await page.keyboard.press("Enter");
+    await page.waitForSelector(".menu.post-menu", { timeout: 2000 });
+    // A key can still deliver its click after press() resolves. The menu has
+    // to still be open, on the button, once that click has landed.
+    await page.waitForTimeout(80);
     const keyed = await page.evaluate(() => {
       const menu = document.querySelector(".menu.post-menu");
       const btn = document.querySelector('article[data-post="p00"] button[data-act="menu"]');
