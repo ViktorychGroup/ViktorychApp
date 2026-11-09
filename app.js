@@ -26566,16 +26566,29 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
       render();
     }, 0);
   });
+  let menuKeyBtn = null;
   document.addEventListener("keydown", (event) => {
     if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     const btn = event.target && event.target.closest && event.target.closest("button[data-act='menu']");
     if (!btn) return;
-    // A zoomed page can focus the button and still not synthesize a click.
-    // One explicit click opens the menu. preventDefault stops a second toggle.
+    // A zoomed page can focus the button and still not synthesize a click, or
+    // it can synthesize one after this handler. One scripted click opens the
+    // menu. The later key click would toggle it shut, so that one is dropped.
     event.preventDefault();
+    menuKeyBtn = null;
     btn.click();
+    menuKeyBtn = btn;
+    setTimeout(() => { if (menuKeyBtn === btn) menuKeyBtn = null; }, 400);
   });
+  document.addEventListener("click", (event) => {
+    if (!menuKeyBtn || !event.isTrusted) return;
+    const btn = event.target && event.target.closest && event.target.closest("button[data-act='menu']");
+    if (btn !== menuKeyBtn) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    menuKeyBtn = null;
+  }, true);
   document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const arrow = event.target.closest && event.target.closest(".tab-arrow[data-act='tab-scroll']");
