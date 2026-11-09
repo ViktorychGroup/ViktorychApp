@@ -291,10 +291,12 @@
     if (document.fullscreenElement === host || host.classList.contains("immersive")) return;
     if (!stage) return;
     var rect = stage.getBoundingClientRect();
-    host.style.top = Math.round(rect.top) + "px";
-    host.style.left = Math.round(rect.left) + "px";
-    host.style.width = Math.max(0, Math.round(rect.width)) + "px";
-    host.style.height = Math.max(0, Math.round(rect.height)) + "px";
+    var z = parseFloat(document.documentElement.style.zoom);
+    var scale = z > 0 ? z : 1;
+    host.style.top = Math.round(rect.top / scale) + "px";
+    host.style.left = Math.round(rect.left / scale) + "px";
+    host.style.width = Math.max(0, Math.round(rect.width / scale)) + "px";
+    host.style.height = Math.max(0, Math.round(rect.height / scale)) + "px";
   }
   function fail() {
     var host = hostEl();
@@ -435,19 +437,24 @@
     var host = hostEl();
     if (!cover || !host || !mini) return;
     var rect = host.getBoundingClientRect();
-    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top, w: rect.width, h: rect.height, moved: false };
+    var z = parseFloat(document.documentElement.style.zoom);
+    var scale = z > 0 ? z : 1;
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left / scale, top: rect.top / scale, w: rect.width / scale, h: rect.height / scale, scale: scale, moved: false };
     try { cover.setPointerCapture(event.pointerId); } catch (err) { /* old browser */ }
   });
   document.addEventListener("pointermove", function (event) {
     var host = hostEl();
     if (!drag || event.pointerId !== drag.id || !host) return;
-    var dx = event.clientX - drag.x;
-    var dy = event.clientY - drag.y;
-    if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 8) return;
+    var scale = drag.scale || 1;
+    var rawX = event.clientX - drag.x;
+    var rawY = event.clientY - drag.y;
+    if (!drag.moved && Math.abs(rawX) + Math.abs(rawY) < 8) return;
+    var dx = rawX / scale;
+    var dy = rawY / scale;
     drag.moved = true;
     host.classList.add("placed", "dragging");
-    var left = Math.max(4, Math.min(window.innerWidth - drag.w - 4, drag.left + dx));
-    var top = Math.max(4, Math.min(window.innerHeight - drag.h - 4, drag.top + dy));
+    var left = Math.max(4, Math.min(window.innerWidth / scale - drag.w - 4, drag.left + dx));
+    var top = Math.max(4, Math.min(window.innerHeight / scale - drag.h - 4, drag.top + dy));
     host.style.left = Math.round(left) + "px";
     host.style.top = Math.round(top) + "px";
   });

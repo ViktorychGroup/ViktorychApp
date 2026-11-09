@@ -555,9 +555,13 @@ function placeSheet() {
     card.style.bottom = "";
     return;
   }
+  const z = parseFloat(document.documentElement.style.zoom);
+  const scale = z > 0 ? z : 1;
   const rect = sheetAnchor.getBoundingClientRect();
-  card.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 336)) + "px";
-  card.style.bottom = Math.max(8, window.innerHeight - rect.top + 8) + "px";
+  const viewW = window.innerWidth / scale;
+  const viewH = window.innerHeight / scale;
+  card.style.left = Math.max(8, Math.min(rect.left / scale, viewW - 336)) + "px";
+  card.style.bottom = Math.max(8, viewH - rect.top / scale + 8) + "px";
 }
 
 function open(anchor) {

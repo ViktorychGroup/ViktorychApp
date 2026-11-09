@@ -2155,7 +2155,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "app_scale", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2260,6 +2260,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
       status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
+      app_scale: [tr("App size"), tr("On computers, an optional size for a maximized window and a smaller window. It stays in this browser, not on an account. Off leaves the app at the browser’s own size.")],
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
       update_notice: [tr("Visible updates"), tr("A short Updating notice while an update applies, then a full-screen What's new page.")],
       status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")],
@@ -10872,7 +10873,7 @@ const here = parseRoute();
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
             ${asAccount ? linkedSourceBadge(post.platform) : postSourceBadges(post)}
-            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}" aria-haspopup="menu" aria-expanded="${STATE.menu === post.id ? "true" : "false"}">${icon("more")}</button></span>
+            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" type="button" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}" aria-haspopup="menu" aria-expanded="${STATE.menu === post.id ? "true" : "false"}">${icon("more")}</button></span>
           </div>
           ${reply}
           ${discordMeta(post)}
@@ -12957,6 +12958,22 @@ const here = parseRoute();
   function viewerScope() {
     const now = sessionNow();
     return now.id + "\n" + String(now.gen || 0);
+  }
+  /* A hash change can put back a page built for the previous account. Mark
+     those pages so the next paint does not show their posts. */
+  function dropForeignViewer() {
+    const scope = viewerScope();
+    viewParks.forEach((slot) => {
+      if (slot && slot.scope && slot.scope !== scope) slot.force = true;
+    });
+    Object.keys(authorPostCache).forEach((key) => {
+      const entry = authorPostCache[key];
+      if (entry && entry.scope && entry.scope !== scope) delete authorPostCache[key];
+    });
+    if (publicOwner && publicOwner !== scope) {
+      publicPosts = [];
+      publicOwner = "";
+    }
   }
   function visiblePublicPosts() {
     return publicOwner === viewerScope() ? publicPosts : [];
@@ -21416,9 +21433,11 @@ if (STATE.histClear) {
     const margin = 8;
     const width = 280;
     const rows = target.kind === "group" ? 5 : (STATE.settings.groups || []).length + 2;
-    const height = Math.min(window.innerHeight - 16, 56 + rows * 48);
-    const left = Math.max(margin, Math.min(x, window.innerWidth - width - margin));
-    const top = Math.max(margin, Math.min(y, window.innerHeight - height - margin));
+    const view = layoutView();
+    const z = layoutZoom();
+    const height = Math.min(view.h - 16, 56 + rows * 48);
+    const left = Math.max(margin, Math.min(x / z, view.w - width - margin));
+    const top = Math.max(margin, Math.min(y / z, view.h - height - margin));
     STATE.groupMenu = { kind: target.kind, id: target.id, left: left, top: top };
     render();
   }
@@ -22368,6 +22387,34 @@ if (STATE.histClear) {
     location.hash = wanted;
   }
 
+  /* CSS zoom on the page multiplies a fixed top/left again. Rects are visual
+     pixels, so menu positions are stored in the page's own pixels. */
+  function layoutZoom() {
+    const declared = parseFloat(document.documentElement.style.zoom);
+    const z = declared > 0 ? declared : 1;
+    if (z === 1) return 1;
+    // The property can be set when this browser is not scaling boxes. Dividing
+    // by that unused number parks a fixed menu away from its button.
+    const html = document.documentElement;
+    const layout = html.offsetWidth;
+    const visual = html.getBoundingClientRect().width;
+    if (layout > 40 && visual > 40) {
+      const ratio = visual / layout;
+      if (ratio > 0.25 && ratio < 5) return ratio;
+    }
+    return z;
+  }
+  function layoutRect(el) {
+    const z = layoutZoom();
+    const r = el.getBoundingClientRect();
+    if (z === 1) return r;
+    return { top: r.top / z, right: r.right / z, bottom: r.bottom / z, left: r.left / z, width: r.width / z, height: r.height / z };
+  }
+  function layoutView() {
+    const z = layoutZoom();
+    return { w: window.innerWidth / z, h: window.innerHeight / z };
+  }
+
   function placeTabMenu() {
     const menu = document.querySelector(".tab-menu");
     const caret = document.querySelector('.tab-caret[aria-expanded="true"]');
@@ -22377,10 +22424,11 @@ if (STATE.histClear) {
       menu.style.top = "";
       return;
     }
-    const item = caret.getBoundingClientRect();
+    const item = layoutRect(caret);
     const width = menu.offsetWidth || 220;
+    const view = layoutView();
     let left = item.left;
-    const limit = window.innerWidth - 8;
+    const limit = view.w - 8;
     if (left + width > limit) left = Math.max(8, limit - width);
     menu.style.left = Math.max(8, left) + "px";
     menu.style.top = (item.bottom + 4) + "px";
@@ -22395,14 +22443,15 @@ if (STATE.histClear) {
       menu.style.top = "";
       return;
     }
-    const item = btn.getBoundingClientRect();
+    const item = layoutRect(btn);
     const width = menu.offsetWidth || 300;
     const height = menu.offsetHeight || 220;
+    const view = layoutView();
     let left = item.right - width;
     if (left < 8) left = 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
     let top = item.bottom + 6;
-    if (top + height > window.innerHeight - 8) top = Math.max(8, item.top - height - 6);
+    if (top + height > view.h - 8) top = Math.max(8, item.top - height - 6);
     menu.style.left = left + "px";
     menu.style.top = top + "px";
   }
@@ -22416,13 +22465,14 @@ if (STATE.histClear) {
       : 'button[data-act="menu"][data-id="' + id.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
     const btn = id ? document.querySelector(sel) : null;
     if (!btn) return;
-    const item = btn.getBoundingClientRect();
+    const item = layoutRect(btn);
     const width = menu.offsetWidth || 220;
+    const view = layoutView();
     const nav = document.querySelector(".bottom-nav");
     const navShown = nav && nav.getBoundingClientRect().height > 0 && getComputedStyle(nav).display !== "none";
-    const limitBottom = (navShown ? nav.getBoundingClientRect().top : window.innerHeight) - 8;
+    const limitBottom = (navShown ? layoutRect(nav).top : view.h) - 8;
     const header = document.querySelector(".topbar");
-    const limitTop = header ? Math.max(8, header.getBoundingClientRect().bottom + 4) : 8;
+    const limitTop = header ? Math.max(8, layoutRect(header).bottom + 4) : 8;
     const spaceBelow = limitBottom - (item.bottom + 4);
     const spaceAbove = item.top - 4 - limitTop;
     const want = menu.scrollHeight || menu.offsetHeight || 200;
@@ -22438,15 +22488,26 @@ if (STATE.histClear) {
     // The reply row under a post stays clickable while this menu is open.
     const reply = document.querySelector('[data-act="xc-expand-reply"], .composer');
     if (reply) {
-      const replyTop = reply.getBoundingClientRect().top;
+      const replyTop = layoutRect(reply).top;
       if (top < replyTop && top + maxH > replyTop - 8) maxH = Math.max(72, replyTop - 8 - top);
     }
     let left = item.right - width;
     if (left < 8) left = 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
     menu.style.maxHeight = Math.round(maxH) + "px";
     menu.style.left = Math.round(left) + "px";
     menu.style.top = Math.round(top) + "px";
+    // Sit the menu on the button in the pixels this browser actually paints.
+    // A fixed top under page scale is not always the CSS pixel we wrote.
+    const openedAbove = top + maxH <= item.bottom;
+    const beforeTop = parseFloat(menu.style.top) || 0;
+    const beforeBox = menu.getBoundingClientRect();
+    menu.style.top = (beforeTop + 16) + "px";
+    const stepped = menu.getBoundingClientRect();
+    const per = (stepped.top - beforeBox.top) / 16 || 1;
+    const btnNow = btn.getBoundingClientRect();
+    const wantTop = openedAbove ? (btnNow.top - 4 - stepped.height) : (btnNow.bottom + 4);
+    menu.style.top = (beforeTop + 16 + (wantTop - stepped.top) / per) + "px";
   }
   window.addEventListener("scroll", () => { if (STATE.menu) placePostMenu(); }, { passive: true });
   window.addEventListener("resize", () => { if (STATE.menu) placePostMenu(); });
@@ -22461,10 +22522,12 @@ if (STATE.histClear) {
     }
     const width = menu.offsetWidth || 300;
     const height = menu.offsetHeight || 240;
-    let left = Number(menu.dataset.x) || 8;
-    let top = Number(menu.dataset.y) || 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
-    if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - height);
+    const view = layoutView();
+    const z = layoutZoom();
+    let left = (Number(menu.dataset.x) || 8) / z;
+    let top = (Number(menu.dataset.y) || 8) / z;
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
+    if (top + height > view.h - 8) top = Math.max(8, view.h - 8 - height);
     menu.style.left = left + "px";
     menu.style.top = top + "px";
   }
@@ -23741,7 +23804,12 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
             const raw = String(opts.anchorId);
             const sel = window.CSS && CSS.escape ? 'article[data-post="' + CSS.escape(raw) + '"]' : 'article[data-post="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
             const el = document.querySelector(sel);
-            if (el) next = Math.max(0, window.scrollY + (el.getBoundingClientRect().top - (Number(opts.anchorTop) || 0)));
+            if (el) {
+              // The rect is visual pixels. scrollY is CSS pixels. Under page
+              // scale the two differ, and adding them raw jumps the post.
+              const shift = el.getBoundingClientRect().top - (Number(opts.anchorTop) || 0);
+              next = Math.max(0, window.scrollY + shift / layoutZoom());
+            }
           }
           window.scrollTo(0, next);
           if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = next;
@@ -23750,6 +23818,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (opts && opts.focusMenu) {
             const item = document.querySelector(".menu.post-menu button, .menu.post-menu a");
             if (item) { try { item.focus({ preventScroll: true }); } catch (err) { item.focus(); } }
+            placePostMenu();
           }
           if (opts && opts.focusReturn) {
             const raw = String(opts.focusReturn);
@@ -26497,6 +26566,16 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     }, 0);
   });
   document.addEventListener("keydown", (event) => {
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const btn = event.target && event.target.closest && event.target.closest("button[data-act='menu']");
+    if (!btn) return;
+    // A zoomed page can focus the button and still not synthesize a click.
+    // One explicit click opens the menu. preventDefault stops a second toggle.
+    event.preventDefault();
+    btn.click();
+  });
+  document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const arrow = event.target.closest && event.target.closest(".tab-arrow[data-act='tab-scroll']");
     if (arrow && (event.key === " " || event.key === "Enter")) {
@@ -26924,9 +27003,10 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
   }
 
   function placeNavMenu(el, anchor) {
-    const rect = anchor.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const rect = layoutRect(anchor);
+    const view = layoutView();
+    const vw = view.w;
+    const vh = view.h;
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     const gap = 8;
@@ -28305,9 +28385,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       seen = window.ViktorychPresence.linesHtml(pid);
     }
     box.innerHTML = `<div class="hcard">${banner}<div class="hbody"><div class="pava-row">${face}${followButtonClean(id)}</div><div class="name" style="font-weight:800;margin-top:8px">${esc(nickName(profile.platform, profile.handle, profile.name || profile.handle || ""))}${badge(profile.verifiedType)}${affSlot({ publicId: presenceIdOf(profile) })}</div>${handle ? `<div class="phandle">@${esc(handle)}</div>` : ""}${seen}${profile.bio ? `<div class="hbio">${esc(profile.bio)}</div>` : ""}${audienceCounts(profile)}</div></div>`;
-    const left = Math.min(rect.left, window.innerWidth - 320);
+    const boxRect = layoutRect(el);
+    const view = layoutView();
+    const left = Math.min(boxRect.left, view.w - 320);
     box.style.left = Math.max(8, left) + "px";
-    box.style.top = (rect.bottom + 8) + "px";
+    box.style.top = (boxRect.bottom + 8) + "px";
   }
 
   function showHover(el) {
@@ -28553,6 +28635,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }, true);
   window.addEventListener("hashchange", () => {
     if (window.ViktorychAccounts?.blocking?.()) return;
+    dropForeignViewer();
     showPill(pendingPillPosts());
     const nextHash = location.hash || "#/";
     const prevHash = lastKey || "";
@@ -34614,11 +34697,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       tip.style.display = "block";
       tip.classList.remove("is-visible");
 
-      const rect = el.getBoundingClientRect();
+      const rect = layoutRect(el);
       const tipW = tip.offsetWidth;
       const tipH = tip.offsetHeight;
-      const winW = window.innerWidth;
-      const winH = window.innerHeight;
+      const view = layoutView();
+      const winW = view.w;
+      const winH = view.h;
 
       const inNav = !!el.closest(".nav");
       const inBottomNav = !!el.closest(".bottom-nav");
