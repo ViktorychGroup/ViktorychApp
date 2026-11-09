@@ -105,8 +105,8 @@ async function openHome(browser, origin, extra, off) {
     const message = String(err && err.message || err);
     // Chrome's extension activity logger throws this into the page. It is not app code.
     if (message === "this.api.logApiCall is not a function") return;
-    // The embed player throws this inside its own script. It is not the swipe.
-    if (/isExternalMethodAvailable/.test(message)) return;
+    // The embed player throws this exact string inside its own script. It is not the swipe.
+    if (message === "this.api.isExternalMethodAvailable is not a function") return;
     if (/127\.0\.0\.1/.test(String(err && err.stack || ""))) errors.push(message.slice(0, 200));
   });
   await page.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
