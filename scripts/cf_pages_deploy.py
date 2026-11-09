@@ -214,24 +214,34 @@ def payload_sha(payload) -> str:
     return ""
 
 
+# Cloudflare answers 403 to urllib's default agent and to a bare Python agent.
+PAGES_UA = "viktorych-pages-check"
+
+
 def default_live(url: str):
     """Public files only. The API token is not sent.
 
     JSON stays a dict so version.json keeps its sha. sw.js is not JSON, and
-    turning that body into {} would hide the build SHA.
+    turning that body into {} would hide the build SHA. A 403 is returned,
+    not raised, so the log can show the status.
     """
     req = urllib.request.Request(url, headers={
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
+        "User-Agent": PAGES_UA,
     })
-    with urllib.request.urlopen(req, timeout=20) as res:
-        raw = res.read().decode("utf-8", "replace")
-        status = int(getattr(res, "status", 0) or 0)
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            payload = raw
-        return status, payload
+    try:
+        with urllib.request.urlopen(req, timeout=20) as res:
+            raw = res.read().decode("utf-8", "replace")
+            status = int(getattr(res, "status", 0) or 0)
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", "replace")
+        status = int(exc.code or 0)
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        payload = raw
+    return status, payload
 
 
 def uploaded_manifest_sha(directory: Path) -> str:
@@ -245,16 +255,26 @@ def uploaded_manifest_sha(directory: Path) -> str:
         return ""
 
 
-def live_body(fetch, url: str) -> str:
+def live_read(fetch, url: str) -> tuple[int, str]:
+    """Status and body. HTTP 403 is a status, not a silent empty body."""
     try:
         status, payload = fetch(url)
+    except urllib.error.HTTPError as exc:
+        status = int(exc.code or 0)
+        try:
+            payload = exc.read().decode("utf-8", "replace")
+        except (OSError, UnicodeError):
+            payload = ""
     except (urllib.error.URLError, TimeoutError, OSError):
-        return ""
-    if int(status or 0) != 200:
-        return ""
+        return 0, ""
     if isinstance(payload, (dict, list)):
-        return json.dumps(payload)
-    return str(payload or "")
+        return int(status or 0), json.dumps(payload)
+    return int(status or 0), str(payload or "")
+
+
+def log_fetch(url: str, status: int, found: bool, required: bool, check: str) -> None:
+    print("[pages] fetched %s status=%s sha=%s required=%s check=%s" % (
+        url, status, "yes" if found else "no", "yes" if required else "no", check))
 
 
 def alias_ready(expected: str, directory: Path, fetch, pause, wait: int = CONFIRM_WAIT, interval: int = CONFIRM_INTERVAL) -> bool:
@@ -267,18 +287,23 @@ def alias_ready(expected: str, directory: Path, fetch, pause, wait: int = CONFIR
     if not re.fullmatch(r"[0-9a-f]{7,64}", wanted):
         return False
     manifest_required = uploaded_manifest_sha(directory) == wanted
+    print("[pages] confirm sha=%s version.json required=%s" % (wanted, "yes" if manifest_required else "no"))
     waited = 0
     while True:
         stamp = str(time.time_ns())
-        shell = live_body(fetch, LIVE_SW + "?t=" + stamp).lower()
-        shell_ok = wanted in shell
+        sw_url = LIVE_SW + "?t=" + stamp
+        sw_status, shell = live_read(fetch, sw_url)
+        shell_ok = sw_status == 200 and wanted in shell.lower()
+        log_fetch(sw_url, sw_status, shell_ok, True, "sw.js")
         manifest_ok = True
         if manifest_required:
-            raw = live_body(fetch, LIVE_VERSION + "?t=" + stamp)
+            ver_url = LIVE_VERSION + "?t=" + stamp
+            ver_status, raw = live_read(fetch, ver_url)
             try:
-                manifest_ok = payload_sha(json.loads(raw)) == wanted
+                manifest_ok = ver_status == 200 and payload_sha(json.loads(raw)) == wanted
             except json.JSONDecodeError:
                 manifest_ok = False
+            log_fetch(ver_url, ver_status, manifest_ok, True, "version.json")
         if shell_ok and manifest_ok:
             if manifest_required:
                 print("[pages] production alias is serving this build.")
@@ -685,6 +710,95 @@ def selftest() -> int:
             return 1
         if token in text:
             print("real default_live leaked")
+            return 1
+
+        # The production failure: Python's default agent is 403, the shell is
+        # already this build, and version.json in the upload is still the last
+        # published manifest. GITHUB_SHA is the full build SHA, as in Actions.
+        incident = "9dadf5a86bee9210f61e8762cfbf92b78a450109"
+        previous = "3f7439cbfa4302837073d7a876d1faf1f51125c7"
+        os.environ["GITHUB_SHA"] = incident
+        os.environ["GITHUB_REPOSITORY"] = "ViktorychGroup/ViktorychApp"
+        blocked = {"n": 0}
+        agents = []
+
+        class GuardedHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                agent = self.headers.get("User-Agent") or ""
+                agents.append(agent)
+                if agent != PAGES_UA:
+                    blocked["n"] += 1
+                    body = b"error code: 1010"
+                    self.send_response(403)
+                    self.send_header("Content-Type", "text/plain")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                path = self.path.split("?", 1)[0]
+                if path.endswith("/sw.js"):
+                    body = ('const VERSION = "viktorych-a281-' + incident + '";\n').encode("utf-8")
+                    kind = "text/javascript"
+                    status = 200
+                elif path.endswith("/version.json"):
+                    body = json.dumps({"sha": previous}).encode("utf-8")
+                    kind = "application/json"
+                    status = 200
+                else:
+                    body = b""
+                    kind = "text/plain"
+                    status = 404
+                self.send_response(status)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                return
+
+        guard_http = ThreadingHTTPServer(("127.0.0.1", 0), GuardedHandler)
+        guard_thread = threading.Thread(target=guard_http.serve_forever, daemon=True)
+        guard_thread.start()
+        saved_sw, saved_version = LIVE_SW, LIVE_VERSION
+        port = guard_http.server_address[1]
+        LIVE_SW = "http://127.0.0.1:%d/sw.js" % port
+        LIVE_VERSION = "http://127.0.0.1:%d/version.json" % port
+        (directory / "version.json").write_text(json.dumps({
+            "name": "ViktorychApp", "sha": previous, "short": previous[:7],
+        }) + "\n", encoding="utf-8")
+        ci_uploads = {"n": 0}
+
+        def ci_upload(cmd, cwd, env, text, capture_output):
+            ci_uploads["n"] += 1
+            return _Result(0, "Deployment complete\nEnvironment: Production\n--branch main\n", "")
+
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = deploy(directory, run=ci_upload, sleep=lambda _s: None, project=lambda _a, _b: "exists", live=default_live)
+            text = buf.getvalue()
+        finally:
+            LIVE_SW, LIVE_VERSION = saved_sw, saved_version
+            os.environ["GITHUB_SHA"] = build
+            guard_http.shutdown()
+            guard_http.server_close()
+            if (directory / "version.json").is_file():
+                (directory / "version.json").unlink()
+        if code != 0 or ci_uploads["n"] != 1 or blocked["n"] != 0:
+            print("live production shape was rejected", code, ci_uploads["n"], blocked["n"], text)
+            return 1
+        if agents != [PAGES_UA]:
+            print("confirmation did not use the pages agent", agents)
+            return 1
+        if "confirm sha=%s version.json required=no" % incident not in text:
+            print("confirmation used the wrong sha or required version.json", text)
+            return 1
+        if "check=sw.js" not in text or "status=200" not in text or "sha=yes" not in text:
+            print("confirmation did not log the fetch", text)
+            return 1
+        if "previous manifest" not in text or token in text:
+            print("production shell was not accepted")
             return 1
 
         hits = {"n": 0}
