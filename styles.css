@@ -8205,17 +8205,28 @@ html.upd-wn-open, html.upd-wn-open body { overflow: hidden; }
 @media (max-width: 699px) {
   .rd-card .rd-launch { min-height: 44px; }
 }
-/* The bar stays out of sight. Wheel, trackpad, touch, keys, and
-   scrollIntoView still move the page and every inner scroller. */
+/* The bar stays out of sight on the page, menus, panels and lists.
+   Wheel, trackpad, touch, keys, and scrollIntoView still move them.
+   display:none on the scrollbar pseudo makes a post miss hit testing, so
+   the bar is only zero-width. A stable gutter next to a hidden bar covers
+   the card beside it. Show scrollbar still brings the page bar back. */
 html, body, * {
   scrollbar-width: none !important;
   scrollbar-color: transparent transparent !important;
+  scrollbar-gutter: auto !important;
 }
 *::-webkit-scrollbar,
 *::-webkit-scrollbar-thumb,
 *::-webkit-scrollbar-track {
   width: 0 !important;
   height: 0 !important;
-  display: none !important;
   background: transparent !important;
+}
+html.vk-show-scrollbar {
+  scrollbar-width: auto !important;
+  scrollbar-color: auto !important;
+}
+html.vk-show-scrollbar::-webkit-scrollbar {
+  width: 12px !important;
+  height: 12px !important;
 }
