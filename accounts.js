@@ -4659,17 +4659,22 @@ function signupPayload() {
         if (res.requestsCount != null) graphCounts[me].requests = res.requestsCount;
         graphCounts[me].fresh = true;
         var outgoing = Array.isArray(res.outgoingRequests) ? res.outgoingRequests : [];
+        var pendingChanged = false;
         Object.keys(graphCounts).forEach(function (key) {
-          if (graphCounts[key] && key !== me) graphCounts[key].pending = outgoing.indexOf(key) >= 0;
+          if (!graphCounts[key] || key === me) return;
+          var nextPending = outgoing.indexOf(key) >= 0;
+          if (!!graphCounts[key].pending !== nextPending) pendingChanged = true;
+          graphCounts[key].pending = nextPending;
         });
         outgoing.forEach(function (oid) {
           graphCounts[oid] = graphCounts[oid] || {};
+          if (!graphCounts[oid].pending) pendingChanged = true;
           graphCounts[oid].pending = true;
         });
         var listChanged = false;
         if (window.ViktorychAccounts.onServerFollows) listChanged = window.ViktorychAccounts.onServerFollows(Array.isArray(res.ids) ? res.ids : []) === true;
         var countsDrift = (res.followingCount != null && res.followingCount !== prevFollowing) || (res.followersCount != null && res.followersCount !== prevFollowers);
-        if ((listChanged || countsDrift) && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+        if ((listChanged || countsDrift || pendingChanged) && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       }
       if (syncAgain) {
         syncAgain = false;
