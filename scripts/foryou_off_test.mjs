@@ -81,6 +81,9 @@ async function run(browser, origin) {
     await page.waitForSelector("#app .topbar", { timeout: 20000 });
     await page.waitForTimeout(1500);
     await page.evaluate(() => { if (location.hash !== "#/") location.hash = "#/"; });
+    // The first paint is a loading shell with a top bar and no tabs. The tab
+    // row replaces it, then the For You module still needs a moment to load.
+    await page.waitForSelector("#app [data-hscroll='home-tabs'] [data-act='htab']", { timeout: 20000 });
     await page.waitForTimeout(2000);
   };
   const fresh = async () => {
