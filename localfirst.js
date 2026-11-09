@@ -1028,12 +1028,18 @@
   }
   function saveRoute(hash, html) {
     if (!hash || !html || html.length > 150000 || /<script/i.test(html)) return false;
+    /* The write waits so a burst of paints stores one copy. The account is
+       the one on screen now. Reading it again when the timer fires would
+       file this account's page under whoever signs in during the wait. */
+    var key = routeKey(hash);
+    var scope = accountScope();
     clearTimeout(saveRoute.timers && saveRoute.timers[hash]);
     saveRoute.timers = saveRoute.timers || {};
     saveRoute.timers[hash] = setTimeout(function () {
-      var memo = swrMemo[routeKey(hash)];
+      if (accountScope() !== scope) return;
+      var memo = swrMemo[key];
       if (memo && memo.value === html) return;
-      swrPut(routeKey(hash), html);
+      swrPut(key, html);
     }, 400);
     return true;
   }

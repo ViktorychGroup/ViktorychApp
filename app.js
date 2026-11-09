@@ -13223,19 +13223,19 @@ const here = parseRoute();
     accountCall("/v1/posts?" + authorQuery(key)).then((res) => {
       if (!authorLive(key, entry, gen, sender)) return;
       entry.loading = false;
-      if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
+      /* An empty answer is still an answer. Leaving the loading shell up
+         would keep whatever stood in for it, including another account's page. */
+      if (!res || res.status !== 200 || !Array.isArray(res.posts)) { render(); return; }
       const mine = signedAccount();
       const next = mine && String(mine.publicId) === key ? keepOwnPosts(res.posts).filter((item) => String(item.authorId) === key) : res.posts;
-      const sig = (list) => list.map((item) => [item.id, item.replyCount, item.quoteCount, item.likes, item.reposts, item.editedAt, item.body].join("|")).join(",");
-      const before = sig(entry.posts);
       const edge = Number(res.before) || 0;
       const older = (entry.posts || []).filter((item) => edge && (Number(item.createdAt) || 0) < edge && !next.some((row) => row.id === item.id));
       if (!authorLive(key, entry, gen, sender)) return;
       if (!older.length) { entry.more = !!res.more; entry.before = edge; }
       entry.posts = next.concat(older);
-      if (before !== sig(entry.posts)) render();
+      render();
     }).catch(() => {
-      if (authorPostCache[key] === entry) entry.loading = false;
+      if (authorPostCache[key] === entry) { entry.loading = false; render(); }
     });
   }
   function authorPosts(publicId) {
@@ -22151,7 +22151,7 @@ if (STATE.histClear) {
   function localFirstView(route, html) {
     const local = window.ViktorychLocal;
     if (!local || !local.readRoute || !route || SNAP_SKIP[route.name]) return html;
-    const key = String(location.hash || "#/").slice(0, 300);
+    const key = viewerScope() + "|" + String(location.hash || "#/").slice(0, 300);
     if (key !== lfKey) { lfKey = key; lfLive = false; }
     if (routeLoading(html)) {
       if (lfLive) return html;

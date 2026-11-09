@@ -90,4 +90,31 @@ assert.ok(swr.get(localfirst.routeKey("#/explore"), store));
 swr.clear(store);
 assert.strictEqual(swr.get("q2", store), null);
 
-console.log("swr cache ok");
+/* A route painted for one account must not be stored for the next account
+   when the delayed write runs after a switch. */
+const routeStore = memoryStore();
+global.localStorage = routeStore;
+localfirst.swr.reset();
+routeStore.setItem("viktorychapp-account-v1", JSON.stringify({ token: "token-a", account: { publicId: "100000000001" } }));
+assert.strictEqual(localfirst.saveRoute("#/cat/crew", "<article>Cached note from user b</article>"), true);
+routeStore.setItem("viktorychapp-account-v1", JSON.stringify({ token: "token-e", account: { publicId: "500000000005" } }));
+setTimeout(() => {
+  try {
+    assert.strictEqual(localfirst.readRoute("#/cat/crew"), "", "the next account does not receive the previous page");
+    routeStore.setItem("viktorychapp-account-v1", JSON.stringify({ token: "token-a", account: { publicId: "100000000001" } }));
+    assert.strictEqual(localfirst.readRoute("#/cat/crew"), "", "the late write is dropped instead of filed after the switch");
+    assert.strictEqual(localfirst.saveRoute("#/cat/crew", "<article>own note</article>"), true);
+    setTimeout(() => {
+      try {
+        assert.strictEqual(localfirst.readRoute("#/cat/crew"), "<article>own note</article>");
+        console.log("swr cache ok");
+      } catch (err) {
+        console.error(err);
+        process.exit(1);
+      }
+    }, 450);
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+}, 450);
