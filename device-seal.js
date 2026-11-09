@@ -97,6 +97,7 @@
     var readyPromise = null;
     var expiredNow = false;
     var cleared = false;
+    var clearGen = 0;
 
     function now() { return env.__now ? env.__now() : Date.now(); }
     // Raw access that skips the encryption layer.
@@ -245,10 +246,12 @@
     }
     function flush() {
       flushTimer = null;
-      if (wiping || !active) return Promise.resolve();
-      if (flushing) { dirty = true; return flushing.then(function () { return dirty ? flush() : null; }); }
+      if (wiping || !active || cleared) return Promise.resolve();
+      if (flushing) { dirty = true; return flushing.then(function () { return dirty && !cleared ? flush() : null; }); }
       dirty = false;
+      var gen = clearGen;
       flushing = whenReady().then(function () {
+        if (cleared || gen !== clearGen) return {};
         var snapshot = {};
         Object.keys(map).forEach(function (k) { snapshot[k] = map[k]; });
         if (!Object.keys(snapshot).length) {
@@ -256,7 +259,10 @@
           return snapshot;
         }
         return seal(snapshot).then(function (text) {
-          if (wiping) return snapshot;
+          /* clear() can land while the vault is still encrypting. Writing
+             that copy afterwards signs the next page back into the account
+             the test, or a switch, just removed. */
+          if (wiping || cleared || gen !== clearGen) return snapshot;
           rawSet(ls, VAULT_KEY, text);
           return snapshot;
         });
@@ -271,7 +277,7 @@
         passThrough();
       }).then(function () {
         flushing = null;
-        if (dirty) return flush();
+        if (dirty && !cleared && gen === clearGen) return flush();
       });
       return flushing;
     }
@@ -310,6 +316,7 @@
       P.setItem = function (k, v) {
         if (this === ls && wiping) return;
         if (this === ls && active && isSensitive(k)) {
+          cleared = false;
           var name = String(k);
           map[name] = String(v);
           touched[name] = 1;
@@ -338,6 +345,7 @@
           legacy = {};
           vaultNames = [];
           cleared = true;
+          clearGen += 1;
           clearTimeout(flushTimer);
           flushTimer = null;
           if (ss) rawRemove(ss, TAB_KEY);
