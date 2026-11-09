@@ -1,10 +1,11 @@
 /* Items the owner has parked on purpose. They show as paused, not as alerts.
    Delete a row to make that item alert again. Do not delete queued videos.
 
-   media-extract.yml and telegram-backup.yml are not in this list. Their
-   latest failures were code bugs (a stalled read, and a self-test that still
-   required an old documentation phrase). A new failure of either one, or of
-   any workflow that is not listed here, still alerts. */
+   telegram-backup.yml is a priority and is not in this list. It copies the
+   site's private R2 media to Telegram, not only TikTok. Do not pause it
+   unless the owner says so. media-extract.yml is also not paused: its last
+   failures were a stalled read, which is fixed. A new failure of either
+   workflow, or of any workflow that is not listed here, still alerts. */
 
 export const STATUS_PAUSED = [
   {
