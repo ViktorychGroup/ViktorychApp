@@ -103,7 +103,14 @@
     document.body.appendChild(copy);
     var line = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) || 16) * 1.3;
     var box = el.getBoundingClientRect();
-    var point = { x: box.left + mark.offsetLeft - el.scrollLeft, y: box.top + mark.offsetTop - el.scrollTop + line };
+    /* The field's box is in visual pixels. The mirror and the field's own
+       scroll are in layout pixels, so only the box is divided. */
+    var z = parseFloat(document.documentElement.style.zoom);
+    var scale = z > 0 ? z : 1;
+    var point = {
+      x: box.left / scale + mark.offsetLeft - el.scrollLeft,
+      y: box.top / scale + mark.offsetTop - el.scrollTop + line
+    };
     copy.remove();
     return point;
   }
@@ -111,10 +118,13 @@
   function place() {
     if (!pop || !state.el) return;
     var point = caretPoint(state.el, state.start);
-    var width = Math.min(320, window.innerWidth - 16);
-    var left = Math.max(8, Math.min(point.x, window.innerWidth - width - 8));
+    var z = parseFloat(document.documentElement.style.zoom);
+    var scale = z > 0 ? z : 1;
+    var viewW = window.innerWidth / scale;
+    var width = Math.min(320, Math.max(120, viewW - 16));
+    var left = Math.max(8, Math.min(point.x, viewW - width - 8));
     var vv = window.visualViewport;
-    var bottom = vv ? vv.height + vv.offsetTop : window.innerHeight;
+    var bottom = (vv ? vv.height + vv.offsetTop : window.innerHeight) / scale;
     var top = point.y + 4;
     pop.style.width = width + "px";
     pop.style.left = (left + window.scrollX) + "px";
@@ -221,7 +231,19 @@
 
   document.addEventListener("focusout", function (event) {
     if (event.target !== state.el) return;
-    setTimeout(function () { if (document.activeElement !== state.el) close(); }, 150);
+    var previous = event.target;
+    setTimeout(function () {
+      var id = previous && previous.id;
+      var next = id ? document.getElementById(id) : null;
+      if (next && next !== previous && eligible(next)) {
+        var end = next.value.length;
+        if (end && next.selectionStart === 0 && next.selectionEnd === 0 && next.setSelectionRange) {
+          try { next.setSelectionRange(end, end); } catch (err) { /* the caret stays where the new field put it */ }
+        }
+        if (tokenAt(next)) { state.el = next; lookup(next); return; }
+      }
+      if (document.activeElement !== state.el) close();
+    }, 150);
   }, true);
   document.addEventListener("selectionchange", function () {
     if (open() && document.activeElement === state.el && !tokenAt(state.el)) close();

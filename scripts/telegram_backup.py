@@ -2036,6 +2036,11 @@ def fetch_worker(url: str, token: str, dest: Path) -> int:
             WORKER_LIMITED = True
             log("[telegram-backup] Cloudflare worker daily request limit reached (429); pausing worker verifications")
         return err.code
+    except (urllib.error.URLError, TimeoutError, OSError):
+        # A stalled read used to abort the whole extract. The file stays stored
+        # and the next run can verify it. This is not a daily-limit pause.
+        log("[telegram-backup] worker read stopped")
+        return 0
 
 
 def verify_entry(entry: dict, worker: str, bot: str, directory: Path) -> bool:
@@ -3294,7 +3299,24 @@ process.stdout.write([
         "social/youtube/xtrFOsncOeo/thumb/0",
     ], "the page and the backup use the same object keys")
     check('return "tiktok/" + handle + "/" + ident + "/video"' in app, "the app builds the TikTok video key")
-    check("HLS VOD" in doc and "if you ask" in doc, "live recordings are only a later HLS VOD note")
+    check("does not record TikTok LIVE" in doc and "scripts/tiktok_record.py" in doc and "docker/tiktok-live/" in doc, "this backup does not record TikTok LIVE; the recorder is separate")
+    stalled_dir = Path(tempfile.mkdtemp(prefix="tg-stall-"))
+    real_open = urllib.request.urlopen
+
+    def stalled_open(*_args, **_kwargs):
+        raise TimeoutError("The read operation timed out")
+
+    urllib.request.urlopen = stalled_open
+    global WORKER_LIMITED
+    limited_before = WORKER_LIMITED
+    WORKER_LIMITED = False
+    try:
+        stalled = fetch_worker("https://example.test/tg/sample", "not-a-token", stalled_dir / "stalled.bin")
+    finally:
+        urllib.request.urlopen = real_open
+        WORKER_LIMITED = limited_before
+        shutil.rmtree(stalled_dir, ignore_errors=True)
+    check(stalled == 0, "a stalled worker read does not fail the backup")
     check("TikTok media loads from /tg" in doc, "TikTok playback from Telegram is documented")
     check("bv*+ba/b" in doc and "--merge-output-format mp4" in doc and "--remux-video mp4" in doc, "the docs name the yt-dlp remux")
     check("gallery-dl" in doc and "-c copy" in doc and "bytevc1" in doc, "the docs name full-size photos, copy-only HLS, and the TikTok codec")

@@ -9,6 +9,9 @@
     var fn = (typeof window !== "undefined" && window.tn) ? window.tn : ((typeof self !== "undefined" && self.tn) ? self.tn : null);
     return fn ? fn(key, n, vars) : String(n);
   }
+  function shortsEnabled() {
+    return typeof SHORTS_ENABLED !== "undefined" && SHORTS_ENABLED === true;
+  }
   function productName(kind) {
     var api = (typeof SI18n !== "undefined") ? SI18n : ((typeof window !== "undefined" && window.SI18n) ? window.SI18n : ((typeof self !== "undefined" && self.SI18n) ? self.SI18n : null));
     return (api && api.productName) ? api.productName(kind) : "";
@@ -1734,11 +1737,21 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     return n ? `<p class="phandle set-block owner-locks-note">${esc(n === 1 ? tr("The site owner manages 1 of your settings.") : tr("The site owner manages {count} of your settings.", { count: String(n) }))}</p>` : "";
   }
 
+  function keepNewerBlocks() {
+    // Another tab may have saved a newer block list since this copy was read.
+    // Keep that list. This tab's own newer list still wins.
+    if (!STATE.settings || !window.ViktorychAccounts || !window.ViktorychAccounts.pickBlocks) return;
+    let disk = null;
+    try { disk = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { disk = null; }
+    if (disk && disk.blocks) STATE.settings.blocks = window.ViktorychAccounts.pickBlocks(disk.blocks, STATE.settings.blocks);
+  }
+
   function saveSettings() {
     if (enforceSettingLocks()) toast(tr("The site owner locked this setting."));
     if (STATE.settings && STATE.settings.devicePerf && window.ViktorychDevice && window.ViktorychDevice.persist) {
       STATE.settings.devicePerf = window.ViktorychDevice.persist(STATE.settings.devicePerf);
     }
+    keepNewerBlocks();
     writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings));
     blocksChanged();
     syncFeatureFlags();
@@ -1850,7 +1863,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
         queueOffline({ type: "follow", id: item, on: !!on, snapshot: followSnapshot(item) });
         if (accounts && accounts.releaseFollow) accounts.releaseFollow(item);
       });
-      render();
+      if (!on && accounts && accounts.clearFollowPending) ready.forEach((item) => accounts.clearFollowPending(item));
+      if (unfollowHidesVisiblePosts(ready, on)) render();
+      else paintFollowButtons(ready);
       return;
     }
     if (accounts && accounts.changeFollow) {
@@ -1862,12 +1877,41 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
             reverted = true;
           }
         });
-        if (reverted) saveSettings();
+        if (reverted) {
+          saveSettings();
+          render();
+        }
         if (accounts.syncFollows) accounts.syncFollows();
-        render();
       });
     } else ready.forEach((item) => { if (accounts && accounts.releaseFollow) accounts.releaseFollow(item); });
-    render();
+    if (!on && accounts && accounts.clearFollowPending) ready.forEach((item) => accounts.clearFollowPending(item));
+    if (unfollowHidesVisiblePosts(ready, on)) render();
+    else paintFollowButtons(ready);
+  }
+  function paintFollowButtons(ids) {
+    const want = {};
+    (ids || []).forEach((id) => { want[String(id)] = true; });
+    const buttons = Array.prototype.slice.call(document.querySelectorAll('button[data-act="follow"]'));
+    buttons.forEach((btn) => {
+      if (!btn.isConnected) return;
+      const id = btn.dataset.id || "";
+      const many = String(btn.dataset.ids || "").split(",").map((part) => part.trim()).filter(Boolean);
+      if (!want[id] && !many.some((item) => want[item])) return;
+      const html = followButtonClean(id || many[0], btn.classList.contains("lg"));
+      if (html) btn.outerHTML = html;
+    });
+  }
+  function unfollowHidesVisiblePosts(ids, on) {
+    if (on) return false;
+    const nodes = document.querySelectorAll("article[data-post]");
+    for (let i = 0; i < nodes.length; i++) {
+      const post = findAnyPost(nodes[i].getAttribute("data-post"));
+      if (!post) continue;
+      const feedId = String(post.feedId || "");
+      const appId = post.authorId ? "app:" + post.authorId : "";
+      if ((ids || []).some((id) => sameFollowId(id, feedId) || (appId && sameFollowId(id, appId)))) return true;
+    }
+    return false;
   }
   function followSnapshot(id) {
     if (!id || String(id).indexOf("app:") === 0) return null;
@@ -2111,7 +2155,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "app_scale", "image_copy", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2216,6 +2260,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       compact_header: [tr("Compact Home header"), tr("On phones Home shows no app name, the right icon opens Local AI and the tabs stay at the top while scrolling. Off brings back the classic header.")],
       status_bar: [tr("Phone status bar option"), tr("A Display setting that keeps the phone's status bar visible in the theme colour.")],
       zoom_lock: [tr("Pinch-zoom lock"), tr("On phones the page does not zoom with two fingers or a double tap, like an installed app. Photos still zoom in the viewer.")],
+      app_scale: [tr("App size"), tr("On computers, an optional size for a maximized window and a smaller window. It stays in this browser, not on an account. Off leaves the app at the browser’s own size.")],
+      image_copy: [tr("Copy image"), tr("On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.")],
       foryou_off: [tr("For You switch"), tr("Lets each person turn For You off in Settings: Following becomes Home and nothing for For You loads.")],
       update_notice: [tr("Visible updates"), tr("A short Updating notice while an update applies, then a full-screen What's new page.")],
       status_icons: [tr("Header status icons"), tr("On phones and tablets, optional clock, battery, network and unread icons at the top right of Home, for full screen where the phone status bar is hidden.")],
@@ -2695,6 +2741,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const slim = slimPost(post);
     if (!slim || !slim.id) return;
     slim.kind = post.kind || "post";
+    if (post.platform === "app" || post.appPost) slim.viewerScope = post.viewerScope || viewerScope();
     if (post.repostedBy) slim.repostedBy = { handle: post.repostedBy.handle || "", name: post.repostedBy.name || "", avatar: post.repostedBy.avatar || "" };
     const list = openedList().filter((item) => item && item.id !== slim.id);
     list.unshift(slim);
@@ -2704,7 +2751,9 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
 
   function openedPost(id) {
     const key = String(id || "");
-    return openedList().find((item) => item && (item.id === key || String(item.statusId || "") === key)) || null;
+    const item = openedList().find((row) => row && (row.id === key || String(row.statusId || "") === key)) || null;
+    if (item && (item.platform === "app" || item.appPost) && item.viewerScope !== viewerScope()) return null;
+    return item;
   }
 
   function loadTimelineSnap() {
@@ -2743,7 +2792,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   }
 
   function findPost(platform, handle, id) {
-    const shared = STATE.shared[String(id)];
+    const shared = sharedForViewer(id);
     if (shared) return shared;
     const h = handle && handle !== "_" ? handle.toLowerCase() : "";
     const all = posts();
@@ -2757,9 +2806,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
     const buckets = Object.keys(STATE.replies);
     for (let i = 0; i < buckets.length; i++) {
-      const list = (STATE.replies[buckets[i]] && STATE.replies[buckets[i]].replies) || [];
+      const bucket = replyBucketForViewer(STATE.replies[buckets[i]]);
+      if (!bucket) continue;
+      const list = bucket.replies || [];
       for (let j = 0; j < list.length; j++) {
-        const reply = list[j];
+        const reply = replyCardForViewer(list[j]);
+        if (!reply) continue;
         if (String(reply.statusId || reply.id) !== String(id)) continue;
         if (h && (reply.handle || "").toLowerCase() !== h) continue;
         if (platform && reply.platform && reply.platform !== platform) continue;
@@ -3355,7 +3407,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function playPost(el) {
     const id = el && el.dataset.pid;
     if (!id) return null;
-    const direct = posts().find((item) => item && (item.id === id || String(item.statusId || "") === id)) || STATE.shared[id] || null;
+    const direct = posts().find((item) => item && (item.id === id || String(item.statusId || "") === id)) || sharedForViewer(id) || null;
     if (direct) return direct;
     const list = posts();
     for (let i = 0; i < list.length; i++) {
@@ -7551,12 +7603,42 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   /* Another tab changed the rules: apply them here at once. The storage
      event is the fallback. A sync echo used to replace the new block list
      before that event landed, so the other tab kept the posts. */
+  function readSettingsRaw() {
+    // A test can supply the next reads, in order, to cover a list saved
+    // between them. Production always reads what is stored now.
+    const scripted = window.__settingsReads;
+    if (Array.isArray(scripted) && scripted.length) {
+      const next = scripted.shift();
+      return next == null ? null : String(next);
+    }
+    return readStored(localStorage, "settings-v1");
+  }
   function applyBlocksFromDisk() {
     if (!STATE.settings) return;
     let next = null;
-    try { next = JSON.parse(readStored(localStorage, "settings-v1") || "null"); } catch (err) { next = null; }
+    try { next = JSON.parse(readSettingsRaw() || "null"); } catch (err) { next = null; }
     if (!next) return;
-    next.blocks = cleanBlocks(next.blocks);
+    let diskBlocks = cleanBlocks(next.blocks);
+    const memBlocks = STATE.settings.blocks;
+    const memAt = Number(memBlocks && memBlocks.at) || 0;
+    // A full settings write can still carry the block list from before this
+    // block. Read the disk again and keep whichever whole list is newer, so
+    // an unblock saved between the two reads is not overwritten. Muted words,
+    // muted accounts and repost rules in that blob still apply.
+    if (memAt > (Number(diskBlocks.at) || 0)) {
+      let latest = next;
+      try { latest = JSON.parse(readSettingsRaw() || "null") || next; } catch (err) { latest = next; }
+      const again = cleanBlocks(latest.blocks);
+      next = latest;
+      // The re-read is a whole list. A newer one (an unblock that landed
+      // after the first read) replaces this tab's copy. Otherwise this tab's
+      // list is still current and is written onto the blob that was re-read.
+      if ((Number(again.at) || 0) > memAt) diskBlocks = again;
+      else diskBlocks = cleanBlocks(memBlocks);
+      next.blocks = diskBlocks;
+      writeStored(localStorage, "settings-v1", JSON.stringify(next));
+    }
+    next.blocks = diskBlocks;
     if (blockSig(next) === blockSig(STATE.settings)) return;
     STATE.settings.mutedWords = Array.isArray(next.mutedWords) ? next.mutedWords : [];
     STATE.settings.mutedAccounts = Array.isArray(next.mutedAccounts) ? next.mutedAccounts : [];
@@ -8561,11 +8643,12 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       });
     };
     posts().forEach(touch);
-    Object.keys(STATE.shared).forEach((key) => touch(STATE.shared[key]));
+    Object.keys(STATE.shared).forEach((key) => { if (sharedForViewer(key)) touch(STATE.shared[key]); });
     Object.keys(STATE.replies).forEach((key) => {
-      const bucket = STATE.replies[key] || {};
-      (bucket.replies || []).forEach(touch);
-      commentRows(bucket.doc).forEach(touch);
+      const bucket = replyBucketForViewer(STATE.replies[key]);
+      if (!bucket) return;
+      (bucket.replies || []).forEach((row) => { if (replyCardForViewer(row)) touch(row); });
+      commentRows(bucket.doc).forEach((row) => { if (replyCardForViewer(row)) touch(row); });
     });
   }
 
@@ -8640,39 +8723,45 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function appReplyBucket(post, id, want) {
     const fresh = String(STATE.forceReply || "") === id;
     if (fresh) STATE.forceReply = "";
+    const sender = sessionNow();
+    const scope = viewerScope();
     const bucket = STATE.replies[id];
-    if (!fresh && bucket && (bucket.loading || (bucket.fetchedAt && Date.now() - bucket.fetchedAt < 30000))) return bucket;
-    STATE.replies[id] = { loading: true, replies: (bucket && bucket.replies) || [], missing: false, cap: want, fetchedAt: (bucket && bucket.fetchedAt) || 0 };
+    const owned = bucket && bucket.scope === scope;
+    if (!fresh && owned && (bucket.loading || (bucket.fetchedAt && Date.now() - bucket.fetchedAt < 30000))) return bucket;
+    STATE.replies[id] = { loading: true, replies: owned ? (bucket.replies || []) : [], missing: false, cap: want, fetchedAt: owned ? (bucket.fetchedAt || 0) : 0, scope: scope };
     accountCall("/v1/posts/thread?id=" + encodeURIComponent(id) + "&sort=" + replySortMode()).then((res) => {
+      if (!sameSession(sender)) return;
       if (res && res.status === 410) {
         dropAppItem(id);
-        STATE.replies[id] = { loading: false, replies: [], missing: true, cap: want, fetchedAt: Date.now(), settled: true, gone: true };
+        STATE.replies[id] = { loading: false, replies: [], missing: true, cap: want, fetchedAt: Date.now(), settled: true, gone: true, scope: viewerScope() };
         render();
         return;
       }
       if (!res || res.status !== 200 || !Array.isArray(res.replies)) {
-        STATE.replies[id] = { loading: false, replies: (bucket && bucket.replies) || [], missing: !(bucket && bucket.replies && bucket.replies.length), cap: want, fetchedAt: Date.now(), settled: true };
+        STATE.replies[id] = { loading: false, replies: owned ? (bucket.replies || []) : [], missing: !(owned && bucket.replies && bucket.replies.length), cap: want, fetchedAt: Date.now(), settled: true, scope: viewerScope() };
         render();
         return;
       }
       if (res.post && res.post.id) {
-        appThreadItems[res.post.id] = res.post;
+        appThreadItems[res.post.id] = { scope: viewerScope(), item: res.post };
         patchAppItem(res.post.id, res.post);
-        const card = appCardPost(res.post);
-        STATE.shared[card.id] = Object.assign(STATE.shared[card.id] || {}, card);
+        const card = stampAppCard(appCardPost(res.post));
+        const prev = sharedForViewer(card.id);
+        STATE.shared[card.id] = Object.assign(prev || {}, card);
       }
       const replies = res.replies.filter(notGone).map((item) => {
-        appThreadItems[item.id] = item;
-        const card = appCardPost(item);
+        appThreadItems[item.id] = { scope: viewerScope(), item: item };
+        const card = stampAppCard(appCardPost(item));
         card.replyingTo = { id: id, handle: post.handle || "" };
         STATE.shared[card.id] = card;
         return card;
       });
-      STATE.replies[id] = { loading: false, replies: replies.slice(0, want), missing: false, cap: want, fetchedAt: Date.now(), settled: true };
+      STATE.replies[id] = { loading: false, replies: replies.slice(0, want), missing: false, cap: want, fetchedAt: Date.now(), settled: true, scope: viewerScope() };
       addNostrReplies(id, post);
       render();
     }).catch(() => {
-      STATE.replies[id] = { loading: false, replies: (bucket && bucket.replies) || [], missing: true, cap: want, fetchedAt: Date.now(), settled: true };
+      if (!sameSession(sender)) return;
+      STATE.replies[id] = { loading: false, replies: owned ? (bucket.replies || []) : [], missing: true, cap: want, fetchedAt: Date.now(), settled: true, scope: viewerScope() };
       render();
     });
     return STATE.replies[id];
@@ -10234,7 +10323,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       + (post.appPost ? appMenuItems(post) : (post.url ? `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url)}">${tr("View on {platform}", { platform: PLATFORM[post.platform] || tr("Web") })}</a>` : ""))
       + blockMenuItems(post, "status")
       + (fresh ? `<div class="menu-note reply-fresh">${esc(fresh)}</div>` : "");
-    return `<span class="status-menu-wrap">${btn}<div class="menu status-menu" data-act="stop" role="menu">${items}</div></span>`;
+    return `<span class="status-menu-wrap">${btn}<div class="menu status-menu post-menu" data-act="stop" role="menu">${items}</div></span>`;
   }
 
   /* Replies written in this app to a feed post (X, YouTube, …) are app posts
@@ -10245,20 +10334,37 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const plat = post.platform || "x";
     const ids = [String(post.statusId || ""), String(post.id || "")].filter(Boolean);
     const seen = {};
-    return publicPosts.filter((item) => {
+    return visiblePublicPosts().filter((item) => {
       const ext = item && item.extParent;
       if (!ext || seen[item.id] || !notGone(item)) return false;
       if ((ext.platform || "x") !== plat) return false;
       if (ids.indexOf(String(ext.statusId || ext.id || "")) < 0) return false;
       seen[item.id] = true;
       return true;
+    }).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)).map(appCardPost).filter((cardPost) => cardPost && !hiddenPost(cardPost));
+  }
+
+  /* A reply this account just sent is in the local list before the thread
+     request comes back. Show it under the parent, and drop it once the thread
+     has the same id. Another account's pending reply stays hidden. */
+  function ownThreadReplies(post, slice) {
+    const mine = signedAccount();
+    const me = mine ? String(mine.publicId || "") : "";
+    if (!me || !post || !(post.appPost || (post.platform || "") === "app")) return [];
+    const parentId = String(post.id || post.statusId || "");
+    const seen = {};
+    ((slice && slice.shown) || []).forEach((item) => { if (item && item.id) seen[String(item.id)] = true; });
+    return visiblePublicPosts().filter((item) => {
+      if (!item || !notGone(item) || seen[String(item.id)]) return false;
+      if (String(item.authorId || "") !== me) return false;
+      return String(item.parentId || "") === parentId;
     }).sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)).map(appCardPost);
   }
 
   function replyList(post) {
     const tools = "";
-    const mine = appRepliesFor(post).map((item) => card(item, "reply", { focus: post })).join("");
     const slice = replySlice(post);
+    const mine = appRepliesFor(post).concat(ownThreadReplies(post, slice)).map((item) => card(item, "reply", { focus: post })).join("");
     if (slice.loading) return tools + mine + replySkeleton(3);
     if (slice.error) return tools + mine + replyError(postKey(post));
     if (!slice.shown.length && !slice.more && !slice.spam) {
@@ -10596,7 +10702,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function blockKeyLabel(key) {
     const text = String(key || "");
     if (text.indexOf("app:") === 0) {
-      const found = (publicPosts || []).find((item) => item && item.authorId === text.slice(4));
+      const found = visiblePublicPosts().find((item) => item && item.authorId === text.slice(4));
       return found && found.handle ? "@" + found.handle : tr("Account on this app");
     }
     const at = text.indexOf(":");
@@ -10648,7 +10754,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     if (!key) return null;
     const found = findAnyPost(key);
     if (found) return found;
-    const pub = (publicPosts || []).find((item) => item && (item.id === key || postKey(item) === key));
+    const pub = visiblePublicPosts().find((item) => item && (item.id === key || postKey(item) === key));
     return pub || null;
   }
 
@@ -10719,7 +10825,7 @@ const here = parseRoute();
     const busyItem = busyKey ? `<button data-act="busy-menu" data-key="${esc(busyKey)}" data-name="${esc(post.author || post.name || "")}" data-handle="${esc(post.handle || "")}" data-platform="${esc(post.platform || "x")}">${tr("Posting volume")}</button>` : "";
     const giftItem = `<button type="button" data-gift="reply" data-parent="${esc(post.id || "")}" data-handle="${esc(post.handle || "")}">${tr("Send a gift")}</button>`;
     const blockItems = STATE.menu === post.id ? blockMenuItems(post, mode) : "";
-    const menu = STATE.menu === post.id ? `<div class="menu" data-act="stop">${localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("viktrych")} ${tr("Explain this post")}</button>` : ""}<button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
+    const menu = STATE.menu === post.id ? `<div class="menu post-menu" role="menu" data-act="stop">${localAiOn() ? `<button type="button" data-act="lai-post" data-id="${esc(post.id)}">${icon("viktrych")} ${tr("Explain this post")}</button>` : ""}<button data-act="copy" data-url="${esc(shareLink)}"${shareNote ? ` data-note="${esc(shareNote)}"` : ""}>${tr("Copy link")}</button><button data-act="add-to-tab" data-id="${esc(post.id)}">${tr("Add to tab…")}</button>${giftItem}${cnMenu(post)}${forYouItem}${busyItem}${histItem}${repostItem}${quoteDelete}${blockItems}${post.appPost ? appMenuItems(post) : `<a data-act="stop" target="_blank" rel="noopener noreferrer" href="${esc(post.url || "#")}">${tr("View on {platform}", { platform: post.cmSource || PLATFORM[post.platform] || tr("Web") })}</a>${post.cmMirror ? `<button type="button" data-act="mute-community" data-name="${esc(post.community.name)}">${esc(tr("Mute community"))}</button>` : ""}`}</div>` : "";
     const continues = !!opts.continues;
     const face = authorFace(post);
     const creator = isRepost(post) ? creatorOf(post) : null;
@@ -10753,7 +10859,7 @@ const here = parseRoute();
       : (redditSub(post) && !opts.parentShown
         ? `<div class="repost-line community-line">${icon("communities")}<a data-act="stop" href="#/communities/${encodeURIComponent(redditSub(post))}">${esc(nickName("reddit", "r/" + redditSub(post), "r/" + redditSub(post)))}</a></div>`
         : "");
-    return `<article class="post${continues ? " continues" : ""}${mode === "reply" ? " reply-card" : ""}" data-post="${esc(post.id)}" data-kind="${esc(post.kind || "post")}" data-date="${esc(post.date || "")}"${open}${hydrate}${cardHeightStyle(post.id)}>
+    return `<article class="post${STATE.menu === post.id ? " menu-open" : ""}${continues ? " continues" : ""}${mode === "reply" ? " reply-card" : ""}" data-post="${esc(post.id)}" data-kind="${esc(post.kind || "post")}" data-date="${esc(post.date || "")}"${open}${hydrate}${cardHeightStyle(post.id)}>
       ${community}
       ${repost}
       ${sharedNote}
@@ -10768,7 +10874,7 @@ const here = parseRoute();
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
             ${asAccount ? linkedSourceBadge(post.platform) : postSourceBadges(post)}
-            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}">${icon("more")}</button></span>
+            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" type="button" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}" aria-haspopup="menu" aria-expanded="${STATE.menu === post.id ? "true" : "false"}">${icon("more")}</button></span>
           </div>
           ${reply}
           ${discordMeta(post)}
@@ -11096,7 +11202,7 @@ const here = parseRoute();
       case "contacts":
         return { id: "contacts", href: "#/contacts", icon: "phone", label: tr("Contacts"), active: (r) => r.name === "contacts", visible: () => featureOn("contacts") };
       case "shorts":
-        return { id: "shorts", href: "#/shorts", icon: "shorts", label: tr("Shorts"), active: (r) => r.name === "shorts", visible: () => !!(window.ViktorychShorts && window.ViktorychShorts.visible()) };
+        return { id: "shorts", href: "#/shorts", icon: "shorts", label: tr("Shorts"), active: (r) => r.name === "shorts", visible: () => shortsEnabled() && !!(window.ViktorychShorts && window.ViktorychShorts.visible()) };
       case "games":
         return { id: "games", href: "#/games", icon: "games", label: tr("Games"), active: (r) => r.name === "games" };
       case "tv":
@@ -11399,7 +11505,7 @@ const here = parseRoute();
     }, true);
     window.addEventListener("viktorych-setting-locks", () => {
       paintSettingLocks();
-      if (enforceSettingLocks()) { writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings)); if (typeof applyTheme === "function") applyTheme(); }
+      if (enforceSettingLocks()) { keepNewerBlocks(); writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings)); if (typeof applyTheme === "function") applyTheme(); }
       render({ y: window.scrollY });
     });
     setTimeout(paintSettingLocks, 0);
@@ -12103,8 +12209,17 @@ const here = parseRoute();
   }
 
   function listMembersPosts(list) {
-    const ids = new Set(list.members || []);
-    return posts().filter((p) => ids.has(p.feedId) || ids.has((p.platform || "x") + ":" + p.handle)).sort(byStamp);
+    const ids = (list && list.members) || [];
+    const tab = "list:" + (list && list.id || "");
+    const seen = {};
+    const out = posts().filter((post) => profileMatch(post, ids));
+    out.forEach((post) => { if (post && post.id) seen[post.id] = true; });
+    appHomePosts(tab).concat(deviceFollowPosts(tab)).forEach((post) => {
+      if (!post || !post.id || seen[post.id]) return;
+      seen[post.id] = true;
+      out.push(post);
+    });
+    return out.sort(byStamp);
   }
 
   const FEED_PAGE = ((window.ViktorychIos && window.ViktorychIos.lite) || (window.ViktorychTVMode && window.ViktorychTVMode.pref("fewerPosts") === true)) ? 12 : 25;
@@ -12811,6 +12926,9 @@ const here = parseRoute();
   const WELCOME_KEY = "viktorychapp-welcome-v1";
   let publicPosts = [];
   let publicStamp = 0;
+  let publicStampId = "";
+  let publicGen = 0;
+  let publicOwner = "";
   let welcomePhoto = "";
   const welcomeFollows = {};
 
@@ -12838,20 +12956,77 @@ const here = parseRoute();
     return !!(window.ViktorychGames && window.ViktorychGames.busy && window.ViktorychGames.busy());
   }
 
+  function viewerScope() {
+    const now = sessionNow();
+    return now.id + "\n" + String(now.gen || 0);
+  }
+  /* A hash change can put back a page built for the previous account. Mark
+     those pages so the next paint does not show their posts. */
+  function dropForeignViewer() {
+    const scope = viewerScope();
+    viewParks.forEach((slot) => {
+      if (slot && slot.scope && slot.scope !== scope) slot.force = true;
+    });
+    Object.keys(authorPostCache).forEach((key) => {
+      const entry = authorPostCache[key];
+      if (entry && entry.scope && entry.scope !== scope) delete authorPostCache[key];
+    });
+    if (publicOwner && publicOwner !== scope) {
+      publicPosts = [];
+      publicOwner = "";
+    }
+  }
+  function visiblePublicPosts() {
+    return publicOwner === viewerScope() ? publicPosts : [];
+  }
+  /* An app post was fetched for one signed-in account. Another account on
+     this page must not read that copy. Catalog posts from other networks
+     stay available. */
+  function stampAppCard(card) {
+    if (card && (card.platform === "app" || card.appPost)) card.viewerScope = viewerScope();
+    return card;
+  }
+  function sharedForViewer(id) {
+    const card = STATE.shared[String(id || "")];
+    if (!card) return null;
+    if ((card.platform === "app" || card.appPost) && card.viewerScope !== viewerScope()) return null;
+    return card;
+  }
+  /* A thread fetched for one account stays in STATE.replies. Lookups for
+     share, bookmarks, history and the media viewer have to use the same
+     rule as the thread itself. A bucket with no scope is a public source. */
+  function replyBucketForViewer(bucket) {
+    if (!bucket) return null;
+    if (bucket.scope && bucket.scope !== viewerScope()) return null;
+    return bucket;
+  }
+  function replyCardForViewer(reply) {
+    if (!reply) return null;
+    if ((reply.platform === "app" || reply.appPost) && reply.viewerScope && reply.viewerScope !== viewerScope()) return null;
+    return reply;
+  }
   function schedulePublicPosts() {
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
     if (!accountToken()) return;
     const now = Date.now();
-    if (now - publicStamp < 20000) return;
+    const viewerId = sessionNow().id;
+    // The session generation moves when the account module first reads the
+    // same account. Only a different account should fetch again inside the window.
+    if (viewerId === publicStampId && now - publicStamp < 20000) return;
+    const sender = sessionNow();
+    const gen = ++publicGen;
     publicStamp = now;
+    publicStampId = viewerId;
     accountCall("/v1/posts").then((res) => {
+      if (gen !== publicGen || !sameSession(sender)) return;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
       if (typeof res.communitiesHome === "boolean") STATE.settings.communitiesHome = res.communitiesHome;
       if (res.communityPrefs) cmFyPrefs(res.communityPrefs);
       const merged = keepOwnPosts(res.posts);
-      if (samePublicPosts(merged)) return;
+      if (samePublicPosts(merged) && publicOwner === viewerScope()) return;
       publicPosts = merged;
+      publicOwner = viewerScope();
       render();
     }).catch(() => {});
   }
@@ -12861,13 +13036,81 @@ const here = parseRoute();
      drop the new post, so it vanished from Home and its profile. Own posts are
      kept until the server lists them, for ten minutes at most. */
   const ownSent = {};
-  function rememberOwnPost(post) {
-    if (!post || !post.id) return;
-    ownSent[post.id] = { post: post, at: Date.now() };
-    publicPosts = [post].concat(publicPosts.filter((item) => item && item.id !== post.id));
+  const localPostPreview = {};
+  function revokePostPreview(id) {
+    const bag = localPostPreview[id];
+    if (!bag) return;
+    (bag.urls || []).forEach((item) => {
+      if (item && item.url && String(item.url).indexOf("blob:") === 0) {
+        try { URL.revokeObjectURL(item.url); } catch (err) { /* already revoked */ }
+      }
+    });
+    delete localPostPreview[id];
+  }
+  function previewOnScreen(id) {
+    if (typeof document === "undefined") return false;
+    const safe = String(id || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    try { return !!document.querySelector('article[data-post="' + safe + '"] [data-local-preview]'); }
+    catch (err) { return false; }
+  }
+  /* A local preview is not on a timer. It is checked when the page renders
+     or a post list is merged. One that is still on screen is kept, even after
+     ten minutes. One that belongs to another account, or is older than ten
+     minutes and no longer shown, is revoked on that check. */
+  function reconcilePostPreviews() {
+    const now = Date.now();
     const mine = signedAccount();
-    const cache = mine && mine.publicId ? authorPostCache[String(mine.publicId)] : null;
-    if (cache) cache.posts = [post].concat(cache.posts.filter((item) => item && item.id !== post.id));
+    const owner = mine ? String(mine.publicId || "") : "";
+    Object.keys(localPostPreview).forEach((id) => {
+      const bag = localPostPreview[id];
+      if (!bag) return;
+      const foreign = bag.ownerId !== owner;
+      const expired = now - (bag.at || 0) > 600000;
+      if (!foreign && !expired) return;
+      if (previewOnScreen(id)) return;
+      revokePostPreview(id);
+    });
+  }
+  function holdPostPreview(id, urls, ownerId) {
+    if (!id || !urls || !urls.length) return;
+    localPostPreview[id] = { urls: urls, at: Date.now(), ownerId: String(ownerId || "") };
+  }
+  function sessionNow() {
+    const mine = signedAccount();
+    const gen = window.ViktorychAccounts && window.ViktorychAccounts.sessionGeneration ? window.ViktorychAccounts.sessionGeneration() : 0;
+    return { id: mine ? String(mine.publicId || "") : "", gen: gen };
+  }
+  function sameSession(sender) {
+    const now = sessionNow();
+    return !!(sender && sender.id && now.id === sender.id && now.gen === sender.gen);
+  }
+  function revokeBlobList(urls) {
+    (urls || []).forEach((url) => {
+      if (url && String(url).indexOf("blob:") === 0) {
+        try { URL.revokeObjectURL(url); } catch (err) { /* already revoked */ }
+      }
+    });
+  }
+  function blobUrls(part) {
+    return ((part && part.media) || []).map((item) => item && item.url).filter((url) => url && String(url).indexOf("blob:") === 0);
+  }
+  function displayMediaItems(item) {
+    const mine = signedAccount();
+    const bag = item && localPostPreview[item.id];
+    if (bag && mine && bag.ownerId === String(mine.publicId || "") && bag.urls && bag.urls.length) return bag.urls;
+    return (item && item.media) || [];
+  }
+  function rememberOwnPost(post, ownerId) {
+    if (!post || !post.id) return;
+    const mine = signedAccount();
+    const current = mine ? String(mine.publicId || "") : "";
+    if (ownerId && current !== String(ownerId)) return;
+    ownSent[post.id] = { post: post, at: Date.now() };
+    if (publicOwner !== viewerScope()) publicPosts = [];
+    publicOwner = viewerScope();
+    publicPosts = [post].concat(publicPosts.filter((item) => item && item.id !== post.id));
+    const cache = current ? authorPostCache[current] : null;
+    if (cache && cache.scope === viewerScope()) cache.posts = [post].concat((cache.posts || []).filter((item) => item && item.id !== post.id));
   }
   function forgetOwnPost(id) {
     delete ownSent[id];
@@ -12885,29 +13128,47 @@ const here = parseRoute();
     if (Date.now() - at > 600000) { delete goneOwn[item.id]; return true; }
     return false;
   }
+  function ownSentHere(entry) {
+    const mine = signedAccount();
+    const me = mine ? String(mine.publicId || "") : "";
+    return !!(entry && entry.post && me && String(entry.post.authorId || "") === me);
+  }
   function keepOwnPosts(list) {
     const next = list.filter(notGone);
     const ids = new Set(next.map((item) => item && item.id));
     const now = Date.now();
     Object.keys(ownSent).forEach((id) => {
       const entry = ownSent[id];
-      if (ids.has(id) || now - entry.at > 600000) { delete ownSent[id]; return; }
+      if (!ownSentHere(entry)) return;
+      if (ids.has(id) || now - entry.at > 600000) {
+        delete ownSent[id];
+        return;
+      }
       if (String(id).indexOf("tmp-") === 0) return;
       next.unshift(entry.post);
     });
     Object.keys(ownSent).forEach((id) => {
-      if (String(id).indexOf("tmp-") === 0) next.unshift(ownSent[id].post);
+      if (String(id).indexOf("tmp-") !== 0 || !ownSentHere(ownSent[id])) return;
+      next.unshift(ownSent[id].post);
     });
+    reconcilePostPreviews();
     return next.sort((a, b) => (Number(b && b.createdAt) || 0) - (Number(a && a.createdAt) || 0));
   }
-  function optimisticOwnPost(text, parentId, quoteId, extParent) {
+  function optimisticOwnPost(text, parentId, quoteId, extParent, media) {
     const mine = signedAccount();
     if (!mine || !mine.publicId) return "";
     const id = "tmp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const previews = (media || []).filter((item) => item && item.url && String(item.url).indexOf("blob:") === 0).map((item) => ({
+      mime: item.type || item.mime || "image/jpeg",
+      url: item.url,
+      alt: item.alt || "",
+      local: true
+    }));
+    if (previews.length) holdPostPreview(id, previews, mine.publicId);
     rememberOwnPost({
       id: id, body: String(text || ""), parentId: parentId || "", quoteId: quoteId || "", createdAt: Date.now(),
       authorId: String(mine.publicId), authorHandle: String(mine.handle || ""), authorName: String(mine.displayName || mine.handle || ""),
-      authorAvatar: String(mine.avatar || ""), pending: true, likes: 0, replyCount: 0, media: [], extParent: extParent || null
+      authorAvatar: String(mine.avatar || ""), pending: true, likes: 0, replyCount: 0, media: previews, extParent: extParent || null
     });
     return id;
   }
@@ -12939,35 +13200,66 @@ const here = parseRoute();
     const name = key.slice(1);
     return (item) => item && String(item.authorHandle || "").replace(/^@/, "").toLowerCase() === name;
   }
+  function authorLive(key, entry, gen, sender) {
+    return !!(entry && authorPostCache[key] === entry && entry.gen === gen && entry.scope === viewerScope() && sameSession(sender));
+  }
+  function startAuthorLoad(key) {
+    const sender = sessionNow();
+    const scope = viewerScope();
+    const prev = authorPostCache[key];
+    const keep = prev && prev.scope === scope ? prev : null;
+    const entry = {
+      at: Date.now(),
+      posts: keep ? (keep.posts || []).slice() : [],
+      more: keep ? !!keep.more : false,
+      before: keep ? (keep.before || 0) : 0,
+      loading: true,
+      loadingMore: false,
+      scope: scope,
+      gen: (keep ? (keep.gen || 0) : 0) + 1,
+      sender: sender
+    };
+    authorPostCache[key] = entry;
+    const gen = entry.gen;
+    accountCall("/v1/posts?" + authorQuery(key)).then((res) => {
+      if (!authorLive(key, entry, gen, sender)) return;
+      entry.loading = false;
+      /* An empty answer is still an answer. Leaving the loading shell up
+         would keep whatever stood in for it, including another account's page. */
+      if (!res || res.status !== 200 || !Array.isArray(res.posts)) {
+        if (document.querySelector(".tab-loading")) render();
+        return;
+      }
+      const mine = signedAccount();
+      const next = mine && String(mine.publicId) === key ? keepOwnPosts(res.posts).filter((item) => String(item.authorId) === key) : res.posts;
+      const sig = (list) => list.map((item) => [item.id, item.replyCount, item.quoteCount, item.likes, item.reposts, item.editedAt, item.body].join("|")).join(",");
+      const before = sig(entry.posts);
+      const edge = Number(res.before) || 0;
+      const older = (entry.posts || []).filter((item) => edge && (Number(item.createdAt) || 0) < edge && !next.some((row) => row.id === item.id));
+      if (!authorLive(key, entry, gen, sender)) return;
+      if (!older.length) { entry.more = !!res.more; entry.before = edge; }
+      entry.posts = next.concat(older);
+      if (before !== sig(entry.posts) || document.querySelector(".tab-loading")) render();
+    }).catch(() => {
+      if (authorPostCache[key] === entry) {
+        entry.loading = false;
+        if (document.querySelector(".tab-loading")) render();
+      }
+    });
+  }
   function authorPosts(publicId) {
     const key = String(publicId || "");
     if (!/^\d{12}$/.test(key) && !/^@[^\s/?#]{1,64}$/.test(key)) return [];
+    const scope = viewerScope();
     const cache = authorPostCache[key];
+    const live = cache && cache.scope === scope ? cache : null;
     const now = Date.now();
-    if ((!cache || now - cache.at > 30000) && accountToken() && !(cache && cache.loading)) {
-      const entry = authorPostCache[key] = cache || { at: 0, posts: [] };
-      entry.loading = true;
-      entry.at = now;
-      accountCall("/v1/posts?" + authorQuery(key)).then((res) => {
-        entry.loading = false;
-        if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
-        const mine = signedAccount();
-        const next = mine && String(mine.publicId) === key ? keepOwnPosts(res.posts).filter((item) => String(item.authorId) === key) : res.posts;
-        const sig = (list) => list.map((item) => [item.id, item.replyCount, item.quoteCount, item.likes, item.reposts, item.editedAt, item.body].join("|")).join(",");
-        const before = sig(entry.posts);
-        // Keep pages already read further back; the first page replaces only its own span.
-        const edge = Number(res.before) || 0;
-        const older = (entry.posts || []).filter((item) => edge && (Number(item.createdAt) || 0) < edge && !next.some((row) => row.id === item.id));
-        if (!older.length) { entry.more = !!res.more; entry.before = edge; }
-        entry.posts = next.concat(older);
-        if (before !== sig(entry.posts)) render();
-      }).catch(() => { entry.loading = false; });
-    }
-    // Local first: posts already on this device (Home) paint before the server answers.
-    const have = (authorPostCache[key] && authorPostCache[key].posts) || [];
+    if ((!live || now - live.at > 30000) && accountToken() && !(live && live.loading)) startAuthorLoad(key);
+    const shown = authorPostCache[key];
+    const have = shown && shown.scope === scope ? (shown.posts || []) : [];
     const ids = new Set(have.map((item) => item.id));
     const own = byAuthorKey(key);
-    const extra = publicPosts.filter((item) => own(item) && !ids.has(item.id));
+    const extra = visiblePublicPosts().filter((item) => own(item) && !ids.has(item.id));
     return have.concat(extra);
   }
 
@@ -12975,19 +13267,25 @@ const here = parseRoute();
   function loadOlderAuthorPosts(publicId) {
     const key = String(publicId || "");
     const entry = authorPostCache[key];
-    if (!entry || !entry.more || entry.loadingMore || !entry.before) return;
+    if (!entry || entry.scope !== viewerScope() || !entry.more || entry.loadingMore || !entry.before) return;
+    const sender = sessionNow();
+    const gen = entry.gen || 0;
     entry.loadingMore = true;
     accountCall("/v1/posts?" + authorQuery(key) + "&before=" + entry.before).then((res) => {
+      if (!authorLive(key, entry, gen, sender)) return;
       entry.loadingMore = false;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
       const ids = new Set((entry.posts || []).map((item) => item.id));
       const own = byAuthorKey(key);
       const add = res.posts.filter((item) => item && !ids.has(item.id) && own(item));
+      if (!authorLive(key, entry, gen, sender)) return;
       entry.posts = (entry.posts || []).concat(add);
       entry.before = Number(res.before) || 0;
       entry.more = !!res.more && add.length > 0 && !!entry.before;
       render();
-    }).catch(() => { entry.loadingMore = false; });
+    }).catch(() => {
+      if (authorPostCache[key] === entry) entry.loadingMore = false;
+    });
   }
 
   function hydratePublicMedia() {
@@ -13028,6 +13326,9 @@ const here = parseRoute();
     const tag = mime.indexOf("video/") === 0 ? "video" : mime.indexOf("audio/") === 0 ? "audio" : mime.indexOf("image/") === 0 ? "img" : "";
     if (!tag) return "";
     const extra = tag === "img" ? ` alt="${esc(item.alt || "")}"` : " controls";
+    if (item.local || String(item.url || "").indexOf("blob:") === 0) {
+      return `<${tag}${extra} src="${esc(item.url || "")}" data-local-preview="1"></${tag}>`;
+    }
     return `<${tag}${extra} data-public-media="${esc(item.url || "")}"></${tag}>`;
   }
 
@@ -13121,16 +13422,20 @@ const here = parseRoute();
       STATE.composeParent = "";
       STATE.composeQuote = "";
       STATE.composeSeed = "";
-      render();
     }
-    if (!posts.length) return;
+    if (!posts.length) {
+      if (!quiet) render();
+      return;
+    }
     const scheduled = !!(posts[0] && posts[0].scheduleAt);
     if (scheduled && (!navigator.onLine || !token || !root)) {
+      posts.forEach((part) => revokeBlobList(blobUrls(part)));
       writeDeviceSchedule(readDeviceSchedule().concat([{
         at: posts[0].scheduleAt, text: posts[0].text || "", audience: posts[0].audience || "everyone",
         replyControl: posts[0].replyControl || "everyone", location: posts[0].location || "", poll: posts[0].poll || null
       }]));
       toast(tr("If you’re signed in, the server publishes this when it’s due. Otherwise it stays on this device until the app is open."));
+      if (!quiet) render();
       return;
     }
     // Offline with an account: text and polls wait in the outbox, with the post they
@@ -13140,13 +13445,16 @@ const here = parseRoute();
       const slim = posts.map((part) => ({ text: part.text || "", media: [], poll: part.poll || null, location: part.location || "", audience: part.audience || "everyone", listIds: part.listIds || [], replyControl: part.replyControl || "everyone", scheduleAt: 0 }));
       queueOffline({ type: "app-post", id: "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), on: true, snapshot: { posts: slim, parentId: payload.parentId || "", quoteId: payload.quoteId || "", extParent: payload.extParent || null } });
       toast(tr("Sends when you’re back online."));
+      if (!quiet) render();
       return;
     }
     if (!navigator.onLine || !token || !root) {
+      posts.forEach((part) => revokeBlobList(blobUrls(part)));
       const text = posts.map((part) => part.text).filter(Boolean).join("\n\n");
       if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
       if (!navigator.onLine && text) queueOffline({ type: "reply", id: "compose", on: true, body: text });
       toast(navigator.onLine && !token ? tr("Saved on this device. This reader doesn’t publish.") : tr("Could not send that post. It is still saved on this device."));
+      if (!quiet) render();
       return;
     }
     let firstSent = null;
@@ -13162,16 +13470,30 @@ const here = parseRoute();
       const parent = index === 0 ? (payload.parentId || "") : parentId;
       const quote = index === 0 ? (payload.quoteId || "") : "";
       const later = !!part.scheduleAt;
-      const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null);
-      if (tempId) render();
+      const sender = sessionNow();
+      const blobs = blobUrls(part);
+      const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null, part.media);
+      if (tempId || (!quiet && index === 0)) render();
       const done = (res) => {
+        const stale = !sameSession(sender);
+        const kept = !stale && res && res.status === 201 && res.post && !later && !res.scheduled;
+        const previews = tempId && localPostPreview[tempId] ? localPostPreview[tempId].urls : null;
+        if (tempId) delete localPostPreview[tempId];
         if (tempId) forgetOwnPost(tempId);
+        if (stale) render();
+        if (!kept) revokeBlobList(blobs);
+        if (kept && res.post.id) {
+          if (previews && previews.length) holdPostPreview(res.post.id, previews, sender.id);
+          rememberOwnPost(res.post, sender.id);
+          nostrMirror(res.post, index === 0 ? payload.extParent : null);
+          if (!firstSent) firstSent = res.post;
+          if (res.post.community && res.post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(res.post.community.name);
+          publicStamp = Date.now();
+          sendAt(index + 1, res.post.id);
+          return;
+        }
+        if (stale) return;
         if (res && res.status === 201 && res.post) {
-          if (!(res.scheduled || part.scheduleAt) && res.post.id) {
-            rememberOwnPost(res.post);
-            nostrMirror(res.post, index === 0 ? payload.extParent : null);
-            if (!firstSent) firstSent = res.post;
-          }
           if (res.post.community && res.post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(res.post.community.name);
           publicStamp = Date.now();
           sendAt(index + 1, res.post.id);
@@ -13465,10 +13787,11 @@ const here = parseRoute();
     const created = Number(item.createdAt) || 0;
     const date = new Date(created || Date.now()).toISOString();
     const community = item.community && item.community.name ? { name: String(item.community.name), rootId: String(item.community.rootId || item.id || "") } : null;
-    const media = (item.media || []).map(publicMediaHtml).join("");
+    const media = displayMediaItems(item).map(publicMediaHtml).join("");
     const poll = appPollHtml(item);
     const place = item.location ? `<p class="phandle">${esc(item.location)}</p>` : "";
     const edited = Number(item.editedAt) > 0 ? `<p class="phandle app-edited">${esc(tr("Edited"))}</p>` : "";
+    const sending = item.pending ? `<p class="phandle app-pending">${esc(tr("Sending…"))}</p>` : "";
     const post = {
       id: String(item.id || ""),
       statusId: String(item.id || ""),
@@ -13497,7 +13820,8 @@ const here = parseRoute();
       media: [],
       // Site posts paint their media in appExtra; the profile Media tab counts them here.
       appMediaCount: (item.media || []).length,
-      appExtra: place + poll + (media ? `<div class="public-media">${media}</div>` : "") + edited,
+      pending: !!item.pending,
+      appExtra: place + poll + (media ? `<div class="public-media">${media}</div>` : "") + edited + sending,
       community: community,
       parentId: String(item.parentId || ""),
       url: ""
@@ -13562,12 +13886,16 @@ const here = parseRoute();
   var appThreadItems = {};
   function findAppItem(id) {
     if (!id) return null;
-    const hit = publicPosts.find((item) => item && item.id === id);
+    const hit = visiblePublicPosts().find((item) => item && item.id === id);
     if (hit) return hit;
-    if (appThreadItems[id]) return appThreadItems[id];
+    const thread = appThreadItems[id];
+    if (thread && thread.item && thread.scope === viewerScope()) return thread.item;
+    const scope = viewerScope();
     const keys = Object.keys(authorPostCache);
     for (let i = 0; i < keys.length; i++) {
-      const found = (authorPostCache[keys[i]].posts || []).find((item) => item && item.id === id);
+      const bag = authorPostCache[keys[i]];
+      if (!bag || bag.scope !== scope) continue;
+      const found = (bag.posts || []).find((item) => item && item.id === id);
       if (found) return found;
     }
     return null;
@@ -13578,8 +13906,15 @@ const here = parseRoute();
   function patchAppItem(id, change) {
     const apply = (item) => { if (item && item.id === id) Object.assign(item, change); };
     publicPosts.forEach(apply);
-    Object.keys(appThreadItems).forEach((key) => apply(appThreadItems[key]));
-    Object.keys(authorPostCache).forEach((key) => (authorPostCache[key].posts || []).forEach(apply));
+    const scope = viewerScope();
+    Object.keys(appThreadItems).forEach((key) => {
+      const bag = appThreadItems[key];
+      if (bag && bag.item && bag.scope === scope) apply(bag.item);
+    });
+    Object.keys(authorPostCache).forEach((key) => {
+      const bag = authorPostCache[key];
+      if (bag && bag.scope === scope) (bag.posts || []).forEach(apply);
+    });
   }
   function dropAppItem(id) {
     publicPosts = publicPosts.filter((item) => item && item.id !== id);
@@ -13603,12 +13938,76 @@ const here = parseRoute();
     render();
   }
 
+  function filteredHomeTab(tab) {
+    return !!(tab && (tab.indexOf("cat:") === 0 || tab.indexOf("list:") === 0));
+  }
+  function tabMembers(tab) {
+    if (tab && tab.indexOf("list:") === 0) {
+      const found = (STATE.settings.lists || []).find((item) => item.id === tab.slice(5));
+      return (found && found.members) || [];
+    }
+    if (tab && tab.indexOf("cat:") === 0) {
+      const found = feedTabById(tab.slice(4));
+      if (!found || found.showHome === false) return [];
+      return found.members || [];
+    }
+    return [];
+  }
+  function memberPostHit(post, ids) {
+    if (!post || !ids || !ids.length) return false;
+    if (profileMatch(post, ids)) return true;
+    const author = post.authorId ? "app:" + post.authorId : "";
+    return !!author && ids.some((id) => String(id) === author);
+  }
+  function authorCacheKey(memberId) {
+    const text = String(memberId || "");
+    if (text.indexOf("app:") !== 0) return "";
+    const key = text.slice(4).replace(/^@/, "");
+    if (/^\d{12}$/.test(key)) return key;
+    return key ? "@" + key.toLowerCase() : "";
+  }
+  function memberFetchPending(tab) {
+    const now = Date.now();
+    const ids = tabMembers(tab);
+    for (let i = 0; i < ids.length; i++) {
+      const cacheKey = authorCacheKey(ids[i]);
+      if (cacheKey) {
+        const entry = authorPostCache[cacheKey];
+        if (entry && entry.scope === viewerScope() && entry.loading && now - (entry.at || 0) < 8000) return true;
+      }
+      const text = String(ids[i] || "");
+      const cut = text.indexOf(":");
+      if (cut < 1) continue;
+      const platform = text.slice(0, cut);
+      if (DEVICE_FOLLOW.indexOf(platform) < 0) continue;
+      const row = STATE.liveUsers[liveKey(platform, text.slice(cut + 1))];
+      if (row && row.loading && !row.settled && now - (row.askedAt || 0) < 8000) return true;
+    }
+    return false;
+  }
   function appHomePosts(tab) {
-    if (tab !== "foryou" && tab !== "following") return [];
+    const onTab = filteredHomeTab(tab);
+    if (tab !== "foryou" && tab !== "following" && !onTab) return [];
     if (!STATE.publicSpam) STATE.publicSpam = {};
     const mine = signedAccount();
     const meId = mine && mine.publicId ? String(mine.publicId) : "";
-    const list = publicPosts.filter((item) => item && item.id).map((item) => {
+    const members = onTab ? tabMembers(tab) : null;
+    const seen = {};
+    const items = [];
+    const take = (item) => {
+      if (!item || !item.id || seen[item.id]) return;
+      seen[item.id] = true;
+      items.push(item);
+    };
+    visiblePublicPosts().forEach(take);
+    if (onTab) {
+      members.forEach((id) => {
+        const cacheKey = authorCacheKey(id);
+        if (!cacheKey) return;
+        authorPosts(cacheKey).forEach(take);
+      });
+    }
+    const list = items.map((item) => {
       const post = appCardPost(item);
       if (publicPostSpam(item) && !STATE.publicSpam[item.id]) post.spamHidden = true;
       return post;
@@ -13616,6 +14015,7 @@ const here = parseRoute();
     const byId = {};
     list.forEach((post) => {
       byId[post.id] = post;
+      stampAppCard(post);
       STATE.shared[post.id] = post;
     });
     list.forEach((post) => {
@@ -13623,16 +14023,22 @@ const here = parseRoute();
       const parent = byId[post.parentId];
       post.replyingTo = { id: post.parentId, handle: parent ? parent.handle : ((post.replyingTo && post.replyingTo.handle) || "") };
     });
-    // A parent shown above its reply (as a thread) is not listed again on its own.
-    const threaded = {};
-    list.forEach((post) => { if (post.parentId && byId[post.parentId] && !post.spamHidden) threaded[post.parentId] = true; });
-    return list.filter((post) => {
-      if (threaded[post.id] || hiddenPost(post)) return false;
+    const eligible = list.filter((post) => {
+      if (hiddenPost(post)) return false;
+      if (onTab) return memberPostHit(post, members);
       if (tab === "foryou") return true;
       if (meId && post.authorId === meId) return true;
       if (post.community) return true;
       return !!post.feedId && isFollowed(post.feedId);
     });
+    const eligibleIds = {};
+    eligible.forEach((post) => { eligibleIds[post.id] = true; });
+    /* A reply that will not be shown must not remove its parent. */
+    const threaded = {};
+    eligible.forEach((post) => {
+      if (post.parentId && eligibleIds[post.parentId] && !post.spamHidden) threaded[post.parentId] = true;
+    });
+    return eligible.filter((post) => !threaded[post.id]);
   }
 
   function mergeAppPosts(list, extra) {
@@ -13690,10 +14096,14 @@ const here = parseRoute();
       : "";
     const tabLoading = !list.length && tabStillLoading(tab);
     if (tabLoading && !tabFlights[tab] && !(tabRetries[tab] && tabRetries[tab].timer)) setTimeout(() => refreshHomeTabs([tab]), 0);
+    const memberTab = catTab || tab.indexOf("list:") === 0;
+    const retry = !list.length && !tabLoading && memberTab
+      ? `<p class="empty-action"><button type="button" class="save" data-act="tab-retry" data-tab="${esc(tab)}">${esc(tr("Try again"))}</button></p>`
+      : "";
     const body = tabLoading ? `<div class="tab-loading" role="progressbar" aria-label="${esc(tr("Loading"))}">` + [0, 1, 2].map(() => `<div class="skel"><div class="av"></div><div style="flex:1"><i></i><i style="width:80%"></i><i style="width:60%"></i></div></div>`).join("") + `</div>` : (list.length ? withSuggestions(groupThreads(list).map((p, i) => p && p.busyGroup ? busyRow(p) : card(p, null, { eager: i < 4 })), tab) : emptyBlock(
       repostsOnly ? tr("No reposts yet") : tab === "following" ? tr("Nothing to see here — yet") : catTab ? tr("No posts in this tab") : tab.startsWith("list:") ? tr("No posts in this List") : tr("No posts yet"),
       repostsOnly ? tr("Reposts and forwards on this tab show up here.") : tab === "following" ? tr("When you follow accounts, their posts show up here.") : catTab ? tr("Posts from accounts in this tab show up here.") : tab.startsWith("list:") ? tr("Posts from members of this List will show up here.") : tr("Posts from your feeds will show up here.")
-    ) + findAccounts);
+    ) + findAccounts + retry);
     const bar = STATE.homeFreshBar ? `<div class="home-fresh" role="progressbar" aria-label="${esc(tr("Loading"))}"><span></span></div>` : "";
     const inline = (tab === "foryou" || tab === "following") && STATE.modal !== "compose" && window.ViktorychXCompose && window.ViktorychXCompose.inlineHtml
       ? window.ViktorychXCompose.inlineHtml("home")
@@ -13759,7 +14169,9 @@ const here = parseRoute();
 
   function rememberLive(post) {
     const id = String((post && (post.statusId || post.id)) || "");
-    if (id) STATE.shared[id] = post;
+    if (!id) return;
+    stampAppCard(post);
+    STATE.shared[id] = post;
   }
 
   function rememberedPerson(platform, handle) {
@@ -13767,9 +14179,10 @@ const here = parseRoute();
     if (!h) return null;
     const pool = posts().slice();
     Object.keys(STATE.replies || {}).forEach((key) => {
-      const bucket = STATE.replies[key] || {};
-      (bucket.replies || []).forEach((row) => pool.push(row));
-      commentRows(bucket.doc).forEach((row) => pool.push(row));
+      const bucket = replyBucketForViewer(STATE.replies[key]);
+      if (!bucket) return;
+      (bucket.replies || []).forEach((row) => { if (replyCardForViewer(row)) pool.push(row); });
+      commentRows(bucket.doc).forEach((row) => { if (replyCardForViewer(row)) pool.push(row); });
     });
     return pool.find((post) => post && (post.platform || "x") === platform && String(post.handle || "").toLowerCase() === h) || null;
   }
@@ -14898,10 +15311,12 @@ const here = parseRoute();
      (fediverse, Bluesky, Nostr) are read live here and join Home. */
   const DEVICE_FOLLOW = ["mastodon", "bsky", "nostr", "news"];
   function deviceFollowPosts(tab) {
-    if (tab !== "foryou" && tab !== "following") return [];
+    const onTab = filteredHomeTab(tab);
+    if (tab !== "foryou" && tab !== "following" && !onTab) return [];
     const out = [];
     let kicked = 0;
-    (STATE.settings.follows || []).forEach((id) => {
+    const source = onTab ? tabMembers(tab) : (STATE.settings.follows || []);
+    source.forEach((id) => {
       const cut = String(id).indexOf(":");
       const platform = cut > 0 ? String(id).slice(0, cut) : "";
       const handle = cut > 0 ? String(id).slice(cut + 1) : "";
@@ -14914,7 +15329,7 @@ const here = parseRoute();
       }
       ((row && row.posts) || []).slice(0, 20).forEach((post) => {
         if (!post || hiddenPost(post)) return;
-        if (tab === "following" && post.kind === "reply") return;
+        if ((tab === "following" || onTab) && post.kind === "reply") return;
         post.feedId = id;
         out.push(post);
       });
@@ -14953,6 +15368,7 @@ const here = parseRoute();
     if (row.pageTask) return row;
     if (row.settled && row.fetchedAt && Date.now() - row.fetchedAt < COMMENT_TTL) return row;
     row.loading = !row.profile;
+    row.askedAt = Date.now();
     const clean = String(handle || "").replace(/^@/, "");
     const job = platform === "youtube" ? loadYtLive(row, clean)
       : platform === "bsky" ? loadBskyLive(row, clean)
@@ -15735,11 +16151,19 @@ const here = parseRoute();
   }
 
   function statusView(route) {
-    if (route.platform === "app" && !STATE.shared[String(route.id)]) {
+    if (route.platform === "app" && !sharedForViewer(route.id)) {
       const sameId = (item) => item && String(item.id) === String(route.id);
-      let sent = publicPosts.find(sameId);
-      if (!sent) Object.keys(authorPostCache).some((key) => { sent = (authorPostCache[key].posts || []).find(sameId); return !!sent; });
-      if (sent) STATE.shared[String(route.id)] = appCardPost(sent);
+      let sent = visiblePublicPosts().find(sameId);
+      if (!sent) {
+        const scope = viewerScope();
+        Object.keys(authorPostCache).some((key) => {
+          const bag = authorPostCache[key];
+          if (!bag || bag.scope !== scope) return false;
+          sent = (bag.posts || []).find(sameId);
+          return !!sent;
+        });
+      }
+      if (sent) STATE.shared[String(route.id)] = stampAppCard(appCardPost(sent));
     }
     if (route.platform === "tiktok" && isShortsLocked() && !isTiktokUnlocked(route.handle)) {
       return pageHead(tr("Post noun"), "", true) + emptyBlock(tr("Post unavailable"), tr("This post isn’t in the current snapshot."));
@@ -16741,10 +17165,19 @@ const here = parseRoute();
   }
 
   function queueHist(entry, soon) {
+    const scope = viewerScope();
+    if (STATE.histScope && STATE.histScope !== scope) STATE.histPending = {};
+    STATE.histScope = scope;
     STATE.histPending = STATE.histPending || {};
     STATE.histPending[entry.key] = entry;
     clearTimeout(STATE.histTimer);
-    STATE.histTimer = setTimeout(flushHist, soon ? 40 : 700);
+    STATE.histTimer = setTimeout(() => {
+      if (viewerScope() !== scope) {
+        STATE.histPending = {};
+        return;
+      }
+      flushHist();
+    }, soon ? 40 : 700);
   }
 
   function readHistLocal() {
@@ -18206,18 +18639,49 @@ const here = parseRoute();
 
   function openAssignFromPost(postId, x, y) {
     const post = posts().find((item) => item && (item.id === postId || String(item.statusId || "") === String(postId)));
-    if (!post) return;
-    const feed = feedOf(post);
-    openAssign((feed && feed.id) || post.feedId || ((post.platform || "x") + ":" + (post.handle || "")), x, y);
+    if (post) {
+      const feed = feedOf(post);
+      openAssign((feed && feed.id) || post.feedId || ((post.platform || "x") + ":" + (post.handle || "")), x, y);
+      return;
+    }
+    const app = findAppItem(postId);
+    if (!app || !app.authorId) return;
+    openAssign("app:" + app.authorId, x, y);
   }
 
+  function seenAppAccounts() {
+    const out = [];
+    const seen = {};
+    const scope = viewerScope();
+    const take = (item) => {
+      if (!item || !item.authorId) return;
+      const id = "app:" + item.authorId;
+      if (seen[id] || feeds().some((feed) => feed && feed.id === id)) return;
+      seen[id] = true;
+      out.push({ id: id, name: item.authorName || item.authorHandle || id, handle: item.authorHandle || "", platform: "app", avatar: item.authorAvatar || "" });
+    };
+    visiblePublicPosts().forEach(take);
+    Object.keys(authorPostCache).forEach((key) => {
+      const bag = authorPostCache[key];
+      if (!bag || bag.scope !== scope) return;
+      (bag.posts || []).forEach(take);
+    });
+    return out;
+  }
   function feedTabEditor() {
     const draft = STATE.draft || { name: "", emoji: "", color: "", showHome: true, showNotes: true, members: [], q: "" };
     const q = String(draft.q || "").trim().toLowerCase();
     const memberSet = draft.members || [];
+    const pool = [];
+    const pooled = {};
+    feeds().concat(seenAppAccounts()).forEach((feed) => {
+      if (!feed || !feed.id || pooled[feed.id]) return;
+      pooled[feed.id] = true;
+      pool.push(feed);
+    });
     const inDraft = (feed) => tabHasProfile({ members: memberSet }, feed.id);
-    const memberRows = feeds().filter((feed) => inDraft(feed));
-    const found = q ? feeds().filter((feed) => {
+    const memberRows = pool.filter((feed) => inDraft(feed));
+    const found = q ? pool.filter((feed) => {
       if (inDraft(feed)) return false;
       return ((feed.name || "") + " " + (feed.handle || "") + " " + (feed.platform || "")).toLowerCase().indexOf(q) >= 0;
     }).slice(0, 40) : [];
@@ -20014,8 +20478,52 @@ if (STATE.histClear) {
       if (navigator.onLine) sendAppLike(id, on);
       else queueOffline({ type: "app-like", id: id, on: on });
     } else if (!navigator.onLine) queueOffline({ type: act === "bookmark" ? "bookmark" : "like", id: id, on: !!STATE.settings[bucket][id] });
-    if (parseRoute().name !== "shorts") render();
-    return !!STATE.settings[bucket][id];
+    const showing = !!STATE.settings[bucket][id];
+    const routeName = parseRoute().name;
+    /* The tapped control already flipped. History is a list of these
+       saves, so it still rebuilds. Everywhere else only the matching
+       buttons and counts change. */
+    if (routeName === "shorts") { /* the player paints its own control */ }
+    else if (routeName === "history" || routeName === "bookmarks") render();
+    else paintReaction(act, id, showing);
+    return showing;
+  }
+
+  function reactionBaseCount(act, id) {
+    const post = findAnyPost(id);
+    const stats = (post && post.stats) || {};
+    if (act === "bookmark") return Number(stats.bookmarks) || 0;
+    if (stats.likes != null) return Number(stats.likes) || 0;
+    const item = findAppItem(id);
+    return item && item.likes != null ? Number(item.likes) || 0 : 0;
+  }
+
+  function paintReaction(act, id, on) {
+    if (typeof document === "undefined") return false;
+    const want = String(id || "");
+    const text = shownCount(reactionBaseCount(act, want), on ? 1 : 0);
+    const glyph = act === "like" ? (on ? "heartOn" : "heart") : (on ? "bookmarkOn" : "bookmark");
+    const buttons = document.querySelectorAll('button[data-act="' + act + '"]');
+    let painted = 0;
+    for (let i = 0; i < buttons.length; i++) {
+      const btn = buttons[i];
+      if ((btn.dataset.id || "") !== want) continue;
+      btn.classList.toggle("on", !!on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      const iconEl = btn.querySelector(".ic");
+      if (iconEl) iconEl.innerHTML = icon(glyph);
+      let countEl = btn.querySelector(".count");
+      if (text) {
+        if (!countEl) {
+          countEl = document.createElement("span");
+          countEl.className = "count";
+          btn.appendChild(countEl);
+        }
+        countEl.textContent = text;
+      } else if (countEl) countEl.remove();
+      painted += 1;
+    }
+    return painted > 0;
   }
 
   function sendAppLike(id, on) {
@@ -20145,7 +20653,10 @@ if (STATE.histClear) {
       const post = lib.toProfilePost(row, account, { self: mine });
       if (!post) return;
       if (post.kind === "quote" && mine) post.ownQuote = true;
-      if (post.platform === "app" || !findAnyPost(post.id)) STATE.shared[String(post.id)] = post;
+      if (post.platform === "app" || !findAnyPost(post.id)) {
+        stampAppCard(post);
+        STATE.shared[String(post.id)] = post;
+      }
       addPost(post);
     });
     if (identities.length) {
@@ -20172,6 +20683,7 @@ if (STATE.histClear) {
       });
     }
     ownApp.forEach((post) => {
+      stampAppCard(post);
       STATE.shared[post.id] = post;
       addPost(post);
     });
@@ -20181,7 +20693,7 @@ if (STATE.histClear) {
     else if (tab === "media") shown = postList.filter((post) => (post.media || []).length || post.appMediaCount);
     else if (tab === "posts" || !tab) shown = postList.filter((post) => post.kind !== "reply");
     const entry = ownKey ? authorPostCache[ownKey] : null;
-    const more = entry && entry.more ? `<div id="author-more" class="reply-empty" data-id="${esc(ownKey)}"><button type="button" class="link-btn" data-act="author-more" data-id="${esc(ownKey)}">${tr("Show more")}</button></div>` : "";
+    const more = entry && entry.scope === viewerScope() && entry.more ? `<div id="author-more" class="reply-empty" data-id="${esc(ownKey)}"><button type="button" class="link-btn" data-act="author-more" data-id="${esc(ownKey)}">${tr("Show more")}</button></div>` : "";
     /* Optional platform filters: All, Posts, X, Instagram… The default is the mixed timeline. */
     const pills = lpMod ? lpMod.filterHtml(account, postList) : "";
     if (pills) shown = shown.filter((post) => lpMod.filterPost(post, account));
@@ -20347,7 +20859,7 @@ if (STATE.histClear) {
   }
 
   function watchHash(post) {
-    if (post && post.platform === "tiktok") return "#/shorts?v=" + encodeURIComponent(post.statusId || post.id || "");
+    if (shortsEnabled() && post && post.platform === "tiktok") return "#/shorts?v=" + encodeURIComponent(post.statusId || post.id || "");
     return "#/watch/" + (post.platform || "x") + ":" + (post.statusId || post.id);
   }
 
@@ -20939,9 +21451,11 @@ if (STATE.histClear) {
     const margin = 8;
     const width = 280;
     const rows = target.kind === "group" ? 5 : (STATE.settings.groups || []).length + 2;
-    const height = Math.min(window.innerHeight - 16, 56 + rows * 48);
-    const left = Math.max(margin, Math.min(x, window.innerWidth - width - margin));
-    const top = Math.max(margin, Math.min(y, window.innerHeight - height - margin));
+    const view = layoutView();
+    const z = layoutZoom();
+    const height = Math.min(view.h - 16, 56 + rows * 48);
+    const left = Math.max(margin, Math.min(x / z, view.w - width - margin));
+    const top = Math.max(margin, Math.min(y / z, view.h - height - margin));
     STATE.groupMenu = { kind: target.kind, id: target.id, left: left, top: top };
     render();
   }
@@ -21226,13 +21740,15 @@ if (STATE.histClear) {
   function findAnyPost(id) {
     const key = String(id || "");
     if (!key) return null;
-    if (STATE.shared[key]) return STATE.shared[key];
+    const shared = sharedForViewer(key);
+    if (shared) return shared;
     const direct = posts().find((item) => item.id === key || postKey(item) === key);
     if (direct) return direct;
     const buckets = Object.keys(STATE.replies);
     for (let i = 0; i < buckets.length; i++) {
-      const bucket = STATE.replies[buckets[i]] || {};
-      const found = findComment(commentRows(bucket.doc).concat(bucket.replies || []), key);
+      const bucket = replyBucketForViewer(STATE.replies[buckets[i]]);
+      if (!bucket) continue;
+      const found = replyCardForViewer(findComment(commentRows(bucket.doc).concat(bucket.replies || []), key));
       if (found) return found;
     }
     const nested = commentInDocs(key);
@@ -21653,15 +22169,18 @@ if (STATE.histClear) {
   function localFirstView(route, html) {
     const local = window.ViktorychLocal;
     if (!local || !local.readRoute || !route || SNAP_SKIP[route.name]) return html;
-    const key = String(location.hash || "#/").slice(0, 300);
-    if (key !== lfKey) { lfKey = key; lfLive = false; }
+    const hash = String(location.hash || "#/").slice(0, 300);
+    /* The viewer id only decides whether this paint is still the live one.
+       saveRoute and readRoute classify private pages from the plain hash. */
+    const liveKey = viewerScope() + "|" + hash;
+    if (liveKey !== lfKey) { lfKey = liveKey; lfLive = false; }
     if (routeLoading(html)) {
       if (lfLive) return html;
-      const saved = local.readRoute(key);
+      const saved = local.readRoute(hash);
       return saved || html;
     }
     lfLive = true;
-    if (html.length < 150000 && !/type="password"|<script/i.test(html)) local.saveRoute(key, html);
+    if (html.length < 150000 && !/type="password"|<script/i.test(html)) local.saveRoute(hash, html);
     return html;
   }
   window.addEventListener("viktorych-route", () => {
@@ -21687,6 +22206,7 @@ if (STATE.histClear) {
       return lazySkeleton(tr("Contacts"));
     }
     if (route.name === "shorts") {
+      if (!shortsEnabled()) return "";
       if (window.ViktorychShorts && window.ViktorychShorts.visible()) return window.ViktorychShorts.page(route);
       if (!window.ViktorychShorts) { ensureLazy("shorts"); return lazySkeleton(tr("Shorts")); }
       return pageHead(tr("Shorts")) + emptyBlock(tr("Shorts"), tr("Reload the page."));
@@ -21753,7 +22273,7 @@ if (STATE.histClear) {
       ensureLazy("tv");
       return lazySkeleton(tr("TV"));
     }
-    if (route.name === "status" && route.id && STATE.shared && STATE.shared[String(route.id)]) return statusView(route);
+    if (route.name === "status" && route.id && sharedForViewer(route.id)) return statusView(route);
     if (route.name === "notifications") {
       try {
         return notificationsView(route);
@@ -21888,6 +22408,34 @@ if (STATE.histClear) {
     location.hash = wanted;
   }
 
+  /* CSS zoom on the page multiplies a fixed top/left again. Rects are visual
+     pixels, so menu positions are stored in the page's own pixels. */
+  function layoutZoom() {
+    const declared = parseFloat(document.documentElement.style.zoom);
+    const z = declared > 0 ? declared : 1;
+    if (z === 1) return 1;
+    // The property can be set when this browser is not scaling boxes. Dividing
+    // by that unused number parks a fixed menu away from its button.
+    const html = document.documentElement;
+    const layout = html.offsetWidth;
+    const visual = html.getBoundingClientRect().width;
+    if (layout > 40 && visual > 40) {
+      const ratio = visual / layout;
+      if (ratio > 0.25 && ratio < 5) return ratio;
+    }
+    return z;
+  }
+  function layoutRect(el) {
+    const z = layoutZoom();
+    const r = el.getBoundingClientRect();
+    if (z === 1) return r;
+    return { top: r.top / z, right: r.right / z, bottom: r.bottom / z, left: r.left / z, width: r.width / z, height: r.height / z };
+  }
+  function layoutView() {
+    const z = layoutZoom();
+    return { w: window.innerWidth / z, h: window.innerHeight / z };
+  }
+
   function placeTabMenu() {
     const menu = document.querySelector(".tab-menu");
     const caret = document.querySelector('.tab-caret[aria-expanded="true"]');
@@ -21897,10 +22445,11 @@ if (STATE.histClear) {
       menu.style.top = "";
       return;
     }
-    const item = caret.getBoundingClientRect();
+    const item = layoutRect(caret);
     const width = menu.offsetWidth || 220;
+    const view = layoutView();
     let left = item.left;
-    const limit = window.innerWidth - 8;
+    const limit = view.w - 8;
     if (left + width > limit) left = Math.max(8, limit - width);
     menu.style.left = Math.max(8, left) + "px";
     menu.style.top = (item.bottom + 4) + "px";
@@ -21915,17 +22464,74 @@ if (STATE.histClear) {
       menu.style.top = "";
       return;
     }
-    const item = btn.getBoundingClientRect();
+    const item = layoutRect(btn);
     const width = menu.offsetWidth || 300;
     const height = menu.offsetHeight || 220;
+    const view = layoutView();
     let left = item.right - width;
     if (left < 8) left = 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
     let top = item.bottom + 6;
-    if (top + height > window.innerHeight - 8) top = Math.max(8, item.top - height - 6);
+    if (top + height > view.h - 8) top = Math.max(8, item.top - height - 6);
     menu.style.left = left + "px";
     menu.style.top = top + "px";
   }
+
+  function placePostMenu() {
+    const menu = document.querySelector(".menu.post-menu");
+    if (!menu) return;
+    const id = String(STATE.menu || "");
+    const sel = window.CSS && CSS.escape
+      ? 'button[data-act="menu"][data-id="' + CSS.escape(id) + '"]'
+      : 'button[data-act="menu"][data-id="' + id.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+    const btn = id ? document.querySelector(sel) : null;
+    if (!btn) return;
+    const item = layoutRect(btn);
+    const width = menu.offsetWidth || 220;
+    const view = layoutView();
+    const nav = document.querySelector(".bottom-nav");
+    const navShown = nav && nav.getBoundingClientRect().height > 0 && getComputedStyle(nav).display !== "none";
+    const limitBottom = (navShown ? layoutRect(nav).top : view.h) - 8;
+    const header = document.querySelector(".topbar");
+    const limitTop = header ? Math.max(8, layoutRect(header).bottom + 4) : 8;
+    const spaceBelow = limitBottom - (item.bottom + 4);
+    const spaceAbove = item.top - 4 - limitTop;
+    const want = menu.scrollHeight || menu.offsetHeight || 200;
+    let top;
+    let maxH;
+    if (spaceBelow >= 160 || spaceBelow >= spaceAbove) {
+      top = item.bottom + 4;
+      maxH = Math.max(120, Math.min(want, spaceBelow));
+    } else {
+      maxH = Math.max(120, Math.min(want, spaceAbove));
+      top = item.top - 4 - maxH;
+    }
+    // The reply row under a post stays clickable while this menu is open.
+    const reply = document.querySelector('[data-act="xc-expand-reply"], .composer');
+    if (reply) {
+      const replyTop = layoutRect(reply).top;
+      if (top < replyTop && top + maxH > replyTop - 8) maxH = Math.max(72, replyTop - 8 - top);
+    }
+    let left = item.right - width;
+    if (left < 8) left = 8;
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
+    menu.style.maxHeight = Math.round(maxH) + "px";
+    menu.style.left = Math.round(left) + "px";
+    menu.style.top = Math.round(top) + "px";
+    // Sit the menu on the button in the pixels this browser actually paints.
+    // A fixed top under page scale is not always the CSS pixel we wrote.
+    const openedAbove = top + maxH <= item.bottom;
+    const beforeTop = parseFloat(menu.style.top) || 0;
+    const beforeBox = menu.getBoundingClientRect();
+    menu.style.top = (beforeTop + 16) + "px";
+    const stepped = menu.getBoundingClientRect();
+    const per = (stepped.top - beforeBox.top) / 16 || 1;
+    const btnNow = btn.getBoundingClientRect();
+    const wantTop = openedAbove ? (btnNow.top - 4 - stepped.height) : (btnNow.bottom + 4);
+    menu.style.top = (beforeTop + 16 + (wantTop - stepped.top) / per) + "px";
+  }
+  window.addEventListener("scroll", () => { if (STATE.menu) placePostMenu(); }, { passive: true });
+  window.addEventListener("resize", () => { if (STATE.menu) placePostMenu(); });
 
   function placeFloatMenu(selector) {
     const menu = document.querySelector(selector);
@@ -21937,10 +22543,12 @@ if (STATE.histClear) {
     }
     const width = menu.offsetWidth || 300;
     const height = menu.offsetHeight || 240;
-    let left = Number(menu.dataset.x) || 8;
-    let top = Number(menu.dataset.y) || 8;
-    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - width);
-    if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - 8 - height);
+    const view = layoutView();
+    const z = layoutZoom();
+    let left = (Number(menu.dataset.x) || 8) / z;
+    let top = (Number(menu.dataset.y) || 8) / z;
+    if (left + width > view.w - 8) left = Math.max(8, view.w - 8 - width);
+    if (top + height > view.h - 8) top = Math.max(8, view.h - 8 - height);
     menu.style.left = left + "px";
     menu.style.top = top + "px";
   }
@@ -21948,6 +22556,7 @@ if (STATE.histClear) {
   let tabScrollLeft = null;
   let tabScrollRoute = "";
   let hscrollNav = false;
+  let profileTabHold = "";
   let hscrollTouching = false;
   let hscrollHolding = false;
   let hscrollHoldGen = 0;
@@ -21971,10 +22580,13 @@ if (STATE.histClear) {
   }
 
   function hscrollSaveSoon() {
-    if (hscrollSaveTimer) return;
+    clearTimeout(hscrollSaveTimer);
+    const scope = viewerScope();
+    const payload = JSON.stringify(hscrollStore());
     hscrollSaveTimer = setTimeout(() => {
       hscrollSaveTimer = 0;
-      hscrollFlush();
+      if (viewerScope() !== scope) return;
+      try { writeStored(sessionStorage, "hscroll-v1", payload); } catch (err) { /* the in-memory copy still covers this visit */ }
     }, 200);
   }
 
@@ -22281,6 +22893,63 @@ if (STATE.histClear) {
     scheduleImageSweep();
     hscrollSettle({ reveal: true });
     if (window.ViktorychAccounts && window.ViktorychAccounts.bindProfileTabs) window.ViktorychAccounts.bindProfileTabs();
+    revealProfileTabs();
+    reconcilePostPreviews();
+  }
+
+  /* The selected profile pill is measured after its label is laid out, then
+     kept inside the strip. A smooth arrow scroll still running on this node
+     is cancelled so it cannot pull the pill back to the start. */
+  function focusHeldProfileTab(fallback) {
+    const raw = String(profileTabHold || fallback || "");
+    if (!raw) return;
+    const sel = window.CSS && CSS.escape
+      ? '.ptabs [role="tab"][data-ptab-id="' + CSS.escape(raw) + '"]'
+      : '.ptabs [role="tab"][data-ptab-id="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+    const el = document.querySelector(sel);
+    if (!el) return;
+    if (document.activeElement !== el) {
+      try { el.focus({ preventScroll: true }); } catch (err) { el.focus(); }
+    }
+  }
+
+  function profileTabClipped(scroller) {
+    const current = scroller.querySelector("[role='tab'][aria-selected='true']");
+    if (!current) return false;
+    const box = current.getBoundingClientRect();
+    const host = scroller.getBoundingClientRect();
+    if (!host.width || !box.width) return true;
+    return box.right > host.right + 8 || box.left < host.left - 8;
+  }
+
+  function revealProfileTabs() {
+    const started = STATE.renderGen || 0;
+    let frames = 0;
+    const apply = () => {
+      const root = document.getElementById("app") || document.body;
+      const store = hscrollStore();
+      let clipped = false;
+      document.querySelectorAll(".ptabs").forEach((el) => {
+        const next = revealSelectedTab(el, false);
+        if (el.scrollTo) el.scrollTo({ left: el.scrollLeft, behavior: "auto" });
+        const id = el.dataset.hscrollKey || hscrollId(el, root);
+        el.dataset.hscrollKey = id;
+        if (typeof next === "number") store[id] = next;
+        el.dataset.hscrollRevealed = "1";
+        if (profileTabClipped(el)) clipped = true;
+      });
+      syncTabArrows();
+      return clipped;
+    };
+    const clipped = apply();
+    if (!clipped && !profileTabHold) return;
+    const schedule = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+    const again = () => {
+      if ((STATE.renderGen || 0) !== started) return;
+      frames += 1;
+      if (apply() && frames < 8) schedule(again);
+    };
+    schedule(again);
   }
 
   function hscrollRestoreSaved(retry) {
@@ -22367,7 +23036,7 @@ if (STATE.histClear) {
 
   function revealSelectedTab(scroller, smooth) {
     if (!scroller) return 0;
-    const current = scroller.querySelector(".tab-pair.on") || scroller.querySelector(".tab.on") || scroller.querySelector("[role='tab'][aria-selected='true']");
+    const current = scroller.querySelector(".tab-pair.on") || scroller.querySelector(".tab.on") || scroller.querySelector(".ptab-edit.on") || scroller.querySelector("[role='tab'][aria-selected='true']");
     if (!current) return scroller.scrollLeft || 0;
     const pad = 8;
     const box = current.getBoundingClientRect();
@@ -22392,8 +23061,10 @@ if (STATE.histClear) {
     const max = scroller.scrollWidth - scroller.clientWidth;
     const canLeft = max > 2 && scroller.scrollLeft > 2;
     const canRight = max > 2 && scroller.scrollLeft < max - 2;
-    left.hidden = !canLeft;
-    right.hidden = !canRight;
+    // Hiding the focused arrow makes the browser drop focus and jump the
+    // strip back to the start, so a key that reaches the end keeps its button.
+    left.hidden = !canLeft && document.activeElement !== left;
+    right.hidden = !canRight && document.activeElement !== right;
     bar.classList.toggle("is-fade-left", canLeft);
     bar.classList.toggle("is-fade-right", canRight);
     if (!(scroller.scrollLeft === 0 && max <= 1 && tabScrollLeft > 1)) {
@@ -22785,7 +23456,8 @@ if (STATE.histClear) {
       document.documentElement.lang || "",
       document.documentElement.getAttribute("data-theme") || "",
       document.documentElement.getAttribute("data-fs") || "",
-      ARCHIVE.posts.length
+      ARCHIVE.posts.length,
+      viewerScope()
     ].join("|");
   }
   function parkKey(route) {
@@ -22798,7 +23470,7 @@ if (STATE.histClear) {
   function viewStamp(route) {
     if (route.name === "home") return homeStamp(route);
     const posts = STATE.data && STATE.data.posts ? STATE.data.posts.length : 0;
-    return [(location.hash || "#/"), STATE.loading ? 1 : 0, STATE.error ? 1 : 0, posts].join("|");
+    return [(location.hash || "#/"), STATE.loading ? 1 : 0, STATE.error ? 1 : 0, posts, viewerScope()].join("|");
   }
   function evictParks() {
     if (viewParks.size <= VIEW_PARK_MAX) return;
@@ -22853,7 +23525,14 @@ if (STATE.histClear) {
   function parkedReady(route) {
     const key = parkKey(route);
     const slot = key ? viewParks.get(key) : null;
-    return !!(slot && !slot.live && slot.root && !slot.force);
+    if (!slot || slot.live || !slot.root || slot.force) return false;
+    /* A parked page belongs to the account that built it. Putting it back
+       for someone else shows their reply until the later refresh. */
+    if (slot.scope && slot.scope !== viewerScope()) {
+      slot.force = true;
+      return false;
+    }
+    return true;
   }
   function scheduleViewRefresh(key, delayMs) {
     clearTimeout(viewRefreshTimer);
@@ -22897,6 +23576,8 @@ if (STATE.histClear) {
   }
 
   function renderNow(opts) {
+    /* Invocation count, including a call that returns before replacing the page. */
+    if (typeof window !== "undefined") window.__renderInvocations = (window.__renderInvocations || 0) + 1;
     if (document.documentElement.classList.contains("is-split-drag")) {
       STATE.splitRender = opts || STATE.splitRender || {};
       return;
@@ -22908,6 +23589,8 @@ if (STATE.histClear) {
       history.replaceState(null, "", location.pathname + location.search + "#/history/bookmarks");
     } else if (bare === "#/drive" || bare.startsWith("#/drive/")) {
       history.replaceState(null, "", location.pathname + location.search + "#/storage" + bare.slice("#/drive".length) + (qCut >= 0 ? hashNow.slice(qCut) : ""));
+    } else if (!shortsEnabled() && (bare === "#/shorts" || bare.startsWith("#/shorts/"))) {
+      history.replaceState(null, "", location.pathname + location.search + "#/");
     }
     const hashAtStart = location.hash || "#/";
     paintToken = routePaintState.token;
@@ -22982,6 +23665,8 @@ if (STATE.histClear) {
     let y = STATE.holdY != null ? STATE.holdY : (reset ? 0 : window.scrollY);
     const focus = document.activeElement;
     const focusId = focus && focus.id;
+    const focusTabNode = focus && focus.closest ? (focus.matches && focus.matches("[data-ptab-id]") ? focus : focus.closest(".ptabs [data-ptab-id]")) : null;
+    const focusTab = focusTabNode ? String(focusTabNode.getAttribute("data-ptab-id") || "") : "";
     const caret = focus && typeof focus.selectionStart === "number" ? focus.selectionStart : null;
     const focusValue = focusId === "explore-q" ? focus.value : null;
     if (leavingWatch) stopWatchPlayback();
@@ -23009,6 +23694,7 @@ if (STATE.histClear) {
       const stamp = key ? viewStamp(route) : "";
       const slot = key ? viewParks.get(key) : null;
       decision = commitFrameDecision({ token: STATE.renderGen, builtHash: location.hash || "#/" }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
+      if (slot && slot.scope && slot.scope !== viewerScope()) slot.force = true;
       const parkedAway = !!(decision && decision.commit && slot && !slot.live && slot.root && !slot.force);
       if (parkedAway) parkLiveView();
       if (parkedAway && restoreView(slot)) {
@@ -23023,6 +23709,10 @@ if (STATE.histClear) {
         if (window.SIntelMusic && window.SIntelMusic.afterRender) window.SIntelMusic.afterRender(route);
         window.scrollTo(0, y);
         xcastArm();
+        /* The strip's scroll position does not survive being detached.
+           The selected pill is measured again, including after a keyboard move. */
+        focusHeldProfileTab(focusTab);
+        revealProfileTabs();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
       } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force) {
@@ -23061,7 +23751,7 @@ if (STATE.histClear) {
           const prev = viewParks.get(key);
           if (prev && prev.root) prev.root.remove();
           const appNow = document.getElementById("app");
-          viewParks.set(key, { stamp: viewStamp(route), live: true, root: appNow ? wrapLive(appNow) : null, y: window.scrollY || 0, at: Date.now(), force: false, shown: false });
+          viewParks.set(key, { stamp: viewStamp(route), scope: viewerScope(), live: true, root: appNow ? wrapLive(appNow) : null, y: window.scrollY || 0, at: Date.now(), force: false, shown: false });
           evictParks();
         }
       }
@@ -23081,7 +23771,7 @@ if (STATE.histClear) {
         else if (window.ViktorychContacts.unmount) window.ViktorychContacts.unmount();
       }
       if (window.ViktorychShorts) {
-        if (route.name === "shorts") window.ViktorychShorts.mount(route);
+        if (shortsEnabled() && route.name === "shorts") window.ViktorychShorts.mount(route);
         else window.ViktorychShorts.unmount();
       }
       if (window.ViktorychDrive) {
@@ -23138,14 +23828,34 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
             const raw = String(opts.anchorId);
             const sel = window.CSS && CSS.escape ? 'article[data-post="' + CSS.escape(raw) + '"]' : 'article[data-post="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
             const el = document.querySelector(sel);
-            if (el) next = Math.max(0, window.scrollY + (el.getBoundingClientRect().top - (Number(opts.anchorTop) || 0)));
+            if (el) {
+              // The rect is visual pixels. scrollY is CSS pixels. Under page
+              // scale the two differ, and adding them raw jumps the post.
+              const shift = el.getBoundingClientRect().top - (Number(opts.anchorTop) || 0);
+              next = Math.max(0, window.scrollY + shift / layoutZoom());
+            }
           }
           window.scrollTo(0, next);
           if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = next;
+          placePostMenu();
           if (opts && opts.focusKey) focusExpandedControl(String(opts.focusKey));
+          if (opts && opts.focusMenu) {
+            const item = document.querySelector(".menu.post-menu button, .menu.post-menu a");
+            if (item) { try { item.focus({ preventScroll: true }); } catch (err) { item.focus(); } }
+            placePostMenu();
+          }
+          if (opts && opts.focusReturn) {
+            const raw = String(opts.focusReturn);
+            const backSel = window.CSS && CSS.escape
+              ? 'button[data-act="menu"][data-id="' + CSS.escape(raw) + '"]'
+              : 'button[data-act="menu"][data-id="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+            const back = document.querySelector(backSel);
+            if (back) { try { back.focus({ preventScroll: true }); } catch (err) { back.focus(); } }
+          }
           if (opts && opts.pinAnchor && opts.anchorId) watchPostAnchor(String(opts.anchorId), Number(opts.anchorTop) || 0);
         });
       }
+      let focusRestored = false;
       if (focusId) {
         const el = document.getElementById(focusId);
         if (el) {
@@ -23154,8 +23864,10 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (caret != null && el.setSelectionRange) {
             try { el.setSelectionRange(caret, caret); } catch (err) { /* ignore */ }
           }
+          focusRestored = true;
         }
       }
+      if (!focusRestored) focusHeldProfileTab(focusTab);
       paintChromeHidden(STATE.headerHidden && window.innerWidth < 500);
       if (route.name === "subscriptions" && route.channel && (routeChanged || !STATE.scrollKey)) revealSubsChannel();
       STATE.scrollKey = nextKey;
@@ -23181,6 +23893,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       resumePlayback();
       placeTabMenu();
       placeBellMenu();
+      placePostMenu();
       placeFloatMenu(".assign-menu");
       placeFloatMenu(".tab-context");
       syncTabArrows();
@@ -23347,6 +24060,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     };
   }
 
+  let menuKeyGuard = "";
   function onAct(el) {
     const act = el.dataset.act;
     if (act === "stop") return;
@@ -24198,9 +24912,11 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const amount = scroller.clientWidth || 240;
       const next = Math.max(0, Math.min(max, scroller.scrollLeft + dir * amount));
       const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const profile = scroller.classList && scroller.classList.contains("ptabs");
       tabScrollLeft = next;
       tabScrollRoute = routeScrollKey();
-      scroller.scrollTo({ left: next, behavior: reduced ? "auto" : "smooth" });
+      if (profile || reduced || !scroller.scrollTo) scroller.scrollLeft = next;
+      else scroller.scrollTo({ left: next, behavior: "smooth" });
       hscrollRememberEl(scroller);
       syncTabArrows();
       return;
@@ -25128,7 +25844,8 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       const id = el.dataset.id || "";
       if (!tab || !id) return;
       const now = Date.now();
-      const on = (tab.members || []).indexOf(id) < 0;
+      const previous = { members: (tab.members || []).slice(), adds: Object.assign({}, tab.memberAdds || {}), drops: Object.assign({}, tab.memberDrops || {}), updatedAt: tab.updatedAt };
+      const on = previous.members.indexOf(id) < 0;
       freezeFeedMembers(tab);
       tab.members = toggleMemberIds(tab.members, id);
       tab.memberAdds = Object.assign({}, tab.memberAdds || {});
@@ -25136,7 +25853,14 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       if (on) { tab.memberAdds[id] = now; delete tab.memberDrops[id]; }
       else { tab.memberDrops[id] = now; delete tab.memberAdds[id]; }
       tab.updatedAt = now;
-      saveSettings();
+      try { saveSettings(); }
+      catch (err) {
+        tab.members = previous.members;
+        tab.memberAdds = previous.adds;
+        tab.memberDrops = previous.drops;
+        tab.updatedAt = previous.updatedAt;
+        toast(tr("Try again"));
+      }
       render();
       return;
     }
@@ -25241,7 +25965,30 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       render({ y: window.scrollY });
       return;
     }
-    if (act === "menu") { STATE.menu = STATE.menu === el.dataset.id ? null : el.dataset.id; render(); return; }
+    if (act === "menu") {
+      // The key handler opens the menu with one click. Rendering replaces that
+      // button, and the key can then click the new button and toggle it shut.
+      // That follow-up is ignored. The click from the key itself runs first,
+      // while this guard is still clear, so it still opens or closes once.
+      if (menuKeyGuard && el.dataset.id === menuKeyGuard) {
+        menuKeyGuard = "";
+        return;
+      }
+      const opening = STATE.menu !== el.dataset.id;
+      const article = el.closest("article");
+      const anchorId = article ? (article.getAttribute("data-post") || "") : "";
+      const anchorTop = article ? article.getBoundingClientRect().top : 0;
+      rememberCardHeights();
+      STATE.menu = opening ? el.dataset.id : null;
+      render({
+        y: pageY(),
+        anchorId: anchorId,
+        anchorTop: anchorTop,
+        focusMenu: opening,
+        focusReturn: opening ? "" : (el.dataset.id || "")
+      });
+      return;
+    }
     if (act === "profile-tools" || act === "profile-more") {
       const next = act === "profile-tools" ? "tools" : "more";
       STATE.profileMenu = STATE.profileMenu === next ? null : next;
@@ -25522,11 +26269,34 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "member-add" || act === "member-remove") {
       const list = STATE.settings.lists.find((l) => l.id === STATE.draft.id);
       if (list) {
-        list.members = list.members || [];
-        if (act === "member-add" && !list.members.includes(el.dataset.id)) list.members.push(el.dataset.id);
-        if (act === "member-remove") list.members = list.members.filter((id) => id !== el.dataset.id);
-        saveSettings();
+        const previous = (list.members || []).slice();
+        list.members = previous.slice();
+        const id = el.dataset.id || "";
+        if (act === "member-add" && id && list.members.indexOf(id) < 0) list.members.push(id);
+        if (act === "member-remove") list.members = list.members.filter((item) => item !== id);
+        try { saveSettings(); }
+        catch (err) {
+          list.members = previous;
+          toast(tr("Try again"));
+        }
       }
+      render();
+      return;
+    }
+    if (act === "tab-retry") {
+      const id = String(el.dataset.tab || "");
+      if (id.indexOf("cat:") !== 0 && id.indexOf("list:") !== 0) return;
+      const row = tabRetries[id];
+      if (row) { clearTimeout(row.timer); row.timer = 0; row.n = 0; }
+      delete tabTried[id];
+      delete tabAsked[id];
+      if (tabBoundTimer[id]) { clearTimeout(tabBoundTimer[id]); tabBoundTimer[id] = 0; }
+      tabMembers(id).forEach((member) => {
+        const cacheKey = authorCacheKey(member);
+        const entry = cacheKey && authorPostCache[cacheKey];
+        if (entry) { entry.at = 0; entry.loading = false; }
+      });
+      refreshHomeTabs([id]);
       render();
       return;
     }
@@ -25828,6 +26598,70 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
       render();
     }, 0);
   });
+  document.addEventListener("keydown", (event) => {
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest("button[data-act='menu']");
+    const btn = (event.target && event.target.closest && event.target.closest("button[data-act='menu']")) || focused;
+    if (!btn) return;
+    // A zoomed page can focus the button and still not synthesize a click, or
+    // it can click again after render replaces the button. One click applies
+    // the toggle. menuKeyGuard drops the extra click, matched by id because
+    // the node from this keydown is no longer in the page.
+    event.preventDefault();
+    menuKeyGuard = "";
+    const id = btn.getAttribute("data-id") || "";
+    btn.click();
+    menuKeyGuard = id;
+    setTimeout(() => { if (menuKeyGuard === id) menuKeyGuard = ""; }, 400);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const arrow = event.target.closest && event.target.closest(".tab-arrow[data-act='tab-scroll']");
+    if (arrow && (event.key === " " || event.key === "Enter")) {
+      event.preventDefault();
+      onAct(arrow);
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab']");
+    if (!tab) return;
+    const list = tab.closest(".ptabs");
+    if (!list) return;
+    const tabs = [...list.querySelectorAll("[role='tab']")];
+    const at = tabs.indexOf(tab);
+    if (at < 0) return;
+    const next = tabs[at + (event.key === "ArrowRight" ? 1 : -1)];
+    if (!next) return;
+    event.preventDefault();
+    profileTabHold = next.getAttribute("data-ptab-id") || "";
+    next.click();
+    const held = profileTabHold;
+    const restore = () => {
+      if (profileTabHold !== held) return;
+      focusHeldProfileTab(held);
+      revealProfileTabs();
+    };
+    restore();
+    setTimeout(restore, 0);
+    setTimeout(restore, 160);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) profileTabHold = tab.getAttribute("data-ptab-id") || "";
+  }, true);
+  document.addEventListener("click", (event) => {
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) profileTabHold = tab.getAttribute("data-ptab-id") || "";
+  }, true);
+  document.addEventListener("focusin", (event) => {
+    if (!profileTabHold) return;
+    const tab = event.target.closest && event.target.closest(".ptabs [role='tab'][data-ptab-id]");
+    if (tab) return;
+    const node = event.target;
+    if (!node || node === document.body || node === document.documentElement) return;
+    profileTabHold = "";
+  });
   document.addEventListener("click", (event) => {
     const acct = event.target.closest && event.target.closest(".acct-menu [data-acct]");
     if (!acct) return;
@@ -25881,6 +26715,17 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     if (window.innerWidth < 500 && event.target.closest(".topbar") && !event.target.closest("button, a, input, textarea, select")) {
       if (parseRoute().name !== "home") { goHash("#/"); return; }
       smoothTop();
+      return;
+    }
+    if (STATE.menu && !(event.target.closest && event.target.closest(".menu, button[data-act='menu']"))) {
+      const menuBtn = document.querySelector(window.CSS && CSS.escape ? 'button[data-act="menu"][data-id="' + CSS.escape(STATE.menu) + '"]' : "button[data-act='menu']");
+      const menuArticle = menuBtn ? menuBtn.closest("article") : null;
+      const menuAnchor = menuArticle ? (menuArticle.getAttribute("data-post") || "") : "";
+      const menuTop = menuArticle ? menuArticle.getBoundingClientRect().top : 0;
+      STATE.menu = null;
+      render({ y: pageY(), anchorId: menuAnchor, anchorTop: menuTop });
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     if (event.target.closest("a, button, video, input, textarea, label")) return;
@@ -26054,6 +26899,7 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     }
     const article = event.target.closest && event.target.closest("article.post[data-post]");
     if (!article || (event.target.closest && event.target.closest("a, button, input, textarea, video, .menu"))) return;
+    if (window.ViktorychImageCopy && window.ViktorychImageCopy.owns && window.ViktorychImageCopy.owns(event.target)) return;
     event.preventDefault();
     openAssignFromPost(article.dataset.post, event.clientX, event.clientY);
   });
@@ -26198,9 +27044,10 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
   }
 
   function placeNavMenu(el, anchor) {
-    const rect = anchor.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const rect = layoutRect(anchor);
+    const view = layoutView();
+    const vw = view.w;
+    const vh = view.h;
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     const gap = 8;
@@ -26906,6 +27753,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (STATE.modal === "compose" && window.ViktorychXCompose && window.ViktorychXCompose.onEscape && window.ViktorychXCompose.onEscape()) return true;
     if (STATE.viewer) { closeViewer(); return true; }
     if (STATE.modal || STATE.drawer || STATE.drawerEdit || STATE.accountMenu || STATE.noteGear || STATE.menu || STATE.share || STATE.groupMenu || STATE.tabMenu || STATE.bellMenu || STATE.busySheet || STATE.removeFeed || STATE.tabAssign || STATE.tabContext || STATE.repostMenu || (STATE.confirm && STATE.confirm.kind === "feed-tab")) {
+      const menuId = STATE.menu || "";
+      const menuBtn = menuId ? document.querySelector(window.CSS && CSS.escape ? 'button[data-act="menu"][data-id="' + CSS.escape(menuId) + '"]' : 'button[data-act="menu"][data-id="' + String(menuId).replace(/"/g, "") + '"]') : null;
+      const menuArticle = menuBtn ? menuBtn.closest("article") : null;
+      const menuAnchor = menuArticle ? (menuArticle.getAttribute("data-post") || "") : "";
+      const menuTop = menuArticle ? menuArticle.getBoundingClientRect().top : 0;
       STATE.modal = null;
       STATE.composeVia = "";
       STATE.drawer = false;
@@ -26926,7 +27778,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       STATE.histClear = "";
       STATE.removeFeed = null;
       STATE.repostMenu = null;
-      render();
+      render(menuId ? { y: pageY(), anchorId: menuAnchor, anchorTop: menuTop, focusReturn: menuId } : undefined);
       return true;
     }
     return false;
@@ -27577,9 +28429,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       seen = window.ViktorychPresence.linesHtml(pid);
     }
     box.innerHTML = `<div class="hcard">${banner}<div class="hbody"><div class="pava-row">${face}${followButtonClean(id)}</div><div class="name" style="font-weight:800;margin-top:8px">${esc(nickName(profile.platform, profile.handle, profile.name || profile.handle || ""))}${badge(profile.verifiedType)}${affSlot({ publicId: presenceIdOf(profile) })}</div>${handle ? `<div class="phandle">@${esc(handle)}</div>` : ""}${seen}${profile.bio ? `<div class="hbio">${esc(profile.bio)}</div>` : ""}${audienceCounts(profile)}</div></div>`;
-    const left = Math.min(rect.left, window.innerWidth - 320);
+    const boxRect = layoutRect(el);
+    const view = layoutView();
+    const left = Math.min(boxRect.left, view.w - 320);
     box.style.left = Math.max(8, left) + "px";
-    box.style.top = (rect.bottom + 8) + "px";
+    box.style.top = (boxRect.bottom + 8) + "px";
   }
 
   function showHover(el) {
@@ -27825,6 +28679,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }, true);
   window.addEventListener("hashchange", () => {
     if (window.ViktorychAccounts?.blocking?.()) return;
+    dropForeignViewer();
     showPill(pendingPillPosts());
     const nextHash = location.hash || "#/";
     const prevHash = lastKey || "";
@@ -29062,6 +29917,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
      session, or a retry is waiting. Retries back off: 4 s, 12 s, 36 s. */
   const tabFlights = {};
   const tabTried = {};
+  const tabAsked = {};
+  const tabBoundTimer = {};
   const tabRetries = {};
   const TAB_RETRY_MS = [4000, 12000, 36000];
   function tabHasPosts(tab) {
@@ -29081,8 +29938,19 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
   function tabStillLoading(tab) {
     if (!(tab.indexOf("cat:") === 0 || tab.indexOf("list:") === 0)) return false;
-    if (!feedsForTab(tab).length) return false;
+    if (!feedsForTab(tab).length && !memberFetchPending(tab)) return false;
+    const asked = tabAsked[tab] || (tabAsked[tab] = Date.now());
+    const left = 8000 - (Date.now() - asked);
+    if (left <= 0) return false;
+    if (!tabBoundTimer[tab]) {
+      tabBoundTimer[tab] = setTimeout(() => {
+        tabBoundTimer[tab] = 0;
+        const route = parseRoute();
+        if (route && route.name === "home" && route.tab === tab) render({ y: window.scrollY });
+      }, left + 30);
+    }
     if (!tabHydrated[tab]) { hydrateTab(tab); return true; }
+    if (memberFetchPending(tab)) return true;
     if ((tabFlights[tab] || 0) > 0 || !tabTried[tab]) return true;
     const row = tabRetries[tab];
     return !!(row && row.timer);
@@ -29210,6 +30078,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const lists = window.SourceLists;
     if (!lists || !doc || !Array.isArray(doc.posts)) return doc;
     await Promise.race([lists.ready(), new Promise((done) => setTimeout(done, 400))]);
+    lists.refresh(false).catch(() => null);
     return lists.merge(doc);
   }
 
@@ -29317,8 +30186,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (!STATE.data) {
         notePublished(doc);
         STATE.data = withMemory(doc);
-        if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
-        if (window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
+        if (shortsEnabled() && window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
+        if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
         STATE.error = null;
         STATE.pendingFeed = null;
         if (!(STATE.pendingLive || []).length) showPill([]);
@@ -31223,6 +32092,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     if (msg.op === "event" && msg.topic === "notifications" && msg.data) applyHubEvent(msg.data);
     if (msg.op === "event" && msg.topic === "games" && msg.data && window.ViktorychGameSocial) window.ViktorychGameSocial.onChannel(msg.data);
+    if (msg.op === "event" && msg.topic === "sync" && msg.data && msg.data.lists && window.SourceLists && window.SourceLists.notify) window.SourceLists.notify(msg.data);
     if (msg.op === "event" && msg.topic === "posts") {
       clearTimeout(postsLiveTimer);
       postsLiveTimer = setTimeout(refreshAppPosts, 600);
@@ -31338,6 +32208,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       STATE.settings.bellNotes = [];
       STATE.settings.bellSeen = [];
       STATE.settings.bellRead = 0;
+      keepNewerBlocks();
       writeStored(localStorage, "settings-v1", JSON.stringify(STATE.settings));
     }
     removeStored(localStorage, "notes-server");
@@ -32632,7 +33503,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (post) {
         const chain = ancestorChain(post);
         const parent = chain.nodes.length ? chain.nodes[chain.nodes.length - 1] : (post.replyParent || null);
-        const replies = orderedUnique(bucket.replies || []).slice(0, 20).map(cacheRow).filter(Boolean);
+        const replies = (replyBucketForViewer(bucket) ? orderedUnique(bucket.replies || []) : []).slice(0, 20).map(cacheRow).filter((row) => replyCardForViewer(row));
         local.saveDoc("threads", String(route.id), {
           order: "utc",
           post: cacheRow(post),
@@ -32658,7 +33529,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }
     }
     if (STATE.composeSeed) local.saveDoc("drafts", "compose", { text: STATE.composeSeed });
-    if (window.ViktorychShorts && window.ViktorychShorts.snapshot) window.ViktorychShorts.snapshot();
+    if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.snapshot) window.ViktorychShorts.snapshot();
     if (window.SIntelMusic && window.SIntelMusic.snapshot) window.SIntelMusic.snapshot();
     if (window.FeedsDiscord && window.FeedsDiscord.snapshot) window.FeedsDiscord.snapshot();
     if (window.ViktorychCommunities && window.ViktorychCommunities.snapshot) window.ViktorychCommunities.snapshot();
@@ -32765,8 +33636,13 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (window.ProfileGifts) {
       window.ProfileGifts.onReply = function (parentId, post) {
         const key = String(parentId || "");
-        const bucket = STATE.replies[key] || (STATE.replies[key] = { replies: [], loading: false });
-        bucket.replies = (bucket.replies || []).filter((item) => item && item.id !== post.id).concat([post]);
+        const scope = viewerScope();
+        let bucket = STATE.replies[key];
+        if (!bucket || (bucket.scope && bucket.scope !== scope)) bucket = { replies: [], loading: false, scope: scope };
+        bucket.scope = scope;
+        stampAppCard(post);
+        bucket.replies = (bucket.replies || []).filter((item) => item && replyCardForViewer(item) && item.id !== post.id).concat([post]);
+        STATE.replies[key] = bucket;
         render();
       };
       window.ProfileGifts.start();
@@ -32785,7 +33661,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       notePublished(snap);
       STATE.data = snap;
       STATE.settings = loadSettings();
-      if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
+      if (shortsEnabled() && window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
       STATE.loading = false;
       if (!routeDomReady && parseRoute().name !== "home") followRoute();
       else render({ reset: true });
@@ -32854,8 +33730,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         }
         saveHomeSnapshot();
       }
-      if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
-      if (window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
+      if (shortsEnabled() && window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
+      if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
       ensureVideoOwners();
       applyIaPreview(STATE.data);
       STATE.settings = loadSettings();
@@ -32918,7 +33794,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       /* The archive list does not depend on the catalog. Without it every
          picture that failed would wait for a list that never comes. */
       if (!IA.ready) loadNewestShard().catch(() => installIaManifest(null));
-      if (window.ViktorychShorts && window.ViktorychShorts.visible()) {
+      if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.visible()) {
         if (!STATE.data) STATE.data = { posts: [], feeds: [] };
         try { await window.ViktorychShorts.pull(); } catch (ignore) { /* shorts keeps the last copy */ }
       }
@@ -33272,12 +34148,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
      was moving the page under an open phone drawer. The server off-switch
      still skips it. Opening Shorts still paints, because that call is not
      quiet. */
-  if (window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure("shorts", true);
+  if (shortsEnabled() && window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure("shorts", true);
   if (musicSessionOpen() || parseRoute().name === "music") ensureMusic();
   setTimeout(() => {
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();
-      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers"];
+      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers"].filter((name) => name !== "shorts" || shortsEnabled());
       if (saver) saver.whenRoomy(() => window.ViktorychLazy.preload(list));
       else window.ViktorychLazy.preload(list);
     }
@@ -33355,10 +34231,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       const sameList = (left, right) => left.length === right.length && left.every((id) => right.some((item) => sameFollowId(item, id)));
       const sameFeeds = sameList(prevFeeds, feeds);
       const sameApps = sameList(prevApps, apps);
-      if (sameFeeds && sameApps) return;
+      if (sameFeeds && sameApps) return false;
       STATE.settings.follows = feeds.slice();
       STATE.settings.accountFollows = apps.slice();
       saveSettings();
+      return true;
     };
     window.ViktorychAccounts.readHistory = readHistory;
     window.ViktorychAccounts.writeHistory = writeHistory;
@@ -33431,7 +34308,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
   function aiPersonKeys(handle) {
     const keys = [];
-    (publicPosts || []).forEach((item) => {
+    visiblePublicPosts().forEach((item) => {
       if (item && item.authorId && String(item.handle || "").replace(/^@/, "").toLowerCase() === handle) keys.push("app:" + String(item.authorId));
     });
     feeds().forEach((f) => {
@@ -33864,11 +34741,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       tip.style.display = "block";
       tip.classList.remove("is-visible");
 
-      const rect = el.getBoundingClientRect();
+      const rect = layoutRect(el);
       const tipW = tip.offsetWidth;
       const tipH = tip.offsetHeight;
-      const winW = window.innerWidth;
-      const winH = window.innerHeight;
+      const view = layoutView();
+      const winW = view.w;
+      const winH = view.h;
 
       const inNav = !!el.closest(".nav");
       const inBottomNav = !!el.closest(".bottom-nav");

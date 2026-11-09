@@ -1633,10 +1633,53 @@ img[data-ia-wait] { visibility: hidden; }
   font-weight: 700;
 }
 .menu button:hover, .menu a:hover { background: var(--hover); }
+.menu.image-copy-menu {
+  position: fixed;
+  z-index: 70;
+  right: auto;
+  width: 280px;
+  max-width: 280px;
+}
+.image-copy-note {
+  margin: 0;
+  padding: 4px 16px 12px;
+  color: var(--muted, #71767b);
+  font-size: 13px;
+  line-height: 1.3;
+  font-weight: 400;
+}
 .post { position: relative; }
+/* The open card has to sit above the sticky header (5) and the phone bar (20)
+   so its menu is the thing under the pointer. The tab sheet stays at 35. */
+.post.menu-open,
 .post:has(.menu) {
   content-visibility: visible;
-  z-index: 6;
+  position: relative;
+  z-index: 30;
+}
+.menu.post-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  z-index: 30;
+  max-height: min(70vh, 480px);
+  overflow: auto;
+}
+/* Desktop only. The Viktrych mark has no size of its own, so it painted
+   about 200px tall and the menu had to scroll. Text stays 15px. */
+@media (min-width: 1000px) {
+  .menu.post-menu button,
+  .menu.post-menu a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .menu.post-menu svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
 }
 
 .side-search { position: sticky; top: 0; background: var(--topbar); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: calc(6px + var(--sat, env(safe-area-inset-top, 0px))) 0 12px; z-index: 4; }
@@ -1952,6 +1995,9 @@ a.follow { display: inline-flex; align-items: center; justify-content: center; w
 .connect-bio { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; color: var(--text); font-size: 15px; line-height: 20px; margin-top: 2px; }
 .ptabs-wrap { position: sticky; top: 0; z-index: 4; background: var(--topbar); }
 .ptabs-wrap .ptabs { position: static; top: auto; }
+.ptabs-bar { height: 44px; border-bottom: 0; }
+.ptabs-bar .tab-arrow.right { right: 8px; }
+.ptabs-bar.is-fade-right::after { right: 0; }
 .ptabs {
   position: sticky;
   top: 0;
@@ -3439,6 +3485,10 @@ html.vk-wco-narrow .wco-title { display: none; }
 }
 .wco-btn svg { width: 20px; height: 20px; fill: currentColor; }
 .wco-btn:hover { background: rgba(231, 233, 234, 0.1); }
+.desk-scale { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+.desk-scale span { flex: 0 1 220px; }
+.desk-scale input { flex: 1; min-width: 0; }
+.desk-scale b { flex: none; min-width: 3.2em; font-weight: 700; }
 .wco-close:hover { background: rgba(244, 33, 46, 0.1); color: #f4212e; }
 
 /* Page scrollbar: hidden in the installed app (and in full screen) unless
@@ -4969,6 +5019,8 @@ html[data-theme="default"] .xk-status.warn { color: #b26b00; }
 .xk-problem { margin: 0; padding: 12px 16px 12px 52px; border-bottom: 1px solid var(--line); font-size: 15px; line-height: 20px; position: relative; }
 .xk-problem::before { content: ""; position: absolute; left: 24px; top: 18px; width: 8px; height: 8px; border-radius: 50%; background: #ffad1f; }
 .xk-problem.down::before { background: var(--red); }
+.xk-problem.paused { color: var(--muted); }
+.xk-problem.paused::before { background: var(--muted); }
 .xk-form { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .xk-key .xk-form { padding-left: 52px; border-bottom: 0; }
 .xk-field { display: block; margin-bottom: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 4px; transition: border-color .15s; }

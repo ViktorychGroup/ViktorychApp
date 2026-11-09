@@ -78,16 +78,27 @@
     } catch (err) { return { s: {}, b: {}, u: {}, me: null }; }
   }
   var saveTimer = 0;
+  function notesAccount() {
+    try {
+      var doc = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+      var id = doc && doc.account && (doc.account.publicId || doc.account.id);
+      return id ? String(id) : "";
+    } catch (err) { return ""; }
+  }
   function saveSoon() {
-    if (saveTimer) return;
+    clearTimeout(saveTimer);
+    var scope = notesAccount();
+    var hashes = Object.keys(store.b);
+    if (hashes.length > BLOB_KEEP) {
+      hashes.sort(function (a, b) { return (store.u[a] || 0) - (store.u[b] || 0); });
+      hashes.slice(0, hashes.length - BLOB_KEEP).forEach(function (h) { delete store.b[h]; delete store.u[h]; });
+    }
+    var payload = "";
+    try { payload = JSON.stringify(store); } catch (err) { return; }
     saveTimer = setTimeout(function () {
       saveTimer = 0;
-      var hashes = Object.keys(store.b);
-      if (hashes.length > BLOB_KEEP) {
-        hashes.sort(function (a, b) { return (store.u[a] || 0) - (store.u[b] || 0); });
-        hashes.slice(0, hashes.length - BLOB_KEEP).forEach(function (h) { delete store.b[h]; delete store.u[h]; });
-      }
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (err) { /* full: keep in memory */ }
+      if (notesAccount() !== scope) return;
+      try { localStorage.setItem(STORE_KEY, payload); } catch (err) { /* full: keep in memory */ }
     }, 400);
   }
   if (root.addEventListener) root.addEventListener("viktorych-wipe", function () { store = { s: {}, b: {}, u: {}, me: null }; pend = {}; try { localStorage.removeItem(STORE_KEY); } catch (err) { /* ignore */ } });

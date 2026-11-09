@@ -194,6 +194,9 @@ test("a reply can carry a photo, and the thread shows it", async () => {
   assert.equal(reply.body.post.parentId, pid);
   const media = reply.body.post.media || [];
   assert.equal(media.length, 1, JSON.stringify(reply.body.post));
+  const stored = await call(media[0].url, { ip, token: a.token, raw: true });
+  assert.equal(stored.status, 200);
+  assert.equal(Buffer.compare(Buffer.from(stored.bytes), png), 0);
   const thread = await call("/v1/posts/thread?id=" + pid, { ip, token: a.token });
   const shown = thread.body.replies.find((post) => post.id === reply.body.post.id);
   assert.ok(shown && (shown.media || []).length === 1, "the thread lists the reply with its photo");
