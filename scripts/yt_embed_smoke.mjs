@@ -15,6 +15,27 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const VIDEO_ID = "M7lc1UVf-VE";
+/* A stand-in for the embed player. It speaks the same widget messages the
+   page already accepts, and it never contacts YouTube. */
+const PLAYER_STUB = `<!doctype html>
+<html><head><meta charset="utf-8"></head><body>
+<script>
+function reply(msg) {
+  parent.postMessage(JSON.stringify(msg), "*");
+}
+window.addEventListener("message", function (event) {
+  var data = event.data;
+  if (typeof data === "string") {
+    try { data = JSON.parse(data); } catch (err) { return; }
+  }
+  if (!data || typeof data !== "object" || data.event !== "command") return;
+  var arg = data.args && data.args[0];
+  if (data.func === "addEventListener" && arg === "onReady") reply({ event: "onReady", info: {} });
+  if (data.func === "playVideo") reply({ event: "onStateChange", info: 1 });
+});
+</script>
+</body></html>`;
+const PLAYER_STUB_B64 = Buffer.from(PLAYER_STUB, "utf8").toString("base64");
 const PAGE = (name) => `<!doctype html>
 <html>
 <head>
@@ -192,18 +213,60 @@ async function launch(width, height) {
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   let id = 0;
   const pending = new Map();
-  function send(method, params) {
+  function waiterKey(msgId, sessionId) {
+    return (sessionId || "") + ":" + msgId;
+  }
+  function send(method, params, sessionId) {
     const msgId = ++id;
+    const payload = { id: msgId, method, params: params || {} };
+    if (sessionId) payload.sessionId = sessionId;
     return new Promise((done, reject) => {
-      pending.set(msgId, { done, reject });
-      ws.send(JSON.stringify({ id: msgId, method, params: params || {} }));
+      pending.set(waiterKey(msgId, sessionId), { done, reject });
+      ws.send(JSON.stringify(payload));
     });
+  }
+  const embedPattern = /youtube(?:-nocookie)?\.com\/embed\//i;
+  async function answerEmbed(params, sessionId) {
+    const url = String((params.request && params.request.url) || "");
+    if (embedPattern.test(url)) {
+      await send("Fetch.fulfillRequest", {
+        requestId: params.requestId,
+        responseCode: 200,
+        responseHeaders: [
+          { name: "Content-Type", value: "text/html; charset=utf-8" },
+          { name: "Cache-Control", value: "no-store" }
+        ],
+        body: PLAYER_STUB_B64
+      }, sessionId);
+      return;
+    }
+    await send("Fetch.failRequest", { requestId: params.requestId, errorReason: "BlockedByClient" }, sessionId);
+  }
+  function armFetch(sessionId) {
+    return send("Fetch.enable", {
+      patterns: [
+        { urlPattern: "*://*.youtube.com/*", requestStage: "Request" },
+        { urlPattern: "*://*.youtube-nocookie.com/*", requestStage: "Request" }
+      ]
+    }, sessionId).catch(() => {});
   }
   ws.addEventListener("message", (ev) => {
     const msg = JSON.parse(ev.data);
-    if (msg.id && pending.has(msg.id)) {
-      const waiter = pending.get(msg.id);
-      pending.delete(msg.id);
+    if (msg.method === "Target.attachedToTarget") {
+      const child = msg.params && msg.params.sessionId;
+      armFetch(child).finally(() => {
+        send("Runtime.runIfWaitingForDebugger", {}, child).catch(() => {});
+      });
+      return;
+    }
+    if (msg.method === "Fetch.requestPaused") {
+      answerEmbed(msg.params || {}, msg.sessionId).catch(() => {});
+      return;
+    }
+    const key = waiterKey(msg.id, msg.sessionId);
+    if (msg.id && pending.has(key)) {
+      const waiter = pending.get(key);
+      pending.delete(key);
       if (msg.error) waiter.reject(new Error(JSON.stringify(msg.error)));
       else waiter.done(msg.result);
     }
@@ -214,6 +277,8 @@ async function launch(width, height) {
   });
   await send("Page.enable");
   await send("Runtime.enable");
+  await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
+  await armFetch();
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 800 });
   return {
     async open(url) {
