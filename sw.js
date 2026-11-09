@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-09T09:40:38.000Z-shorts-off
+// cache-bust: 2026-11-09T09:48:26.000Z-shorts-off
 try { importScripts("./shorts-enabled.js"); } catch (err) { /* Shorts stays off when the switch file is missing */ }
 
 const ACCOUNTS_WALL = false;
@@ -1749,7 +1749,8 @@ async function doPrecache(report, generation, signal, mode) {
   cache.name = stagingName;
   const skip = await offFeatureFiles();
   const coreOnly = mode === "core";
-  let files = withoutParkedShorts(SHELL_FILES).filter((path) => skip.indexOf(path) < 0);
+  let files = SHELL_FILES.filter((path) => skip.indexOf(path) < 0);
+  files = withoutParkedShorts(files);
   files.sort((a, b) => (SHELL_CORE.indexOf(a) >= 0 ? 0 : 1) - (SHELL_CORE.indexOf(b) >= 0 ? 0 : 1));
   if (coreOnly) files = files.filter((path) => SHELL_CORE.indexOf(path) >= 0);
   const state = { files: 0, totalFiles: files.length, bytes: 0, totalBytes: 0, reused: 0, fetched: 0, reuse: null };
