@@ -8230,3 +8230,7 @@ html.vk-show-scrollbar::-webkit-scrollbar {
   width: 12px !important;
   height: 12px !important;
 }
+/* content-visibility skips a card's text for hit testing while the card
+   itself still has a box. A right-click then lands on the card and the
+   text is not a target. Cards stay hittable. */
+.post { content-visibility: visible; }
