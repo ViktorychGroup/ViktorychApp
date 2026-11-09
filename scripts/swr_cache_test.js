@@ -74,12 +74,17 @@ assert.ok(swr.get("q2", store));
 
 /* Private pages keep their snapshot under a "private-list" key, which the
    device seal encrypts and the private wipe removes; public pages do not. */
-assert.ok(localfirst.routeKey("#/messages/abc").indexOf("private-list") >= 0);
-assert.ok(localfirst.routeKey("#/bookmarks").indexOf("private-list") >= 0);
-assert.ok(localfirst.routeKey("#/lists").indexOf("private-list") >= 0);
-assert.ok(localfirst.routeKey("#/notifications").indexOf("private-list") >= 0);
+assert.ok(localfirst.routeKey("#/messages").indexOf("private-list:route:v2:") === 0, "messages stays private");
+assert.ok(localfirst.routeKey("#/messages/abc").indexOf("private-list:route:v2:") === 0);
+assert.ok(localfirst.routeKey("#/chat").indexOf("private-list:route:v2:") === 0);
+assert.ok(localfirst.routeKey("#/bookmarks").indexOf("private-list:route:v2:") === 0);
+assert.ok(localfirst.routeKey("#/lists").indexOf("private-list:route:v2:") === 0);
+assert.ok(localfirst.routeKey("#/lists/1").indexOf("private-list:route:v2:") === 0);
+assert.ok(localfirst.routeKey("#/drafts").indexOf("private-list:route:v2:") === 0);
+assert.ok(localfirst.routeKey("#/notifications").indexOf("private-list:route:v2:") === 0);
 assert.strictEqual(localfirst.routeKey("#/explore").indexOf("private-list"), -1);
 assert.strictEqual(localfirst.routeKey("#/communities").indexOf("private-list"), -1);
+assert.strictEqual(localfirst.routeKey("#/cat/crew").indexOf("route:v2:"), 0);
 assert.ok(swr.put(localfirst.routeKey("#/messages"), "<p>secret</p>", store));
 assert.ok(swr.put(localfirst.routeKey("#/explore"), "<p>public</p>", store));
 localfirst.wipePrivate(store);
@@ -95,19 +100,42 @@ assert.strictEqual(swr.get("q2", store), null);
 const routeStore = memoryStore();
 global.localStorage = routeStore;
 localfirst.swr.reset();
-routeStore.setItem("viktorychapp-account-v1", JSON.stringify({ token: "token-a", account: { publicId: "100000000001" } }));
+function setAccount(id) {
+  routeStore.setItem("viktorychapp-account-v1", JSON.stringify({ token: "token-" + id, account: { publicId: id } }));
+}
+setAccount("500000000005");
+const poison = "route:500000000005:#/cat/crew";
+assert.ok(swr.put(poison, "<article>Cached note from user b</article>", routeStore));
+assert.strictEqual(localfirst.readRoute("#/cat/crew"), "", "a pre-fix snapshot is not painted");
+localfirst.onAccountChange();
+assert.strictEqual(swr.get(poison, routeStore), null, "an account switch purges a pre-fix snapshot");
+setAccount("100000000001");
 assert.strictEqual(localfirst.saveRoute("#/cat/crew", "<article>Cached note from user b</article>"), true);
-routeStore.setItem("viktorychapp-account-v1", JSON.stringify({ token: "token-e", account: { publicId: "500000000005" } }));
+setAccount("500000000005");
 setTimeout(() => {
   try {
     assert.strictEqual(localfirst.readRoute("#/cat/crew"), "", "the next account does not receive the previous page");
-    routeStore.setItem("viktorychapp-account-v1", JSON.stringify({ token: "token-a", account: { publicId: "100000000001" } }));
+    setAccount("100000000001");
     assert.strictEqual(localfirst.readRoute("#/cat/crew"), "", "the late write is dropped instead of filed after the switch");
     assert.strictEqual(localfirst.saveRoute("#/cat/crew", "<article>own note</article>"), true);
+    localfirst.noteScroll("home:crew", 400);
     setTimeout(() => {
       try {
         assert.strictEqual(localfirst.readRoute("#/cat/crew"), "<article>own note</article>");
-        console.log("swr cache ok");
+        assert.strictEqual(localfirst.readScrolls()["home:crew"], 400);
+        localfirst.noteScroll("home:crew", 10);
+        setAccount("500000000005");
+        setTimeout(() => {
+          try {
+            assert.strictEqual(localfirst.readScrolls()["home:crew"], undefined, "a switched account does not keep the previous scroll");
+            setAccount("100000000001");
+            assert.strictEqual(localfirst.readScrolls()["home:crew"], 400, "the late scroll write was dropped");
+            console.log("swr cache ok");
+          } catch (err) {
+            console.error(err);
+            process.exit(1);
+          }
+        }, 350);
       } catch (err) {
         console.error(err);
         process.exit(1);

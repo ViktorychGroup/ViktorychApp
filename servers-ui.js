@@ -249,11 +249,20 @@
     });
   }
   var idbTimers = {};
+  function serverAccount() {
+    try {
+      var doc = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+      var id = doc && doc.account && (doc.account.publicId || doc.account.id);
+      return id ? String(id) : "";
+    } catch (err) { return ""; }
+  }
   function saveChannel(cid) {
-    if (idbTimers[cid]) return;
+    clearTimeout(idbTimers[cid]);
+    var scope = serverAccount();
+    var list = (S.msgs[cid] || []).filter(function (m) { return !m.pending; }).slice(-MAX_CACHE);
     idbTimers[cid] = setTimeout(function () {
       delete idbTimers[cid];
-      var list = (S.msgs[cid] || []).filter(function (m) { return !m.pending; }).slice(-MAX_CACHE);
+      if (serverAccount() !== scope) return;
       db().then(function (d) {
         if (!d) return;
         try { d.transaction("ch", "readwrite").objectStore("ch").put({ list: list, at: Date.now() }, cid); } catch (err) { /* quota */ }
@@ -3803,7 +3812,16 @@
     } else if (t.id === "vsrv-edit") autosize(t);
   }
   var draftTimer = 0;
-  function saveDrafts() { clearTimeout(draftTimer); draftTimer = setTimeout(function () { lsSet("drafts", S.drafts); }, 500); }
+  function saveDrafts() {
+    clearTimeout(draftTimer);
+    var scope = serverAccount();
+    var copy = {};
+    Object.keys(S.drafts || {}).forEach(function (key) { copy[key] = S.drafts[key]; });
+    draftTimer = setTimeout(function () {
+      if (serverAccount() !== scope) return;
+      lsSet("drafts", copy);
+    }, 500);
+  }
   function onKey(ev) {
     var t = ev.target;
     if (ev.key === "Escape" && sheetStack.length) { closeSheet(); return; }
