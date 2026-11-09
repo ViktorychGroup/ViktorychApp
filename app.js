@@ -3084,7 +3084,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       html += esc(src[i]);
       i += 1;
     }
-    return html;
+    return window.ViktorychEmoji ? window.ViktorychEmoji.mark(html) : html;
   }
 
   function discordEmojiHtml(html, emojis) {
@@ -3183,6 +3183,32 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     }
   }
 
+  /* Keep the preview on a grapheme boundary so a family, flag, or skin
+     tone is not cut in half. */
+  function clipPreview(text, maxUnits) {
+    const src = String(text || "");
+    const budget = Number(maxUnits) || 0;
+    if (budget <= 0) return "";
+    if (src.length <= budget) return src;
+    let parts = null;
+    if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+      try {
+        parts = [];
+        for (const row of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(src)) parts.push(row.segment);
+      } catch (err) { parts = null; }
+    }
+    if (!parts && window.ViktorychEmoji && typeof window.ViktorychEmoji.units === "function") {
+      try { parts = window.ViktorychEmoji.units(src); } catch (err) { parts = null; }
+    }
+    if (!parts) return Array.from(src).slice(0, budget).join("");
+    let out = "";
+    for (let i = 0; i < parts.length; i++) {
+      if (out.length + parts[i].length > budget) break;
+      out += parts[i];
+    }
+    return out;
+  }
+
   function textHtml(post, key, full) {
     if (window.FeedsTranslate) {
       const swapped = window.FeedsTranslate.textFor(key);
@@ -3197,9 +3223,10 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
     const rich = safeRich(post.html);
     const moreBtn = (open) => ` <button type="button" class="show-more" data-act="more" data-key="${esc(key)}" aria-expanded="${open ? "true" : "false"}">${open ? tr("Show less") : tr("Show more")}</button>`;
     const long = text.length > 280;
-    if (rich && (full || STATE.expanded[key] || !long)) return rich + (!full && long && STATE.expanded[key] ? moreBtn(true) : "");
+    const shownRich = rich && window.ViktorychEmoji ? window.ViktorychEmoji.mark(rich) : rich;
+    if (shownRich && (full || STATE.expanded[key] || !long)) return shownRich + (!full && long && STATE.expanded[key] ? moreBtn(true) : "");
     if (full || STATE.expanded[key] || !long) return linkify(text, post.links, post.platform, post.handle) + (!full && long && STATE.expanded[key] ? moreBtn(true) : "");
-    let cut = text.slice(0, 280);
+    let cut = clipPreview(text, 280);
     const sp = cut.lastIndexOf(" ");
     if (sp > 220) cut = cut.slice(0, sp);
     return linkify(cut, post.links, post.platform, post.handle) + moreBtn(false);
@@ -12136,7 +12163,7 @@ const here = parseRoute();
         <div class="tabs" role="tablist" data-hscroll="home-tabs" aria-label="${tr("Home timeline")}">
           ${forYouOff() ? "" : tabWithMenu("foryou", tr("For you"))}
           ${tabWithMenu("following", tr("Following"))}
-          ${cats.map((item) => tabWithMenu("cat:" + item.id, item.name, item.emoji ? `<span class="tab-emoji">${esc(item.emoji)}</span>` : "", item.id)).join("")}
+          ${cats.map((item) => tabWithMenu("cat:" + item.id, item.name, item.emoji ? `<span class="tab-emoji emo">${window.ViktorychEmoji ? window.ViktorychEmoji.text(item.emoji) : esc(item.emoji)}</span>` : "", item.id)).join("")}
           ${lists.map((l) => tabWithMenu("list:" + l.id, l.name)).join("")}
           ${pinnedCm.map((item) => tabBtn("ctab:" + item.id, item.name, tab === "ctab:" + item.id)).join("")}
         </div>
@@ -18393,7 +18420,7 @@ const here = parseRoute();
 
   function noteMainTab(id, label, on, withBell, tab) {
     const bell = withBell ? `<span class="tab-bell">${icon("bell")}</span>` : "";
-    const emoji = tab && tab.emoji ? `<i class="note-tab-emoji" aria-hidden="true">${esc(tab.emoji)}</i>` : "";
+    const emoji = tab && tab.emoji ? `<i class="note-tab-emoji" aria-hidden="true">${window.ViktorychEmoji ? window.ViktorychEmoji.text(tab.emoji) : esc(tab.emoji)}</i>` : "";
     const count = tab && !on ? noteTabUnread(tab) : 0;
     const badge = count > 0 ? `<b class="note-tab-badge" aria-label="${esc(trn("unread", count))}">${count > 99 ? "99+" : count}</b>` : "";
     const color = tab && tab.color && on ? ` style="--note-tab-color:${esc(tab.color)}"` : "";
@@ -19870,13 +19897,15 @@ const here = parseRoute();
       if (!id || sectionIds.has(id)) return;
       sectionIds.add(id);
       const name = String(section.name || "").replace(/[\u0000-\u001F\u007F]/g, "").replace(/\s+/g, " ").trim().slice(0, 40) || tr("Folder name");
-      const emoji = String(section.emoji || "").replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 8);
+      const emojiChars = window.ViktorychEmoji && window.ViktorychEmoji.clip
+        ? window.ViktorychEmoji.clip(section.emoji, 8)
+        : String(section.emoji || "").replace(/[\u0000-\u001F\u007F]/g, "").trim();
       const items = [];
       (Array.isArray(section.items) ? section.items : []).forEach((item) => {
         if (DRAWER_IDS.indexOf(item) < 0 || items.indexOf(item) >= 0) return;
         items.push(item);
       });
-      sections.push({ id: id, name: name, emoji: emoji, items: items });
+      sections.push({ id: id, name: name, emoji: emojiChars, items: items });
     });
     const popup = [];
     const popupSeen = new Set();
@@ -20084,7 +20113,7 @@ const here = parseRoute();
         return `<div class="drawer-section" data-drawer-key="section:${esc(section.id)}">
           <div class="drawer-section-head">
             <button class="drawer-grip" type="button" data-drag-drawer="section:${esc(section.id)}" aria-label="${esc(tr("Drag to reorder"))}">${bottomGripSvg()}</button>
-            <input class="drawer-section-emoji" data-section-id="${esc(section.id)}" value="${esc(section.emoji || "")}" maxlength="8" aria-label="${esc(tr("Emoji"))}" placeholder="${esc(tr("Emoji"))}">
+            <input class="drawer-section-emoji" data-section-id="${esc(section.id)}" value="${esc(section.emoji || "")}" maxlength="64" aria-label="${esc(tr("Emoji"))}" placeholder="${esc(tr("Emoji"))}">
             <input class="drawer-section-name" data-section-id="${esc(section.id)}" value="${esc(section.name)}" maxlength="40" aria-label="${esc(tr("Folder name"))}">
             <button class="icon-btn" type="button" data-act="drawer-drop-section" data-id="${esc(section.id)}" aria-label="${esc(tr("Delete"))}">${icon("trash")}</button>
           </div>
@@ -23665,6 +23694,8 @@ if (STATE.histClear) {
     let y = STATE.holdY != null ? STATE.holdY : (reset ? 0 : window.scrollY);
     const focus = document.activeElement;
     const focusId = focus && focus.id;
+    const focusMenuBtn = focus && focus.closest ? focus.closest("button[data-act='menu']") : null;
+    const focusMenuId = focusMenuBtn ? String(focusMenuBtn.getAttribute("data-id") || "") : "";
     const focusTabNode = focus && focus.closest ? (focus.matches && focus.matches("[data-ptab-id]") ? focus : focus.closest(".ptabs [data-ptab-id]")) : null;
     const focusTab = focusTabNode ? String(focusTabNode.getAttribute("data-ptab-id") || "") : "";
     const caret = focus && typeof focus.selectionStart === "number" ? focus.selectionStart : null;
@@ -23864,6 +23895,18 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (caret != null && el.setSelectionRange) {
             try { el.setSelectionRange(caret, caret); } catch (err) { /* ignore */ }
           }
+          focusRestored = true;
+        }
+      }
+      if (!focusRestored && focusMenuId) {
+        // A feed render swaps the button out from under the key. Put focus on
+        // the replacement so Enter still opens that post's menu.
+        const menuSel = window.CSS && CSS.escape
+          ? 'button[data-act="menu"][data-id="' + CSS.escape(focusMenuId) + '"]'
+          : 'button[data-act="menu"][data-id="' + focusMenuId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+        const menuBtn = document.querySelector(menuSel);
+        if (menuBtn) {
+          try { menuBtn.focus({ preventScroll: true }); } catch (err) { menuBtn.focus(); }
           focusRestored = true;
         }
       }
@@ -25074,7 +25117,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "follow") {
       const ids = String(el.dataset.ids || el.dataset.id || "").split(",").map((part) => part.trim()).filter(Boolean);
       if (!ids.length) return;
-      const rowPending = ids.some((item) => {
+      const rowPending = el.classList.contains("pending") || ids.some((item) => {
         const html = window.ViktorychAccounts && window.ViktorychAccounts.followControlHtml && window.ViktorychAccounts.followControlHtml(item, false);
         return html && html.indexOf("pending") >= 0;
       });
@@ -34966,7 +35009,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         const menu = getDrawerMenu();
         const section = (menu.sections || []).find((item) => item.id === el.dataset.sectionId);
         if (!section) return;
-        if (el.classList.contains("drawer-section-emoji")) section.emoji = String(el.value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 8);
+        if (el.classList.contains("drawer-section-emoji")) section.emoji = window.ViktorychEmoji && window.ViktorychEmoji.clip
+          ? window.ViktorychEmoji.clip(el.value, 8)
+          : String(el.value || "").replace(/[\u0000-\u001F\u007F]/g, "").trim();
         else section.name = String(el.value || "").replace(/\s+/g, " ").trim().slice(0, 40) || tr("Folder name");
         saveDrawerMenu(menu);
         return;

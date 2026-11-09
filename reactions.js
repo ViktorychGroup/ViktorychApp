@@ -442,7 +442,7 @@
   }
 
   function cell(e, name) {
-    return '<button type="button" class="rx-cell" role="option" data-rx-emoji="' + esc(e) + '" aria-label="' + esc(name || e) + '" title="' + esc(name || "") + '">' + esc(e) + "</button>";
+    return '<button type="button" class="rx-cell emo" role="option" data-rx-emoji="' + esc(e) + '" aria-label="' + esc(name || e) + '" title="' + esc(name || "") + '">' + esc(e) + "</button>";
   }
 
   function drawPicker() {
@@ -473,6 +473,7 @@
       data[sheet.group][1].forEach(function (row) { out.push(cell(row[0], row[1])); });
     }
     el.querySelector(".rx-grid").innerHTML = out.length ? out.join("") : '<p class="rx-empty">' + esc(emojiData ? tr("No emoji found") : tr("Loading…")) + "</p>";
+    if (root.ViktorychEmoji) root.ViktorychEmoji.queue();
   }
 
   /* ---------- who reacted ---------- */

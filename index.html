@@ -8,7 +8,7 @@
     /* First paint. The landing and the home skeleton are in the HTML, so the
        largest text does not wait for the app. Same sizes as the real landing. */
     html, body { margin: 0; background: #000; color: #e7e9ea; }
-    body { font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, "Noto Sans Devanagari", "Nirmala UI", "Mangal", "Kohinoor Devanagari", "Devanagari Sangam MN", Arial, sans-serif; }
+    body { font-family: TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, "Noto Sans Devanagari", "Nirmala UI", "Mangal", "Kohinoor Devanagari", "Devanagari Sangam MN", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", emoji, sans-serif; }
     html[data-wall="1"] #app, html[data-wall="1"] #hover, html[data-wall="1"] #pull, html[data-wall="1"] #new-posts, html[data-wall="1"] #offline, html[data-wall="1"] #update, html[data-wall="1"] #viewer, html[data-wall="1"] #stories, html[data-wall="1"] #toast, html[data-wall="1"] #dock-root { display: none !important; }
     /* Hide only the static landing. Profile and sign-in dialogs use this layer too. */
     #account-layer > .boot-land { display: none; }
@@ -851,7 +851,8 @@
     <script src="notif-privacy.js" defer></script>
     <script src="pulse.js" defer></script>
     <script src="shared/birth-date.js" defer></script>
-    <script src="accounts.js" defer></script>
+    <script src="emoji.js" defer></script>
+  <script src="accounts.js" defer></script>
     <script src="locked-follows.js" defer></script>
     <script src="mention-suggest.js" defer></script>
     <script src="settings-assistant.js" defer></script>
