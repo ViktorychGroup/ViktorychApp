@@ -4659,17 +4659,22 @@ function signupPayload() {
         if (res.requestsCount != null) graphCounts[me].requests = res.requestsCount;
         graphCounts[me].fresh = true;
         var outgoing = Array.isArray(res.outgoingRequests) ? res.outgoingRequests : [];
+        var pendingChanged = false;
         Object.keys(graphCounts).forEach(function (key) {
-          if (graphCounts[key] && key !== me) graphCounts[key].pending = outgoing.indexOf(key) >= 0;
+          if (!graphCounts[key] || key === me) return;
+          var nextPending = outgoing.indexOf(key) >= 0;
+          if (!!graphCounts[key].pending !== nextPending) pendingChanged = true;
+          graphCounts[key].pending = nextPending;
         });
         outgoing.forEach(function (oid) {
           graphCounts[oid] = graphCounts[oid] || {};
+          if (!graphCounts[oid].pending) pendingChanged = true;
           graphCounts[oid].pending = true;
         });
         var listChanged = false;
         if (window.ViktorychAccounts.onServerFollows) listChanged = window.ViktorychAccounts.onServerFollows(Array.isArray(res.ids) ? res.ids : []) === true;
         var countsDrift = (res.followingCount != null && res.followingCount !== prevFollowing) || (res.followersCount != null && res.followersCount !== prevFollowers);
-        if ((listChanged || countsDrift) && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
+        if ((listChanged || countsDrift || pendingChanged) && window.ViktorychAccounts.requestRender) window.ViktorychAccounts.requestRender();
       }
       if (syncAgain) {
         syncAgain = false;
@@ -5614,6 +5619,9 @@ function signupPayload() {
       var node = null;
       rows.forEach(function (row) { if (row.getAttribute("data-ptab-id") === profileTabDrag.id) node = row; });
       if (!node) return;
+      var edge = profileTabDrag.list.getBoundingClientRect();
+      if (event.clientX <= edge.left + 24) profileTabDrag.list.scrollLeft = Math.max(0, profileTabDrag.list.scrollLeft - 48);
+      else if (event.clientX >= edge.right - 24) profileTabDrag.list.scrollLeft += 48;
       var target = null;
       rows.forEach(function (row) {
         if (row === node) return;
@@ -5730,7 +5738,7 @@ function signupPayload() {
       count: count === "" ? "" : tn("posts", Number(count), { count: count })
     }, banner) : banner;
     top = birthdayBanner + top;
-    return top + '<div class="pinfo"><div class="pava-row">' + photo + '<div class="pactions">' + edit + giftBtn + followBtn + friendBtn + seenLine + '</div></div><h1 class="pname">' + nameRowHtml(account, !mine) + (nk && nk.button && !mine ? nk.button("app", account.handle || "", originalName) : "") + '</h1><div class="phandle">@' + esc(account.handle) + '</div>' + mutualLine + (account.bio ? '<div class="pbio">' + esc(account.bio) + "</div>" : "") + (account.location ? '<div class="acct-loc">' + esc(account.location) + "</div>" : "") + (siteHref(account.website) ? '<div class="acct-loc"><a href="' + esc(siteHref(account.website)) + '" target="_blank" rel="noopener noreferrer">' + esc(account.website) + "</a></div>" : "") + linkedIdentitiesHtml(account) + (account.profileLess ? '<div class="private-badge" style="margin:4px 0 8px">' + esc(tr("Profile-less (not visible to others)")) + '</div>' : "") + accountCountsHtml(account) + "</div>" + tabs + body + galleryHtml(account);
+    return top + '<div class="pinfo"><div class="pava-row">' + photo + '<div class="pactions">' + edit + giftBtn + followBtn + friendBtn + seenLine + '</div></div><h1 class="pname">' + nameRowHtml(account, !mine) + (nk && nk.button && !mine ? nk.button("app", account.handle || "", originalName) : "") + '</h1><div class="phandle">@' + esc(account.handle) + '</div>' + mutualLine + (account.bio ? '<div class="pbio">' + (window.ViktorychEmoji ? window.ViktorychEmoji.text(account.bio) : esc(account.bio)) + "</div>" : "") + (account.location ? '<div class="acct-loc">' + esc(account.location) + "</div>" : "") + (siteHref(account.website) ? '<div class="acct-loc"><a href="' + esc(siteHref(account.website)) + '" target="_blank" rel="noopener noreferrer">' + esc(account.website) + "</a></div>" : "") + linkedIdentitiesHtml(account) + (account.profileLess ? '<div class="private-badge" style="margin:4px 0 8px">' + esc(tr("Profile-less (not visible to others)")) + '</div>' : "") + accountCountsHtml(account) + "</div>" + tabs + body + galleryHtml(account);
   }
   function appProfileRoute(route) {
     var platform = String((route && route.platform) || "x");
@@ -5802,7 +5810,8 @@ function signupPayload() {
     if (nick && (typeof window !== "undefined" ? window.ViktorychNick : null) && account.handle) name = window.ViktorychNick.name("app", account.handle, name);
     var lock = (account.privateFollows || account.locked) ? '<span class="protected-badge" title="' + esc(tr("Private account")) + '" aria-label="' + esc(tr("Private account")) + '">' + lockIcon(18) + "</span>" : "";
     var temp = account.temporary ? '<span class="temp-label">' + esc(tr("Temporary")) + "</span>" : "";
-    return '<span class="name-row-text">' + esc(name) + "</span>" + lock + temp + (account.owner ? badge() : "") + (window.ViktorychAffiliations ? window.ViktorychAffiliations.slot(account.publicId) : "");
+    var nameHtml = window.ViktorychEmoji ? window.ViktorychEmoji.text(name) : esc(name);
+    return '<span class="name-row-text">' + nameHtml + "</span>" + lock + temp + (account.owner ? badge() : "") + (window.ViktorychAffiliations ? window.ViktorychAffiliations.slot(account.publicId) : "");
   }
   function drawerHead() {
     var session = readSession();

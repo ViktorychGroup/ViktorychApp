@@ -38,7 +38,8 @@ const FIXTURE = {
     post("Vwxyz12ab", "Reel demo", 3, [{ type: "photo", url: "https://scontent.cdninstagram.com/v/reel-old.jpg?oe=" + OLD }], "https://www.instagram.com/reel/Vwxyz12ab/"),
     post("Mnop3456", "Video demo", 4, [{ type: "video", url: "https://scontent.cdninstagram.com/v/clip.mp4?oe=" + FRESH, poster: "https://scontent.cdninstagram.com/v/poster.jpg?oe=" + FRESH, width: 720, height: 1280 }]),
     post("Qrst7890", "Missing demo", 5, [{ type: "photo", url: "https://www.instagram.com/p/Qrst7890/media/?size=l" }]),
-    post("Reelclip1", "Expired reel clip", 6, [{ type: "video", url: "https://scontent.cdninstagram.com/o1/v/t2/clip.mp4?oe=" + OLD, poster: "https://scontent.cdninstagram.com/v/poster-old.jpg?oe=" + OLD, width: 720, height: 1280 }], "https://www.instagram.com/reel/Reelclip1/")
+    post("Reelclip1", "Expired reel clip", 6, [{ type: "video", url: "https://scontent.cdninstagram.com/o1/v/t2/clip.mp4?oe=" + OLD, poster: "https://scontent.cdninstagram.com/v/poster-old.jpg?oe=" + OLD, width: 720, height: 1280 }], "https://www.instagram.com/reel/Reelclip1/"),
+    post("PosterMiss", "Reel poster miss", 7, [{ type: "video", url: "https://scontent.cdninstagram.com/o1/v/t2/clip-ok.mp4?oe=" + FRESH, poster: "https://scontent.cdninstagram.com/v/poster-miss.jpg?oe=" + FRESH, width: 720, height: 1280 }], "https://www.instagram.com/reel/PosterMiss/")
   ]
 };
 
@@ -125,7 +126,7 @@ async function run(chromium, port, vp) {
       if (url.pathname.indexOf("/v1/media") >= 0) {
         const target = targetOf(raw);
         media.push(target);
-        if (target.indexOf("Qrst7890") >= 0) return route.fulfill({ status: 404, contentType: "application/json", body: '{"error":"upstream"}' });
+        if (target.indexOf("Qrst7890") >= 0 || target.indexOf("poster-miss.jpg") >= 0) return route.fulfill({ status: 404, contentType: "application/json", body: '{"error":"upstream"}' });
         return route.fulfill({ status: 200, contentType: "image/png", body: PNG });
       }
       if (url.pathname.indexOf("/v1/profile/") === 0) {
@@ -153,7 +154,7 @@ async function run(chromium, port, vp) {
     }, ME);
     await page.goto(origin + "/#/home", { waitUntil: "domcontentloaded" });
     await page.waitForSelector('article[data-post="Efgh5678"]', { timeout: 30000 });
-    for (const id of ["Efgh5678", "Abcd1234", "Vwxyz12ab", "Mnop3456", "Qrst7890", "Reelclip1"]) {
+    for (const id of ["Efgh5678", "Abcd1234", "Vwxyz12ab", "Mnop3456", "Qrst7890", "Reelclip1", "PosterMiss"]) {
       const card = page.locator('article[data-post="' + id + '"]');
       await card.scrollIntoViewIfNeeded().catch(() => {});
     }
@@ -221,6 +222,18 @@ async function run(chromium, port, vp) {
     if (!painted) fail(vp.name + ": a current or refreshed picture did not paint");
     if (!view.video || !view.video.play || view.video.text.indexOf("Video demo") < 0) fail(vp.name + ": video card missing " + JSON.stringify(view.video));
     if (view.video.src.indexOf("poster.jpg") < 0 && view.video.src.indexOf("clip.mp4") < 0) fail(vp.name + ": video poster was not the stored file " + view.video.src);
+    const posterFixed = await page.waitForFunction(() => {
+      const img = document.querySelector('article[data-post="PosterMiss"] img.vposter');
+      if (!img || !(img.naturalWidth > 0)) return false;
+      return (img.getAttribute("src") || "").indexOf("reel%2FPosterMiss%2Fmedia") >= 0 || (img.getAttribute("src") || "").indexOf("reel/PosterMiss/media") >= 0;
+    }, null, { timeout: 8000 }).then(() => true).catch(() => false);
+    if (!posterFixed) {
+      const info = await page.evaluate(() => {
+        const img = document.querySelector('article[data-post="PosterMiss"] img.vposter');
+        return { src: img ? img.getAttribute("src") : "", w: img ? img.naturalWidth : -1 };
+      });
+      fail(vp.name + ": a failed reel poster did not use the public media image " + JSON.stringify(info));
+    }
     if (view.iframes.length) fail(vp.name + ": an Instagram embed was framed " + view.iframes.join(" "));
     [view.fresh, view.expired, view.reel, view.reelClip, view.video].forEach((card) => {
       if (card && card.frames.length) fail(vp.name + ": a card framed an embed " + card.frames.join(" "));
