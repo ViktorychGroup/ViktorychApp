@@ -177,17 +177,33 @@ async function main() {
     await card.goto("http://127.0.0.1:" + port + "/index.html#/home", { waitUntil: "domcontentloaded" });
     const seg = await card.evaluate(() => typeof Intl.Segmenter);
     if (seg !== "undefined") fail("Segmenter was still available for the preview " + seg);
-    // The card is in the document before content-visibility paints it, and
-    // innerText is empty until that paint. Wait for the rendered text, then
-    // apply the same checks.
-    await card.waitForFunction(() => {
+    // innerText grows from the name and time before content-visibility paints
+    // the body, so a length check can pass while the letters are still absent.
+    // Scroll the card into view and wait until the rendered text contains the
+    // lead, then apply the same checks to that text.
+    await card.waitForSelector('article[data-post="preview1"]', { timeout: 20000 });
+    await card.evaluate(() => {
       const article = document.querySelector('article[data-post="preview1"]');
-      return !!(article && article.innerText.length > 40);
-    }, null, { timeout: 15000 }).catch(() => null);
-    const shown = await card.evaluate(() => {
-      const article = document.querySelector('article[data-post="preview1"]');
-      return article ? article.innerText : "";
+      if (article) article.scrollIntoView({ block: "center" });
     });
+    let shown = "";
+    try {
+      const painted = await card.waitForFunction((needle) => {
+        const article = document.querySelector('article[data-post="preview1"]');
+        if (!article) return false;
+        const box = article.getBoundingClientRect();
+        if (box.height < 8 || box.bottom < 0 || box.top > window.innerHeight) article.scrollIntoView({ block: "center" });
+        const text = article.innerText;
+        if (text.indexOf(needle) < 0) return false;
+        return text;
+      }, lead, { timeout: 15000 });
+      shown = await painted.jsonValue();
+    } catch (err) {
+      shown = await card.evaluate(() => {
+        const article = document.querySelector('article[data-post="preview1"]');
+        return article ? article.innerText : "";
+      });
+    }
     const split = Array.from(previewText).slice(0, 280).join("");
     if (shown.indexOf(lead) < 0) fail("preview lost the letters before the family");
     if (shown.indexOf(family) >= 0 || shown.indexOf("\u200D") >= 0 || shown.indexOf("👨") >= 0) fail("preview split or kept the family " + JSON.stringify(shown.slice(260, 340)));
