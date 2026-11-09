@@ -24059,6 +24059,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     };
   }
 
+  let menuKeyGuard = "";
   function onAct(el) {
     const act = el.dataset.act;
     if (act === "stop") return;
@@ -25964,6 +25965,14 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       return;
     }
     if (act === "menu") {
+      // The key handler opens the menu with one click. Rendering replaces that
+      // button, and the key can then click the new button and toggle it shut.
+      // That follow-up is ignored. The click from the key itself runs first,
+      // while this guard is still clear, so it still opens or closes once.
+      if (menuKeyGuard && el.dataset.id === menuKeyGuard) {
+        menuKeyGuard = "";
+        return;
+      }
       const opening = STATE.menu !== el.dataset.id;
       const article = el.closest("article");
       const anchorId = article ? (article.getAttribute("data-post") || "") : "";
@@ -26588,29 +26597,23 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
       render();
     }, 0);
   });
-  let menuKeyBtn = null;
   document.addEventListener("keydown", (event) => {
     if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key !== "Enter" && event.key !== " ") return;
-    const btn = event.target && event.target.closest && event.target.closest("button[data-act='menu']");
+    const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest("button[data-act='menu']");
+    const btn = (event.target && event.target.closest && event.target.closest("button[data-act='menu']")) || focused;
     if (!btn) return;
     // A zoomed page can focus the button and still not synthesize a click, or
-    // it can synthesize one after this handler. One scripted click opens the
-    // menu. The later key click would toggle it shut, so that one is dropped.
+    // it can click again after render replaces the button. One click applies
+    // the toggle. menuKeyGuard drops the extra click, matched by id because
+    // the node from this keydown is no longer in the page.
     event.preventDefault();
-    menuKeyBtn = null;
+    menuKeyGuard = "";
+    const id = btn.getAttribute("data-id") || "";
     btn.click();
-    menuKeyBtn = btn;
-    setTimeout(() => { if (menuKeyBtn === btn) menuKeyBtn = null; }, 400);
+    menuKeyGuard = id;
+    setTimeout(() => { if (menuKeyGuard === id) menuKeyGuard = ""; }, 400);
   });
-  document.addEventListener("click", (event) => {
-    if (!menuKeyBtn || !event.isTrusted) return;
-    const btn = event.target && event.target.closest && event.target.closest("button[data-act='menu']");
-    if (btn !== menuKeyBtn) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    menuKeyBtn = null;
-  }, true);
   document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const arrow = event.target.closest && event.target.closest(".tab-arrow[data-act='tab-scroll']");
