@@ -535,7 +535,7 @@
       if (kind === "ai") loadAi();
       if (animate) {
         var field = panel.querySelector("input, textarea");
-        if (field) field.focus();
+        if (field) { try { field.focus({ preventScroll: true }); } catch (err) { field.focus(); } }
       }
       return;
     }
