@@ -3,7 +3,9 @@
 A token that cannot edit Pages (HTTP 401 or 403) skips this step. A temporary
 5xx or a network error is retried, then fails the job. Wrangler saying it
 could not ascertain the deployment is not success: the production alias must
-serve this build's version.json. The GitHub Pages deploy is unchanged.
+serve this build's service worker. version.json in the shell upload is still
+the previous manifest, so it is not the proof. The GitHub Pages deploy is
+unchanged.
 Nothing here prints the API token.
 """
 
@@ -24,6 +26,7 @@ from pathlib import Path
 PROJECT = "viktorychapp"
 API = "https://api.cloudflare.com/client/v4"
 LIVE_VERSION = "https://viktorychapp.pages.dev/version.json"
+LIVE_SW = "https://viktorychapp.pages.dev/sw.js"
 RETRY_LIMIT = 3
 RETRY_WAITS = (1, 2)
 CONFIRM_WAIT = 180
@@ -211,47 +214,118 @@ def payload_sha(payload) -> str:
     return ""
 
 
+# Cloudflare answers 403 to urllib's default agent and to a bare Python agent.
+PAGES_UA = "viktorych-pages-check"
+
+
 def default_live(url: str):
-    """Public version.json only. The API token is not sent."""
+    """Public files only. The API token is not sent.
+
+    JSON stays a dict so version.json keeps its sha. sw.js is not JSON, and
+    turning that body into {} would hide the build SHA. A 403 is returned,
+    not raised, so the log can show the status.
+    """
     req = urllib.request.Request(url, headers={
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
+        "User-Agent": PAGES_UA,
     })
-    with urllib.request.urlopen(req, timeout=20) as res:
-        raw = res.read().decode("utf-8", "replace")
-        status = int(getattr(res, "status", 0) or 0)
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            payload = {}
-        return status, payload
+    try:
+        with urllib.request.urlopen(req, timeout=20) as res:
+            raw = res.read().decode("utf-8", "replace")
+            status = int(getattr(res, "status", 0) or 0)
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", "replace")
+        status = int(exc.code or 0)
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        payload = raw
+    return status, payload
 
 
-def fetch_live_sha(fetch) -> str:
-    url = LIVE_VERSION + "?t=" + str(time.time_ns())
+def uploaded_manifest_sha(directory: Path) -> str:
+    """The version.json in this upload. The shell upload still has the previous one."""
+    path = directory / "version.json"
+    if not path.is_file():
+        return ""
+    try:
+        return payload_sha(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError):
+        return ""
+
+
+def live_read(fetch, url: str) -> tuple[int, str]:
+    """Status and body. HTTP 403 is a status, not a silent empty body."""
     try:
         status, payload = fetch(url)
+    except urllib.error.HTTPError as exc:
+        status = int(exc.code or 0)
+        try:
+            payload = exc.read().decode("utf-8", "replace")
+        except (OSError, UnicodeError):
+            payload = ""
     except (urllib.error.URLError, TimeoutError, OSError):
-        return ""
-    if int(status or 0) != 200:
-        return ""
-    return payload_sha(payload)
+        return 0, ""
+    if isinstance(payload, (dict, list)):
+        return int(status or 0), json.dumps(payload)
+    return int(status or 0), str(payload or "")
 
 
-def alias_ready(expected: str, fetch, pause, wait: int = CONFIRM_WAIT, interval: int = CONFIRM_INTERVAL) -> bool:
-    """Poll the production alias until its version.json sha is this build."""
+def log_fetch(url: str, status: int, found: bool, required: bool, check: str) -> None:
+    print("[pages] fetched %s status=%s sha=%s required=%s check=%s" % (
+        url, status, "yes" if found else "no", "yes" if required else "no", check))
+
+
+def alias_ready(expected: str, directory: Path, fetch, pause, wait: int = CONFIRM_WAIT, interval: int = CONFIRM_INTERVAL) -> bool:
+    """Poll the production alias until this build's shell is there.
+
+    version.json is checked only when this upload contains that build's
+    manifest. The first mirror upload still carries the previous one.
+    """
     wanted = (expected or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{7,64}", wanted):
         return False
+    manifest_required = uploaded_manifest_sha(directory) == wanted
+    print("[pages] confirm sha=%s version.json required=%s" % (wanted, "yes" if manifest_required else "no"))
     waited = 0
     while True:
-        if fetch_live_sha(fetch) == wanted:
+        stamp = str(time.time_ns())
+        sw_url = LIVE_SW + "?t=" + stamp
+        sw_status, shell = live_read(fetch, sw_url)
+        shell_ok = sw_status == 200 and wanted in shell.lower()
+        log_fetch(sw_url, sw_status, shell_ok, True, "sw.js")
+        manifest_ok = True
+        if manifest_required:
+            ver_url = LIVE_VERSION + "?t=" + stamp
+            ver_status, raw = live_read(fetch, ver_url)
+            try:
+                manifest_ok = ver_status == 200 and payload_sha(json.loads(raw)) == wanted
+            except json.JSONDecodeError:
+                manifest_ok = False
+            log_fetch(ver_url, ver_status, manifest_ok, True, "version.json")
+        if shell_ok and manifest_ok:
+            if manifest_required:
+                print("[pages] production alias is serving this build.")
+            else:
+                print("[pages] production shell is this build. version.json is still the previous manifest.")
             return True
         if waited >= wait:
             return False
         step = min(interval, wait - waited)
         pause(step)
         waited += step
+
+
+def note_wrangler(output: str) -> None:
+    """Keep the deployment URL and environment. The token is already scrubbed."""
+    kept = []
+    for line in str(output or "").splitlines():
+        low = line.lower()
+        if any(word in low for word in ("deployment", "environment", "branch", "pages.dev", "production", "preview")):
+            kept.append(line.strip()[:300])
+    for line in kept[:8]:
+        print("[pages] " + line)
 
 
 def alias_message() -> str:
@@ -301,11 +375,12 @@ def deploy(directory: Path, run=None, sleep=None, project=None, opener=None, liv
         if code == 0:
             # A clean exit and "couldn't ascertain" both wait for the alias.
             # Wrangler's own success line is not proof the production URL moved.
+            note_wrangler(output)
             if deployment_unconfirmed(output):
                 print("[pages] Wrangler could not confirm the deployment. Checking the production alias.")
             else:
                 print("[pages] Checking the production alias.")
-            if sha and alias_ready(sha, fetch, pause):
+            if sha and alias_ready(sha, directory, fetch, pause):
                 print("[pages] mirror URL https://viktorychapp.pages.dev/")
                 return 0
             print("[pages] production alias is not this build yet.")
@@ -361,7 +436,9 @@ class _Response:
 def selftest() -> int:
     import io
     import tempfile
+    import threading
     from contextlib import redirect_stdout
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     if not permission_denied(403, {}):
         return 1
@@ -405,8 +482,10 @@ def selftest() -> int:
     os.environ["GITHUB_SHA"] = build
 
     def matching_live(url):
-        if "version.json?t=" not in url:
-            raise AssertionError("version.json was not cache-busted")
+        if "sw.js?t=" not in url and "version.json?t=" not in url:
+            raise AssertionError("live read was not cache-busted")
+        if "sw.js?t=" in url:
+            return 200, 'const VERSION = "viktorych-a281-' + build + '"'
         return 200, {"sha": build}
 
     try:
@@ -461,12 +540,11 @@ def selftest() -> int:
         polls = {"n": 0}
 
         def late_alias(url):
-            if "version.json?t=" not in url:
-                raise AssertionError("version.json was not cache-busted")
+            if "sw.js?t=" not in url:
+                raise AssertionError("shell read was not cache-busted")
             polls["n"] += 1
-            if polls["n"] < 3:
-                return 200, {"sha": "b" * 40}
-            return 200, {"sha": build}
+            sha = build if polls["n"] >= 3 else ("b" * 40)
+            return 200, 'const VERSION = "viktorych-a281-' + sha + '"'
 
         uploads = {"n": 0}
 
@@ -480,7 +558,7 @@ def selftest() -> int:
             code = deploy(directory, run=unconfirmed, sleep=lambda seconds: waits.append(seconds), project=lambda _a, _b: "exists", live=late_alias)
         text = buf.getvalue()
         if code != 0 or uploads["n"] != 1 or polls["n"] != 3 or waits != [CONFIRM_INTERVAL, CONFIRM_INTERVAL]:
-            print("unconfirmed deploy did not wait for version.json", code, uploads["n"], polls["n"], waits)
+            print("unconfirmed deploy did not wait for the shell", code, uploads["n"], polls["n"], waits)
             return 1
         if "mirror URL" not in text or token in text:
             print("unconfirmed deploy did not confirm the alias")
@@ -489,9 +567,11 @@ def selftest() -> int:
         stale_polls = {"n": 0}
 
         def stale_alias(url):
-            if "version.json?t=" not in url:
-                raise AssertionError("version.json was not cache-busted")
+            if "sw.js?t=" not in url and "version.json?t=" not in url:
+                raise AssertionError("live read was not cache-busted")
             stale_polls["n"] += 1
+            if "sw.js?t=" in url:
+                return 200, 'const VERSION = "viktorych-a281-' + ("c" * 40) + '"'
             return 200, {"sha": "c" * 40}
 
         clean_uploads = {"n": 0}
@@ -511,6 +591,214 @@ def selftest() -> int:
             return 1
         if "did not serve this build" not in text or "mirror URL" in text or token in text or "cannot edit Cloudflare Pages" in text:
             print("stale alias passed or looked like a permission skip")
+            return 1
+
+        (directory / "version.json").write_text(json.dumps({"sha": "b" * 40}) + "\n", encoding="utf-8")
+        asked = {"sw": 0, "version": 0}
+
+        def previous_live(url):
+            if "sw.js?t=" in url:
+                asked["sw"] += 1
+                return 200, 'const VERSION = "viktorych-a281-' + build + '"'
+            if "version.json?t=" in url:
+                asked["version"] += 1
+                return 200, {"sha": "b" * 40}
+            raise AssertionError("live read was not cache-busted")
+
+        shell_uploads = {"n": 0}
+
+        def shell_only(cmd, cwd, env, text, capture_output):
+            shell_uploads["n"] += 1
+            return _Result(0, "Deployment complete\nEnvironment: Production\nhttps://example.pages.dev\n", "")
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = deploy(directory, run=shell_only, sleep=lambda _s: None, project=lambda _a, _b: "exists", live=previous_live)
+        text = buf.getvalue()
+        (directory / "version.json").unlink()
+        if code != 0 or shell_uploads["n"] != 1 or asked["sw"] != 1 or asked["version"] != 0:
+            print("previous manifest blocked the shell deploy", code, shell_uploads, asked)
+            return 1
+        if "previous manifest" not in text or "Environment: Production" not in text or token in text:
+            print("shell deploy did not record the alias")
+            return 1
+
+        (directory / "version.json").write_text(json.dumps({"sha": build}) + "\n", encoding="utf-8")
+
+        def stuck_manifest(url):
+            if "sw.js?t=" in url:
+                return 200, 'const VERSION = "viktorych-a281-' + build + '"'
+            if "version.json?t=" in url:
+                return 200, {"sha": "c" * 40}
+            raise AssertionError("live read was not cache-busted")
+
+        manifest_uploads = {"n": 0}
+
+        def manifest_upload(cmd, cwd, env, text, capture_output):
+            manifest_uploads["n"] += 1
+            return _Result(0, "Deployment complete", "")
+
+        waits = []
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = deploy(directory, run=manifest_upload, sleep=lambda seconds: waits.append(seconds), project=lambda _a, _b: "exists", live=stuck_manifest)
+        text = buf.getvalue()
+        (directory / "version.json").unlink()
+        confirm_sleeps = [item for item in waits if item == CONFIRM_INTERVAL]
+        if code != 1 or manifest_uploads["n"] != RETRY_LIMIT or sum(confirm_sleeps) != CONFIRM_WAIT * RETRY_LIMIT:
+            print("a stuck manifest did not fail", code, manifest_uploads["n"], sum(confirm_sleeps))
+            return 1
+        if "did not serve this build" not in text or token in text:
+            print("a stuck manifest passed")
+            return 1
+
+        seen_paths = []
+
+        class LiveHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen_paths.append(self.path)
+                path = self.path.split("?", 1)[0]
+                if path.endswith("/sw.js"):
+                    body = ('const VERSION = "viktorych-a281-' + build + '";\n').encode("utf-8")
+                    kind = "text/javascript"
+                elif path.endswith("/version.json"):
+                    body = json.dumps({"sha": build}).encode("utf-8")
+                    kind = "application/json"
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                return
+
+        live_http = ThreadingHTTPServer(("127.0.0.1", 0), LiveHandler)
+        live_thread = threading.Thread(target=live_http.serve_forever, daemon=True)
+        live_thread.start()
+        global LIVE_SW, LIVE_VERSION
+        saved_sw, saved_version = LIVE_SW, LIVE_VERSION
+        LIVE_SW = "http://127.0.0.1:%d/sw.js" % live_http.server_address[1]
+        LIVE_VERSION = "http://127.0.0.1:%d/version.json" % live_http.server_address[1]
+        (directory / "version.json").write_text(json.dumps({"sha": build}) + "\n", encoding="utf-8")
+        real_uploads = {"n": 0}
+
+        def real_upload(cmd, cwd, env, text, capture_output):
+            real_uploads["n"] += 1
+            return _Result(0, "Deployment complete\nEnvironment: Production\n", "")
+
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = deploy(directory, run=real_upload, sleep=lambda _s: None, project=lambda _a, _b: "exists", live=default_live)
+            text = buf.getvalue()
+        finally:
+            LIVE_SW, LIVE_VERSION = saved_sw, saved_version
+            live_http.shutdown()
+            live_http.server_close()
+            if (directory / "version.json").is_file():
+                (directory / "version.json").unlink()
+        if code != 0 or real_uploads["n"] != 1 or "serving this build" not in text:
+            print("real default_live missed the shell", code, real_uploads["n"], text)
+            return 1
+        if not any(path.startswith("/sw.js?t=") for path in seen_paths) or not any(path.startswith("/version.json?t=") for path in seen_paths):
+            print("real default_live did not cache-bust", seen_paths)
+            return 1
+        if token in text:
+            print("real default_live leaked")
+            return 1
+
+        # The production failure: Python's default agent is 403, the shell is
+        # already this build, and version.json in the upload is still the last
+        # published manifest. GITHUB_SHA is the full build SHA, as in Actions.
+        incident = "9dadf5a86bee9210f61e8762cfbf92b78a450109"
+        previous = "3f7439cbfa4302837073d7a876d1faf1f51125c7"
+        os.environ["GITHUB_SHA"] = incident
+        os.environ["GITHUB_REPOSITORY"] = "ViktorychGroup/ViktorychApp"
+        blocked = {"n": 0}
+        agents = []
+
+        class GuardedHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                agent = self.headers.get("User-Agent") or ""
+                agents.append(agent)
+                if agent != PAGES_UA:
+                    blocked["n"] += 1
+                    body = b"error code: 1010"
+                    self.send_response(403)
+                    self.send_header("Content-Type", "text/plain")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                path = self.path.split("?", 1)[0]
+                if path.endswith("/sw.js"):
+                    body = ('const VERSION = "viktorych-a281-' + incident + '";\n').encode("utf-8")
+                    kind = "text/javascript"
+                    status = 200
+                elif path.endswith("/version.json"):
+                    body = json.dumps({"sha": previous}).encode("utf-8")
+                    kind = "application/json"
+                    status = 200
+                else:
+                    body = b""
+                    kind = "text/plain"
+                    status = 404
+                self.send_response(status)
+                self.send_header("Content-Type", kind)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt, *args):
+                return
+
+        guard_http = ThreadingHTTPServer(("127.0.0.1", 0), GuardedHandler)
+        guard_thread = threading.Thread(target=guard_http.serve_forever, daemon=True)
+        guard_thread.start()
+        saved_sw, saved_version = LIVE_SW, LIVE_VERSION
+        port = guard_http.server_address[1]
+        LIVE_SW = "http://127.0.0.1:%d/sw.js" % port
+        LIVE_VERSION = "http://127.0.0.1:%d/version.json" % port
+        (directory / "version.json").write_text(json.dumps({
+            "name": "ViktorychApp", "sha": previous, "short": previous[:7],
+        }) + "\n", encoding="utf-8")
+        ci_uploads = {"n": 0}
+
+        def ci_upload(cmd, cwd, env, text, capture_output):
+            ci_uploads["n"] += 1
+            return _Result(0, "Deployment complete\nEnvironment: Production\n--branch main\n", "")
+
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = deploy(directory, run=ci_upload, sleep=lambda _s: None, project=lambda _a, _b: "exists", live=default_live)
+            text = buf.getvalue()
+        finally:
+            LIVE_SW, LIVE_VERSION = saved_sw, saved_version
+            os.environ["GITHUB_SHA"] = build
+            guard_http.shutdown()
+            guard_http.server_close()
+            if (directory / "version.json").is_file():
+                (directory / "version.json").unlink()
+        if code != 0 or ci_uploads["n"] != 1 or blocked["n"] != 0:
+            print("live production shape was rejected", code, ci_uploads["n"], blocked["n"], text)
+            return 1
+        if agents != [PAGES_UA]:
+            print("confirmation did not use the pages agent", agents)
+            return 1
+        if "confirm sha=%s version.json required=no" % incident not in text:
+            print("confirmation used the wrong sha or required version.json", text)
+            return 1
+        if "check=sw.js" not in text or "status=200" not in text or "sha=yes" not in text:
+            print("confirmation did not log the fetch", text)
+            return 1
+        if "previous manifest" not in text or token in text:
+            print("production shell was not accepted")
             return 1
 
         hits = {"n": 0}
