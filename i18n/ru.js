@@ -6419,5 +6419,21 @@ SI18n.addPack("ru", {
   "Folder path": "Путь к папке",
   "Folders": "Папки",
   "Sort by size": "Сортировать по размеру",
-  "Sort by date modified": "Сортировать по дате изменения"
+  "Sort by date modified": "Сортировать по дате изменения",
+  "Copy image": "Копировать изображение",
+  "On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.": "На компьютере правый клик по картинке копирует полную как PNG. PNG — не исходный файл. Выключено оставляет меню браузера.",
+  "Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.": "Копирует PNG полной картинки. Это не исходный файл. Цвет, HDR и анимация могут не совпасть.",
+  "Saves the original file as it is. It is not compressed again.": "Сохраняет исходный файл как есть. Повторно не сжимается.",
+  "Copied the picture": "Изображение скопировано",
+  "The full picture did not load": "Полная картинка не загрузилась",
+  "Copy the picture on screen": "Копировать картинку с экрана",
+  "This is the picture on the screen, not the full file.": "Это картинка на экране, а не полный файл.",
+  "The clipboard permission was denied. The picture was not copied.": "Доступ к буферу запрещён. Изображение не скопировано.",
+  "This browser cannot copy a picture. The picture was not copied.": "Этот браузер не может скопировать картинку. Изображение не скопировано.",
+  "The picture could not be read. It was not copied.": "Картинку не удалось прочитать. Она не скопирована.",
+  "Copied the largest listed picture. It is not a proven original file.": "Скопирована самая большая картинка из списка. Это не подтверждённый исходный файл.",
+  "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.": "Копирует самую большую картинку из списка. Это не подтверждённый исходный файл. Цвет, HDR и анимация могут не совпасть.",
+  "Copy the largest listed picture": "Копировать самую большую картинку из списка",
+  "Copy a smaller listed picture": "Копировать картинку поменьше из списка",
+  "Copied a smaller listed picture. It is not the full file.": "Скопирована картинка поменьше из списка. Это не полный файл."
 });

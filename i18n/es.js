@@ -6420,5 +6420,21 @@ SI18n.addPack("es", {
   "Folder path": "Ruta de la carpeta",
   "Folders": "Carpetas",
   "Sort by size": "Ordenar por tamaño",
-  "Sort by date modified": "Ordenar por fecha de modificación"
+  "Sort by date modified": "Ordenar por fecha de modificación",
+  "Copy image": "Copiar imagen",
+  "On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.": "En el ordenador, el clic derecho en una imagen copia la completa como PNG. El PNG no es el archivo original. Apagado deja el menú del navegador.",
+  "Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.": "Copia un PNG de la imagen completa. No es el archivo original. El color, el HDR y la animación pueden no coincidir.",
+  "Saves the original file as it is. It is not compressed again.": "Guarda el archivo original tal cual. No se vuelve a comprimir.",
+  "Copied the picture": "Imagen copiada",
+  "The full picture did not load": "La imagen completa no se cargó",
+  "Copy the picture on screen": "Copiar la imagen de la pantalla",
+  "This is the picture on the screen, not the full file.": "Esta es la imagen que se ve, no el archivo completo.",
+  "The clipboard permission was denied. The picture was not copied.": "Se denegó el permiso del portapapeles. La imagen no se copió.",
+  "This browser cannot copy a picture. The picture was not copied.": "Este navegador no puede copiar una imagen. La imagen no se copió.",
+  "The picture could not be read. It was not copied.": "No se pudo leer la imagen. No se copió.",
+  "Copied the largest listed picture. It is not a proven original file.": "Se copió la imagen más grande de la lista. No es un archivo original comprobado.",
+  "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.": "Copia la imagen más grande de la lista. No es un archivo original comprobado. El color, el HDR y la animación pueden no coincidir.",
+  "Copy the largest listed picture": "Copiar la imagen más grande de la lista",
+  "Copy a smaller listed picture": "Copiar una imagen más pequeña de la lista",
+  "Copied a smaller listed picture. It is not the full file.": "Se copió una imagen más pequeña de la lista. No es el archivo completo."
 });

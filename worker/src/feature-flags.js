@@ -72,6 +72,9 @@ export const FEATURES = {
   status_bar: { paths: [] },
   // Pinch-zoom lock on phones (viewport, iOS gesture events). No server endpoints.
   zoom_lock: { paths: [] },
+  // Desktop right-click copies a picture. No server endpoints. The clipboard
+  // gets a PNG of the decoded pixels, not the original file bytes.
+  image_copy: { paths: [] },
   // Optional app size on a computer. No server endpoints. The choice stays
   // on this device and starts off, so nobody else is scaled.
   app_scale: { paths: [] },
