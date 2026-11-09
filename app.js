@@ -13223,7 +13223,12 @@ const here = parseRoute();
     accountCall("/v1/posts?" + authorQuery(key)).then((res) => {
       if (!authorLive(key, entry, gen, sender)) return;
       entry.loading = false;
-      if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
+      /* An empty answer is still an answer. Leaving the loading shell up
+         would keep whatever stood in for it, including another account's page. */
+      if (!res || res.status !== 200 || !Array.isArray(res.posts)) {
+        if (document.querySelector(".tab-loading")) render();
+        return;
+      }
       const mine = signedAccount();
       const next = mine && String(mine.publicId) === key ? keepOwnPosts(res.posts).filter((item) => String(item.authorId) === key) : res.posts;
       const sig = (list) => list.map((item) => [item.id, item.replyCount, item.quoteCount, item.likes, item.reposts, item.editedAt, item.body].join("|")).join(",");
@@ -13233,9 +13238,12 @@ const here = parseRoute();
       if (!authorLive(key, entry, gen, sender)) return;
       if (!older.length) { entry.more = !!res.more; entry.before = edge; }
       entry.posts = next.concat(older);
-      if (before !== sig(entry.posts)) render();
+      if (before !== sig(entry.posts) || document.querySelector(".tab-loading")) render();
     }).catch(() => {
-      if (authorPostCache[key] === entry) entry.loading = false;
+      if (authorPostCache[key] === entry) {
+        entry.loading = false;
+        if (document.querySelector(".tab-loading")) render();
+      }
     });
   }
   function authorPosts(publicId) {
@@ -17156,10 +17164,19 @@ const here = parseRoute();
   }
 
   function queueHist(entry, soon) {
+    const scope = viewerScope();
+    if (STATE.histScope && STATE.histScope !== scope) STATE.histPending = {};
+    STATE.histScope = scope;
     STATE.histPending = STATE.histPending || {};
     STATE.histPending[entry.key] = entry;
     clearTimeout(STATE.histTimer);
-    STATE.histTimer = setTimeout(flushHist, soon ? 40 : 700);
+    STATE.histTimer = setTimeout(() => {
+      if (viewerScope() !== scope) {
+        STATE.histPending = {};
+        return;
+      }
+      flushHist();
+    }, soon ? 40 : 700);
   }
 
   function readHistLocal() {
@@ -22151,15 +22168,18 @@ if (STATE.histClear) {
   function localFirstView(route, html) {
     const local = window.ViktorychLocal;
     if (!local || !local.readRoute || !route || SNAP_SKIP[route.name]) return html;
-    const key = String(location.hash || "#/").slice(0, 300);
-    if (key !== lfKey) { lfKey = key; lfLive = false; }
+    const hash = String(location.hash || "#/").slice(0, 300);
+    /* The viewer id only decides whether this paint is still the live one.
+       saveRoute and readRoute classify private pages from the plain hash. */
+    const liveKey = viewerScope() + "|" + hash;
+    if (liveKey !== lfKey) { lfKey = liveKey; lfLive = false; }
     if (routeLoading(html)) {
       if (lfLive) return html;
-      const saved = local.readRoute(key);
+      const saved = local.readRoute(hash);
       return saved || html;
     }
     lfLive = true;
-    if (html.length < 150000 && !/type="password"|<script/i.test(html)) local.saveRoute(key, html);
+    if (html.length < 150000 && !/type="password"|<script/i.test(html)) local.saveRoute(hash, html);
     return html;
   }
   window.addEventListener("viktorych-route", () => {
@@ -22559,10 +22579,13 @@ if (STATE.histClear) {
   }
 
   function hscrollSaveSoon() {
-    if (hscrollSaveTimer) return;
+    clearTimeout(hscrollSaveTimer);
+    const scope = viewerScope();
+    const payload = JSON.stringify(hscrollStore());
     hscrollSaveTimer = setTimeout(() => {
       hscrollSaveTimer = 0;
-      hscrollFlush();
+      if (viewerScope() !== scope) return;
+      try { writeStored(sessionStorage, "hscroll-v1", payload); } catch (err) { /* the in-memory copy still covers this visit */ }
     }, 200);
   }
 

@@ -611,14 +611,24 @@
     var kept = draftMedia[item.id];
     if (kept) slot.media = kept.slice();
   }
+  function draftAccount() {
+    try {
+      var doc = JSON.parse(localStorage.getItem("viktorychapp-account-v1") || "null");
+      var id = doc && doc.account && (doc.account.publicId || doc.account.id);
+      return id ? String(id) : "";
+    } catch (err) { return ""; }
+  }
   function saveSoon(slotName) {
     clearTimeout(saveTimer);
+    var scope = draftAccount();
+    var snap = snapshot(slotName);
+    var doc = draftDoc();
+    var next = doc.items.filter(function (item) { return item.id !== snap.id; });
+    next.unshift(snap);
+    var payload = { items: next.slice(0, 21) };
     saveTimer = setTimeout(function () {
-      var doc = draftDoc();
-      var snap = snapshot(slotName);
-      var next = doc.items.filter(function (item) { return item.id !== snap.id; });
-      next.unshift(snap);
-      writeStore(DRAFT_KEY, { items: next.slice(0, 21) });
+      if (draftAccount() !== scope) return;
+      writeStore(DRAFT_KEY, payload);
     }, 400);
   }
   // Write every open draft now (closing the app skips the 400 ms save delay).
