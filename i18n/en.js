@@ -6417,5 +6417,21 @@ SI18n.addPack("en", {
   "Folder path": "Folder path",
   "Folders": "Folders",
   "Sort by size": "Sort by size",
-  "Sort by date modified": "Sort by date modified"
+  "Sort by date modified": "Sort by date modified",
+  "Copy image": "Copy image",
+  "On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.": "On a computer, right-click a picture to copy the full one as a PNG. The PNG is not the original file. Off leaves the browser's own menu.",
+  "Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.": "Copies a PNG of the full picture. This is not the original file. Color, HDR and animation may not match.",
+  "Saves the original file as it is. It is not compressed again.": "Saves the original file as it is. It is not compressed again.",
+  "Copied the picture": "Copied the picture",
+  "The full picture did not load": "The full picture did not load",
+  "Copy the picture on screen": "Copy the picture on screen",
+  "This is the picture on the screen, not the full file.": "This is the picture on the screen, not the full file.",
+  "The clipboard permission was denied. The picture was not copied.": "The clipboard permission was denied. The picture was not copied.",
+  "This browser cannot copy a picture. The picture was not copied.": "This browser cannot copy a picture. The picture was not copied.",
+  "The picture could not be read. It was not copied.": "The picture could not be read. It was not copied.",
+  "Copied the largest listed picture. It is not a proven original file.": "Copied the largest listed picture. It is not a proven original file.",
+  "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.": "Copies the largest listed picture. It is not a proven original file. Color, HDR and animation may not match.",
+  "Copy the largest listed picture": "Copy the largest listed picture",
+  "Copy a smaller listed picture": "Copy a smaller listed picture",
+  "Copied a smaller listed picture. It is not the full file.": "Copied a smaller listed picture. It is not the full file."
 });

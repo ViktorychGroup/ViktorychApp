@@ -137,6 +137,7 @@
     if (stamp !== sessionSeen) {
       sessionSeen = stamp;
       sessionGeneration += 1;
+      try { window.dispatchEvent(new CustomEvent("viktorych-session")); } catch (err) { /* the page is closing */ }
       try {
         if (window.ViktorychLocal && window.ViktorychLocal.onAccountChange) window.ViktorychLocal.onAccountChange();
       } catch (err) { /* a missing cache still must not keep the old account's page */ }
