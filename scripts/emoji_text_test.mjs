@@ -177,8 +177,17 @@ async function main() {
     await card.goto("http://127.0.0.1:" + port + "/index.html#/home", { waitUntil: "domcontentloaded" });
     const seg = await card.evaluate(() => typeof Intl.Segmenter);
     if (seg !== "undefined") fail("Segmenter was still available for the preview " + seg);
-    await card.waitForFunction(() => document.querySelector('article[data-post="preview1"]'), null, { timeout: 20000 });
-    const shown = await card.evaluate(() => document.querySelector('article[data-post="preview1"]').innerText);
+    // The card is in the document before content-visibility paints it, and
+    // innerText is empty until that paint. Wait for the rendered text, then
+    // apply the same checks.
+    await card.waitForFunction(() => {
+      const article = document.querySelector('article[data-post="preview1"]');
+      return !!(article && article.innerText.length > 40);
+    }, null, { timeout: 15000 }).catch(() => null);
+    const shown = await card.evaluate(() => {
+      const article = document.querySelector('article[data-post="preview1"]');
+      return article ? article.innerText : "";
+    });
     const split = Array.from(previewText).slice(0, 280).join("");
     if (shown.indexOf(lead) < 0) fail("preview lost the letters before the family");
     if (shown.indexOf(family) >= 0 || shown.indexOf("\u200D") >= 0 || shown.indexOf("👨") >= 0) fail("preview split or kept the family " + JSON.stringify(shown.slice(260, 340)));
