@@ -134,7 +134,13 @@
   function noteSession(session) {
     var stamp = sessionStampOf(session);
     if (sessionSeen === null) { sessionSeen = stamp; sessionGeneration = 1; return; }
-    if (stamp !== sessionSeen) { sessionSeen = stamp; sessionGeneration += 1; }
+    if (stamp !== sessionSeen) {
+      sessionSeen = stamp;
+      sessionGeneration += 1;
+      try {
+        if (window.ViktorychLocal && window.ViktorychLocal.onAccountChange) window.ViktorychLocal.onAccountChange();
+      } catch (err) { /* a missing cache still must not keep the old account's page */ }
+    }
   }
   function writeSession(session) {
     writeStored("account-v1", JSON.stringify(session));
