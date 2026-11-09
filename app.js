@@ -10870,7 +10870,7 @@ const here = parseRoute();
             <a class="time" href="${esc(dest)}">${esc(relTime(post.date))}</a>
             ${post.edited ? `<span class="edited">${tr("Edited")}</span>` : ""}
             ${asAccount ? linkedSourceBadge(post.platform) : postSourceBadges(post)}
-            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}" aria-haspopup="menu" aria-expanded="${STATE.menu === post.id ? "true" : "false"}">${icon("more")}</button></span>
+            <span class="byline-end">${!localAiOn() && shown.text && String(shown.text).trim().length > 20 ? `<button class="explain-btn odai-btn" type="button" data-act="odai-summarize" data-key="${esc(post.id)}" data-scope="post" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("aiExplain")}</button>` : ""}${localAiOn() ? `<button class="explain-btn lai-explain-btn" type="button" data-act="lai-post" data-id="${esc(post.id)}" aria-label="${esc(tr("Explain this post"))}" data-tooltip="${esc(tr("Explain this post"))}">${icon("viktrych")}</button>` : ""}<button class="more-btn" type="button" data-act="menu" data-id="${esc(post.id)}" aria-label="${tr("More")}" aria-haspopup="menu" aria-expanded="${STATE.menu === post.id ? "true" : "false"}">${icon("more")}</button></span>
           </div>
           ${reply}
           ${discordMeta(post)}
@@ -12955,6 +12955,22 @@ const here = parseRoute();
   function viewerScope() {
     const now = sessionNow();
     return now.id + "\n" + String(now.gen || 0);
+  }
+  /* A hash change can put back a page built for the previous account. Mark
+     those pages so the next paint does not show their posts. */
+  function dropForeignViewer() {
+    const scope = viewerScope();
+    viewParks.forEach((slot) => {
+      if (slot && slot.scope && slot.scope !== scope) slot.force = true;
+    });
+    Object.keys(authorPostCache).forEach((key) => {
+      const entry = authorPostCache[key];
+      if (entry && entry.scope && entry.scope !== scope) delete authorPostCache[key];
+    });
+    if (publicOwner && publicOwner !== scope) {
+      publicPosts = [];
+      publicOwner = "";
+    }
   }
   function visiblePublicPosts() {
     return publicOwner === viewerScope() ? publicPosts : [];
@@ -26544,6 +26560,16 @@ const blob = new Blob([JSON.stringify({ version: 1, uiLang: window.SI18n ? windo
     }, 0);
   });
   document.addEventListener("keydown", (event) => {
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const btn = event.target && event.target.closest && event.target.closest("button[data-act='menu']");
+    if (!btn) return;
+    // A zoomed page can focus the button and still not synthesize a click.
+    // One explicit click opens the menu. preventDefault stops a second toggle.
+    event.preventDefault();
+    btn.click();
+  });
+  document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const arrow = event.target.closest && event.target.closest(".tab-arrow[data-act='tab-scroll']");
     if (arrow && (event.key === " " || event.key === "Enter")) {
@@ -28603,6 +28629,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }, true);
   window.addEventListener("hashchange", () => {
     if (window.ViktorychAccounts?.blocking?.()) return;
+    dropForeignViewer();
     showPill(pendingPillPosts());
     const nextHash = location.hash || "#/";
     const prevHash = lastKey || "";
