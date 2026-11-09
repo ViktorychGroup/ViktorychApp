@@ -105,12 +105,31 @@ async function browserScale() {
       guess: window.ViktorychDesktop && window.ViktorychDesktop.windowGuess ? window.ViktorychDesktop.windowGuess() : ""
     }));
     if (scaled.zoom !== "1.5") throw new Error("manual 150 did not scale the page " + JSON.stringify(scaled));
-    await page.locator('article[data-post="p00"] button[data-act="menu"]').focus();
-    await page.keyboard.press("Enter");
-    await page.waitForSelector(".menu.post-menu", { timeout: 2000 });
-    // A key can still deliver its click after press() resolves. The menu has
-    // to still be open, on the button, once that click has landed.
-    await page.waitForTimeout(80);
+    const menuBtn = page.locator('article[data-post="p00"] button[data-act="menu"]');
+    await page.evaluate(() => {
+      window.__keyLog = [];
+      const note = (entry) => { window.__keyLog.push(entry); if (window.__keyLog.length > 12) window.__keyLog.shift(); };
+      document.addEventListener("keydown", (event) => {
+        const el = event.target;
+        note({ t: "down", key: event.key, act: el && el.getAttribute && el.getAttribute("data-act"), id: el && el.getAttribute && el.getAttribute("data-id") });
+      }, true);
+      document.addEventListener("click", (event) => {
+        const el = event.target && event.target.closest && event.target.closest("button[data-act='menu']");
+        note({ t: "click", trusted: event.isTrusted, id: el && el.getAttribute("data-id"), menu: !!document.querySelector(".menu.post-menu") });
+      }, true);
+    });
+    await menuBtn.press("Enter");
+    // The menu is in the page as soon as the key's click renders, then a
+    // frame later it sits on the button. Wait for that, not a fixed pause.
+    const placed = await page.waitForFunction(() => {
+      const menu = document.querySelector(".menu.post-menu");
+      const btn = document.querySelector('article[data-post="p00"] button[data-act="menu"]');
+      if (!menu || !btn) return false;
+      const box = menu.getBoundingClientRect();
+      const btnBox = btn.getBoundingClientRect();
+      if (box.height < 8 || btnBox.height < 8) return false;
+      return Math.abs(box.top - btnBox.bottom) <= 20 || Math.abs(btnBox.top - box.bottom) <= 20;
+    }, null, { timeout: 2000 }).then(() => true).catch(() => false);
     const keyed = await page.evaluate(() => {
       const menu = document.querySelector(".menu.post-menu");
       const btn = document.querySelector('article[data-post="p00"] button[data-act="menu"]');
@@ -124,10 +143,11 @@ async function browserScale() {
         menuBottom: Math.round(box.bottom),
         btnTop: Math.round(btnBox.top),
         btnBottom: Math.round(btnBox.bottom),
-        zoom: document.documentElement.style.zoom || ""
+        zoom: document.documentElement.style.zoom || "",
+        log: window.__keyLog || []
       };
     });
-    if (!keyed || !keyed.near) throw new Error("keyboard did not keep the scaled menu on its button " + JSON.stringify(keyed));
+    if (!placed || !keyed || !keyed.near) throw new Error("keyboard did not keep the scaled menu on its button " + JSON.stringify(keyed));
     await page.evaluate(() => window.scrollTo(0, 120));
     const beforeScroll = await page.evaluate(() => window.scrollY);
     await page.evaluate(() => window.scrollBy(0, 240));
