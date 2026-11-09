@@ -23665,6 +23665,8 @@ if (STATE.histClear) {
     let y = STATE.holdY != null ? STATE.holdY : (reset ? 0 : window.scrollY);
     const focus = document.activeElement;
     const focusId = focus && focus.id;
+    const focusMenuBtn = focus && focus.closest ? focus.closest("button[data-act='menu']") : null;
+    const focusMenuId = focusMenuBtn ? String(focusMenuBtn.getAttribute("data-id") || "") : "";
     const focusTabNode = focus && focus.closest ? (focus.matches && focus.matches("[data-ptab-id]") ? focus : focus.closest(".ptabs [data-ptab-id]")) : null;
     const focusTab = focusTabNode ? String(focusTabNode.getAttribute("data-ptab-id") || "") : "";
     const caret = focus && typeof focus.selectionStart === "number" ? focus.selectionStart : null;
@@ -23864,6 +23866,18 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (caret != null && el.setSelectionRange) {
             try { el.setSelectionRange(caret, caret); } catch (err) { /* ignore */ }
           }
+          focusRestored = true;
+        }
+      }
+      if (!focusRestored && focusMenuId) {
+        // A feed render swaps the button out from under the key. Put focus on
+        // the replacement so Enter still opens that post's menu.
+        const menuSel = window.CSS && CSS.escape
+          ? 'button[data-act="menu"][data-id="' + CSS.escape(focusMenuId) + '"]'
+          : 'button[data-act="menu"][data-id="' + focusMenuId.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
+        const menuBtn = document.querySelector(menuSel);
+        if (menuBtn) {
+          try { menuBtn.focus({ preventScroll: true }); } catch (err) { menuBtn.focus(); }
           focusRestored = true;
         }
       }
@@ -25074,7 +25088,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
     if (act === "follow") {
       const ids = String(el.dataset.ids || el.dataset.id || "").split(",").map((part) => part.trim()).filter(Boolean);
       if (!ids.length) return;
-      const rowPending = ids.some((item) => {
+      const rowPending = el.classList.contains("pending") || ids.some((item) => {
         const html = window.ViktorychAccounts && window.ViktorychAccounts.followControlHtml && window.ViktorychAccounts.followControlHtml(item, false);
         return html && html.indexOf("pending") >= 0;
       });
