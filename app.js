@@ -22370,8 +22370,19 @@ if (STATE.histClear) {
   /* CSS zoom on the page multiplies a fixed top/left again. Rects are visual
      pixels, so menu positions are stored in the page's own pixels. */
   function layoutZoom() {
-    const z = parseFloat(document.documentElement.style.zoom);
-    return z > 0 ? z : 1;
+    const declared = parseFloat(document.documentElement.style.zoom);
+    const z = declared > 0 ? declared : 1;
+    if (z === 1) return 1;
+    // The property can be set when this browser is not scaling boxes. Dividing
+    // by that unused number parks a fixed menu away from its button.
+    const html = document.documentElement;
+    const layout = html.offsetWidth;
+    const visual = html.getBoundingClientRect().width;
+    if (layout > 40 && visual > 40) {
+      const ratio = visual / layout;
+      if (ratio > 0.25 && ratio < 5) return ratio;
+    }
+    return z;
   }
   function layoutRect(el) {
     const z = layoutZoom();
@@ -22466,6 +22477,17 @@ if (STATE.histClear) {
     menu.style.maxHeight = Math.round(maxH) + "px";
     menu.style.left = Math.round(left) + "px";
     menu.style.top = Math.round(top) + "px";
+    // Sit the menu on the button in the pixels this browser actually paints.
+    // A fixed top under page scale is not always the CSS pixel we wrote.
+    const openedAbove = top + maxH <= item.bottom;
+    const beforeTop = parseFloat(menu.style.top) || 0;
+    const beforeBox = menu.getBoundingClientRect();
+    menu.style.top = (beforeTop + 16) + "px";
+    const stepped = menu.getBoundingClientRect();
+    const per = (stepped.top - beforeBox.top) / 16 || 1;
+    const btnNow = btn.getBoundingClientRect();
+    const wantTop = openedAbove ? (btnNow.top - 4 - stepped.height) : (btnNow.bottom + 4);
+    menu.style.top = (beforeTop + 16 + (wantTop - stepped.top) / per) + "px";
   }
   window.addEventListener("scroll", () => { if (STATE.menu) placePostMenu(); }, { passive: true });
   window.addEventListener("resize", () => { if (STATE.menu) placePostMenu(); });
@@ -23760,7 +23782,12 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
             const raw = String(opts.anchorId);
             const sel = window.CSS && CSS.escape ? 'article[data-post="' + CSS.escape(raw) + '"]' : 'article[data-post="' + raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"]';
             const el = document.querySelector(sel);
-            if (el) next = Math.max(0, window.scrollY + (el.getBoundingClientRect().top - (Number(opts.anchorTop) || 0)));
+            if (el) {
+              // The rect is visual pixels. scrollY is CSS pixels. Under page
+              // scale the two differ, and adding them raw jumps the post.
+              const shift = el.getBoundingClientRect().top - (Number(opts.anchorTop) || 0);
+              next = Math.max(0, window.scrollY + shift / layoutZoom());
+            }
           }
           window.scrollTo(0, next);
           if (STATE.scrollKey) SCROLLS[STATE.scrollKey] = next;
@@ -23769,6 +23796,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
           if (opts && opts.focusMenu) {
             const item = document.querySelector(".menu.post-menu button, .menu.post-menu a");
             if (item) { try { item.focus({ preventScroll: true }); } catch (err) { item.focus(); } }
+            placePostMenu();
           }
           if (opts && opts.focusReturn) {
             const raw = String(opts.focusReturn);

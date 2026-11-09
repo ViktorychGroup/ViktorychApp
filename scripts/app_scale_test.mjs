@@ -110,12 +110,20 @@ async function browserScale() {
     const keyed = await page.evaluate(() => {
       const menu = document.querySelector(".menu.post-menu");
       const btn = document.querySelector('article[data-post="p00"] button[data-act="menu"]');
-      if (!menu || !btn) return null;
+      if (!menu || !btn) return { missing: !menu ? "menu" : "button" };
       const box = menu.getBoundingClientRect();
       const btnBox = btn.getBoundingClientRect();
-      return Math.abs(box.top - btnBox.bottom) <= 20 || Math.abs(btnBox.top - box.bottom) <= 20;
+      const near = Math.abs(box.top - btnBox.bottom) <= 20 || Math.abs(btnBox.top - box.bottom) <= 20;
+      return {
+        near,
+        menuTop: Math.round(box.top),
+        menuBottom: Math.round(box.bottom),
+        btnTop: Math.round(btnBox.top),
+        btnBottom: Math.round(btnBox.bottom),
+        zoom: document.documentElement.style.zoom || ""
+      };
     });
-    if (!keyed) throw new Error("keyboard did not keep the scaled menu on its button");
+    if (!keyed || !keyed.near) throw new Error("keyboard did not keep the scaled menu on its button " + JSON.stringify(keyed));
     await page.evaluate(() => window.scrollTo(0, 120));
     const beforeScroll = await page.evaluate(() => window.scrollY);
     await page.evaluate(() => window.scrollBy(0, 240));
