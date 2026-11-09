@@ -28135,7 +28135,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     hscrollOnResize();
   }
-  window.addEventListener("resize", () => syncShell());
+  window.addEventListener("resize", () => {
+    if (window.ViktorychAnchorHold) window.ViktorychAnchorHold();
+    syncShell();
+  });
 
   // Swipe a notification sideways to dismiss it (phones and tablets).
   (function noteSwipe() {

@@ -98,6 +98,7 @@ const PAGE_STEPS = [
     weight: 45, needs: ["pw", "browser"],
     paths: [file("notifications_page_test.mjs"), file("notif_badge_test.mjs"), ...APP]
   }),
+  step("scrollbar-hidden", "node scripts/scrollbar_hidden_test.mjs", { needs: ["pw", "browser"], paths: [file("scrollbar_hidden_test.mjs"), /^styles\.css$/] }),
   step("profile-tab-scroll", "node scripts/profile_tab_scroll_test.mjs", { needs: ["pw", "browser"], paths: [file("profile_tab_scroll_test.mjs"), /^accounts\.js$/, /^app\.js$/, /^styles\.css$/] }),
   step("profile", "node scripts/profile_chrome_test.mjs", {
     weight: 70, needs: ["pw", "browser"],
@@ -289,7 +290,7 @@ const NAV_STEPS = [
 const SHARDS = {
   checks: ["action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n", "telegram-stories", "stories", "device", "translate", "ondevice-ai", "dock", "for-you", "storage-recordings", "app-scale", "image-copy"],
   site: ["about-layout", "points-layout", "stories-layout", "assemble-site", "smoke-site", "smoke-mirror", "yt-embed", "x-video", "ios", "live"],
-  "ui-fast": ["notifications", "pill-fit", "sidebar", "privacy", "title-privacy", "desktop-squares", "storage-page"],
+  "ui-fast": ["notifications", "scrollbar-hidden", "pill-fit", "sidebar", "privacy", "title-privacy", "desktop-squares", "storage-page"],
   sw: ["sw-update"],
   "ui-profile": ["profile", "profile-tab-scroll"],
   "ui-drawer": ["drawer"],
@@ -313,7 +314,7 @@ const NAV_SHARDS = {
 const REQUIRED_PAGE = [
   "action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n",
   "about-layout", "points-layout", "telegram-stories", "stories", "stories-layout",
-  "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "profile", "profile-tab-scroll",
+  "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "scrollbar-hidden", "profile", "profile-tab-scroll",
   "home-tabs", "tab-member", "reply-lookup", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
   "signup-flows",
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",

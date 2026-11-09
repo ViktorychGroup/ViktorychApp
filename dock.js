@@ -2,6 +2,21 @@
    the Messages screen. The other square is a local AI chat. Nothing here
    embeds another site. */
 (function (root) {
+  var anchorHoldTicket = 0;
+  function holdDocumentAnchor() {
+    var doc = document.documentElement;
+    if (!doc) return;
+    doc.classList.add("vk-anchor-hold");
+    var ticket = ++anchorHoldTicket;
+    var raf = root.requestAnimationFrame || function (fn) { return setTimeout(fn, 16); };
+    raf(function () {
+      setTimeout(function () {
+        if (ticket !== anchorHoldTicket) return;
+        doc.classList.remove("vk-anchor-hold");
+      }, 120);
+    });
+  }
+  root.ViktorychAnchorHold = holdDocumentAnchor;
   var KEY = "viktorychapp-dock-v1";
   var AI_CONFIG = {
     name: "AI",
@@ -513,6 +528,7 @@
   }
   function setOpen(kind, open, animate) {
     if (!shown(kind)) return;
+    if (open) holdDocumentAnchor();
     var prefs = read();
     if (kind === "chat") prefs.chatOpen = !!open;
     else prefs.aiOpen = !!open;
@@ -535,7 +551,7 @@
       if (kind === "ai") loadAi();
       if (animate) {
         var field = panel.querySelector("input, textarea");
-        if (field) field.focus();
+        if (field) { try { field.focus({ preventScroll: true }); } catch (err) { field.focus(); } }
       }
       return;
     }

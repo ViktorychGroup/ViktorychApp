@@ -138,14 +138,14 @@ async function main() {
   const origin = "http://127.0.0.1:" + server.address().port;
   const browser = await chromium.launch({ headless: true, channel: "chrome", args: ["--no-sandbox", "--disable-gpu"] });
   try {
-    // 1. A normal browser tab is unchanged: scrollbar, no title bar, no Close.
+    // 1. A normal browser tab hides the scrollbar, and has no title bar or Close.
     {
       const { context, page } = await open(browser, origin, "tab");
-      // Make the page scroll so a classic scrollbar can show.
+      // Make the page scroll so a classic scrollbar would otherwise show.
       await page.evaluate(() => { document.body.style.minHeight = "3000px"; });
       await sleep(100);
       const bar = await scrollbarState(page);
-      if (bar.width === "none") fail("normal tab hid the scrollbar");
+      if (bar.width !== "none") fail("normal tab showed the scrollbar");
       if (bar.wcoShown) fail("normal tab shows the custom title bar");
       if (await page.evaluate(() => window.ViktorychDesktop.closeSupported())) fail("Close offered in a normal tab");
       await sleep(1200);
