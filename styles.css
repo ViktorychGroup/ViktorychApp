@@ -5004,6 +5004,8 @@ html[data-theme="default"] .xk-status.warn { color: #b26b00; }
 .xk-problem { margin: 0; padding: 12px 16px 12px 52px; border-bottom: 1px solid var(--line); font-size: 15px; line-height: 20px; position: relative; }
 .xk-problem::before { content: ""; position: absolute; left: 24px; top: 18px; width: 8px; height: 8px; border-radius: 50%; background: #ffad1f; }
 .xk-problem.down::before { background: var(--red); }
+.xk-problem.paused { color: var(--muted); }
+.xk-problem.paused::before { background: var(--muted); }
 .xk-form { padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .xk-key .xk-form { padding-left: 52px; border-bottom: 0; }
 .xk-field { display: block; margin-bottom: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 4px; transition: border-color .15s; }
