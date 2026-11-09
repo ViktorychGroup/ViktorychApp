@@ -9,6 +9,9 @@
     var fn = (typeof window !== "undefined" && window.tn) ? window.tn : ((typeof self !== "undefined" && self.tn) ? self.tn : null);
     return fn ? fn(key, n, vars) : String(n);
   }
+  function shortsEnabled() {
+    return typeof SHORTS_ENABLED !== "undefined" && SHORTS_ENABLED === true;
+  }
   function productName(kind) {
     var api = (typeof SI18n !== "undefined") ? SI18n : ((typeof window !== "undefined" && window.SI18n) ? window.SI18n : ((typeof self !== "undefined" && self.SI18n) ? self.SI18n : null));
     return (api && api.productName) ? api.productName(kind) : "";
@@ -11197,7 +11200,7 @@ const here = parseRoute();
       case "contacts":
         return { id: "contacts", href: "#/contacts", icon: "phone", label: tr("Contacts"), active: (r) => r.name === "contacts", visible: () => featureOn("contacts") };
       case "shorts":
-        return { id: "shorts", href: "#/shorts", icon: "shorts", label: tr("Shorts"), active: (r) => r.name === "shorts", visible: () => !!(window.ViktorychShorts && window.ViktorychShorts.visible()) };
+        return { id: "shorts", href: "#/shorts", icon: "shorts", label: tr("Shorts"), active: (r) => r.name === "shorts", visible: () => shortsEnabled() && !!(window.ViktorychShorts && window.ViktorychShorts.visible()) };
       case "games":
         return { id: "games", href: "#/games", icon: "games", label: tr("Games"), active: (r) => r.name === "games" };
       case "tv":
@@ -20821,7 +20824,7 @@ if (STATE.histClear) {
   }
 
   function watchHash(post) {
-    if (post && post.platform === "tiktok") return "#/shorts?v=" + encodeURIComponent(post.statusId || post.id || "");
+    if (shortsEnabled() && post && post.platform === "tiktok") return "#/shorts?v=" + encodeURIComponent(post.statusId || post.id || "");
     return "#/watch/" + (post.platform || "x") + ":" + (post.statusId || post.id);
   }
 
@@ -22163,6 +22166,7 @@ if (STATE.histClear) {
       return lazySkeleton(tr("Contacts"));
     }
     if (route.name === "shorts") {
+      if (!shortsEnabled()) return "";
       if (window.ViktorychShorts && window.ViktorychShorts.visible()) return window.ViktorychShorts.page(route);
       if (!window.ViktorychShorts) { ensureLazy("shorts"); return lazySkeleton(tr("Shorts")); }
       return pageHead(tr("Shorts")) + emptyBlock(tr("Shorts"), tr("Reload the page."));
@@ -23498,6 +23502,8 @@ if (STATE.histClear) {
       history.replaceState(null, "", location.pathname + location.search + "#/history/bookmarks");
     } else if (bare === "#/drive" || bare.startsWith("#/drive/")) {
       history.replaceState(null, "", location.pathname + location.search + "#/storage" + bare.slice("#/drive".length) + (qCut >= 0 ? hashNow.slice(qCut) : ""));
+    } else if (!shortsEnabled() && (bare === "#/shorts" || bare.startsWith("#/shorts/"))) {
+      history.replaceState(null, "", location.pathname + location.search + "#/");
     }
     const hashAtStart = location.hash || "#/";
     paintToken = routePaintState.token;
@@ -23678,7 +23684,7 @@ if (STATE.histClear) {
         else if (window.ViktorychContacts.unmount) window.ViktorychContacts.unmount();
       }
       if (window.ViktorychShorts) {
-        if (route.name === "shorts") window.ViktorychShorts.mount(route);
+        if (shortsEnabled() && route.name === "shorts") window.ViktorychShorts.mount(route);
         else window.ViktorychShorts.unmount();
       }
       if (window.ViktorychDrive) {
@@ -30053,8 +30059,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (!STATE.data) {
         notePublished(doc);
         STATE.data = withMemory(doc);
-        if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
-        if (window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
+        if (shortsEnabled() && window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
+        if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
         STATE.error = null;
         STATE.pendingFeed = null;
         if (!(STATE.pendingLive || []).length) showPill([]);
@@ -33396,7 +33402,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       }
     }
     if (STATE.composeSeed) local.saveDoc("drafts", "compose", { text: STATE.composeSeed });
-    if (window.ViktorychShorts && window.ViktorychShorts.snapshot) window.ViktorychShorts.snapshot();
+    if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.snapshot) window.ViktorychShorts.snapshot();
     if (window.SIntelMusic && window.SIntelMusic.snapshot) window.SIntelMusic.snapshot();
     if (window.FeedsDiscord && window.FeedsDiscord.snapshot) window.FeedsDiscord.snapshot();
     if (window.ViktorychCommunities && window.ViktorychCommunities.snapshot) window.ViktorychCommunities.snapshot();
@@ -33528,7 +33534,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       notePublished(snap);
       STATE.data = snap;
       STATE.settings = loadSettings();
-      if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
+      if (shortsEnabled() && window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
       STATE.loading = false;
       if (!routeDomReady && parseRoute().name !== "home") followRoute();
       else render({ reset: true });
@@ -33597,8 +33603,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         }
         saveHomeSnapshot();
       }
-      if (window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
-      if (window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
+      if (shortsEnabled() && window.ViktorychShorts && !window.ViktorychShorts.visible()) window.ViktorychShorts.hide();
+      if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.visible()) await window.ViktorychShorts.pull();
       ensureVideoOwners();
       applyIaPreview(STATE.data);
       STATE.settings = loadSettings();
@@ -33661,7 +33667,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       /* The archive list does not depend on the catalog. Without it every
          picture that failed would wait for a list that never comes. */
       if (!IA.ready) loadNewestShard().catch(() => installIaManifest(null));
-      if (window.ViktorychShorts && window.ViktorychShorts.visible()) {
+      if (shortsEnabled() && window.ViktorychShorts && window.ViktorychShorts.visible()) {
         if (!STATE.data) STATE.data = { posts: [], feeds: [] };
         try { await window.ViktorychShorts.pull(); } catch (ignore) { /* shorts keeps the last copy */ }
       }
@@ -34015,12 +34021,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
      was moving the page under an open phone drawer. The server off-switch
      still skips it. Opening Shorts still paints, because that call is not
      quiet. */
-  if (window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure("shorts", true);
+  if (shortsEnabled() && window.ViktorychLazy && window.ViktorychLazy.ensure) window.ViktorychLazy.ensure("shorts", true);
   if (musicSessionOpen() || parseRoute().name === "music") ensureMusic();
   setTimeout(() => {
     if (window.ViktorychLazy && window.ViktorychLazy.preload) {
       const saver = dataSaver();
-      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers"];
+      const list = ["shorts", "communities", "games", "tv", "vault", "drive", "packages", "servers"].filter((name) => name !== "shorts" || shortsEnabled());
       if (saver) saver.whenRoomy(() => window.ViktorychLazy.preload(list));
       else window.ViktorychLazy.preload(list);
     }
