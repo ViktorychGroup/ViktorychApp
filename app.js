@@ -12895,9 +12895,7 @@ const here = parseRoute();
         return;
       }
       if (!STATE.feedShown) STATE.feedShown = {};
-      /* A full page of new cards inside the scroll handler was the long task.
-         Add one small batch; the sentinel brings the next. */
-      STATE.feedShown[tab] = Math.min(list.length, count + FEED_STEP);
+      STATE.feedShown[tab] = next;
       render({ y: window.scrollY });
       return;
     }
@@ -20540,19 +20538,14 @@ if (STATE.histClear) {
     return 0;
   }
 
-  /* Phone portrait hides the icon rail and the right column, and a short
-     landscape uses only the land rail. Building the hidden chrome on every
-     paint was most of a cold open and a tab switch. */
+  /* The icon rail, the landscape rail, and the side column stay in the
+     page. CSS shows the ones that fit, including after a rotation that
+     does not rebuild. */
   function shellNeeds() {
     const w = window.innerWidth || 0;
     const h = window.innerHeight || 0;
     const land = w > h && h <= 520 && w <= 1100;
-    return { land: land, nav: land || w >= 500, side: !land && w >= 1000 };
-  }
-  function shellNav(route, needs) {
-    if (!needs.nav) return "";
-    if (needs.land) return navChrome(route, "nav-land", landNavLinks(route));
-    return navChrome(route, "", renderNavLinks(route));
+    return { land: land, side: !land && w >= 1000 };
   }
   function shell(main, route) {
     const gamePlay = route.name === "games" && !!route.game;
@@ -20571,9 +20564,8 @@ if (STATE.histClear) {
     const top = bar + rowExtra + storyExtra + liveExtra;
     const mode = (wide ? " wide" : "") + (explore ? " explore-mode" : "");
     const messageSelect = route.name === "messages" ? ' data-privacy="messages"' : "";
-    const needs = shellNeeds();
-    const side = needs.side && !wide && !explore ? sidebar() : "";
-    return `<button class="skip" type="button" data-act="skip">${tr("Skip to content")}</button><div class="app${mode}">${shellNav(route, needs)}<main class="center${route.name === "settings" ? " settings-flow" : ""}" tabindex="-1" style="--top:${top}px"${messageSelect}>${main}</main>${side}</div>${bottom(route)}${welcomeHtml(route)}${drawer()}${accountPopup()}${drawerEditModal()}${shareSheet()}${modal()}${groupMenu()}${tabMenu()}${bellMenu()}${busySheet()}${tabAssignMenu()}${tabContextMenu()}${profileSheets()}${blockSheet()}`;
+    const side = wide || explore ? "" : sidebar();
+    return `<button class="skip" type="button" data-act="skip">${tr("Skip to content")}</button><div class="app${mode}">${nav(route)}<main class="center${route.name === "settings" ? " settings-flow" : ""}" tabindex="-1" style="--top:${top}px"${messageSelect}>${main}</main>${side}</div>${bottom(route)}${welcomeHtml(route)}${drawer()}${accountPopup()}${drawerEditModal()}${shareSheet()}${modal()}${groupMenu()}${tabMenu()}${bellMenu()}${busySheet()}${tabAssignMenu()}${tabContextMenu()}${profileSheets()}${blockSheet()}`;
   }
 
   function toggleReaction(act, id) {
@@ -23563,12 +23555,35 @@ if (STATE.histClear) {
   const VIEW_PARK_MAX = 8;
   const viewParks = new Map();
   let viewRefreshTimer = 0;
+  function stampHash(value) {
+    let text = "";
+    try { text = typeof value === "string" ? value : JSON.stringify(value == null ? null : value); }
+    catch (err) { text = ""; }
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+  }
+  function authorFeedStamp() {
+    const scope = viewerScope();
+    const parts = [];
+    Object.keys(authorPostCache).sort().forEach((key) => {
+      const bag = authorPostCache[key];
+      if (!bag || bag.scope !== scope) return;
+      const ids = (bag.posts || []).map((post) => (post && post.id) || "").join(",");
+      parts.push(key + (bag.loading ? "?" : "") + ":" + ids);
+    });
+    return parts.join(";");
+  }
   function homeStamp(route) {
     const data = STATE.data;
     const list = data && data.posts;
     const n = list ? list.length : 0;
     const s = STATE.settings || {};
     const count = (obj) => (obj ? Object.keys(obj).length : 0);
+    const fy = cmFyState();
     return [
       route.tab || "foryou",
       route.query ? route.query.toString() : "",
@@ -23580,9 +23595,15 @@ if (STATE.histClear) {
       publicPosts.length,
       publicPosts[0] ? String(publicPosts[0].id || "") : "",
       publicPosts[0] && publicPosts[0].pending ? 1 : 0,
-      Object.keys(cmFyState().mutedAt || {}).length,
-      (cmFyState().hidden || []).length,
-      cmFyState().prefs && cmFyState().prefs.joined ? cmFyState().prefs.joined.length : 0,
+      stampHash(s.blocks),
+      stampHash(s.mutedWords),
+      stampHash(s.mutedAccounts),
+      stampHash(fy.mutedAt),
+      stampHash(fy.hidden),
+      stampHash(fy.prefs && fy.prefs.joined),
+      stampHash(fy.prefs && fy.prefs.hidden),
+      authorFeedStamp(),
+      stampHash(STATE.forYouSnap),
       count(s.likes),
       count(s.reposts),
       count(s.bookmarks),
@@ -23681,7 +23702,6 @@ if (STATE.histClear) {
       const other = (route.tab || "foryou") === "following" ? "foryou" : "following";
       const key = "home:" + other;
       const held = viewParks.get(key);
-      if (held && held.scope === viewerScope() && !held.force) return;
       const query = new URLSearchParams();
       if (other === "following") query.set("sort", STATE.settings && STATE.settings.followingSort === "popular" ? "popular" : "recent");
       else {
@@ -23689,6 +23709,8 @@ if (STATE.histClear) {
         query.set("replies", STATE.settings && STATE.settings.forYouReplies === false ? "0" : "1");
       }
       const next = { name: "home", tab: other, query: query };
+      const stamp = homeStamp(next);
+      if (held && held.scope === viewerScope() && !held.force && held.stamp === stamp) return;
       const prevShown = STATE.feedShown;
       const prevCut = STATE.feedCutoff;
       const prevBusy = STATE.busyCounts;
@@ -23706,7 +23728,7 @@ if (STATE.histClear) {
       const root = document.createElement("div");
       root.className = "view-slot";
       root.innerHTML = html;
-      viewParks.set(key, { stamp: homeStamp(next), scope: viewerScope(), live: false, root: root, y: 0, at: Date.now(), force: false, shown: false });
+      viewParks.set(key, { stamp: stamp, scope: viewerScope(), live: false, root: root, y: 0, at: Date.now(), force: false, shown: false });
       evictParks();
     };
     const idle = window.requestIdleCallback;
@@ -23719,6 +23741,12 @@ if (STATE.histClear) {
     /* A parked page belongs to the account that built it. Putting it back
        for someone else shows their reply until the later refresh. */
     if (slot.scope && slot.scope !== viewerScope()) {
+      slot.force = true;
+      return false;
+    }
+    /* A parked tab from before a block, a mute, or a new post would come
+       back unchanged. Rebuild unless this exact stamp is still current. */
+    if (slot.stamp !== viewStamp(route)) {
       slot.force = true;
       return false;
     }
@@ -28293,15 +28321,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       document.documentElement.setAttribute("data-shell", mode);
     }
     hscrollOnResize();
-    /* A phone paint skips the rail and the side column. Growing into a
-       layout that shows them builds that chrome once. A resize before boot
-       finishes must not render: the scroll lock and the remember timer are
-       still being declared. */
+    /* A narrow paint skips the side column. Growing into a layout that
+       shows it builds that column once. A resize before boot finishes must
+       not render: the scroll lock and the remember timer are still being
+       declared. */
     if (!shellLive) return;
     const needs = shellNeeds();
-    const wantNav = needs.nav && !document.querySelector(needs.land ? "header.nav.nav-land" : "header.nav:not(.nav-land)");
     const wantSide = needs.side && !document.querySelector("aside.side");
-    if ((wantNav || wantSide) && !syncShell.painting) {
+    if (wantSide && !syncShell.painting) {
       syncShell.painting = true;
       render();
       syncShell.painting = false;
