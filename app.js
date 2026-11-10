@@ -13080,9 +13080,7 @@ const here = parseRoute();
     hydratePublicMedia();
     return true;
   }
-  let deferPublicPosts = false;
   function schedulePublicPosts() {
-    if (deferPublicPosts) return;
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
     if (!accountToken()) return;
@@ -13127,26 +13125,28 @@ const here = parseRoute();
         }
         renderBackground();
       };
-      /* No catalog yet. Hold the list so the first paint of the feed stays
-         the saved Home, and the next reload is not a cold start. */
+      /* No catalog yet. The catalog paint reads the list. No timer render:
+         that second paint was landing inside cold and warm open. */
       if (!(STATE.data && Array.isArray(STATE.data.posts) && STATE.data.posts.length)) {
         heldPublicPosts = { merged: merged, owner: publicOwner, structural: structural };
+        /* The catalog paint picks the list up. A stored photo still has to
+           be drawn if that paint already went out. Text lists wait for it,
+           so an open is not rebuilt just to merge them. */
         setTimeout(() => {
           if (!heldPublicPosts) return;
-          publicPosts = heldPublicPosts.merged;
+          const posts = heldPublicPosts.merged;
+          publicPosts = posts;
           publicOwner = heldPublicPosts.owner;
           arrivedPostsStructural = heldPublicPosts.structural;
-          arrivedPostsPending = true;
           heldPublicPosts = null;
           if (!openingSettled) return;
-          renderBackground();
+          const needsFile = posts.some((post) => post && post.media && post.media.length && post.id && !publicCardPresent(post.id));
+          if (needsFile) renderBackground();
         }, 400);
         return;
       }
       publicPosts = merged;
-      /* The list is already stored for the next paint. An open Home gets the
-         new cards through the background queue: in place when they fit, and
-         otherwise a kept-rail paint, never a rebuild on top of a menu. */
+      if (!merged.length && !structural) return;
       arrivedPostsStructural = structural;
       arrivedPostsPending = true;
       if (!openingSettled) {
@@ -13154,12 +13154,12 @@ const here = parseRoute();
         arrivedPostsStructural = false;
         return;
       }
-      /* A cold open still has no posts, so the list is drawn now. A warm
-         open already shows its saved Home; inserting later keeps that
-         first paint from being rebuilt. */
       const shown = document.querySelectorAll("#app article.post").length;
-      if (shown >= 3) setTimeout(deliverArrived, 1000);
-      else deliverArrived();
+      if (shown >= 3) {
+        /* Home is already up. Insert on a later turn so this open is not
+           held behind the new cards. */
+        setTimeout(deliverArrived, 0);
+      } else deliverArrived();
     }).catch(() => {});
   }
   function publicCardPresent(id) {
@@ -34113,21 +34113,6 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     STATE.error = null;
     loadStatus();
     STATE.settings = loadSettings();
-    /* Ask for this account's posts before the first paint so a post that is
-       already on the server can be in that paint. A reload already has the
-       page in cache; fetching now only makes that first paint heavier. */
-    let reloaded = false;
-    try {
-      const nav = performance.getEntriesByType("navigation")[0];
-      reloaded = !!(nav && nav.type === "reload");
-    } catch (err) { reloaded = false; }
-    if (reloaded) {
-      deferPublicPosts = true;
-      setTimeout(() => {
-        deferPublicPosts = false;
-        schedulePublicPosts();
-      }, 2500);
-    } else schedulePublicPosts();
     applyTorProtections();
     applyTheme();
     applyPrivacyProtections();
