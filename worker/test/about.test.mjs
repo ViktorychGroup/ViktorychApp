@@ -10,6 +10,48 @@ import { runBirthdaySweep, upcomingBirthdays } from "../src/birthdays.js";
 let mf;
 let bindings;
 
+/* Miniflare's synchronous D1 bridge can wake before the matching reply is
+   on the port (`message?.id === id`). Queries from this file share one
+   bridge, so each one waits until the previous reply has settled, and a
+   mismatched reply is tried again. */
+const d1Statement = Symbol("d1Statement");
+function serialD1(db) {
+  let tail = Promise.resolve();
+  const gap = () => new Promise((resolve) => setImmediate(resolve));
+  function retry(run) {
+    const attempt = (left) => run().catch((err) => {
+      if (left <= 0 || !String(err && err.message || err).includes("message?.id === id")) throw err;
+      return gap().then(() => attempt(left - 1));
+    });
+    return attempt(4);
+  }
+  function enqueue(run) {
+    const job = tail.then(gap).then(() => retry(run));
+    tail = job.then(() => {}, () => {});
+    return job;
+  }
+  function wrap(statement) {
+    const first = statement.first.bind(statement);
+    const all = statement.all.bind(statement);
+    const run = statement.run.bind(statement);
+    const raw = typeof statement.raw === "function" ? statement.raw.bind(statement) : null;
+    const bind = statement.bind.bind(statement);
+    return {
+      [d1Statement]: statement,
+      bind(...args) { return wrap(bind(...args)); },
+      first(...args) { return enqueue(() => first(...args)); },
+      all(...args) { return enqueue(() => all(...args)); },
+      run(...args) { return enqueue(() => run(...args)); },
+      raw(...args) { return raw ? enqueue(() => raw(...args)) : Promise.reject(new Error("raw")); }
+    };
+  }
+  const prepare = db.prepare.bind(db);
+  const batch = db.batch.bind(db);
+  db.prepare = (sql) => wrap(prepare(sql));
+  db.batch = (statements) => enqueue(() => batch((statements || []).map((stmt) => stmt && stmt[d1Statement] ? stmt[d1Statement] : stmt)));
+  return db;
+}
+
 function workerOptions() {
   return {
     modules: true,
@@ -97,6 +139,7 @@ test("audience matrix hides fields the viewer cannot see", () => {
 test.before(async () => {
   mf = new Miniflare(workerOptions());
   bindings = await mf.getBindings();
+  if (bindings && bindings.DB) serialD1(bindings.DB);
 });
 
 test.after(async () => {

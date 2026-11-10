@@ -13047,6 +13047,15 @@ const here = parseRoute();
     if (typeof document !== "undefined" && document.querySelector(".xc-modal, .modal-back, .post-menu")) return true;
     return false;
   }
+  /* Set when a post list is stored and Home may still need the new cards.
+     The background flush applies them in place, or paints through the kept
+     rails, once a menu, Search, or Settings is out of the way. */
+  /* Set once the first paint has committed. A list that arrives before
+     that is stored for the paint. Nothing else is installed up front. */
+  let openingSettled = false;
+  function settleOpeningPaint() {
+    openingSettled = true;
+  }
   function schedulePublicPosts() {
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
@@ -13063,14 +13072,73 @@ const here = parseRoute();
     accountCall("/v1/posts").then((res) => {
       if (gen !== publicGen || !sameSession(sender)) return;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
-      if (typeof res.communitiesHome === "boolean") STATE.settings.communitiesHome = res.communitiesHome;
+      if (typeof res.communitiesHome === "boolean" && STATE.settings) STATE.settings.communitiesHome = res.communitiesHome;
       if (res.communityPrefs) cmFyPrefs(res.communityPrefs);
       const merged = keepOwnPosts(res.posts);
       if (samePublicPosts(merged) && publicOwner === viewerScope()) return;
       publicPosts = merged;
       publicOwner = viewerScope();
+      /* Before the first paint, the list is only stored. Rebuilding here
+         was a second paint inside cold and warm open. */
+      if (!openingSettled) return;
+      /* A reply or a post this device just sent paints on main's rebuild.
+         Another card here lands before that one is on screen. */
+      if (Object.keys(ownSent).length) {
+        renderBackground();
+        return;
+      }
+      const missing = [];
+      for (let i = 0; i < merged.length; i++) {
+        const post = merged[i];
+        if (post && post.id && !publicCardPresent(post.id)) missing.push(post);
+      }
+      if (!missing.length) {
+        /* The open tab already shows these posts. Refresh the parked tab
+           the same way a full paint does, so the switch can put it back. */
+        scheduleOtherHomeTab();
+        return;
+      }
+      /* One new card, placed as soon as it arrives. Anything else uses
+         the same rebuild main does. */
+      if (missing.length === 1 && insertArrivedPosts(missing)) {
+        hydratePublicMedia();
+        scheduleOtherHomeTab();
+        return;
+      }
       renderBackground();
     }).catch(() => {});
+  }
+  function publicCardPresent(id) {
+    if (!id || typeof document === "undefined") return false;
+    try { return !!document.querySelector('article[data-post="' + cssAttr(id) + '"]'); }
+    catch (err) { return false; }
+  }
+  function insertArrivedPosts(posts) {
+    if (STATE.modal) return false;
+    const route = parseRoute();
+    if (!route || route.name !== "home" || !posts || posts.length !== 1) return false;
+    const mainEl = document.querySelector("main.center");
+    if (!mainEl) return false;
+    const raw = posts[0];
+    const post = raw && (raw.platform || raw.appPost) ? raw : appCardPost(raw);
+    if (!post || !post.id || publicCardPresent(post.id)) return true;
+    let html = "";
+    try { html = card(post, post.parentId ? "reply" : ""); }
+    catch (err) { return false; }
+    if (!html) return false;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    const article = wrap.querySelector("article");
+    if (!article) return false;
+    const first = mainEl.querySelector("article.post");
+    if (post.parentId) {
+      const parent = mainEl.querySelector('article[data-post="' + cssAttr(post.parentId) + '"]');
+      if (parent) parent.after(article);
+      else if (first) first.before(article);
+      else mainEl.prepend(article);
+    } else if (first) first.before(article);
+    else mainEl.prepend(article);
+    return true;
   }
 
   /* Posts this device just sent. A /v1/posts reply that left before the post
@@ -13411,7 +13479,21 @@ const here = parseRoute();
   function hydratePublicMedia() {
     const token = accountToken();
     const root = accountsApi();
-    if (!token || !root) return;
+    if (!token || !root) {
+      /* The card can be on screen before the signed-in session is readable.
+         One later pass still fetches the stored file. Nothing is queried
+         until a stored photo is actually waiting. */
+      if (!hydratePublicMedia.armed) {
+        const waiting = document.querySelector("[data-public-media]:not([data-public-tried])");
+        if (waiting) {
+          hydratePublicMedia.armed = true;
+          const again = () => { hydratePublicMedia.armed = false; hydratePublicMedia(); };
+          const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+          raf(() => raf(again));
+        }
+      }
+      return;
+    }
     document.querySelectorAll(".pub-cm").forEach((el) => {
       const text = el.querySelector("[data-pub-cm]");
       const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -24029,6 +24111,7 @@ if (STATE.histClear) {
         y = Object.prototype.hasOwnProperty.call(SCROLLS, key) ? (SCROLLS[key] || 0) : (slot.y || 0);
         STATE.holdY = y;
         applied = true;
+        settleOpeningPaint();
         paintedHash = decision.hash;
         nextKey = key;
         STATE.scrollKey = nextKey;
@@ -24046,6 +24129,7 @@ if (STATE.histClear) {
       } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force && !userDriven) {
         slot.shown = false;
         applied = true;
+        settleOpeningPaint();
         paintedHash = decision.hash;
         nextKey = key;
         STATE.scrollKey = nextKey;
@@ -24055,6 +24139,7 @@ if (STATE.histClear) {
       } else if (decision && decision.commit && slot && slot.live && slot.stamp !== stamp && !slot.force && !userDriven) {
         scheduleViewRefresh(key, 0);
         applied = true;
+        settleOpeningPaint();
         paintedHash = decision.hash;
         nextKey = key;
         STATE.scrollKey = nextKey;
@@ -24084,6 +24169,7 @@ if (STATE.histClear) {
         }
       }
       applied = true;
+      settleOpeningPaint();
       paintedHash = decision.hash;
       nextKey = routeScrollKey();
       paintProfileChrome();
