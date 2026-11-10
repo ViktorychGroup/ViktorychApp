@@ -13048,14 +13048,78 @@ const here = parseRoute();
     accountCall("/v1/posts").then((res) => {
       if (gen !== publicGen || !sameSession(sender)) return;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
-      if (typeof res.communitiesHome === "boolean") STATE.settings.communitiesHome = res.communitiesHome;
-      if (res.communityPrefs) cmFyPrefs(res.communityPrefs);
+      let structural = false;
+      if (STATE.settings && typeof res.communitiesHome === "boolean" && STATE.settings.communitiesHome !== res.communitiesHome) {
+        STATE.settings.communitiesHome = res.communitiesHome;
+        structural = true;
+      }
+      if (res.communityPrefs) {
+        const beforePrefs = JSON.stringify((cmFyState().prefs) || null);
+        cmFyPrefs(res.communityPrefs);
+        if (JSON.stringify((cmFyState().prefs) || null) !== beforePrefs) structural = true;
+      }
       const merged = keepOwnPosts(res.posts);
-      if (samePublicPosts(merged) && publicOwner === viewerScope()) return;
+      if (samePublicPosts(merged) && publicOwner === viewerScope() && !structural) return;
       publicPosts = merged;
       publicOwner = viewerScope();
-      render();
+      /* The first paint reads this list. A later arrival adds the new cards
+         in place. A full rebuild is only for a layout change or a card that
+         has no place on the current Home. */
+      const place = () => {
+        if (gen !== publicGen || !sameSession(sender)) return true;
+        if (!document.querySelector("main.center")) return false;
+        if (structural || !insertArrivedPosts()) render();
+        return true;
+      };
+      if (!place()) {
+        const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+        let tries = 0;
+        const again = () => {
+          if (place() || tries > 30) return;
+          tries += 1;
+          raf(again);
+        };
+        raf(again);
+      }
     }).catch(() => {});
+  }
+  function publicCardPresent(id) {
+    if (!id || typeof document === "undefined") return false;
+    try { return !!document.querySelector('article[data-post="' + cssAttr(id) + '"]'); }
+    catch (err) { return false; }
+  }
+  /* New server posts for the Home that is already on screen. Returns false
+     when a full rebuild is the safe paint. */
+  function insertArrivedPosts() {
+    if (STATE.modal) return false;
+    if (Object.keys(ownSent).some((id) => String(id).indexOf("tmp-") === 0)) return false;
+    const route = parseRoute();
+    if (!route || route.name !== "home") return false;
+    const main = document.querySelector("main.center");
+    if (!main) return false;
+    const wanted = appHomePosts(route.tab || "foryou").filter((post) => post && post.id && !publicCardPresent(post.id));
+    if (!wanted.length) return true;
+    for (let i = wanted.length - 1; i >= 0; i--) {
+      const post = wanted[i];
+      let html = "";
+      try { html = card(post, post.parentId ? "reply" : ""); }
+      catch (err) { return false; }
+      if (!html) return false;
+      const wrap = document.createElement("div");
+      wrap.innerHTML = html;
+      const article = wrap.querySelector("article");
+      if (!article) return false;
+      if (post.parentId) {
+        const parent = main.querySelector('article[data-post="' + cssAttr(post.parentId) + '"]');
+        if (!parent) return false;
+        parent.after(article);
+      } else {
+        const first = main.querySelector("article.post");
+        if (first) first.before(article);
+        else main.prepend(article);
+      }
+    }
+    return true;
   }
 
   /* Posts this device just sent. A /v1/posts reply that left before the post
@@ -33702,6 +33766,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     STATE.error = null;
     loadStatus();
     STATE.settings = loadSettings();
+    /* Ask for this account's posts before the first paint so a post that is
+       already on the server can be in that paint. */
+    schedulePublicPosts();
     applyTorProtections();
     applyTheme();
     applyPrivacyProtections();
