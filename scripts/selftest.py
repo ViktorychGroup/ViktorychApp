@@ -1490,6 +1490,23 @@ def main() -> None:
     community_loader = app[app.index("function ivCommunityThread("):app.index("function ytStub(")]
     check("ucid=" in community_loader and "commentCount" in community_loader, "community comments pass the channel id and keep the source count")
     check('cron: "15,45 * * * *"' in workflow and "/dispatches" in workflow and "chain" in workflow, "the sync has a staggered cron and a keepalive dispatch")
+    keepalive_wf = (ROOT / ".github" / "workflows" / "sync-keepalive.yml").read_text(encoding="utf-8")
+    publish_wf = (ROOT / ".github" / "workflows" / "publish-app.yml").read_text(encoding="utf-8")
+    keepalive_job = publish_wf[publish_wf.index("\n  keepalive-sync:\n"):]
+    check(
+        'cron: "8 * * * *"' in keepalive_wf
+        and keepalive_wf.count("cron:") == 1
+        and "python3 scripts/sync_keepalive.py" in keepalive_wf
+        and "actions: write" in keepalive_wf
+        and "\n  keepalive-sync:\n" in publish_wf
+        and "needs: publish-version" in keepalive_job
+        and "python3 scripts/sync_keepalive.py" in keepalive_job
+        and "actions: write" in keepalive_job
+        and 'cron: "8 * * * *"' not in workflow,
+        "Sync feeds is kept alive by one hourly workflow and by a job after Publish",
+    )
+    import sync_keepalive
+    check(sync_keepalive.selftest() == 0, "the sync keepalive staleness self-test passes")
     published = deployed_paths()
     check("status.json" not in published and "\nfallback/" not in published and "\ncomments/" not in published and "\narchive/" not in published and "\ndiscord/" not in published, "the deploy does not publish private sync files")
     check('name: "sources"' in app and "ownPack" in app and "fxDown" in app and "fallback/" in app and "settled" in app and "source-row" in (ROOT / "styles.css").read_text(encoding="utf-8"), "a hidden sources view fails over to our own files")
