@@ -252,9 +252,15 @@ async function main() {
       await page.waitForURL(/#\/settings\/display$/, { timeout: 10000 });
       await page.waitForSelector('[data-act="status-icon"][data-key="clock"]', { state: "visible", timeout: 15000 });
       await page.goto(origin + "/#/");
-      await page.waitForSelector(selector, { state: "attached" });
-      await page.locator(selector).evaluate((el) => { el.style.display = "block"; el.closest(".mhead").style.display = "flex"; });
-      await sleep(1600);
+      await page.waitForFunction((sel) => {
+        const el = document.querySelector(sel);
+        if (!el || !el.isConnected) return false;
+        el.style.display = "block";
+        const head = el.closest(".mhead");
+        if (head) head.style.display = "flex";
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+      }, selector, { timeout: 15000 });
       const box = await page.locator(selector).boundingBox();
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await page.mouse.down();
