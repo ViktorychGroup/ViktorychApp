@@ -1,0 +1,38 @@
+# Starts Sync feeds when GitHub has stopped creating its scheduled runs.
+# One hourly slot, in this small workflow, not another cron line on sync.yml.
+# A successful Publish on main runs the same check. The script dispatches
+# source=chain only when the last refresh job that actually ran is older
+# than about 30 minutes. Gate-skipped successes do not count, and a sync
+# that is already queued or running is left alone.
+
+name: Sync keepalive
+
+on:
+  schedule:
+    - cron: "8 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dispatch Sync feeds when the last refresh is stale
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: python3 scripts/sync_keepalive.py
