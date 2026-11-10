@@ -12698,10 +12698,15 @@ const here = parseRoute();
 
   /* The Home list with every account's choice applied and spread out so no
      single account fills a screen. Folded posts are never handed to card(). */
+  let homeShapeCache = { key: "", list: null };
   function homeShaped(route) {
     const tab = route.tab || "foryou";
+    const key = homeStamp(route);
+    if (homeShapeCache.key === key && homeShapeCache.list) return homeShapeCache.list;
     const shaped = homeShapedBase(route);
-    return tab === "foryou" && tabView(tab) !== "reposts" ? cmFyMix(shaped) : shaped;
+    const list = tab === "foryou" && tabView(tab) !== "reposts" ? cmFyMix(shaped) : shaped;
+    homeShapeCache = { key: key, list: list };
+    return list;
   }
   function homeShapedBase(route) {
     const tab = route.tab || "foryou";
@@ -13032,6 +13037,34 @@ const here = parseRoute();
     if ((reply.platform === "app" || reply.appPost) && reply.viewerScope && reply.viewerScope !== viewerScope()) return null;
     return reply;
   }
+  /* A feed fetch must not rebuild a screen the reader is using. Search
+     results, settings, an open composer and an open menu stay put. The
+     new posts are already stored and show on the next paint of Home. */
+  function backgroundPaintBlocked() {
+    if (STATE.modal || STATE.menu || STATE.drawer || STATE.drawerEdit || STATE.accountMenu || STATE.profileMenu || STATE.share || STATE.groupMenu || STATE.bellMenu || STATE.tabMenu) return true;
+    const route = parseRoute();
+    if (!route || route.name === "explore" || route.name === "settings") return true;
+    if (typeof document !== "undefined" && document.querySelector(".xc-modal, .modal-back, .post-menu")) return true;
+    return false;
+  }
+  /* Set when a post list is stored and Home may still need the new cards.
+     The background flush applies them in place, or paints through the kept
+     rails, once a menu, Search, or Settings is out of the way. */
+  let arrivedPostsPending = false;
+  let arrivedPostsStructural = false;
+  function applyArrivedPosts() {
+    if (!arrivedPostsPending || backgroundPaintBlocked()) return false;
+    if (!document.querySelector("main.center")) return false;
+    if (arrivedPostsStructural || !insertArrivedPosts()) {
+      arrivedPostsPending = false;
+      arrivedPostsStructural = false;
+      return false;
+    }
+    arrivedPostsPending = false;
+    arrivedPostsStructural = false;
+    hydratePublicMedia();
+    return true;
+  }
   function schedulePublicPosts() {
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
@@ -13062,26 +13095,34 @@ const here = parseRoute();
       if (samePublicPosts(merged) && publicOwner === viewerScope() && !structural) return;
       publicPosts = merged;
       publicOwner = viewerScope();
-      /* The first paint reads this list. A later arrival adds the new cards
-         in place. A full rebuild is only for a layout change or a card that
-         has no place on the current Home. */
-      const place = () => {
-        if (gen !== publicGen || !sameSession(sender)) return true;
-        if (!document.querySelector("main.center")) return false;
-        if (structural || !insertArrivedPosts()) render();
-        else hydratePublicMedia();
-        return true;
-      };
-      if (!place()) {
-        const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
-        let tries = 0;
-        const again = () => {
-          if (place() || tries > 30) return;
-          tries += 1;
+      /* The list is already stored for the next paint. An open Home gets the
+         new cards through the background queue: in place when they fit, and
+         otherwise a kept-rail paint, never a rebuild on top of a menu. */
+      arrivedPostsStructural = structural;
+      arrivedPostsPending = true;
+      const paintArrived = () => {
+        if (gen !== publicGen || !sameSession(sender)) {
+          arrivedPostsPending = false;
+          return;
+        }
+        if (!document.querySelector("main.center")) {
+          const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+          let tries = 0;
+          const again = () => {
+            if (gen !== publicGen || !sameSession(sender)) return;
+            if (document.querySelector("main.center")) paintArrived();
+            else if (tries < 30) { tries += 1; raf(again); }
+          };
           raf(again);
-        };
-        raf(again);
-      }
+          return;
+        }
+        if (applyArrivedPosts()) {
+          backgroundPaintDue = false;
+          return;
+        }
+        renderBackground();
+      };
+      paintArrived();
     }).catch(() => {});
   }
   function publicCardPresent(id) {
@@ -13293,12 +13334,19 @@ const here = parseRoute();
     }
     const modal = document.querySelector(".modal-back");
     if (modal) modal.remove();
+    /* A tab built before this card must not come back without it, and one
+       built with it must not be shown beside this copy. */
+    noteOwnCard();
     return true;
   }
-  function confirmOwnCard(tempId, post) {
-    if (!tempId || !post || !post.id || typeof document === "undefined") return false;
-    const article = document.querySelector('article[data-post="' + cssAttr(tempId) + '"]');
-    if (!article) return false;
+  function ownCardRoots() {
+    const roots = [document];
+    if (typeof viewParks !== "undefined" && viewParks && viewParks.forEach) {
+      viewParks.forEach((slot) => { if (slot && slot.root) roots.push(slot.root); });
+    }
+    return roots;
+  }
+  function patchOwnCard(article, tempId, post) {
     article.setAttribute("data-post", post.id);
     article.querySelectorAll("[data-id]").forEach((el) => {
       if (el.getAttribute("data-id") === tempId) el.setAttribute("data-id", post.id);
@@ -13309,7 +13357,31 @@ const here = parseRoute();
     });
     const pending = article.querySelector(".app-pending");
     if (pending) pending.remove();
-    return true;
+  }
+  function confirmOwnCard(tempId, post) {
+    if (!tempId || !post || !post.id || typeof document === "undefined") return false;
+    const sel = 'article[data-post="' + cssAttr(tempId) + '"]';
+    let onScreen = false;
+    ownCardRoots().forEach((root) => {
+      root.querySelectorAll(sel).forEach((article) => {
+        patchOwnCard(article, tempId, post);
+        if (article.isConnected) onScreen = true;
+      });
+    });
+    noteOwnCard();
+    return onScreen;
+  }
+  function pendingOwnPost() {
+    if (publicPosts.some((item) => item && item.pending)) return true;
+    return Object.keys(ownSent).some((id) => String(id).indexOf("tmp-") === 0 && ownSentHere(ownSent[id]));
+  }
+  function noteOwnCard() {
+    homeShapeCache = { key: "", list: null };
+    if (typeof viewParks === "undefined" || !viewParks || !viewParks.forEach) return;
+    viewParks.forEach((slot, key) => {
+      if (!slot || slot.live || String(key).indexOf("home:") !== 0) return;
+      slot.force = true;
+    });
   }
   function sentToast(post) {
     const el = document.getElementById("toast");
@@ -13366,7 +13438,7 @@ const here = parseRoute();
       /* An empty answer is still an answer. Leaving the loading shell up
          would keep whatever stood in for it, including another account's page. */
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) {
-        if (document.querySelector(".tab-loading")) render();
+        if (document.querySelector(".tab-loading")) renderBackground();
         return;
       }
       const mine = signedAccount();
@@ -13378,11 +13450,11 @@ const here = parseRoute();
       if (!authorLive(key, entry, gen, sender)) return;
       if (!older.length) { entry.more = !!res.more; entry.before = edge; }
       entry.posts = next.concat(older);
-      if (before !== sig(entry.posts) || document.querySelector(".tab-loading")) render();
+      if (before !== sig(entry.posts) || document.querySelector(".tab-loading")) renderBackground();
     }).catch(() => {
       if (authorPostCache[key] === entry) {
         entry.loading = false;
-        if (document.querySelector(".tab-loading")) render();
+        if (document.querySelector(".tab-loading")) renderBackground();
       }
     });
   }
@@ -20567,6 +20639,15 @@ if (STATE.histClear) {
     return 0;
   }
 
+  /* The icon rail, the landscape rail, and the side column stay in the
+     page. CSS shows the ones that fit, including after a rotation that
+     does not rebuild. */
+  function shellNeeds() {
+    const w = window.innerWidth || 0;
+    const h = window.innerHeight || 0;
+    const land = w > h && h <= 520 && w <= 1100;
+    return { land: land, side: !land && w >= 1000 };
+  }
   function shell(main, route) {
     const gamePlay = route.name === "games" && !!route.game;
     const wide = route.name === "subscriptions" || route.name === "watch" || route.name === "messages" || route.name === "shorts" || route.name === "drive" || route.name === "localai" || route.name === "vault" || route.name === "tv" || gamePlay;
@@ -20584,7 +20665,8 @@ if (STATE.histClear) {
     const top = bar + rowExtra + storyExtra + liveExtra;
     const mode = (wide ? " wide" : "") + (explore ? " explore-mode" : "");
     const messageSelect = route.name === "messages" ? ' data-privacy="messages"' : "";
-    return `<button class="skip" type="button" data-act="skip">${tr("Skip to content")}</button><div class="app${mode}">${nav(route)}<main class="center${route.name === "settings" ? " settings-flow" : ""}" tabindex="-1" style="--top:${top}px"${messageSelect}>${main}</main>${wide || explore ? "" : sidebar()}</div>${bottom(route)}${welcomeHtml(route)}${drawer()}${accountPopup()}${drawerEditModal()}${shareSheet()}${modal()}${groupMenu()}${tabMenu()}${bellMenu()}${busySheet()}${tabAssignMenu()}${tabContextMenu()}${profileSheets()}${blockSheet()}`;
+    const side = wide || explore ? "" : sidebar();
+    return `<button class="skip" type="button" data-act="skip">${tr("Skip to content")}</button><div class="app${mode}">${nav(route)}<main class="center${route.name === "settings" ? " settings-flow" : ""}" tabindex="-1" style="--top:${top}px"${messageSelect}>${main}</main>${side}</div>${bottom(route)}${welcomeHtml(route)}${drawer()}${accountPopup()}${drawerEditModal()}${shareSheet()}${modal()}${groupMenu()}${tabMenu()}${bellMenu()}${busySheet()}${tabAssignMenu()}${tabContextMenu()}${profileSheets()}${blockSheet()}`;
   }
 
   function toggleReaction(act, id) {
@@ -22939,6 +23021,68 @@ if (STATE.histClear) {
     while (live.children.length > ordered.length) live.removeChild(live.lastChild);
   }
 
+  /* A background paint must not swap the header or the rails for new nodes.
+     The reader may be holding the AI button. Route links and status icons
+     still update inside the kept node. */
+  function chromeNodeKey(el) {
+    if (!el || el.nodeType !== 1) return "";
+    const cls = String(el.className || "").split(/\s+/).filter((name) => name && name !== "on" && name !== "active").sort().join(".");
+    return el.tagName + "|" + cls + "|" + (el.getAttribute("href") || "") + "|" + (el.getAttribute("data-act") || "");
+  }
+  function patchChromeChildren(live, fresh) {
+    if (live.className !== fresh.className) live.className = fresh.className;
+    [...live.attributes].forEach((attr) => {
+      if (attr.name === "style" || attr.name === "class") return;
+      if (!fresh.hasAttribute(attr.name)) live.removeAttribute(attr.name);
+    });
+    [...fresh.attributes].forEach((attr) => {
+      if (attr.name === "style" || attr.name === "class") return;
+      if (live.getAttribute(attr.name) !== attr.value) live.setAttribute(attr.name, attr.value);
+    });
+    const freshKids = [...fresh.children];
+    const liveKids = [...live.children];
+    const structural = (el) => el.tagName === "A" || el.tagName === "BUTTON" || el.classList.contains("nav-scroll") || el.classList.contains("m-right") || el.classList.contains("m-left") || el.classList.contains("nav-folder-wrapper") || el.classList.contains("nav-folder-children");
+    if (![...freshKids, ...liveKids].some(structural)) {
+      if (live.innerHTML !== fresh.innerHTML) live.innerHTML = fresh.innerHTML;
+      return;
+    }
+    const pool = new Map();
+    liveKids.forEach((node) => {
+      const key = chromeNodeKey(node);
+      if (!pool.has(key)) pool.set(key, []);
+      pool.get(key).push(node);
+    });
+    const ordered = [];
+    freshKids.forEach((slot) => {
+      const list = pool.get(chromeNodeKey(slot));
+      const old = list && list.shift();
+      if (!old) {
+        ordered.push(slot.cloneNode(true));
+        return;
+      }
+      patchChromeChildren(old, slot);
+      ordered.push(old);
+    });
+    pool.forEach((list) => list.forEach((node) => node.remove()));
+    ordered.forEach((node, index) => {
+      if (live.children[index] !== node) live.insertBefore(node, live.children[index] || null);
+    });
+    while (live.children.length > ordered.length) live.removeChild(live.lastChild);
+  }
+  function keepChrome(liveRoot, frag) {
+    const route = parseRoute();
+    const key = parkKey(route);
+    const slot = key ? viewParks.get(key) : null;
+    const host = (slot && slot.root) || liveRoot;
+    if (!host) return;
+    [".mhead", "header.nav.nav-land", "header.nav:not(.nav-land)", "nav.bottom-nav"].forEach((sel) => {
+      const live = host.querySelector(sel);
+      const fresh = frag.querySelector(sel);
+      if (!live || !fresh || !fresh.parentNode || live.tagName !== fresh.tagName) return;
+      patchChromeChildren(live, fresh);
+      fresh.replaceWith(live);
+    });
+  }
   function hscrollReuse(liveRoot, frag) {
     const liveRows = hscrollList(liveRoot);
     const freshRows = hscrollList(frag);
@@ -23031,8 +23175,14 @@ if (STATE.histClear) {
     hscrollRemember(app);
     const tpl = document.createElement("template");
     tpl.innerHTML = html;
+    /* A tap rebuilds the column. The tab strip is patched in place on every
+       paint, including Edit tabs, so its grips and labels update without
+       mounting a second marquee. A background paint also keeps the header. */
     hscrollReuse(app, tpl.content);
-    reuseForYouCards(app, tpl.content, background);
+    if (background) {
+      reuseForYouCards(app, tpl.content, true);
+      keepChrome(app, tpl.content);
+    }
     while (app.firstChild) app.removeChild(app.firstChild);
     app.appendChild(tpl.content);
     scheduleImageSweep();
@@ -23456,6 +23606,38 @@ if (STATE.histClear) {
      whole page. Coalesce them into one render on the next frame, and skip it
      when a render already ran after the ask, since that one read the new data. */
   let renderSoonQueued = false;
+  let backgroundPaintDue = false;
+  function armBackgroundFlush() {
+    if (armBackgroundFlush.timer) return;
+    const step = () => {
+      armBackgroundFlush.timer = 0;
+      if (!backgroundPaintDue) return;
+      if (backgroundPaintBlocked()) {
+        armBackgroundFlush.timer = setTimeout(step, 200);
+        return;
+      }
+      if (applyArrivedPosts()) {
+        backgroundPaintDue = false;
+        return;
+      }
+      backgroundPaintDue = false;
+      render();
+    };
+    armBackgroundFlush.timer = setTimeout(step, 200);
+  }
+  function renderBackground() {
+    if (backgroundPaintBlocked()) {
+      backgroundPaintDue = true;
+      armBackgroundFlush();
+      return;
+    }
+    /* A real background paint draws the stored posts itself, through the
+       kept header and the card patch. Don't also insert them afterwards. */
+    arrivedPostsPending = false;
+    arrivedPostsStructural = false;
+    backgroundPaintDue = false;
+    render();
+  }
   function renderSoon() {
     if (renderSoonQueued) return;
     renderSoonQueued = true;
@@ -23464,7 +23646,7 @@ if (STATE.histClear) {
       if (!renderSoonQueued) return;
       renderSoonQueued = false;
       if ((STATE.renderGen || 0) !== askedAt) return;
-      render();
+      renderBackground();
     };
     if (document.hidden || typeof requestAnimationFrame !== "function") setTimeout(run, 50);
     else requestAnimationFrame(run);
@@ -23574,12 +23756,35 @@ if (STATE.histClear) {
   const VIEW_PARK_MAX = 8;
   const viewParks = new Map();
   let viewRefreshTimer = 0;
+  function stampHash(value) {
+    let text = "";
+    try { text = typeof value === "string" ? value : JSON.stringify(value == null ? null : value); }
+    catch (err) { text = ""; }
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+  }
+  function authorFeedStamp() {
+    const scope = viewerScope();
+    const parts = [];
+    Object.keys(authorPostCache).sort().forEach((key) => {
+      const bag = authorPostCache[key];
+      if (!bag || bag.scope !== scope) return;
+      const ids = (bag.posts || []).map((post) => (post && post.id) || "").join(",");
+      parts.push(key + (bag.loading ? "?" : "") + ":" + ids);
+    });
+    return parts.join(";");
+  }
   function homeStamp(route) {
     const data = STATE.data;
     const list = data && data.posts;
     const n = list ? list.length : 0;
     const s = STATE.settings || {};
     const count = (obj) => (obj ? Object.keys(obj).length : 0);
+    const fy = cmFyState();
     return [
       route.tab || "foryou",
       route.query ? route.query.toString() : "",
@@ -23588,6 +23793,18 @@ if (STATE.histClear) {
       n,
       n ? String((list[0] && list[0].id) || "") : "",
       n > 1 ? String((list[n - 1] && list[n - 1].id) || "") : "",
+      publicPosts.length,
+      publicPosts[0] ? String(publicPosts[0].id || "") : "",
+      publicPosts[0] && publicPosts[0].pending ? 1 : 0,
+      stampHash(s.blocks),
+      stampHash(s.mutedWords),
+      stampHash(s.mutedAccounts),
+      stampHash(fy.mutedAt),
+      stampHash(fy.hidden),
+      stampHash(fy.prefs && fy.prefs.joined),
+      stampHash(fy.prefs && fy.prefs.hidden),
+      authorFeedStamp(),
+      stampHash(STATE.forYouSnap),
       count(s.likes),
       count(s.reposts),
       count(s.bookmarks),
@@ -23671,6 +23888,53 @@ if (STATE.histClear) {
     queueMicrotask(() => { slot.shown = false; });
     return true;
   }
+  let buildingPark = false;
+  /* After the visible home tab is on screen, build the other one off the
+     document so the next switch puts that DOM back instead of rebuilding. */
+  function scheduleOtherHomeTab() {
+    if (buildingPark || scheduleOtherHomeTab.timer) return;
+    const run = () => {
+      scheduleOtherHomeTab.timer = 0;
+      /* A Sending card is already on screen. Building the other tab now
+         would keep a second copy, or a copy that still says Sending. */
+      if (buildingPark || STATE.modal || pendingOwnPost()) return;
+      const route = parseRoute();
+      if (route.name !== "home" || STATE.loading) return;
+      const other = (route.tab || "foryou") === "following" ? "foryou" : "following";
+      const key = "home:" + other;
+      const held = viewParks.get(key);
+      const query = new URLSearchParams();
+      if (other === "following") query.set("sort", STATE.settings && STATE.settings.followingSort === "popular" ? "popular" : "recent");
+      else {
+        query.set("reposts", STATE.settings && STATE.settings.forYouReposts === false ? "0" : "1");
+        query.set("replies", STATE.settings && STATE.settings.forYouReplies === false ? "0" : "1");
+      }
+      const next = { name: "home", tab: other, query: query };
+      const stamp = homeStamp(next);
+      if (held && held.scope === viewerScope() && !held.force && held.stamp === stamp) return;
+      const prevShown = STATE.feedShown;
+      const prevCut = STATE.feedCutoff;
+      const prevBusy = STATE.busyCounts;
+      STATE.feedShown = Object.assign({}, prevShown);
+      STATE.feedCutoff = Object.assign({}, prevCut);
+      buildingPark = true;
+      let html = "";
+      try { html = shell(view(next), next); }
+      catch (err) { html = ""; }
+      buildingPark = false;
+      STATE.feedShown = prevShown;
+      STATE.feedCutoff = prevCut;
+      STATE.busyCounts = prevBusy;
+      if (!html || parseRoute().name !== "home" || (parseRoute().tab || "foryou") === other) return;
+      const root = document.createElement("div");
+      root.className = "view-slot";
+      root.innerHTML = html;
+      viewParks.set(key, { stamp: stamp, scope: viewerScope(), live: false, root: root, y: 0, at: Date.now(), force: false, shown: false });
+      evictParks();
+    };
+    const idle = window.requestIdleCallback;
+    scheduleOtherHomeTab.timer = idle ? idle(run, { timeout: 400 }) : setTimeout(run, 32);
+  }
   function parkedReady(route) {
     const key = parkKey(route);
     const slot = key ? viewParks.get(key) : null;
@@ -23678,6 +23942,12 @@ if (STATE.histClear) {
     /* A parked page belongs to the account that built it. Putting it back
        for someone else shows their reply until the later refresh. */
     if (slot.scope && slot.scope !== viewerScope()) {
+      slot.force = true;
+      return false;
+    }
+    /* A parked tab from before a block, a mute, or a new post would come
+       back unchanged. Rebuild unless this exact stamp is still current. */
+    if (slot.stamp !== viewStamp(route)) {
       slot.force = true;
       return false;
     }
@@ -23731,6 +24001,9 @@ if (STATE.histClear) {
       STATE.splitRender = opts || STATE.splitRender || {};
       return;
     }
+    backgroundPaintDue = false;
+    const userPaintNow = !!STATE.userPaint || inUserInput() || !!(opts && opts.forceCards);
+    STATE.userPaint = false;
     const hashNow = location.hash || "#/";
     const qCut = hashNow.indexOf("?");
     const bare = qCut >= 0 ? hashNow.slice(0, qCut) : hashNow;
@@ -23846,7 +24119,10 @@ if (STATE.histClear) {
       const slot = key ? viewParks.get(key) : null;
       decision = commitFrameDecision({ token: STATE.renderGen, builtHash: location.hash || "#/" }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
       if (slot && slot.scope && slot.scope !== viewerScope()) slot.force = true;
-      const parkedAway = !!(decision && decision.commit && slot && !slot.live && slot.root && !slot.force);
+      /* A tap (Edit tabs, a privacy switch) always rebuilds. A parked copy
+         does not know about that new state. */
+      const userDriven = userPaintNow;
+      const parkedAway = !!(decision && decision.commit && slot && !slot.live && slot.root && !slot.force && !userDriven);
       if (parkedAway) parkLiveView();
       if (parkedAway && restoreView(slot)) {
         y = Object.prototype.hasOwnProperty.call(SCROLLS, key) ? (SCROLLS[key] || 0) : (slot.y || 0);
@@ -23866,7 +24142,7 @@ if (STATE.histClear) {
         revealProfileTabs();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
-      } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force) {
+      } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force && !userDriven) {
         slot.shown = false;
         applied = true;
         paintedHash = decision.hash;
@@ -23875,7 +24151,7 @@ if (STATE.histClear) {
         lastKey = location.hash || "#/";
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
-      } else if (decision && decision.commit && slot && slot.live && slot.stamp !== stamp && !slot.force && !inUserInput()) {
+      } else if (decision && decision.commit && slot && slot.live && slot.stamp !== stamp && !slot.force && !userDriven) {
         scheduleViewRefresh(key, 0);
         applied = true;
         paintedHash = decision.hash;
@@ -23897,7 +24173,7 @@ if (STATE.histClear) {
         if (!decision || !decision.commit) return;
         if (slot && slot.force) slot.force = false;
         parkLiveView();
-        commitApp(html, !inUserInput() && !(opts && opts.forceCards));
+        commitApp(html, !userPaintNow);
         if (key) {
           const prev = viewParks.get(key);
           if (prev && prev.root) prev.root.remove();
@@ -24068,6 +24344,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       bindSideSplit();
       if (focusStatusIconsPending && route.name === "settings" && route.section === "display") queueStatusIconFocus();
       scheduleRemember(route);
+      if (route.name === "home" && !STATE.loading) scheduleOtherHomeTab();
     };
     const endRoute = () => {
       if (gen !== STATE.renderGen) return;
@@ -28238,6 +28515,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (motion.addEventListener) motion.addEventListener("change", () => schedulePreview());
   }
+  let shellLive = false;
   function syncShell() {
     const w = window.innerWidth || 0;
     const h = window.innerHeight || 0;
@@ -28250,6 +28528,18 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       document.documentElement.setAttribute("data-shell", mode);
     }
     hscrollOnResize();
+    /* A narrow paint skips the side column. Growing into a layout that
+       shows it builds that column once. A resize before boot finishes must
+       not render: the scroll lock and the remember timer are still being
+       declared. */
+    if (!shellLive) return;
+    const needs = shellNeeds();
+    const wantSide = needs.side && !document.querySelector("aside.side");
+    if (wantSide && !syncShell.painting) {
+      syncShell.painting = true;
+      render();
+      syncShell.painting = false;
+    }
   }
   window.addEventListener("resize", () => {
     if (window.ViktorychAnchorHold) window.ViktorychAnchorHold();
@@ -33733,6 +34023,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
 
   async function boot() {
+    shellLive = true;
     holdDeviceFeeds();
     syncRuVisitorGeo();
     if (window.ViktorychLocal) {
@@ -34060,6 +34351,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       window.Stories.bind({
         icon: icon,
         render: render,
+        renderBackground: renderBackground,
         follows: function () { return (STATE.settings && STATE.settings.follows) || []; },
         dataUrl: "https://raw.githubusercontent.com/" + GITHUB_REPO + "/data/stories.json",
         account: function () { return window.ViktorychAccounts && window.ViktorychAccounts.account ? window.ViktorychAccounts.account() : null; },
@@ -34366,7 +34658,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     });
   }
   if (window.ViktorychAccounts) {
-    window.ViktorychAccounts.requestRender = function () { render(); };
+    window.ViktorychAccounts.requestRender = function (why) {
+      /* Storage and other background readers pass "background" and wait
+         with the other deferred paints. A tap on the open page does not. */
+      if (why === "background") {
+        renderBackground();
+        return;
+      }
+      STATE.userPaint = true;
+      render();
+    };
     window.ViktorychAccounts.followButton = followButtonClean;
     window.ViktorychFollows = {
       lookup: function (id) {

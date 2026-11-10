@@ -420,7 +420,16 @@
     mem.prefsLoading = true;
     a.call("/v1/suggestions/prefs", { token: token() }).then(function (res) {
       mem.prefsLoading = false;
-      if (res && res.status === 200) { mem.serverPrefs = { discoverable: res.discoverable !== false, searchable: res.searchable !== false, tempOptIn: !!res.tempOptIn, kind: res.kind || "person", ownerKind: res.ownerKind || "" }; redraw(); }
+      if (!res || res.status !== 200) return;
+      var next = { discoverable: res.discoverable !== false, searchable: res.searchable !== false, tempOptIn: !!res.tempOptIn, kind: res.kind || "person", ownerKind: res.ownerKind || "" };
+      var prev = mem.serverPrefs;
+      mem.serverPrefs = next;
+      /* The privacy switches are already painted from these defaults.
+         Rebuilding when the server agrees only swaps the button out from
+         under a tap. */
+      if (prev && prev.discoverable === next.discoverable && prev.searchable === next.searchable && prev.tempOptIn === next.tempOptIn && prev.kind === next.kind && prev.ownerKind === next.ownerKind) return;
+      if (!prev && next.discoverable && next.searchable && !next.tempOptIn && next.kind === "person" && !next.ownerKind) return;
+      redraw();
     }).catch(function () { mem.prefsLoading = false; });
   }
 

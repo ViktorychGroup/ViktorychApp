@@ -1662,7 +1662,13 @@
       else show(at, index);
       return;
     }
-    if (deps.render) deps.render();
+    /* Home is where the tray is drawn. A menu or composer there must not
+       be rebuilt out from under the reader; the deferred paint runs when
+       that view closes. */
+    var hash = (typeof location !== "undefined" && location.hash) || "#/";
+    if (!/^#\/(?:$|home(?:[/?]|$)|following(?:[/?]|$))/.test(hash)) return;
+    if (deps.renderBackground) deps.renderBackground();
+    else if (deps.render) deps.render();
   }
 
   function load() {
