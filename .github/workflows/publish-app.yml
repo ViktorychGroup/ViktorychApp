@@ -508,3 +508,26 @@ jobs:
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/sync_health.py
+
+  # Direct app publishes do not refresh feeds. If Sync feeds has not run its
+  # refresh job for half an hour, start one chain dispatch. A publish that
+  # Sync feeds itself called finds that sync still running and does nothing.
+  keepalive-sync:
+    needs: publish-version
+    if: github.ref == 'refs/heads/main' && needs.publish-version.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dispatch Sync feeds when the last refresh is stale
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: python3 scripts/sync_keepalive.py
