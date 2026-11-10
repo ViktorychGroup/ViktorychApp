@@ -160,6 +160,12 @@ function tasksSince(page, mark) {
 function taskMark(page) {
   return page.evaluate(() => (window.__lt || []).length);
 }
+/* A 4× phone spends longer in the same work. The 20s cap was dropping
+   those runs. Desktop stays on the original waits. */
+let stepScale = 1;
+function stepWait(ms) {
+  return stepScale > 1 ? ms * 3 : ms;
+}
 
 async function openSession(browser, size, bag) {
   const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, serviceWorkers: "block" });
@@ -194,7 +200,7 @@ async function tabSwitch(page) {
     const btn = document.querySelector('button[data-act="htab"][data-tab="following"]') || document.querySelector('[data-act="htab"][data-tab="following"]');
     if (btn) btn.click();
   });
-  await page.waitForFunction(() => (location.hash || "").indexOf("following") >= 0 && !!document.querySelector("main article.post, main .empty"), null, { timeout: 15000 });
+  await page.waitForFunction(() => (location.hash || "").indexOf("following") >= 0 && !!document.querySelector("main article.post, main .empty"), null, { timeout: stepWait(15000) });
   const tasks = await tasksSince(page, mark);
   return { onScreenMs: Date.now() - t0, durableMs: null, visibleMs: null, longMax: tasks.max };
 }
@@ -228,13 +234,13 @@ async function likeOnce(page) {
   const appeared = page.waitForFunction(() => {
     const btn = document.querySelector('button[data-act="like"]');
     return !!(btn && btn.classList.contains("on"));
-  }, null, { timeout: 15000 });
+  }, null, { timeout: stepWait(15000) });
   const saved = page.waitForFunction(() => {
     const btn = document.querySelector('button[data-act="like"].on');
     const id = btn && btn.dataset.id || "";
     if (!id) return false;
     try { return (localStorage.getItem("viktorychapp-settings-v1") || "").indexOf(id) >= 0; } catch (err) { return false; }
-  }, null, { timeout: 15000 });
+  }, null, { timeout: stepWait(15000) });
   await page.evaluate(() => { const btn = document.querySelector('button[data-act="like"]'); if (btn) btn.click(); });
   await appeared;
   const onScreenMs = Date.now() - t0;
@@ -244,13 +250,13 @@ async function likeOnce(page) {
 
 async function followOnce(page, origin) {
   await page.goto(origin + "/index.html#/@user_b", { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('button[data-act="follow"]', { timeout: 20000 });
+  await page.waitForSelector('button[data-act="follow"]', { timeout: stepWait(20000) });
   const t0 = Date.now();
-  const ack = page.waitForResponse((res) => res.url().indexOf("/v1/follows") >= 0 && res.request().method() === "PUT", { timeout: 15000 }).catch(() => null);
+  const ack = page.waitForResponse((res) => res.url().indexOf("/v1/follows") >= 0 && res.request().method() === "PUT", { timeout: stepWait(15000) }).catch(() => null);
   const appeared = page.waitForFunction(() => {
     const btn = document.querySelector('button[data-act="follow"]');
     return !!(btn && /Following|Pending|Friends/.test(btn.textContent || ""));
-  }, null, { timeout: 15000 }).catch(() => null);
+  }, null, { timeout: stepWait(15000) }).catch(() => null);
   await page.evaluate(() => { const btn = document.querySelector('button[data-act="follow"]'); if (btn) btn.click(); });
   await appeared;
   const onScreenMs = Date.now() - t0;
@@ -272,16 +278,16 @@ async function compose(page, text, reply) {
     });
   }
   const field = page.locator(".xc-modal textarea, #compose-text").first();
-  await field.waitFor({ state: "visible", timeout: 15000 });
+  await field.waitFor({ state: "visible", timeout: stepWait(15000) });
   await field.fill(text);
   const t0 = Date.now();
-  const ack = page.waitForResponse((res) => res.url().indexOf("/v1/posts") >= 0 && res.request().method() === "POST", { timeout: 20000 }).catch(() => null);
+  const ack = page.waitForResponse((res) => res.url().indexOf("/v1/posts") >= 0 && res.request().method() === "POST", { timeout: stepWait(20000) }).catch(() => null);
   await page.locator('#compose-post, .xc-modal [data-act="xc-publish"]').locator("visible=true").first().evaluate((el) => el.click());
   await page.waitForFunction((needle) => {
     const nodes = document.querySelectorAll("article.post");
     for (let i = 0; i < nodes.length; i++) if ((nodes[i].innerText || "").indexOf(needle) >= 0) return true;
     return false;
-  }, text, { timeout: 20000 });
+  }, text, { timeout: stepWait(20000) });
   const onScreenMs = Date.now() - t0;
   await ack;
   await page.waitForFunction((needle) => {
@@ -291,12 +297,13 @@ async function compose(page, text, reply) {
       if (textNow.indexOf(needle) >= 0 && textNow.indexOf("Sending") < 0) return true;
     }
     return false;
-  }, text, { timeout: 20000 }).catch(() => {});
+  }, text, { timeout: stepWait(20000) }).catch(() => {});
   const durableMs = Date.now() - t0;
   return { onScreenMs, durableMs, t0 };
 }
 
 async function otherSees(browser, size, origin, text, t0, bag) {
+  stepScale = size.cpu > 1 ? 3 : 1;
   const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, serviceWorkers: "block" });
   await context.addInitScript(() => {
     localStorage.setItem("superintelapp-lang", "en");
@@ -316,7 +323,7 @@ async function otherSees(browser, size, origin, text, t0, bag) {
   }
   try {
     await page.goto(origin + "/index.html#/", { waitUntil: "domcontentloaded" });
-    await page.waitForFunction((needle) => (document.body.innerText || "").indexOf(needle) >= 0, text, { timeout: 20000 });
+    await page.waitForFunction((needle) => (document.body.innerText || "").indexOf(needle) >= 0, text, { timeout: stepWait(20000) });
     return Date.now() - t0;
   } finally {
     await context.close();
@@ -324,6 +331,7 @@ async function otherSees(browser, size, origin, text, t0, bag) {
 }
 
 async function oneRun(browser, size, origin, index, bag) {
+  stepScale = size.cpu > 1 ? 3 : 1;
   const session = await openSession(browser, size, bag);
   const row = {};
   try {
@@ -331,12 +339,12 @@ async function oneRun(browser, size, origin, index, bag) {
     row.load = loads;
     row.tab = await tabSwitch(session.page);
     await session.page.evaluate(() => { location.hash = "#/"; });
-    await session.page.waitForSelector("article.post", { timeout: 15000 });
+    await session.page.waitForSelector("article.post", { timeout: stepWait(15000) });
     row.scroll = await scrollJank(session.page);
     row.like = await likeOnce(session.page);
     row.follow = await followOnce(session.page, origin);
     await session.page.goto(origin + "/index.html#/", { waitUntil: "domcontentloaded" });
-    await session.page.waitForFunction(() => [...document.querySelectorAll('button[data-act="compose"]')].some((el) => el.getBoundingClientRect().width > 8), null, { timeout: 20000 });
+    await session.page.waitForFunction(() => [...document.querySelectorAll('button[data-act="compose"]')].some((el) => el.getBoundingClientRect().width > 8), null, { timeout: stepWait(20000) });
     const postText = "Bench post " + size.name + " " + index;
     const posted = await compose(session.page, postText, false);
     posted.visibleMs = await otherSees(browser, size, origin, postText, posted.t0, bag);

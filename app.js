@@ -13083,7 +13083,7 @@ const here = parseRoute();
       if (!openingSettled) return;
       /* A reply or a post this device just sent paints on main's rebuild.
          Another card here lands before that one is on screen. */
-      if (Object.keys(ownSent).length || document.querySelector(".app-pending")) {
+      if (Object.keys(ownSent).length) {
         renderBackground();
         return;
       }
@@ -13092,11 +13092,17 @@ const here = parseRoute();
         const post = merged[i];
         if (post && post.id && !publicCardPresent(post.id)) missing.push(post);
       }
-      if (!missing.length) return;
+      if (!missing.length) {
+        /* The open tab already shows these posts. Refresh the parked tab
+           the same way a full paint does, so the switch can put it back. */
+        scheduleOtherHomeTab();
+        return;
+      }
       /* One new card, placed as soon as it arrives. Anything else uses
          the same rebuild main does. */
       if (missing.length === 1 && insertArrivedPosts(missing)) {
         hydratePublicMedia();
+        scheduleOtherHomeTab();
         return;
       }
       renderBackground();
