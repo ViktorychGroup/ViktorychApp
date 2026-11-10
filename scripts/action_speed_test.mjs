@@ -323,6 +323,8 @@ async function photo(page, label) {
     const img = document.querySelector('article[data-post="' + id + '"] img[data-public-media]');
     return !!img;
   }, NEW_ID, { timeout: 8000 });
+  const started = Date.now();
+  while (!seen.length && Date.now() - started < 8000) await page.waitForTimeout(50);
   if (!seen.length) fail(label + " a reload did not load the stored photo");
 }
 

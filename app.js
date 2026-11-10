@@ -13502,7 +13502,18 @@ const here = parseRoute();
   function hydratePublicMedia() {
     const token = accountToken();
     const root = accountsApi();
-    if (!token || !root) return;
+    const waiting = document.querySelector("[data-public-media]:not([data-public-tried])");
+    if (!token || !root) {
+      /* The card can be on screen before the signed-in session is readable.
+         One later pass still fetches the stored file. */
+      if (waiting && !hydratePublicMedia.armed) {
+        hydratePublicMedia.armed = true;
+        const again = () => { hydratePublicMedia.armed = false; hydratePublicMedia(); };
+        const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+        raf(() => raf(again));
+      }
+      return;
+    }
     document.querySelectorAll(".pub-cm").forEach((el) => {
       const text = el.querySelector("[data-pub-cm]");
       const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -24140,6 +24151,7 @@ if (STATE.histClear) {
            The selected pill is measured again, including after a keyboard move. */
         focusHeldProfileTab(focusTab);
         revealProfileTabs();
+        hydratePublicMedia();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
       } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force && !userDriven) {
@@ -24149,6 +24161,7 @@ if (STATE.histClear) {
         nextKey = key;
         STATE.scrollKey = nextKey;
         lastKey = location.hash || "#/";
+        hydratePublicMedia();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
       } else if (decision && decision.commit && slot && slot.live && slot.stamp !== stamp && !slot.force && !userDriven) {
