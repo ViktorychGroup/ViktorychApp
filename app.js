@@ -12698,10 +12698,15 @@ const here = parseRoute();
 
   /* The Home list with every account's choice applied and spread out so no
      single account fills a screen. Folded posts are never handed to card(). */
+  let homeShapeCache = { key: "", list: null };
   function homeShaped(route) {
     const tab = route.tab || "foryou";
+    const key = homeStamp(route);
+    if (homeShapeCache.key === key && homeShapeCache.list) return homeShapeCache.list;
     const shaped = homeShapedBase(route);
-    return tab === "foryou" && tabView(tab) !== "reposts" ? cmFyMix(shaped) : shaped;
+    const list = tab === "foryou" && tabView(tab) !== "reposts" ? cmFyMix(shaped) : shaped;
+    homeShapeCache = { key: key, list: list };
+    return list;
   }
   function homeShapedBase(route) {
     const tab = route.tab || "foryou";
@@ -12890,7 +12895,9 @@ const here = parseRoute();
         return;
       }
       if (!STATE.feedShown) STATE.feedShown = {};
-      STATE.feedShown[tab] = next;
+      /* A full page of new cards inside the scroll handler was the long task.
+         Add one small batch; the sentinel brings the next. */
+      STATE.feedShown[tab] = Math.min(list.length, count + FEED_STEP);
       render({ y: window.scrollY });
       return;
     }
@@ -20451,6 +20458,20 @@ if (STATE.histClear) {
     return 0;
   }
 
+  /* Phone portrait hides the icon rail and the right column, and a short
+     landscape uses only the land rail. Building the hidden chrome on every
+     paint was most of a cold open and a tab switch. */
+  function shellNeeds() {
+    const w = window.innerWidth || 0;
+    const h = window.innerHeight || 0;
+    const land = w > h && h <= 520 && w <= 1100;
+    return { land: land, nav: land || w >= 500, side: !land && w >= 1000 };
+  }
+  function shellNav(route, needs) {
+    if (!needs.nav) return "";
+    if (needs.land) return navChrome(route, "nav-land", landNavLinks(route));
+    return navChrome(route, "", renderNavLinks(route));
+  }
   function shell(main, route) {
     const gamePlay = route.name === "games" && !!route.game;
     const wide = route.name === "subscriptions" || route.name === "watch" || route.name === "messages" || route.name === "shorts" || route.name === "drive" || route.name === "localai" || route.name === "vault" || route.name === "tv" || gamePlay;
@@ -20468,7 +20489,9 @@ if (STATE.histClear) {
     const top = bar + rowExtra + storyExtra + liveExtra;
     const mode = (wide ? " wide" : "") + (explore ? " explore-mode" : "");
     const messageSelect = route.name === "messages" ? ' data-privacy="messages"' : "";
-    return `<button class="skip" type="button" data-act="skip">${tr("Skip to content")}</button><div class="app${mode}">${nav(route)}<main class="center${route.name === "settings" ? " settings-flow" : ""}" tabindex="-1" style="--top:${top}px"${messageSelect}>${main}</main>${wide || explore ? "" : sidebar()}</div>${bottom(route)}${welcomeHtml(route)}${drawer()}${accountPopup()}${drawerEditModal()}${shareSheet()}${modal()}${groupMenu()}${tabMenu()}${bellMenu()}${busySheet()}${tabAssignMenu()}${tabContextMenu()}${profileSheets()}${blockSheet()}`;
+    const needs = shellNeeds();
+    const side = needs.side && !wide && !explore ? sidebar() : "";
+    return `<button class="skip" type="button" data-act="skip">${tr("Skip to content")}</button><div class="app${mode}">${shellNav(route, needs)}<main class="center${route.name === "settings" ? " settings-flow" : ""}" tabindex="-1" style="--top:${top}px"${messageSelect}>${main}</main>${side}</div>${bottom(route)}${welcomeHtml(route)}${drawer()}${accountPopup()}${drawerEditModal()}${shareSheet()}${modal()}${groupMenu()}${tabMenu()}${bellMenu()}${busySheet()}${tabAssignMenu()}${tabContextMenu()}${profileSheets()}${blockSheet()}`;
   }
 
   function toggleReaction(act, id) {
@@ -23472,6 +23495,9 @@ if (STATE.histClear) {
       n,
       n ? String((list[0] && list[0].id) || "") : "",
       n > 1 ? String((list[n - 1] && list[n - 1].id) || "") : "",
+      publicPosts.length,
+      publicPosts[0] ? String(publicPosts[0].id || "") : "",
+      publicPosts[0] && publicPosts[0].pending ? 1 : 0,
       count(s.likes),
       count(s.reposts),
       count(s.bookmarks),
@@ -23554,6 +23580,50 @@ if (STATE.histClear) {
     slot.at = Date.now();
     queueMicrotask(() => { slot.shown = false; });
     return true;
+  }
+  let buildingPark = false;
+  /* After the visible home tab is on screen, build the other one off the
+     document so the next switch puts that DOM back instead of rebuilding. */
+  function scheduleOtherHomeTab() {
+    if (buildingPark || scheduleOtherHomeTab.timer) return;
+    const run = () => {
+      scheduleOtherHomeTab.timer = 0;
+      if (buildingPark || STATE.modal) return;
+      const route = parseRoute();
+      if (route.name !== "home" || STATE.loading) return;
+      const other = (route.tab || "foryou") === "following" ? "foryou" : "following";
+      const key = "home:" + other;
+      const held = viewParks.get(key);
+      if (held && held.scope === viewerScope() && !held.force) return;
+      const query = new URLSearchParams();
+      if (other === "following") query.set("sort", STATE.settings && STATE.settings.followingSort === "popular" ? "popular" : "recent");
+      else {
+        query.set("reposts", STATE.settings && STATE.settings.forYouReposts === false ? "0" : "1");
+        query.set("replies", STATE.settings && STATE.settings.forYouReplies === false ? "0" : "1");
+      }
+      const next = { name: "home", tab: other, query: query };
+      const prevShown = STATE.feedShown;
+      const prevCut = STATE.feedCutoff;
+      const prevBusy = STATE.busyCounts;
+      STATE.feedShown = Object.assign({}, prevShown);
+      STATE.feedCutoff = Object.assign({}, prevCut);
+      buildingPark = true;
+      let html = "";
+      try { html = shell(view(next), next); }
+      catch (err) { html = ""; }
+      buildingPark = false;
+      STATE.feedShown = prevShown;
+      STATE.feedCutoff = prevCut;
+      STATE.busyCounts = prevBusy;
+      if (!html || parseRoute().name !== "home" || (parseRoute().tab || "foryou") === other) return;
+      const root = document.createElement("div");
+      root.className = "view-slot";
+      root.innerHTML = html;
+      viewParks.set(key, { stamp: homeStamp(next), scope: viewerScope(), live: false, root: root, y: 0, at: Date.now(), force: false, shown: false });
+      evictParks();
+    };
+    const idle = window.requestIdleCallback;
+    scheduleOtherHomeTab.timer = idle ? idle(run, { timeout: 400 }) : setTimeout(run, 32);
   }
   function parkedReady(route) {
     const key = parkKey(route);
@@ -23952,6 +24022,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       bindSideSplit();
       if (focusStatusIconsPending && route.name === "settings" && route.section === "display") queueStatusIconFocus();
       scheduleRemember(route);
+      if (route.name === "home" && !STATE.loading) scheduleOtherHomeTab();
     };
     const endRoute = () => {
       if (gen !== STATE.renderGen) return;
@@ -28122,6 +28193,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (motion.addEventListener) motion.addEventListener("change", () => schedulePreview());
   }
+  let shellLive = false;
   function syncShell() {
     const w = window.innerWidth || 0;
     const h = window.innerHeight || 0;
@@ -28134,6 +28206,19 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       document.documentElement.setAttribute("data-shell", mode);
     }
     hscrollOnResize();
+    /* A phone paint skips the rail and the side column. Growing into a
+       layout that shows them builds that chrome once. A resize before boot
+       finishes must not render: the scroll lock and the remember timer are
+       still being declared. */
+    if (!shellLive) return;
+    const needs = shellNeeds();
+    const wantNav = needs.nav && !document.querySelector(needs.land ? "header.nav.nav-land" : "header.nav:not(.nav-land)");
+    const wantSide = needs.side && !document.querySelector("aside.side");
+    if ((wantNav || wantSide) && !syncShell.painting) {
+      syncShell.painting = true;
+      render();
+      syncShell.painting = false;
+    }
   }
   window.addEventListener("resize", () => {
     if (window.ViktorychAnchorHold) window.ViktorychAnchorHold();
@@ -33617,6 +33702,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
 
   async function boot() {
+    shellLive = true;
     holdDeviceFeeds();
     syncRuVisitorGeo();
     if (window.ViktorychLocal) {
