@@ -13037,6 +13037,16 @@ const here = parseRoute();
     if ((reply.platform === "app" || reply.appPost) && reply.viewerScope && reply.viewerScope !== viewerScope()) return null;
     return reply;
   }
+  /* A feed fetch must not rebuild a screen the reader is using. Search
+     results, settings, an open composer and an open menu stay put. The
+     new posts are already stored and show on the next paint of Home. */
+  function backgroundPaintBlocked() {
+    if (STATE.modal || STATE.menu || STATE.drawer || STATE.drawerEdit || STATE.accountMenu || STATE.profileMenu || STATE.share || STATE.groupMenu || STATE.bellMenu || STATE.tabMenu) return true;
+    const route = parseRoute();
+    if (!route || route.name === "explore" || route.name === "settings") return true;
+    if (typeof document !== "undefined" && document.querySelector(".xc-modal, .modal-back, .post-menu")) return true;
+    return false;
+  }
   function schedulePublicPosts() {
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
@@ -13059,7 +13069,7 @@ const here = parseRoute();
       if (samePublicPosts(merged) && publicOwner === viewerScope()) return;
       publicPosts = merged;
       publicOwner = viewerScope();
-      render();
+      if (!backgroundPaintBlocked()) render();
     }).catch(() => {});
   }
 
@@ -13337,7 +13347,7 @@ const here = parseRoute();
       /* An empty answer is still an answer. Leaving the loading shell up
          would keep whatever stood in for it, including another account's page. */
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) {
-        if (document.querySelector(".tab-loading")) render();
+        if (document.querySelector(".tab-loading") && !backgroundPaintBlocked()) render();
         return;
       }
       const mine = signedAccount();
@@ -13349,11 +13359,11 @@ const here = parseRoute();
       if (!authorLive(key, entry, gen, sender)) return;
       if (!older.length) { entry.more = !!res.more; entry.before = edge; }
       entry.posts = next.concat(older);
-      if (before !== sig(entry.posts) || document.querySelector(".tab-loading")) render();
+      if ((before !== sig(entry.posts) || document.querySelector(".tab-loading")) && !backgroundPaintBlocked()) render();
     }).catch(() => {
       if (authorPostCache[key] === entry) {
         entry.loading = false;
-        if (document.querySelector(".tab-loading")) render();
+        if (document.querySelector(".tab-loading") && !backgroundPaintBlocked()) render();
       }
     });
   }
@@ -23445,6 +23455,7 @@ if (STATE.histClear) {
       if (!renderSoonQueued) return;
       renderSoonQueued = false;
       if ((STATE.renderGen || 0) !== askedAt) return;
+      if (backgroundPaintBlocked()) return;
       render();
     };
     if (document.hidden || typeof requestAnimationFrame !== "function") setTimeout(run, 50);
@@ -34447,7 +34458,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     });
   }
   if (window.ViktorychAccounts) {
-    window.ViktorychAccounts.requestRender = function () { render(); };
+    window.ViktorychAccounts.requestRender = function () {
+      if (backgroundPaintBlocked()) return;
+      render();
+    };
     window.ViktorychAccounts.followButton = followButtonClean;
     window.ViktorychFollows = {
       lookup: function (id) {
