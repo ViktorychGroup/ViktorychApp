@@ -34458,8 +34458,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     });
   }
   if (window.ViktorychAccounts) {
-    window.ViktorychAccounts.requestRender = function () {
-      if (backgroundPaintBlocked()) return;
+    window.ViktorychAccounts.requestRender = function (why) {
+      /* Storage and other background readers pass "background". A tap on
+         the open page does not, so its redraw still lands. */
+      if (why === "background" && backgroundPaintBlocked()) return;
       render();
     };
     window.ViktorychAccounts.followButton = followButtonClean;
