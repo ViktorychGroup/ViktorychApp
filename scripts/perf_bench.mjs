@@ -4,7 +4,8 @@
    durableMs: the write is confirmed (server accepted it, and a post is no longer Sending).
    visibleMs: another signed-in session shows it.
    PLAYWRIGHT_CORE=... node scripts/perf_bench.mjs
-   BENCH_RUNS=5  BENCH_OUT=/tmp/perf.json */
+   BENCH_RUNS=5  BENCH_OUT=/tmp/perf.json
+   BENCH_ALT=/path/to/other/tree   interleave that tree ABAB; defaults stay one tree */
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -14,7 +15,7 @@ const root = process.env.BENCH_ROOT || path.resolve(path.dirname(fileURLToPath(i
 const runs = Math.max(1, Number(process.env.BENCH_RUNS || 5));
 const ME = "100000000001";
 const OTHER = "200000000002";
-const store = { posts: [], likes: {} };
+const store = { posts: [], likes: {}, followed: false, catalog: "" };
 
 function mime(file) {
   if (file.endsWith(".css")) return "text/css";
@@ -24,12 +25,26 @@ function mime(file) {
   if (file.endsWith(".png")) return "image/png";
   return "text/javascript";
 }
+function series(list) {
+  return list.filter((n) => typeof n === "number" && n >= 0).slice().sort((a, b) => a - b);
+}
 function median(list) {
-  const s = list.filter((n) => typeof n === "number" && n >= 0).slice().sort((a, b) => a - b);
+  const s = series(list);
   if (!s.length) return null;
   return Number(s[Math.floor(s.length / 2)].toFixed(1));
 }
-function startServer() {
+/* Quartiles of the sorted samples. The spread is q3 - q1. */
+function spread(list) {
+  const s = series(list);
+  if (!s.length) return { q1: null, q3: null, iqr: null };
+  const at = (q) => s[Math.min(s.length - 1, Math.max(0, Math.floor(q * (s.length - 1))))];
+  const q1 = at(0.25);
+  const q3 = at(0.75);
+  return { q1: Number(q1.toFixed(1)), q3: Number(q3.toFixed(1)), iqr: Number((q3 - q1).toFixed(1)) };
+}
+function startServer(tree, bag) {
+  const data = bag || store;
+  const base = tree || root;
   const feeds = [];
   const posts = [];
   for (let i = 0; i < 24; i++) {
@@ -44,7 +59,7 @@ function startServer() {
     });
   }
   const catalog = JSON.stringify({ updated: "2026-11-10T00:00:00.000Z", feeds, posts });
-  store.catalog = catalog;
+  data.catalog = catalog;
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
     if (url.pathname === "/feeds.json") {
@@ -53,8 +68,8 @@ function startServer() {
     }
     let rel = decodeURIComponent(url.pathname);
     if (rel.endsWith("/")) rel += "index.html";
-    const file = path.normalize(path.join(root, rel));
-    if (file !== root && !file.startsWith(root + path.sep)) { res.writeHead(403); return res.end(); }
+    const file = path.normalize(path.join(base, rel));
+    if (file !== base && !file.startsWith(base + path.sep)) { res.writeHead(403); return res.end(); }
     fs.readFile(file, (err, data) => {
       if (err) { res.writeHead(404); return res.end(); }
       res.writeHead(200, { "content-type": mime(file) + "; charset=utf-8", "cache-control": "no-store" });
@@ -64,20 +79,21 @@ function startServer() {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
 }
 
-async function arm(context) {
+async function arm(context, bag) {
+  const data = bag || store;
   await context.route("**/v1/**", async (route) => {
     const req = route.request();
     const url = new URL(req.url());
     const pathName = url.pathname;
     const method = req.method();
     const send = (status, body) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-    if (pathName === "/v1/data/feeds.json") return send(200, JSON.parse(store.catalog));
-    if (pathName === "/v1/posts" && method === "GET") return send(200, { posts: store.posts.slice() });
+    if (pathName === "/v1/data/feeds.json") return send(200, JSON.parse(data.catalog));
+    if (pathName === "/v1/posts" && method === "GET") return send(200, { posts: data.posts.slice() });
     if (pathName === "/v1/posts" && method === "POST") {
       let body = {};
       try { body = req.postDataJSON() || {}; } catch (err) { body = {}; }
       const post = {
-        id: "b" + String(store.posts.length + 1).padStart(6, "0") + "c".repeat(10),
+        id: "b" + String(data.posts.length + 1).padStart(6, "0") + "c".repeat(10),
         body: String(body.body || ""),
         parentId: String(body.parentId || ""),
         authorId: ME,
@@ -89,9 +105,9 @@ async function arm(context) {
         replyCount: 0,
         media: []
       };
-      store.posts.unshift(post);
+      data.posts.unshift(post);
       if (post.parentId) {
-        const parent = store.posts.find((item) => item.id === post.parentId);
+        const parent = data.posts.find((item) => item.id === post.parentId);
         if (parent) parent.replyCount = (parent.replyCount || 0) + 1;
       }
       return send(201, { post });
@@ -100,16 +116,16 @@ async function arm(context) {
       let body = {};
       try { body = req.postDataJSON() || {}; } catch (err) { body = {}; }
       const id = String(body.id || "");
-      store.likes[id] = !!body.on;
+      data.likes[id] = !!body.on;
       return send(200, { likes: body.on ? 2 : 1, liked: !!body.on });
     }
     if (pathName === "/v1/profile/user_b") {
-      return send(200, { account: { publicId: OTHER, handle: "user_b", displayName: "User B", followersCount: store.followed ? 6 : 5, followingCount: 1, friendsCount: 0 } });
+      return send(200, { account: { publicId: OTHER, handle: "user_b", displayName: "User B", followersCount: data.followed ? 6 : 5, followingCount: 1, friendsCount: 0 } });
     }
-    if (pathName === "/v1/follows" && method === "GET") return send(200, { ids: store.followed ? ["app:" + OTHER] : [], followingCount: store.followed ? 2 : 1, followersCount: 1, outgoingRequests: [] });
+    if (pathName === "/v1/follows" && method === "GET") return send(200, { ids: data.followed ? ["app:" + OTHER] : [], followingCount: data.followed ? 2 : 1, followersCount: 1, outgoingRequests: [] });
     if (pathName === "/v1/follows" && (method === "PUT" || method === "DELETE")) {
-      store.followed = method === "PUT";
-      return send(200, { ok: true, id: "app:" + OTHER, pending: false, followersCount: store.followed ? 6 : 5, followingCount: store.followed ? 2 : 1 });
+      data.followed = method === "PUT";
+      return send(200, { ok: true, id: "app:" + OTHER, pending: false, followersCount: data.followed ? 6 : 5, followingCount: data.followed ? 2 : 1 });
     }
     return send(200, { ok: true });
   });
@@ -145,10 +161,10 @@ function taskMark(page) {
   return page.evaluate(() => (window.__lt || []).length);
 }
 
-async function openSession(browser, size) {
+async function openSession(browser, size, bag) {
   const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, serviceWorkers: "block" });
   await prep(context);
-  await arm(context);
+  await arm(context, bag);
   const page = await context.newPage();
   if (size.cpu > 1) {
     const client = await context.newCDPSession(page);
@@ -280,7 +296,7 @@ async function compose(page, text, reply) {
   return { onScreenMs, durableMs, t0 };
 }
 
-async function otherSees(browser, size, origin, text, t0) {
+async function otherSees(browser, size, origin, text, t0, bag) {
   const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, serviceWorkers: "block" });
   await context.addInitScript(() => {
     localStorage.setItem("superintelapp-lang", "en");
@@ -292,7 +308,7 @@ async function otherSees(browser, size, origin, text, t0) {
     }));
     window.VIKTORYCH_ACCOUNTS = { api: location.origin, gate: true, tiktokAudience: "owner" };
   });
-  await arm(context);
+  await arm(context, bag);
   const page = await context.newPage();
   if (size.cpu > 1) {
     const client = await context.newCDPSession(page);
@@ -307,8 +323,8 @@ async function otherSees(browser, size, origin, text, t0) {
   }
 }
 
-async function oneRun(browser, size, origin, index) {
-  const session = await openSession(browser, size);
+async function oneRun(browser, size, origin, index, bag) {
+  const session = await openSession(browser, size, bag);
   const row = {};
   try {
     const loads = await coldWarm(session.page, origin);
@@ -323,11 +339,11 @@ async function oneRun(browser, size, origin, index) {
     await session.page.waitForFunction(() => [...document.querySelectorAll('button[data-act="compose"]')].some((el) => el.getBoundingClientRect().width > 8), null, { timeout: 20000 });
     const postText = "Bench post " + size.name + " " + index;
     const posted = await compose(session.page, postText, false);
-    posted.visibleMs = await otherSees(browser, size, origin, postText, posted.t0);
+    posted.visibleMs = await otherSees(browser, size, origin, postText, posted.t0, bag);
     row.post = posted;
     const replyText = "Bench reply " + size.name + " " + index;
     const replied = await compose(session.page, replyText, true);
-    replied.visibleMs = await otherSees(browser, size, origin, replyText, replied.t0);
+    replied.visibleMs = await otherSees(browser, size, origin, replyText, replied.t0, bag);
     row.reply = replied;
     return row;
   } finally {
@@ -338,13 +354,49 @@ async function oneRun(browser, size, origin, index) {
 function pack(rows, pick) {
   return median(rows.map(pick));
 }
+function packSpread(rows, pick) {
+  return spread(rows.map(pick));
+}
+
+const PICKS = [
+  ["coldMs", (row) => row.load && row.load.cold],
+  ["warmMs", (row) => row.load && row.load.warm],
+  ["tabMs", (row) => row.tab && row.tab.onScreenMs],
+  ["scrollLongMax", (row) => row.scroll && row.scroll.longMax],
+  ["scrollFrameMax", (row) => row.scroll && row.scroll.frameMax],
+  ["scrollBlocking", (row) => row.scroll && row.scroll.blocking],
+  ["likeOnScreen", (row) => row.like && row.like.onScreenMs],
+  ["followOnScreen", (row) => row.follow && row.follow.onScreenMs],
+  ["followDurable", (row) => row.follow && row.follow.durableMs],
+  ["postOnScreen", (row) => row.post && row.post.onScreenMs],
+  ["postDurable", (row) => row.post && row.post.durableMs],
+  ["postVisible", (row) => row.post && row.post.visibleMs],
+  ["replyOnScreen", (row) => row.reply && row.reply.onScreenMs],
+  ["replyDurable", (row) => row.reply && row.reply.durableMs],
+  ["replyVisible", (row) => row.reply && row.reply.visibleMs]
+];
+function summarize(name, rows) {
+  const out = { name: name, n: rows.length };
+  PICKS.forEach(([key, pick]) => { out[key] = pack(rows, pick); });
+  out.spread = {};
+  PICKS.forEach(([key, pick]) => { out.spread[key] = packSpread(rows, pick); });
+  return out;
+}
 
 async function main() {
   const spec = process.env.PLAYWRIGHT_CORE || "playwright-core";
   const mod = await import(spec.startsWith("/") ? pathToFileURL(spec).href : spec);
   const chromium = mod.chromium || (mod.default && mod.default.chromium);
-  const server = await startServer();
+  const altRoot = process.env.BENCH_ALT || "";
+  const altBag = { posts: [], likes: {}, followed: false, catalog: "" };
+  const server = await startServer(root, store);
   const origin = "http://127.0.0.1:" + server.address().port;
+  let altServer = null;
+  let altOrigin = "";
+  if (altRoot) {
+    altServer = await startServer(altRoot, altBag);
+    altOrigin = "http://127.0.0.1:" + altServer.address().port;
+  }
   const browser = await chromium.launch({ headless: true, channel: "chrome", args: ["--no-sandbox", "--disable-gpu"] });
   const allSizes = [
     { name: "phone", width: 390, height: 844, cpu: 1 },
@@ -354,39 +406,30 @@ async function main() {
   const wanted = (process.env.BENCH_SIZES || "").split(",").filter(Boolean);
   const sizes = wanted.length ? allSizes.filter((size) => wanted.indexOf(size.name) >= 0) : allSizes;
   const summary = [];
+  const altSummary = [];
   try {
     for (const size of sizes) {
       const rows = [];
+      const altRows = [];
       for (let i = 1; i <= runs; i++) {
-        process.stderr.write(size.name + " run " + i + "\n");
-        try { rows.push(await oneRun(browser, size, origin, i)); }
+        process.stderr.write(size.name + (altOrigin ? " A" : "") + " run " + i + "\n");
+        try { rows.push(await oneRun(browser, size, origin, i, store)); }
         catch (err) { process.stderr.write(size.name + " run " + i + " failed " + (err && err.message) + "\n"); }
+        if (!altOrigin) continue;
+        process.stderr.write(size.name + " B run " + i + "\n");
+        try { altRows.push(await oneRun(browser, size, altOrigin, i, altBag)); }
+        catch (err) { process.stderr.write(size.name + " B run " + i + " failed " + (err && err.message) + "\n"); }
       }
-      summary.push({
-        name: size.name,
-        n: rows.length,
-        coldMs: pack(rows, (row) => row.load && row.load.cold),
-        warmMs: pack(rows, (row) => row.load && row.load.warm),
-        tabMs: pack(rows, (row) => row.tab && row.tab.onScreenMs),
-        scrollLongMax: pack(rows, (row) => row.scroll && row.scroll.longMax),
-        scrollFrameMax: pack(rows, (row) => row.scroll && row.scroll.frameMax),
-        scrollBlocking: pack(rows, (row) => row.scroll && row.scroll.blocking),
-        likeOnScreen: pack(rows, (row) => row.like && row.like.onScreenMs),
-        followOnScreen: pack(rows, (row) => row.follow && row.follow.onScreenMs),
-        followDurable: pack(rows, (row) => row.follow && row.follow.durableMs),
-        postOnScreen: pack(rows, (row) => row.post && row.post.onScreenMs),
-        postDurable: pack(rows, (row) => row.post && row.post.durableMs),
-        postVisible: pack(rows, (row) => row.post && row.post.visibleMs),
-        replyOnScreen: pack(rows, (row) => row.reply && row.reply.onScreenMs),
-        replyDurable: pack(rows, (row) => row.reply && row.reply.durableMs),
-        replyVisible: pack(rows, (row) => row.reply && row.reply.visibleMs)
-      });
+      summary.push(summarize(size.name, rows));
+      if (altOrigin) altSummary.push(summarize(size.name, altRows));
     }
   } finally {
     await browser.close();
     server.close();
+    if (altServer) altServer.close();
   }
   const doc = { sha: process.env.BENCH_SHA || "", runs, summary };
+  if (altOrigin) doc.alt = { root: altRoot, summary: altSummary };
   const text = JSON.stringify(doc, null, 2);
   if (process.env.BENCH_OUT) fs.writeFileSync(process.env.BENCH_OUT, text);
   console.log(text);

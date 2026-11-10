@@ -13050,35 +13050,11 @@ const here = parseRoute();
   /* Set when a post list is stored and Home may still need the new cards.
      The background flush applies them in place, or paints through the kept
      rails, once a menu, Search, or Settings is out of the way. */
-  let arrivedPostsPending = false;
-  let arrivedPostsStructural = false;
-  /* The first committed paint. A post list that arrives before it is stored
-     and drawn by that paint. Painting again before it settles is what slowed
-     a warm open on a slowed phone. */
+  /* Set once the first paint has committed. A list that arrives before
+     that is stored for the paint. Nothing else is installed up front. */
   let openingSettled = false;
-  let heldPublicPosts = null;
-  function releaseHeldPosts() {
-    if (!heldPublicPosts) return;
-    if (!(STATE.data && Array.isArray(STATE.data.posts) && STATE.data.posts.length)) return;
-    publicPosts = heldPublicPosts.merged;
-    publicOwner = heldPublicPosts.owner;
-    heldPublicPosts = null;
-  }
   function settleOpeningPaint() {
     openingSettled = true;
-  }
-  function applyArrivedPosts() {
-    if (!arrivedPostsPending || backgroundPaintBlocked()) return false;
-    if (!document.querySelector("main.center")) return false;
-    if (arrivedPostsStructural || !insertArrivedPosts()) {
-      arrivedPostsPending = false;
-      arrivedPostsStructural = false;
-      return false;
-    }
-    arrivedPostsPending = false;
-    arrivedPostsStructural = false;
-    hydratePublicMedia();
-    return true;
   }
   function schedulePublicPosts() {
     if (gameBusy()) return;
@@ -13096,70 +13072,35 @@ const here = parseRoute();
     accountCall("/v1/posts").then((res) => {
       if (gen !== publicGen || !sameSession(sender)) return;
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) return;
-      let structural = false;
-      if (STATE.settings && typeof res.communitiesHome === "boolean" && STATE.settings.communitiesHome !== res.communitiesHome) {
-        STATE.settings.communitiesHome = res.communitiesHome;
-        structural = true;
-      }
-      if (res.communityPrefs) {
-        const beforePrefs = JSON.stringify((cmFyState().prefs) || null);
-        cmFyPrefs(res.communityPrefs);
-        if (JSON.stringify((cmFyState().prefs) || null) !== beforePrefs) structural = true;
-      }
+      if (typeof res.communitiesHome === "boolean" && STATE.settings) STATE.settings.communitiesHome = res.communitiesHome;
+      if (res.communityPrefs) cmFyPrefs(res.communityPrefs);
       const merged = keepOwnPosts(res.posts);
-      if (samePublicPosts(merged) && publicOwner === viewerScope() && !structural) return;
-      publicOwner = viewerScope();
-      const deliverArrived = () => {
-        if (gen !== publicGen || !sameSession(sender)) {
-          arrivedPostsPending = false;
-          return;
-        }
-        if (backgroundPaintBlocked() || !document.querySelector("main.center")) {
-          backgroundPaintDue = true;
-          armBackgroundFlush();
-          return;
-        }
-        if (applyArrivedPosts()) {
-          backgroundPaintDue = false;
-          return;
-        }
-        renderBackground();
-      };
-      /* No catalog yet. The catalog paint reads the list. No timer render:
-         that second paint was landing inside cold and warm open. */
-      if (!(STATE.data && Array.isArray(STATE.data.posts) && STATE.data.posts.length)) {
-        heldPublicPosts = { merged: merged, owner: publicOwner, structural: structural };
-        /* The catalog paint picks the list up. A stored photo still has to
-           be drawn if that paint already went out. Text lists wait for it,
-           so an open is not rebuilt just to merge them. */
-        setTimeout(() => {
-          if (!heldPublicPosts) return;
-          const posts = heldPublicPosts.merged;
-          publicPosts = posts;
-          publicOwner = heldPublicPosts.owner;
-          arrivedPostsStructural = heldPublicPosts.structural;
-          heldPublicPosts = null;
-          if (!openingSettled) return;
-          const needsFile = posts.some((post) => post && post.media && post.media.length && post.id && !publicCardPresent(post.id));
-          if (needsFile) renderBackground();
-        }, 400);
-        return;
-      }
+      if (samePublicPosts(merged) && publicOwner === viewerScope()) return;
       publicPosts = merged;
-      if (!merged.length && !structural) return;
-      arrivedPostsStructural = structural;
-      arrivedPostsPending = true;
-      if (!openingSettled) {
-        arrivedPostsPending = false;
-        arrivedPostsStructural = false;
+      publicOwner = viewerScope();
+      /* Before the first paint, the list is only stored. A second paint
+         here is what slowed cold and warm open. */
+      if (!openingSettled) return;
+      /* A post this device just sent is still on screen as Sending. One
+         rebuild, the same one main does, clears that. Building another
+         card first only delays the saved state. */
+      if (Object.keys(ownSent).length || document.querySelector(".app-pending")) {
+        renderBackground();
         return;
       }
-      const shown = document.querySelectorAll("#app article.post").length;
-      if (shown >= 3) {
-        /* Home is already up. Insert on a later turn so this open is not
-           held behind the new cards. */
-        setTimeout(deliverArrived, 0);
-      } else deliverArrived();
+      const missing = [];
+      for (let i = 0; i < merged.length; i++) {
+        const post = merged[i];
+        if (post && post.id && !publicCardPresent(post.id)) missing.push(post);
+      }
+      if (!missing.length) return;
+      /* One new card is built and inserted. Rebuilding the whole Home
+         would be more work before that card is on screen. */
+      if (missing.length === 1 && insertArrivedPosts(missing)) {
+        hydratePublicMedia();
+        return;
+      }
+      renderBackground();
     }).catch(() => {});
   }
   function publicCardPresent(id) {
@@ -13169,35 +13110,32 @@ const here = parseRoute();
   }
   /* New server posts for the Home that is already on screen. Returns false
      when a full rebuild is the safe paint. */
-  function insertArrivedPosts() {
+  function insertArrivedPosts(posts) {
     if (STATE.modal) return false;
     if (Object.keys(ownSent).some((id) => String(id).indexOf("tmp-") === 0)) return false;
     const route = parseRoute();
     if (!route || route.name !== "home") return false;
-    const main = document.querySelector("main.center");
-    if (!main) return false;
-    const wanted = appHomePosts(route.tab || "foryou").filter((post) => post && post.id && !publicCardPresent(post.id));
-    if (!wanted.length) return true;
-    for (let i = wanted.length - 1; i >= 0; i--) {
-      const post = wanted[i];
-      let html = "";
-      try { html = card(post, post.parentId ? "reply" : ""); }
-      catch (err) { return false; }
-      if (!html) return false;
-      const wrap = document.createElement("div");
-      wrap.innerHTML = html;
-      const article = wrap.querySelector("article");
-      if (!article) return false;
-      if (post.parentId) {
-        const parent = main.querySelector('article[data-post="' + cssAttr(post.parentId) + '"]');
-        if (!parent) return false;
-        parent.after(article);
-      } else {
-        const first = main.querySelector("article.post");
-        if (first) first.before(article);
-        else main.prepend(article);
-      }
-    }
+    const mainEl = document.querySelector("main.center");
+    if (!mainEl || !posts || posts.length !== 1) return false;
+    const raw = posts[0];
+    const post = raw && (raw.platform || raw.appPost) ? raw : appCardPost(raw);
+    if (!post || !post.id) return false;
+    let html = "";
+    try { html = card(post, post.parentId ? "reply" : ""); }
+    catch (err) { return false; }
+    if (!html) return false;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    const article = wrap.querySelector("article");
+    if (!article) return false;
+    const first = mainEl.querySelector("article.post");
+    if (post.parentId) {
+      const parent = mainEl.querySelector('article[data-post="' + cssAttr(post.parentId) + '"]');
+      if (parent) parent.after(article);
+      else if (first) first.before(article);
+      else mainEl.prepend(article);
+    } else if (first) first.before(article);
+    else mainEl.prepend(article);
     return true;
   }
 
@@ -13539,15 +13477,18 @@ const here = parseRoute();
   function hydratePublicMedia() {
     const token = accountToken();
     const root = accountsApi();
-    const waiting = document.querySelector("[data-public-media]:not([data-public-tried])");
     if (!token || !root) {
       /* The card can be on screen before the signed-in session is readable.
-         One later pass still fetches the stored file. */
-      if (waiting && !hydratePublicMedia.armed) {
-        hydratePublicMedia.armed = true;
-        const again = () => { hydratePublicMedia.armed = false; hydratePublicMedia(); };
-        const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
-        raf(() => raf(again));
+         One later pass still fetches the stored file. Nothing is queried
+         until a stored photo is actually waiting. */
+      if (!hydratePublicMedia.armed) {
+        const waiting = document.querySelector("[data-public-media]:not([data-public-tried])");
+        if (waiting) {
+          hydratePublicMedia.armed = true;
+          const again = () => { hydratePublicMedia.armed = false; hydratePublicMedia(); };
+          const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
+          raf(() => raf(again));
+        }
       }
       return;
     }
@@ -23664,10 +23605,6 @@ if (STATE.histClear) {
         armBackgroundFlush.timer = setTimeout(step, 200);
         return;
       }
-      if (applyArrivedPosts()) {
-        backgroundPaintDue = false;
-        return;
-      }
       backgroundPaintDue = false;
       render();
     };
@@ -23679,10 +23616,6 @@ if (STATE.histClear) {
       armBackgroundFlush();
       return;
     }
-    /* A real background paint draws the stored posts itself, through the
-       kept header and the card patch. Don't also insert them afterwards. */
-    arrivedPostsPending = false;
-    arrivedPostsStructural = false;
     backgroundPaintDue = false;
     render();
   }
@@ -24161,7 +24094,6 @@ if (STATE.histClear) {
          render from followRoute, never another pass here. */
       let html = "";
       let decision = null;
-      releaseHeldPosts();
       route = parseRoute();
       const key = parkKey(route);
       const stamp = key ? viewStamp(route) : "";
@@ -24190,7 +24122,6 @@ if (STATE.histClear) {
            The selected pill is measured again, including after a keyboard move. */
         focusHeldProfileTab(focusTab);
         revealProfileTabs();
-        hydratePublicMedia();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
       } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force && !userDriven) {
@@ -24201,7 +24132,6 @@ if (STATE.histClear) {
         nextKey = key;
         STATE.scrollKey = nextKey;
         lastKey = location.hash || "#/";
-        hydratePublicMedia();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
       } else if (decision && decision.commit && slot && slot.live && slot.stamp !== stamp && !slot.force && !userDriven) {
