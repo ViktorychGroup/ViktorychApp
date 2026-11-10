@@ -158,13 +158,16 @@ async function openSession(browser, size) {
 }
 
 async function coldWarm(page, origin) {
+  /* A restored shell can show posts before the app has started. The open
+     is the live app, which sets this flag before it paints. */
+  const ready = () => window.ViktorychRouteSnap && document.querySelectorAll("#app article.post").length >= 3;
   const coldStart = Date.now();
   await page.goto(origin + "/index.html#/", { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => document.querySelectorAll("#app article.post").length >= 3, null, { timeout: 30000 });
+  await page.waitForFunction(ready, null, { timeout: 30000 });
   const cold = Date.now() - coldStart;
   const warmStart = Date.now();
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => document.querySelectorAll("#app article.post").length >= 3, null, { timeout: 30000 });
+  await page.waitForFunction(ready, null, { timeout: 30000 });
   return { cold, warm: Date.now() - warmStart };
 }
 

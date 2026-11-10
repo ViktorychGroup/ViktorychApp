@@ -12698,10 +12698,15 @@ const here = parseRoute();
 
   /* The Home list with every account's choice applied and spread out so no
      single account fills a screen. Folded posts are never handed to card(). */
+  let homeShapeCache = { key: "", list: null };
   function homeShaped(route) {
     const tab = route.tab || "foryou";
+    const key = homeStamp(route);
+    if (homeShapeCache.key === key && homeShapeCache.list) return homeShapeCache.list;
     const shaped = homeShapedBase(route);
-    return tab === "foryou" && tabView(tab) !== "reposts" ? cmFyMix(shaped) : shaped;
+    const list = tab === "foryou" && tabView(tab) !== "reposts" ? cmFyMix(shaped) : shaped;
+    homeShapeCache = { key: key, list: list };
+    return list;
   }
   function homeShapedBase(route) {
     const tab = route.tab || "foryou";
@@ -13228,12 +13233,19 @@ const here = parseRoute();
     }
     const modal = document.querySelector(".modal-back");
     if (modal) modal.remove();
+    /* A tab built before this card must not come back without it, and one
+       built with it must not be shown beside this copy. */
+    noteOwnCard();
     return true;
   }
-  function confirmOwnCard(tempId, post) {
-    if (!tempId || !post || !post.id || typeof document === "undefined") return false;
-    const article = document.querySelector('article[data-post="' + cssAttr(tempId) + '"]');
-    if (!article) return false;
+  function ownCardRoots() {
+    const roots = [document];
+    if (typeof viewParks !== "undefined" && viewParks && viewParks.forEach) {
+      viewParks.forEach((slot) => { if (slot && slot.root) roots.push(slot.root); });
+    }
+    return roots;
+  }
+  function patchOwnCard(article, tempId, post) {
     article.setAttribute("data-post", post.id);
     article.querySelectorAll("[data-id]").forEach((el) => {
       if (el.getAttribute("data-id") === tempId) el.setAttribute("data-id", post.id);
@@ -13244,7 +13256,31 @@ const here = parseRoute();
     });
     const pending = article.querySelector(".app-pending");
     if (pending) pending.remove();
-    return true;
+  }
+  function confirmOwnCard(tempId, post) {
+    if (!tempId || !post || !post.id || typeof document === "undefined") return false;
+    const sel = 'article[data-post="' + cssAttr(tempId) + '"]';
+    let onScreen = false;
+    ownCardRoots().forEach((root) => {
+      root.querySelectorAll(sel).forEach((article) => {
+        patchOwnCard(article, tempId, post);
+        if (article.isConnected) onScreen = true;
+      });
+    });
+    noteOwnCard();
+    return onScreen;
+  }
+  function pendingOwnPost() {
+    if (publicPosts.some((item) => item && item.pending)) return true;
+    return Object.keys(ownSent).some((id) => String(id).indexOf("tmp-") === 0 && ownSentHere(ownSent[id]));
+  }
+  function noteOwnCard() {
+    homeShapeCache = { key: "", list: null };
+    if (typeof viewParks === "undefined" || !viewParks || !viewParks.forEach) return;
+    viewParks.forEach((slot, key) => {
+      if (!slot || slot.live || String(key).indexOf("home:") !== 0) return;
+      slot.force = true;
+    });
   }
   function sentToast(post) {
     const el = document.getElementById("toast");
@@ -20502,6 +20538,15 @@ if (STATE.histClear) {
     return 0;
   }
 
+  /* The icon rail, the landscape rail, and the side column stay in the
+     page. CSS shows the ones that fit, including after a rotation that
+     does not rebuild. */
+  function shellNeeds() {
+    const w = window.innerWidth || 0;
+    const h = window.innerHeight || 0;
+    const land = w > h && h <= 520 && w <= 1100;
+    return { land: land, side: !land && w >= 1000 };
+  }
   function shell(main, route) {
     const gamePlay = route.name === "games" && !!route.game;
     const wide = route.name === "subscriptions" || route.name === "watch" || route.name === "messages" || route.name === "shorts" || route.name === "drive" || route.name === "localai" || route.name === "vault" || route.name === "tv" || gamePlay;
@@ -20519,7 +20564,8 @@ if (STATE.histClear) {
     const top = bar + rowExtra + storyExtra + liveExtra;
     const mode = (wide ? " wide" : "") + (explore ? " explore-mode" : "");
     const messageSelect = route.name === "messages" ? ' data-privacy="messages"' : "";
-    return `<button class="skip" type="button" data-act="skip">${tr("Skip to content")}</button><div class="app${mode}">${nav(route)}<main class="center${route.name === "settings" ? " settings-flow" : ""}" tabindex="-1" style="--top:${top}px"${messageSelect}>${main}</main>${wide || explore ? "" : sidebar()}</div>${bottom(route)}${welcomeHtml(route)}${drawer()}${accountPopup()}${drawerEditModal()}${shareSheet()}${modal()}${groupMenu()}${tabMenu()}${bellMenu()}${busySheet()}${tabAssignMenu()}${tabContextMenu()}${profileSheets()}${blockSheet()}`;
+    const side = wide || explore ? "" : sidebar();
+    return `<button class="skip" type="button" data-act="skip">${tr("Skip to content")}</button><div class="app${mode}">${nav(route)}<main class="center${route.name === "settings" ? " settings-flow" : ""}" tabindex="-1" style="--top:${top}px"${messageSelect}>${main}</main>${side}</div>${bottom(route)}${welcomeHtml(route)}${drawer()}${accountPopup()}${drawerEditModal()}${shareSheet()}${modal()}${groupMenu()}${tabMenu()}${bellMenu()}${busySheet()}${tabAssignMenu()}${tabContextMenu()}${profileSheets()}${blockSheet()}`;
   }
 
   function toggleReaction(act, id) {
@@ -23509,12 +23555,35 @@ if (STATE.histClear) {
   const VIEW_PARK_MAX = 8;
   const viewParks = new Map();
   let viewRefreshTimer = 0;
+  function stampHash(value) {
+    let text = "";
+    try { text = typeof value === "string" ? value : JSON.stringify(value == null ? null : value); }
+    catch (err) { text = ""; }
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+  }
+  function authorFeedStamp() {
+    const scope = viewerScope();
+    const parts = [];
+    Object.keys(authorPostCache).sort().forEach((key) => {
+      const bag = authorPostCache[key];
+      if (!bag || bag.scope !== scope) return;
+      const ids = (bag.posts || []).map((post) => (post && post.id) || "").join(",");
+      parts.push(key + (bag.loading ? "?" : "") + ":" + ids);
+    });
+    return parts.join(";");
+  }
   function homeStamp(route) {
     const data = STATE.data;
     const list = data && data.posts;
     const n = list ? list.length : 0;
     const s = STATE.settings || {};
     const count = (obj) => (obj ? Object.keys(obj).length : 0);
+    const fy = cmFyState();
     return [
       route.tab || "foryou",
       route.query ? route.query.toString() : "",
@@ -23523,6 +23592,18 @@ if (STATE.histClear) {
       n,
       n ? String((list[0] && list[0].id) || "") : "",
       n > 1 ? String((list[n - 1] && list[n - 1].id) || "") : "",
+      publicPosts.length,
+      publicPosts[0] ? String(publicPosts[0].id || "") : "",
+      publicPosts[0] && publicPosts[0].pending ? 1 : 0,
+      stampHash(s.blocks),
+      stampHash(s.mutedWords),
+      stampHash(s.mutedAccounts),
+      stampHash(fy.mutedAt),
+      stampHash(fy.hidden),
+      stampHash(fy.prefs && fy.prefs.joined),
+      stampHash(fy.prefs && fy.prefs.hidden),
+      authorFeedStamp(),
+      stampHash(STATE.forYouSnap),
       count(s.likes),
       count(s.reposts),
       count(s.bookmarks),
@@ -23606,6 +23687,53 @@ if (STATE.histClear) {
     queueMicrotask(() => { slot.shown = false; });
     return true;
   }
+  let buildingPark = false;
+  /* After the visible home tab is on screen, build the other one off the
+     document so the next switch puts that DOM back instead of rebuilding. */
+  function scheduleOtherHomeTab() {
+    if (buildingPark || scheduleOtherHomeTab.timer) return;
+    const run = () => {
+      scheduleOtherHomeTab.timer = 0;
+      /* A Sending card is already on screen. Building the other tab now
+         would keep a second copy, or a copy that still says Sending. */
+      if (buildingPark || STATE.modal || pendingOwnPost()) return;
+      const route = parseRoute();
+      if (route.name !== "home" || STATE.loading) return;
+      const other = (route.tab || "foryou") === "following" ? "foryou" : "following";
+      const key = "home:" + other;
+      const held = viewParks.get(key);
+      const query = new URLSearchParams();
+      if (other === "following") query.set("sort", STATE.settings && STATE.settings.followingSort === "popular" ? "popular" : "recent");
+      else {
+        query.set("reposts", STATE.settings && STATE.settings.forYouReposts === false ? "0" : "1");
+        query.set("replies", STATE.settings && STATE.settings.forYouReplies === false ? "0" : "1");
+      }
+      const next = { name: "home", tab: other, query: query };
+      const stamp = homeStamp(next);
+      if (held && held.scope === viewerScope() && !held.force && held.stamp === stamp) return;
+      const prevShown = STATE.feedShown;
+      const prevCut = STATE.feedCutoff;
+      const prevBusy = STATE.busyCounts;
+      STATE.feedShown = Object.assign({}, prevShown);
+      STATE.feedCutoff = Object.assign({}, prevCut);
+      buildingPark = true;
+      let html = "";
+      try { html = shell(view(next), next); }
+      catch (err) { html = ""; }
+      buildingPark = false;
+      STATE.feedShown = prevShown;
+      STATE.feedCutoff = prevCut;
+      STATE.busyCounts = prevBusy;
+      if (!html || parseRoute().name !== "home" || (parseRoute().tab || "foryou") === other) return;
+      const root = document.createElement("div");
+      root.className = "view-slot";
+      root.innerHTML = html;
+      viewParks.set(key, { stamp: stamp, scope: viewerScope(), live: false, root: root, y: 0, at: Date.now(), force: false, shown: false });
+      evictParks();
+    };
+    const idle = window.requestIdleCallback;
+    scheduleOtherHomeTab.timer = idle ? idle(run, { timeout: 400 }) : setTimeout(run, 32);
+  }
   function parkedReady(route) {
     const key = parkKey(route);
     const slot = key ? viewParks.get(key) : null;
@@ -23613,6 +23741,12 @@ if (STATE.histClear) {
     /* A parked page belongs to the account that built it. Putting it back
        for someone else shows their reply until the later refresh. */
     if (slot.scope && slot.scope !== viewerScope()) {
+      slot.force = true;
+      return false;
+    }
+    /* A parked tab from before a block, a mute, or a new post would come
+       back unchanged. Rebuild unless this exact stamp is still current. */
+    if (slot.stamp !== viewStamp(route)) {
       slot.force = true;
       return false;
     }
@@ -24003,6 +24137,7 @@ if (route.name === "music" && window.SIntelMusic && window.SIntelMusic.titleFor)
       bindSideSplit();
       if (focusStatusIconsPending && route.name === "settings" && route.section === "display") queueStatusIconFocus();
       scheduleRemember(route);
+      if (route.name === "home" && !STATE.loading) scheduleOtherHomeTab();
     };
     const endRoute = () => {
       if (gen !== STATE.renderGen) return;
@@ -28173,6 +28308,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (motion.addEventListener) motion.addEventListener("change", () => schedulePreview());
   }
+  let shellLive = false;
   function syncShell() {
     const w = window.innerWidth || 0;
     const h = window.innerHeight || 0;
@@ -28185,6 +28321,18 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       document.documentElement.setAttribute("data-shell", mode);
     }
     hscrollOnResize();
+    /* A narrow paint skips the side column. Growing into a layout that
+       shows it builds that column once. A resize before boot finishes must
+       not render: the scroll lock and the remember timer are still being
+       declared. */
+    if (!shellLive) return;
+    const needs = shellNeeds();
+    const wantSide = needs.side && !document.querySelector("aside.side");
+    if (wantSide && !syncShell.painting) {
+      syncShell.painting = true;
+      render();
+      syncShell.painting = false;
+    }
   }
   window.addEventListener("resize", () => {
     if (window.ViktorychAnchorHold) window.ViktorychAnchorHold();
@@ -33668,6 +33816,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
 
   async function boot() {
+    shellLive = true;
     holdDeviceFeeds();
     syncRuVisitorGeo();
     if (window.ViktorychLocal) {
