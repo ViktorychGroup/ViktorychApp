@@ -13069,7 +13069,7 @@ const here = parseRoute();
       if (samePublicPosts(merged) && publicOwner === viewerScope()) return;
       publicPosts = merged;
       publicOwner = viewerScope();
-      if (!backgroundPaintBlocked()) render();
+      renderBackground();
     }).catch(() => {});
   }
 
@@ -13347,7 +13347,7 @@ const here = parseRoute();
       /* An empty answer is still an answer. Leaving the loading shell up
          would keep whatever stood in for it, including another account's page. */
       if (!res || res.status !== 200 || !Array.isArray(res.posts)) {
-        if (document.querySelector(".tab-loading") && !backgroundPaintBlocked()) render();
+        if (document.querySelector(".tab-loading")) renderBackground();
         return;
       }
       const mine = signedAccount();
@@ -13359,11 +13359,11 @@ const here = parseRoute();
       if (!authorLive(key, entry, gen, sender)) return;
       if (!older.length) { entry.more = !!res.more; entry.before = edge; }
       entry.posts = next.concat(older);
-      if ((before !== sig(entry.posts) || document.querySelector(".tab-loading")) && !backgroundPaintBlocked()) render();
+      if (before !== sig(entry.posts) || document.querySelector(".tab-loading")) renderBackground();
     }).catch(() => {
       if (authorPostCache[key] === entry) {
         entry.loading = false;
-        if (document.querySelector(".tab-loading") && !backgroundPaintBlocked()) render();
+        if (document.querySelector(".tab-loading")) renderBackground();
       }
     });
   }
@@ -22930,6 +22930,29 @@ if (STATE.histClear) {
     while (live.children.length > ordered.length) live.removeChild(live.lastChild);
   }
 
+  /* A background paint must not swap the header or the rails for new nodes.
+     The reader may be holding the AI button or a nav link. Status icons
+     still update inside the kept header. */
+  function chromeSig(el) {
+    return [...el.children].map((child) => child.tagName + "." + child.className + "|" + (child.getAttribute("href") || "") + "|" + (child.getAttribute("data-act") || "")).join(";");
+  }
+  function keepChrome(liveRoot, frag) {
+    const route = parseRoute();
+    const key = parkKey(route);
+    const slot = key ? viewParks.get(key) : null;
+    const host = (slot && slot.root) || liveRoot;
+    if (!host) return;
+    [".mhead", "header.nav.nav-land", "header.nav:not(.nav-land)", "nav.bottom-nav"].forEach((sel) => {
+      const live = host.querySelector(sel);
+      const fresh = frag.querySelector(sel);
+      if (!live || !fresh || !fresh.parentNode || chromeSig(live) !== chromeSig(fresh)) return;
+      live.querySelectorAll(".sticons").forEach((oldIcons) => {
+        const neu = [...fresh.querySelectorAll(".sticons")].find((el) => el.className === oldIcons.className);
+        if (neu && oldIcons.innerHTML !== neu.innerHTML) oldIcons.innerHTML = neu.innerHTML;
+      });
+      fresh.replaceWith(live);
+    });
+  }
   function hscrollReuse(liveRoot, frag) {
     const liveRows = hscrollList(liveRoot);
     const freshRows = hscrollList(frag);
@@ -23024,6 +23047,7 @@ if (STATE.histClear) {
     tpl.innerHTML = html;
     hscrollReuse(app, tpl.content);
     reuseForYouCards(app, tpl.content, background);
+    if (background) keepChrome(app, tpl.content);
     while (app.firstChild) app.removeChild(app.firstChild);
     app.appendChild(tpl.content);
     scheduleImageSweep();
@@ -23447,6 +23471,30 @@ if (STATE.histClear) {
      whole page. Coalesce them into one render on the next frame, and skip it
      when a render already ran after the ask, since that one read the new data. */
   let renderSoonQueued = false;
+  let backgroundPaintDue = false;
+  function armBackgroundFlush() {
+    if (armBackgroundFlush.timer) return;
+    const step = () => {
+      armBackgroundFlush.timer = 0;
+      if (!backgroundPaintDue) return;
+      if (backgroundPaintBlocked()) {
+        armBackgroundFlush.timer = setTimeout(step, 200);
+        return;
+      }
+      backgroundPaintDue = false;
+      render();
+    };
+    armBackgroundFlush.timer = setTimeout(step, 200);
+  }
+  function renderBackground() {
+    if (backgroundPaintBlocked()) {
+      backgroundPaintDue = true;
+      armBackgroundFlush();
+      return;
+    }
+    backgroundPaintDue = false;
+    render();
+  }
   function renderSoon() {
     if (renderSoonQueued) return;
     renderSoonQueued = true;
@@ -23455,8 +23503,7 @@ if (STATE.histClear) {
       if (!renderSoonQueued) return;
       renderSoonQueued = false;
       if ((STATE.renderGen || 0) !== askedAt) return;
-      if (backgroundPaintBlocked()) return;
-      render();
+      renderBackground();
     };
     if (document.hidden || typeof requestAnimationFrame !== "function") setTimeout(run, 50);
     else requestAnimationFrame(run);
@@ -23805,6 +23852,7 @@ if (STATE.histClear) {
   }
 
   function renderNow(opts) {
+    backgroundPaintDue = false;
     /* Invocation count, including a call that returns before replacing the page. */
     if (typeof window !== "undefined") window.__renderInvocations = (window.__renderInvocations || 0) + 1;
     if (document.documentElement.classList.contains("is-split-drag")) {
@@ -34152,6 +34200,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       window.Stories.bind({
         icon: icon,
         render: render,
+        renderBackground: renderBackground,
         follows: function () { return (STATE.settings && STATE.settings.follows) || []; },
         dataUrl: "https://raw.githubusercontent.com/" + GITHUB_REPO + "/data/stories.json",
         account: function () { return window.ViktorychAccounts && window.ViktorychAccounts.account ? window.ViktorychAccounts.account() : null; },
