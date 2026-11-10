@@ -730,7 +730,7 @@
 
   function requestRender() {
     var accounts = typeof window !== "undefined" && window.ViktorychAccounts;
-    if (accounts && accounts.requestRender) accounts.requestRender();
+    if (accounts && accounts.requestRender) accounts.requestRender("background");
   }
 
   function responseBytes(res) {

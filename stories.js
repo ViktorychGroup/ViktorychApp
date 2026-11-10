@@ -1662,7 +1662,10 @@
       else show(at, index);
       return;
     }
-    if (deps.render) deps.render();
+    /* Stories are drawn on Home. Rebuilding Search or Settings here removes
+       the row the reader is about to use. */
+    var hash = (typeof location !== "undefined" && location.hash) || "#/";
+    if (deps.render && /^#\/(?:$|home(?:[/?]|$)|following(?:[/?]|$))/.test(hash)) deps.render();
   }
 
   function load() {
