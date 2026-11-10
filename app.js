@@ -13078,12 +13078,11 @@ const here = parseRoute();
       if (samePublicPosts(merged) && publicOwner === viewerScope()) return;
       publicPosts = merged;
       publicOwner = viewerScope();
-      /* Before the first paint, the list is only stored. A second paint
-         here is what slowed cold and warm open. */
+      /* Before the first paint, the list is only stored. Rebuilding here
+         was a second paint inside cold and warm open. */
       if (!openingSettled) return;
-      /* A post this device just sent is still on screen as Sending. One
-         rebuild, the same one main does, clears that. Building another
-         card first only delays the saved state. */
+      /* A reply or a post this device just sent paints on main's rebuild.
+         Another card here lands before that one is on screen. */
       if (Object.keys(ownSent).length || document.querySelector(".app-pending")) {
         renderBackground();
         return;
@@ -13094,8 +13093,8 @@ const here = parseRoute();
         if (post && post.id && !publicCardPresent(post.id)) missing.push(post);
       }
       if (!missing.length) return;
-      /* One new card is built and inserted. Rebuilding the whole Home
-         would be more work before that card is on screen. */
+      /* One new card, placed as soon as it arrives. Anything else uses
+         the same rebuild main does. */
       if (missing.length === 1 && insertArrivedPosts(missing)) {
         hydratePublicMedia();
         return;
@@ -13108,18 +13107,15 @@ const here = parseRoute();
     try { return !!document.querySelector('article[data-post="' + cssAttr(id) + '"]'); }
     catch (err) { return false; }
   }
-  /* New server posts for the Home that is already on screen. Returns false
-     when a full rebuild is the safe paint. */
   function insertArrivedPosts(posts) {
     if (STATE.modal) return false;
-    if (Object.keys(ownSent).some((id) => String(id).indexOf("tmp-") === 0)) return false;
     const route = parseRoute();
-    if (!route || route.name !== "home") return false;
+    if (!route || route.name !== "home" || !posts || posts.length !== 1) return false;
     const mainEl = document.querySelector("main.center");
-    if (!mainEl || !posts || posts.length !== 1) return false;
+    if (!mainEl) return false;
     const raw = posts[0];
     const post = raw && (raw.platform || raw.appPost) ? raw : appCardPost(raw);
-    if (!post || !post.id) return false;
+    if (!post || !post.id || publicCardPresent(post.id)) return true;
     let html = "";
     try { html = card(post, post.parentId ? "reply" : ""); }
     catch (err) { return false; }
