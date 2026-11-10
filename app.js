@@ -13069,6 +13069,7 @@ const here = parseRoute();
         if (gen !== publicGen || !sameSession(sender)) return true;
         if (!document.querySelector("main.center")) return false;
         if (structural || !insertArrivedPosts()) render();
+        else hydratePublicMedia();
         return true;
       };
       if (!place()) {
