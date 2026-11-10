@@ -13206,6 +13206,84 @@ const here = parseRoute();
     });
     return id;
   }
+  function cssAttr(value) {
+    const raw = String(value || "");
+    return window.CSS && CSS.escape ? CSS.escape(raw) : raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+  /* The new card is the real post renderer. Sending stays until the server
+     accepts it. A full page rebuild is only the fallback. */
+  function showOwnCard(item) {
+    if (!item || !item.id || typeof document === "undefined") return false;
+    let html = "";
+    try { html = card(appCardPost(item), item.parentId ? "reply" : ""); }
+    catch (err) { return false; }
+    if (!html) return false;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    const article = wrap.querySelector("article");
+    if (!article) return false;
+    if (item.parentId) {
+      const parent = document.querySelector('article[data-post="' + cssAttr(item.parentId) + '"]');
+      if (!parent) return false;
+      parent.after(article);
+    } else {
+      const main = document.querySelector("main.center");
+      if (!main) return false;
+      const first = main.querySelector("article.post");
+      if (first) first.before(article);
+      else main.prepend(article);
+    }
+    const modal = document.querySelector(".modal-back");
+    if (modal) modal.remove();
+    /* A tab built before this card must not come back without it, and one
+       built with it must not be shown beside this copy. */
+    noteOwnCard();
+    return true;
+  }
+  function ownCardRoots() {
+    const roots = [document];
+    if (typeof viewParks !== "undefined" && viewParks && viewParks.forEach) {
+      viewParks.forEach((slot) => { if (slot && slot.root) roots.push(slot.root); });
+    }
+    return roots;
+  }
+  function patchOwnCard(article, tempId, post) {
+    article.setAttribute("data-post", post.id);
+    article.querySelectorAll("[data-id]").forEach((el) => {
+      if (el.getAttribute("data-id") === tempId) el.setAttribute("data-id", post.id);
+    });
+    article.querySelectorAll("a[href]").forEach((a) => {
+      const href = a.getAttribute("href") || "";
+      if (href.indexOf(tempId) >= 0) a.setAttribute("href", href.split(tempId).join(post.id));
+    });
+    const pending = article.querySelector(".app-pending");
+    if (pending) pending.remove();
+  }
+  function confirmOwnCard(tempId, post) {
+    if (!tempId || !post || !post.id || typeof document === "undefined") return false;
+    const sel = 'article[data-post="' + cssAttr(tempId) + '"]';
+    let onScreen = false;
+    ownCardRoots().forEach((root) => {
+      root.querySelectorAll(sel).forEach((article) => {
+        patchOwnCard(article, tempId, post);
+        if (article.isConnected) onScreen = true;
+      });
+    });
+    noteOwnCard();
+    return onScreen;
+  }
+  function pendingOwnPost() {
+    if (publicPosts.some((item) => item && item.pending)) return true;
+    return Object.keys(ownSent).some((id) => String(id).indexOf("tmp-") === 0 && ownSentHere(ownSent[id]));
+  }
+  function noteOwnCard() {
+    homeShapeCache = { key: "", list: null };
+    if (typeof viewParks === "undefined" || !viewParks || !viewParks.forEach) return;
+    viewParks.forEach((slot, key) => {
+      if (!slot || slot.live || String(key).indexOf("home:") !== 0) return;
+      slot.force = true;
+    });
+  }
   function sentToast(post) {
     const el = document.getElementById("toast");
     if (!el || !post || !post.id) { toast(tr("Your post was sent.")); return; }
@@ -13492,12 +13570,13 @@ const here = parseRoute();
       return;
     }
     let firstSent = null;
+    let needsRender = false;
     const sendAt = (index, parentId) => {
       if (index >= posts.length) {
         if (window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: "" });
         if (scheduled) toast(tr("Scheduled. It will publish when it’s due."));
         else sentToast(firstSent);
-        render();
+        if (needsRender) render();
         return;
       }
       const part = posts[index];
@@ -13507,11 +13586,13 @@ const here = parseRoute();
       const sender = sessionNow();
       const blobs = blobUrls(part);
       const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null, part.media);
-      if (tempId || (!quiet && index === 0)) render();
+      const painted = !!(tempId && ownSent[tempId] && showOwnCard(ownSent[tempId].post));
+      if (!painted && (tempId || (!quiet && index === 0))) render();
       const done = (res) => {
         const stale = !sameSession(sender);
         const kept = !stale && res && res.status === 201 && res.post && !later && !res.scheduled;
         const previews = tempId && localPostPreview[tempId] ? localPostPreview[tempId].urls : null;
+        if (kept && tempId && res.post.id && !confirmOwnCard(tempId, res.post)) needsRender = true;
         if (tempId) delete localPostPreview[tempId];
         if (tempId) forgetOwnPost(tempId);
         if (stale) render();
@@ -13717,15 +13798,16 @@ const here = parseRoute();
     const root = accountsApi();
     const finishOk = (post) => {
       if (window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: "" });
+      const painted = !!(tempId && post && post.id && confirmOwnCard(tempId, post));
       if (tempId) forgetOwnPost(tempId);
       if (post && post.id) { rememberOwnPost(post); nostrMirror(post, null); }
       if (post && post.community && post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(post.community.name);
       publicStamp = Date.now();
       sentToast(post);
-      render();
+      if (!painted) render();
     };
     const tempId = optimisticOwnPost(text, parentId, quoteId);
-    if (tempId) render();
+    if (tempId && !(ownSent[tempId] && showOwnCard(ownSent[tempId].post))) render();
     const finishFail = () => {
       if (tempId) { forgetOwnPost(tempId); render(); }
       if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
@@ -23498,6 +23580,9 @@ if (STATE.histClear) {
       publicPosts.length,
       publicPosts[0] ? String(publicPosts[0].id || "") : "",
       publicPosts[0] && publicPosts[0].pending ? 1 : 0,
+      Object.keys(cmFyState().mutedAt || {}).length,
+      (cmFyState().hidden || []).length,
+      cmFyState().prefs && cmFyState().prefs.joined ? cmFyState().prefs.joined.length : 0,
       count(s.likes),
       count(s.reposts),
       count(s.bookmarks),
@@ -23588,7 +23673,9 @@ if (STATE.histClear) {
     if (buildingPark || scheduleOtherHomeTab.timer) return;
     const run = () => {
       scheduleOtherHomeTab.timer = 0;
-      if (buildingPark || STATE.modal) return;
+      /* A Sending card is already on screen. Building the other tab now
+         would keep a second copy, or a copy that still says Sending. */
+      if (buildingPark || STATE.modal || pendingOwnPost()) return;
       const route = parseRoute();
       if (route.name !== "home" || STATE.loading) return;
       const other = (route.tab || "foryou") === "following" ? "foryou" : "following";
