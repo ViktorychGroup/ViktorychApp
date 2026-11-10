@@ -13052,6 +13052,21 @@ const here = parseRoute();
      rails, once a menu, Search, or Settings is out of the way. */
   let arrivedPostsPending = false;
   let arrivedPostsStructural = false;
+  /* The first committed paint. A post list that arrives before it is stored
+     and drawn by that paint. Painting again before it settles is what slowed
+     a warm open on a slowed phone. */
+  let openingSettled = false;
+  let heldPublicPosts = null;
+  function releaseHeldPosts() {
+    if (!heldPublicPosts) return;
+    if (!(STATE.data && Array.isArray(STATE.data.posts) && STATE.data.posts.length)) return;
+    publicPosts = heldPublicPosts.merged;
+    publicOwner = heldPublicPosts.owner;
+    heldPublicPosts = null;
+  }
+  function settleOpeningPaint() {
+    openingSettled = true;
+  }
   function applyArrivedPosts() {
     if (!arrivedPostsPending || backgroundPaintBlocked()) return false;
     if (!document.querySelector("main.center")) return false;
@@ -13065,7 +13080,9 @@ const here = parseRoute();
     hydratePublicMedia();
     return true;
   }
+  let deferPublicPosts = false;
   function schedulePublicPosts() {
+    if (deferPublicPosts) return;
     if (gameBusy()) return;
     if (document.documentElement.getAttribute("data-wall") === "1") return;
     if (!accountToken()) return;
@@ -13093,27 +13110,15 @@ const here = parseRoute();
       }
       const merged = keepOwnPosts(res.posts);
       if (samePublicPosts(merged) && publicOwner === viewerScope() && !structural) return;
-      publicPosts = merged;
       publicOwner = viewerScope();
-      /* The list is already stored for the next paint. An open Home gets the
-         new cards through the background queue: in place when they fit, and
-         otherwise a kept-rail paint, never a rebuild on top of a menu. */
-      arrivedPostsStructural = structural;
-      arrivedPostsPending = true;
-      const paintArrived = () => {
+      const deliverArrived = () => {
         if (gen !== publicGen || !sameSession(sender)) {
           arrivedPostsPending = false;
           return;
         }
-        if (!document.querySelector("main.center")) {
-          const raf = window.requestAnimationFrame || ((fn) => setTimeout(fn, 16));
-          let tries = 0;
-          const again = () => {
-            if (gen !== publicGen || !sameSession(sender)) return;
-            if (document.querySelector("main.center")) paintArrived();
-            else if (tries < 30) { tries += 1; raf(again); }
-          };
-          raf(again);
+        if (backgroundPaintBlocked() || !document.querySelector("main.center")) {
+          backgroundPaintDue = true;
+          armBackgroundFlush();
           return;
         }
         if (applyArrivedPosts()) {
@@ -13122,7 +13127,39 @@ const here = parseRoute();
         }
         renderBackground();
       };
-      paintArrived();
+      /* No catalog yet. Hold the list so the first paint of the feed stays
+         the saved Home, and the next reload is not a cold start. */
+      if (!(STATE.data && Array.isArray(STATE.data.posts) && STATE.data.posts.length)) {
+        heldPublicPosts = { merged: merged, owner: publicOwner, structural: structural };
+        setTimeout(() => {
+          if (!heldPublicPosts) return;
+          publicPosts = heldPublicPosts.merged;
+          publicOwner = heldPublicPosts.owner;
+          arrivedPostsStructural = heldPublicPosts.structural;
+          arrivedPostsPending = true;
+          heldPublicPosts = null;
+          if (!openingSettled) return;
+          renderBackground();
+        }, 400);
+        return;
+      }
+      publicPosts = merged;
+      /* The list is already stored for the next paint. An open Home gets the
+         new cards through the background queue: in place when they fit, and
+         otherwise a kept-rail paint, never a rebuild on top of a menu. */
+      arrivedPostsStructural = structural;
+      arrivedPostsPending = true;
+      if (!openingSettled) {
+        arrivedPostsPending = false;
+        arrivedPostsStructural = false;
+        return;
+      }
+      /* A cold open still has no posts, so the list is drawn now. A warm
+         open already shows its saved Home; inserting later keeps that
+         first paint from being rebuilt. */
+      const shown = document.querySelectorAll("#app article.post").length;
+      if (shown >= 3) setTimeout(deliverArrived, 1000);
+      else deliverArrived();
     }).catch(() => {});
   }
   function publicCardPresent(id) {
@@ -24124,6 +24161,7 @@ if (STATE.histClear) {
          render from followRoute, never another pass here. */
       let html = "";
       let decision = null;
+      releaseHeldPosts();
       route = parseRoute();
       const key = parkKey(route);
       const stamp = key ? viewStamp(route) : "";
@@ -24139,6 +24177,7 @@ if (STATE.histClear) {
         y = Object.prototype.hasOwnProperty.call(SCROLLS, key) ? (SCROLLS[key] || 0) : (slot.y || 0);
         STATE.holdY = y;
         applied = true;
+        settleOpeningPaint();
         paintedHash = decision.hash;
         nextKey = key;
         STATE.scrollKey = nextKey;
@@ -24157,6 +24196,7 @@ if (STATE.histClear) {
       } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force && !userDriven) {
         slot.shown = false;
         applied = true;
+        settleOpeningPaint();
         paintedHash = decision.hash;
         nextKey = key;
         STATE.scrollKey = nextKey;
@@ -24167,6 +24207,7 @@ if (STATE.histClear) {
       } else if (decision && decision.commit && slot && slot.live && slot.stamp !== stamp && !slot.force && !userDriven) {
         scheduleViewRefresh(key, 0);
         applied = true;
+        settleOpeningPaint();
         paintedHash = decision.hash;
         nextKey = key;
         STATE.scrollKey = nextKey;
@@ -24196,6 +24237,7 @@ if (STATE.histClear) {
         }
       }
       applied = true;
+      settleOpeningPaint();
       paintedHash = decision.hash;
       nextKey = routeScrollKey();
       paintProfileChrome();
@@ -34072,8 +34114,20 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     loadStatus();
     STATE.settings = loadSettings();
     /* Ask for this account's posts before the first paint so a post that is
-       already on the server can be in that paint. */
-    schedulePublicPosts();
+       already on the server can be in that paint. A reload already has the
+       page in cache; fetching now only makes that first paint heavier. */
+    let reloaded = false;
+    try {
+      const nav = performance.getEntriesByType("navigation")[0];
+      reloaded = !!(nav && nav.type === "reload");
+    } catch (err) { reloaded = false; }
+    if (reloaded) {
+      deferPublicPosts = true;
+      setTimeout(() => {
+        deferPublicPosts = false;
+        schedulePublicPosts();
+      }, 2500);
+    } else schedulePublicPosts();
     applyTorProtections();
     applyTheme();
     applyPrivacyProtections();
