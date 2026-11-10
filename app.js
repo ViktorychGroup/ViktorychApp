@@ -22931,10 +22931,52 @@ if (STATE.histClear) {
   }
 
   /* A background paint must not swap the header or the rails for new nodes.
-     The reader may be holding the AI button or a nav link. Status icons
-     still update inside the kept header. */
-  function chromeSig(el) {
-    return [...el.children].map((child) => child.tagName + "." + child.className + "|" + (child.getAttribute("href") || "") + "|" + (child.getAttribute("data-act") || "")).join(";");
+     The reader may be holding the AI button. Route links and status icons
+     still update inside the kept node. */
+  function chromeNodeKey(el) {
+    if (!el || el.nodeType !== 1) return "";
+    const cls = String(el.className || "").split(/\s+/).filter((name) => name && name !== "on" && name !== "active").sort().join(".");
+    return el.tagName + "|" + cls + "|" + (el.getAttribute("href") || "") + "|" + (el.getAttribute("data-act") || "");
+  }
+  function patchChromeChildren(live, fresh) {
+    if (live.className !== fresh.className) live.className = fresh.className;
+    [...live.attributes].forEach((attr) => {
+      if (attr.name === "style" || attr.name === "class") return;
+      if (!fresh.hasAttribute(attr.name)) live.removeAttribute(attr.name);
+    });
+    [...fresh.attributes].forEach((attr) => {
+      if (attr.name === "style" || attr.name === "class") return;
+      if (live.getAttribute(attr.name) !== attr.value) live.setAttribute(attr.name, attr.value);
+    });
+    const freshKids = [...fresh.children];
+    const liveKids = [...live.children];
+    const structural = (el) => el.tagName === "A" || el.tagName === "BUTTON" || el.classList.contains("nav-scroll") || el.classList.contains("m-right") || el.classList.contains("m-left") || el.classList.contains("nav-folder-wrapper") || el.classList.contains("nav-folder-children");
+    if (![...freshKids, ...liveKids].some(structural)) {
+      if (live.innerHTML !== fresh.innerHTML) live.innerHTML = fresh.innerHTML;
+      return;
+    }
+    const pool = new Map();
+    liveKids.forEach((node) => {
+      const key = chromeNodeKey(node);
+      if (!pool.has(key)) pool.set(key, []);
+      pool.get(key).push(node);
+    });
+    const ordered = [];
+    freshKids.forEach((slot) => {
+      const list = pool.get(chromeNodeKey(slot));
+      const old = list && list.shift();
+      if (!old) {
+        ordered.push(slot.cloneNode(true));
+        return;
+      }
+      patchChromeChildren(old, slot);
+      ordered.push(old);
+    });
+    pool.forEach((list) => list.forEach((node) => node.remove()));
+    ordered.forEach((node, index) => {
+      if (live.children[index] !== node) live.insertBefore(node, live.children[index] || null);
+    });
+    while (live.children.length > ordered.length) live.removeChild(live.lastChild);
   }
   function keepChrome(liveRoot, frag) {
     const route = parseRoute();
@@ -22945,11 +22987,8 @@ if (STATE.histClear) {
     [".mhead", "header.nav.nav-land", "header.nav:not(.nav-land)", "nav.bottom-nav"].forEach((sel) => {
       const live = host.querySelector(sel);
       const fresh = frag.querySelector(sel);
-      if (!live || !fresh || !fresh.parentNode || chromeSig(live) !== chromeSig(fresh)) return;
-      live.querySelectorAll(".sticons").forEach((oldIcons) => {
-        const neu = [...fresh.querySelectorAll(".sticons")].find((el) => el.className === oldIcons.className);
-        if (neu && oldIcons.innerHTML !== neu.innerHTML) oldIcons.innerHTML = neu.innerHTML;
-      });
+      if (!live || !fresh || !fresh.parentNode || live.tagName !== fresh.tagName) return;
+      patchChromeChildren(live, fresh);
       fresh.replaceWith(live);
     });
   }
@@ -23045,9 +23084,14 @@ if (STATE.histClear) {
     hscrollRemember(app);
     const tpl = document.createElement("template");
     tpl.innerHTML = html;
+    /* A tap rebuilds the column. The tab strip is patched in place on every
+       paint, including Edit tabs, so its grips and labels update without
+       mounting a second marquee. A background paint also keeps the header. */
     hscrollReuse(app, tpl.content);
-    reuseForYouCards(app, tpl.content, background);
-    if (background) keepChrome(app, tpl.content);
+    if (background) {
+      reuseForYouCards(app, tpl.content, true);
+      keepChrome(app, tpl.content);
+    }
     while (app.firstChild) app.removeChild(app.firstChild);
     app.appendChild(tpl.content);
     scheduleImageSweep();
@@ -23852,13 +23896,15 @@ if (STATE.histClear) {
   }
 
   function renderNow(opts) {
-    backgroundPaintDue = false;
     /* Invocation count, including a call that returns before replacing the page. */
     if (typeof window !== "undefined") window.__renderInvocations = (window.__renderInvocations || 0) + 1;
     if (document.documentElement.classList.contains("is-split-drag")) {
       STATE.splitRender = opts || STATE.splitRender || {};
       return;
     }
+    backgroundPaintDue = false;
+    const userPaintNow = !!STATE.userPaint || inUserInput() || !!(opts && opts.forceCards);
+    STATE.userPaint = false;
     const hashNow = location.hash || "#/";
     const qCut = hashNow.indexOf("?");
     const bare = qCut >= 0 ? hashNow.slice(0, qCut) : hashNow;
@@ -23974,7 +24020,10 @@ if (STATE.histClear) {
       const slot = key ? viewParks.get(key) : null;
       decision = commitFrameDecision({ token: STATE.renderGen, builtHash: location.hash || "#/" }, { renderGen: STATE.renderGen, hash: location.hash || "#/" });
       if (slot && slot.scope && slot.scope !== viewerScope()) slot.force = true;
-      const parkedAway = !!(decision && decision.commit && slot && !slot.live && slot.root && !slot.force);
+      /* A tap (Edit tabs, a privacy switch) always rebuilds. A parked copy
+         does not know about that new state. */
+      const userDriven = userPaintNow;
+      const parkedAway = !!(decision && decision.commit && slot && !slot.live && slot.root && !slot.force && !userDriven);
       if (parkedAway) parkLiveView();
       if (parkedAway && restoreView(slot)) {
         y = Object.prototype.hasOwnProperty.call(SCROLLS, key) ? (SCROLLS[key] || 0) : (slot.y || 0);
@@ -23994,7 +24043,7 @@ if (STATE.histClear) {
         revealProfileTabs();
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
-      } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force) {
+      } else if (decision && decision.commit && slot && slot.live && slot.shown && !slot.force && !userDriven) {
         slot.shown = false;
         applied = true;
         paintedHash = decision.hash;
@@ -24003,7 +24052,7 @@ if (STATE.histClear) {
         lastKey = location.hash || "#/";
         if (slot.stamp !== stamp) scheduleViewRefresh(key, 350);
         return;
-      } else if (decision && decision.commit && slot && slot.live && slot.stamp !== stamp && !slot.force && !inUserInput()) {
+      } else if (decision && decision.commit && slot && slot.live && slot.stamp !== stamp && !slot.force && !userDriven) {
         scheduleViewRefresh(key, 0);
         applied = true;
         paintedHash = decision.hash;
@@ -24025,7 +24074,7 @@ if (STATE.histClear) {
         if (!decision || !decision.commit) return;
         if (slot && slot.force) slot.force = false;
         parkLiveView();
-        commitApp(html, !inUserInput() && !(opts && opts.forceCards));
+        commitApp(html, !userPaintNow);
         if (key) {
           const prev = viewParks.get(key);
           if (prev && prev.root) prev.root.remove();
@@ -34508,9 +34557,13 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   }
   if (window.ViktorychAccounts) {
     window.ViktorychAccounts.requestRender = function (why) {
-      /* Storage and other background readers pass "background". A tap on
-         the open page does not, so its redraw still lands. */
-      if (why === "background" && backgroundPaintBlocked()) return;
+      /* Storage and other background readers pass "background" and wait
+         with the other deferred paints. A tap on the open page does not. */
+      if (why === "background") {
+        renderBackground();
+        return;
+      }
+      STATE.userPaint = true;
       render();
     };
     window.ViktorychAccounts.followButton = followButtonClean;
