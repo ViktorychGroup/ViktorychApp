@@ -13199,6 +13199,53 @@ const here = parseRoute();
     });
     return id;
   }
+  function cssAttr(value) {
+    const raw = String(value || "");
+    return window.CSS && CSS.escape ? CSS.escape(raw) : raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+  /* The new card is the real post renderer. Sending stays until the server
+     accepts it. A full page rebuild is only the fallback. */
+  function showOwnCard(item) {
+    if (!item || !item.id || typeof document === "undefined") return false;
+    let html = "";
+    try { html = card(appCardPost(item), item.parentId ? "reply" : ""); }
+    catch (err) { return false; }
+    if (!html) return false;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    const article = wrap.querySelector("article");
+    if (!article) return false;
+    if (item.parentId) {
+      const parent = document.querySelector('article[data-post="' + cssAttr(item.parentId) + '"]');
+      if (!parent) return false;
+      parent.after(article);
+    } else {
+      const main = document.querySelector("main.center");
+      if (!main) return false;
+      const first = main.querySelector("article.post");
+      if (first) first.before(article);
+      else main.prepend(article);
+    }
+    const modal = document.querySelector(".modal-back");
+    if (modal) modal.remove();
+    return true;
+  }
+  function confirmOwnCard(tempId, post) {
+    if (!tempId || !post || !post.id || typeof document === "undefined") return false;
+    const article = document.querySelector('article[data-post="' + cssAttr(tempId) + '"]');
+    if (!article) return false;
+    article.setAttribute("data-post", post.id);
+    article.querySelectorAll("[data-id]").forEach((el) => {
+      if (el.getAttribute("data-id") === tempId) el.setAttribute("data-id", post.id);
+    });
+    article.querySelectorAll("a[href]").forEach((a) => {
+      const href = a.getAttribute("href") || "";
+      if (href.indexOf(tempId) >= 0) a.setAttribute("href", href.split(tempId).join(post.id));
+    });
+    const pending = article.querySelector(".app-pending");
+    if (pending) pending.remove();
+    return true;
+  }
   function sentToast(post) {
     const el = document.getElementById("toast");
     if (!el || !post || !post.id) { toast(tr("Your post was sent.")); return; }
@@ -13485,12 +13532,13 @@ const here = parseRoute();
       return;
     }
     let firstSent = null;
+    let needsRender = false;
     const sendAt = (index, parentId) => {
       if (index >= posts.length) {
         if (window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: "" });
         if (scheduled) toast(tr("Scheduled. It will publish when it’s due."));
         else sentToast(firstSent);
-        render();
+        if (needsRender) render();
         return;
       }
       const part = posts[index];
@@ -13500,11 +13548,13 @@ const here = parseRoute();
       const sender = sessionNow();
       const blobs = blobUrls(part);
       const tempId = later ? "" : optimisticOwnPost(part.text, parent, quote, index === 0 && !parent ? payload.extParent : null, part.media);
-      if (tempId || (!quiet && index === 0)) render();
+      const painted = !!(tempId && ownSent[tempId] && showOwnCard(ownSent[tempId].post));
+      if (!painted && (tempId || (!quiet && index === 0))) render();
       const done = (res) => {
         const stale = !sameSession(sender);
         const kept = !stale && res && res.status === 201 && res.post && !later && !res.scheduled;
         const previews = tempId && localPostPreview[tempId] ? localPostPreview[tempId].urls : null;
+        if (kept && tempId && res.post.id && !confirmOwnCard(tempId, res.post)) needsRender = true;
         if (tempId) delete localPostPreview[tempId];
         if (tempId) forgetOwnPost(tempId);
         if (stale) render();
@@ -13710,15 +13760,16 @@ const here = parseRoute();
     const root = accountsApi();
     const finishOk = (post) => {
       if (window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: "" });
+      const painted = !!(tempId && post && post.id && confirmOwnCard(tempId, post));
       if (tempId) forgetOwnPost(tempId);
       if (post && post.id) { rememberOwnPost(post); nostrMirror(post, null); }
       if (post && post.community && post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(post.community.name);
       publicStamp = Date.now();
       sentToast(post);
-      render();
+      if (!painted) render();
     };
     const tempId = optimisticOwnPost(text, parentId, quoteId);
-    if (tempId) render();
+    if (tempId && !(ownSent[tempId] && showOwnCard(ownSent[tempId].post))) render();
     const finishFail = () => {
       if (tempId) { forgetOwnPost(tempId); render(); }
       if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
