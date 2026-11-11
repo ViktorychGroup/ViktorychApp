@@ -32552,6 +32552,17 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     return !!(presence && presence.channelOpen && presence.channelOpen());
   }
 
+  /* One post id. A different post still held in ownSent must not hide a
+     card from another device, and must not skip the refresh. */
+  function authorPostsEvent(held, msg, onScreen) {
+    const incoming = msg && msg.data && msg.data.post;
+    if (incoming && incoming.id) {
+      if ((held && held[incoming.id]) || (onScreen && onScreen(incoming.id))) return "skip";
+      return "apply";
+    }
+    return "refresh";
+  }
+
   function onChannelMessage(msg) {
     if (!msg) return;
     if (msg.op === "state") {
@@ -32564,11 +32575,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (msg.op === "event" && msg.topic === "sync" && msg.data && msg.data.lists && window.SourceLists && window.SourceLists.notify) window.SourceLists.notify(msg.data);
     if (msg.op === "event" && msg.topic === "posts") {
       const incoming = msg.data && msg.data.post;
-      if (incoming && incoming.id) {
-        /* This device just sent it, or it is already on screen. */
-        if (Object.keys(ownSent).length || publicCardPresent(incoming.id)) return;
-        if (applyAuthorPost(incoming)) return;
-      }
+      const step = authorPostsEvent(ownSent, msg, publicCardPresent);
+      if (step === "skip") return;
+      if (step === "apply" && incoming && applyAuthorPost(incoming)) return;
       clearTimeout(postsLiveTimer);
       postsLiveTimer = setTimeout(refreshAppPosts, 600);
     }
