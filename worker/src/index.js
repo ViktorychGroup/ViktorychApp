@@ -6177,19 +6177,22 @@ async function route(request, env, ctx) {
       issueRecoveryCodes: (id) => issueRecoveryCodes(env, id, recoveryDeps())
     });
   }
+  const postDeps = Object.assign(recoveryDeps(), {
+    waitUntil: ctx && ctx.waitUntil ? (p) => ctx.waitUntil(p) : null
+  });
   if ((path === "/v1/gif" || path === "/v1/gif/file") && request.method === "GET") {
-    const gifs = await handlePosts(request, env, path, recoveryDeps());
+    const gifs = await handlePosts(request, env, path, postDeps);
     if (gifs) return gifs;
   }
   // Public posts use /v1/posts without an author id. Account posts are
   // /v1/posts?id= and JSON that carries text. Blocks and mutes stay on the
   // social routes so a block also drops follows, requests, and friends.
   if (path.startsWith("/v1/moderation/") || (path.startsWith("/v1/posts/") && path !== "/v1/posts")) {
-    const posted = await handlePosts(request, env, path, recoveryDeps());
+    const posted = await handlePosts(request, env, path, postDeps);
     if (posted) return posted;
   }
   if (path === "/v1/posts" && request.method === "GET" && !url.searchParams.get("id") && !url.searchParams.get("author")) {
-    const posted = await handlePosts(request, env, path, recoveryDeps());
+    const posted = await handlePosts(request, env, path, postDeps);
     if (posted) return posted;
   }
   if (path === "/v1/posts" && request.method === "POST") {
@@ -6200,7 +6203,7 @@ async function route(request, env, ctx) {
       accountPost = !!(peeked && typeof peeked.text === "string" && !peeked.quoteId);
     }
     if (!accountPost) {
-      const posted = await handlePosts(request, env, path, recoveryDeps());
+      const posted = await handlePosts(request, env, path, postDeps);
       if (posted) return posted;
     }
   }

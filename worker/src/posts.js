@@ -13,7 +13,7 @@ import { canSeeAudience, setListGrants } from "./audience.js";
 import { addCommunityPost, communityHomeRows } from "./communities.js";
 import { attachParents } from "./reply-context.js";
 import { postAuthorFace, visibleAvatarUrl } from "./profile-media.js";
-import { POST_ACTION_SCHEMA, handlePostActions, decorate, quoteFor, viewerCanSee, notifyPost } from "./post-actions.js";
+import { POST_ACTION_SCHEMA, handlePostActions, decorate, quoteFor, viewerCanSee, notifyPost, pushLivePost } from "./post-actions.js";
 
 const POST_MAX = 500;
 const MEDIA_MAX = 12 * 1024 * 1024;
@@ -714,6 +714,11 @@ async function createPost(request, env, deps) {
   const post = await presentPost(env, request, row, session.public_id);
   await withParents(env, request, session, [post], await hiddenAuthors(env, session.public_id));
   await decorate(env, [post], session.public_id);
+  if (!when) {
+    const fan = pushLivePost(env, post).catch(() => 0);
+    if (deps.waitUntil) deps.waitUntil(fan);
+    else await fan;
+  }
   return deps.json(201, { post: post, scheduled: when > 0 });
 }
 

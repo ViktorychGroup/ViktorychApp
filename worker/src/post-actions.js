@@ -5,6 +5,9 @@
 import { presentPost, hiddenAuthors, audienceSets, canSee, withParents } from "./posts.js";
 import { canSeeAudience } from "./audience.js";
 import { blocksEither, actorHidden } from "./social.js";
+import { isLockedFollow } from "./locked-sql.js";
+import { listWatchers, deliverToAccount } from "./channel.js";
+import { readFlags } from "./feature-flags.js";
 
 export const POST_ACTION_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS public_post_likes (post_id TEXT NOT NULL, account_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (post_id, account_id))",
@@ -111,6 +114,55 @@ export async function quoteFor(env, request, quoteId, viewerId) {
     authorAvatar: "", // presentPost fills the viewer-aware face
     media: ((mediaRows && mediaRows.results) || []).map((item) => ({ id: item.id, mime: item.mime, size: item.size, alt: item.alt_text || "", url: new URL("/v1/posts/media/" + item.id, request.url).pathname }))
   };
+}
+
+/* A card for someone else's open Home. liked and the poll vote are the
+   author's, so they come off. A private nickname is never on this object:
+   presentPost filled the author's own public name. Too big to fit the
+   channel, and the next Home fetch still shows the post. */
+export function liveCard(post) {
+  if (!post || !post.id) return null;
+  let copy = null;
+  try { copy = JSON.parse(JSON.stringify(post)); }
+  catch (err) { return null; }
+  copy.liked = false;
+  copy.reposted = false;
+  if (copy.poll && typeof copy.poll === "object") copy.poll.mine = -1;
+  let packed = "";
+  try { packed = JSON.stringify({ post: copy }); }
+  catch (err) { return null; }
+  if (packed.length > 7000) return null;
+  return copy;
+}
+
+/* People who already have this author's posts topic watched (Home is open
+   and they follow the author). Blocks, mutes, a locked follow and the
+   post's audience still apply. The author's own devices are not in this. */
+export async function pushLivePost(env, post) {
+  if (!env || !post || !post.id || !post.authorId) return 0;
+  let off = {};
+  try { off = await readFlags(env); }
+  catch (err) { off = {}; }
+  if (off.home_live) return 0;
+  let watchers = [];
+  try { watchers = await listWatchers(env, post.authorId, "posts"); }
+  catch (err) { return 0; }
+  const card = liveCard(post);
+  if (!card) return 0;
+  const row = { id: post.id, author_id: post.authorId, audience: post.audience || "everyone" };
+  let sent = 0;
+  for (let i = 0; i < watchers.length; i++) {
+    const viewerId = watchers[i];
+    if (!viewerId || viewerId === post.authorId) continue;
+    try {
+      if (await actorHidden(env, viewerId, post.authorId)) continue;
+      if (await isLockedFollow(env, viewerId, "app:" + post.authorId)) continue;
+      if (!(await viewerCanSee(env, viewerId, row))) continue;
+      await deliverToAccount(env, viewerId, "posts", { post: card }, post.authorId);
+      sent += 1;
+    } catch (err) { /* their next Home fetch still shows the post */ }
+  }
+  return sent;
 }
 
 /* Notes for the parent's author, the quoted author and anyone mentioned. */

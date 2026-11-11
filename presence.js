@@ -224,6 +224,27 @@ function sendWatch(ids) {
   catch (err) { /* the close handler reconnects while the page stays visible */ }
 }
 
+/* Home watches the accounts this person follows, on its own topic, so a new
+   post can arrive while Home is open. An empty list before the first watch
+   sends nothing. */
+let postsWatchKey = "";
+function watchTopic(topic, ids) {
+  const clean = [];
+  const list = Array.isArray(ids) ? ids : [];
+  for (let i = 0; i < list.length && clean.length < WATCH_LIMIT; i++) {
+    const id = String(list[i] || "").replace(/^app:/, "");
+    if (isAccountId(id) && id !== selfId() && clean.indexOf(id) < 0) clean.push(id);
+  }
+  clean.sort();
+  const key = String(topic || "") + ":" + clean.join(",");
+  if (!clean.length && !postsWatchKey) return;
+  if (key === postsWatchKey) return;
+  if (!socketOpen()) return;
+  postsWatchKey = key;
+  try { socket.send(JSON.stringify({ op: "watch", topic: topic, ids: clean })); }
+  catch (err) { postsWatchKey = ""; }
+}
+
 function syncWatch() {
   const ids = currentIds();
   const key = ids.join(",");
@@ -320,6 +341,7 @@ function connect() {
     ws.addEventListener("message", onSocketMessage);
     ws.addEventListener("close", function () {
       if (socket === ws) socket = null;
+      postsWatchKey = "";
       notifyChannel({ op: "state", open: false });
       if (wantSocket && visible()) {
         armPoll();
@@ -1223,6 +1245,7 @@ const api = {
   onChannel: onChannel,
   offChannel: offChannel,
   channelOpen: socketOpen,
+  watchTopic: watchTopic,
   stripHtml: stripHtml,
   pageHtml: pageHtml,
   railHtml: railHtml,
