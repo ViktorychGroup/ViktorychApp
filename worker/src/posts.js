@@ -300,9 +300,49 @@ function readExtParent(text) {
   return text ? cleanExtParent(text) : null;
 }
 
-export async function presentPost(env, request, row, viewerId) {
-  const mediaRows = await env.DB.prepare("SELECT id, mime, size, alt_text, sort_order FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(row.id).all();
-  const media = ((mediaRows && mediaRows.results) || []).map((item) => ({
+/* One read for every post on the page: media, the gift row, and quoted posts.
+   Missing keys fall back to the single-post queries. A thrown read does too. */
+export async function loadCardSources(env, rows) {
+  const ids = [];
+  const quoteIds = [];
+  (rows || []).forEach((row) => {
+    if (!row || !row.id) return;
+    if (ids.indexOf(row.id) < 0) ids.push(row.id);
+    if (row.quote_id && quoteIds.indexOf(row.quote_id) < 0) quoteIds.push(row.quote_id);
+  });
+  const media = new Map();
+  const gifts = new Map();
+  const quotes = new Map();
+  const mediaIds = ids.concat(quoteIds.filter((id) => ids.indexOf(id) < 0));
+  if (mediaIds.length) {
+    const marks = mediaIds.map(() => "?").join(",");
+    const listed = await env.DB.prepare("SELECT id, post_id, mime, size, alt_text, sort_order FROM public_post_media WHERE post_id IN (" + marks + ") ORDER BY sort_order ASC, id ASC").bind(...mediaIds).all();
+    ((listed && listed.results) || []).forEach((item) => {
+      if (!media.has(item.post_id)) media.set(item.post_id, []);
+      media.get(item.post_id).push(item);
+    });
+    mediaIds.forEach((id) => { if (!media.has(id)) media.set(id, []); });
+  }
+  if (ids.length) {
+    const marks = ids.map(() => "?").join(",");
+    const listed = await env.DB.prepare("SELECT g.id, g.gift_id, g.sender_id, g.recipient_id, g.message, g.privacy, g.hidden, g.context, g.post_id, g.created_at, a.handle AS sender_handle, a.display_name AS sender_name FROM gift_sends g LEFT JOIN accounts a ON a.public_id = g.sender_id WHERE g.post_id IN (" + marks + ")").bind(...ids).all();
+    ((listed && listed.results) || []).forEach((item) => { if (!gifts.has(item.post_id)) gifts.set(item.post_id, item); });
+    ids.forEach((id) => { if (!gifts.has(id)) gifts.set(id, null); });
+  }
+  if (quoteIds.length) {
+    const marks = quoteIds.map(() => "?").join(",");
+    const listed = await env.DB.prepare("SELECT p.id, p.author_id, p.body, p.parent_id, p.created_at, p.audience, p.hidden, p.scheduled_at, p.ext_parent, a.handle, a.display_name, a.avatar FROM public_posts p JOIN accounts a ON a.public_id = p.author_id WHERE p.id IN (" + marks + ")").bind(...quoteIds).all();
+    quoteIds.forEach((id) => quotes.set(id, null));
+    ((listed && listed.results) || []).forEach((item) => quotes.set(item.id, item));
+  }
+  return { media: media, gifts: gifts, quotes: quotes };
+}
+
+export async function presentPost(env, request, row, viewerId, cached) {
+  const mediaRows = cached && cached.media && cached.media.has(row.id)
+    ? cached.media.get(row.id)
+    : ((await env.DB.prepare("SELECT id, mime, size, alt_text, sort_order FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(row.id).all()).results) || [];
+  const media = (mediaRows || []).map((item) => ({
     id: item.id,
     mime: item.mime,
     size: item.size,
@@ -317,7 +357,10 @@ export async function presentPost(env, request, row, viewerId) {
   let quote = null;
   if (row.quote_id) {
     try {
-      quote = await quoteFor(env, request, row.quote_id, viewerId || "");
+      const packed = cached && cached.quotes && cached.quotes.has(row.quote_id)
+        ? { row: cached.quotes.get(row.quote_id), media: cached.media && cached.media.has(row.quote_id) ? cached.media.get(row.quote_id) : [] }
+        : undefined;
+      quote = await quoteFor(env, request, row.quote_id, viewerId || "", packed);
       // Each viewer sees the one username and name the quoted author shows them.
       if (quote && !quote.unavailable && quote.authorId) {
         const seen = await viewerHandle(env, request, quote.authorId, viewerId);
@@ -358,7 +401,7 @@ export async function presentPost(env, request, row, viewerId) {
     editedAt: Number(row.edited_at) || 0,
     extParent: readExtParent(row.ext_parent),
     scheduledAt: Number(row.scheduled_at) || 0,
-    gift: await giftForPost(env, row.id, viewerId || "")
+    gift: await giftForPost(env, row.id, viewerId || "", cached && cached.gifts && cached.gifts.has(row.id) ? cached.gifts.get(row.id) : undefined)
   };
 }
 
@@ -543,8 +586,12 @@ async function listPosts(request, env, deps) {
   const posts = [];
   const seen = new Set();
   const stamped = [];
-  for (let i = 0; i < visible.length && stamped.length < 40; i++) {
-    const post = await presentPost(env, request, visible[i], session.public_id);
+  const pageRows = visible.slice(0, 40);
+  let cached = null;
+  try { cached = await loadCardSources(env, pageRows); }
+  catch (err) { cached = null; }
+  for (let i = 0; i < pageRows.length; i++) {
+    const post = await presentPost(env, request, pageRows[i], session.public_id, cached);
     stamped.push({ at: Number(post.createdAt) || 0, post: post });
   }
   let communitiesHome = true;

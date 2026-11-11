@@ -250,14 +250,21 @@ async function likeOnce(page) {
 
 async function followOnce(page, origin) {
   await page.goto(origin + "/index.html#/@user_b", { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('button[data-act="follow"]', { timeout: stepWait(20000) });
+  /* The first follow button on the page can be a feed control whose hidden
+     label already says Following. This is the profile's own button, and the
+     saved time is that button's PUT, not whichever request finishes first. */
+  const sel = 'button[data-act="follow"][data-id="app:' + OTHER + '"]';
+  await page.waitForSelector(sel, { timeout: stepWait(20000) });
   const t0 = Date.now();
-  const ack = page.waitForResponse((res) => res.url().indexOf("/v1/follows") >= 0 && res.request().method() === "PUT", { timeout: stepWait(15000) }).catch(() => null);
-  const appeared = page.waitForFunction(() => {
-    const btn = document.querySelector('button[data-act="follow"]');
-    return !!(btn && /Following|Pending|Friends/.test(btn.textContent || ""));
-  }, null, { timeout: stepWait(15000) }).catch(() => null);
-  await page.evaluate(() => { const btn = document.querySelector('button[data-act="follow"]'); if (btn) btn.click(); });
+  const ack = page.waitForResponse((res) => {
+    if (res.url().indexOf("/v1/follows") < 0 || res.request().method() !== "PUT") return false;
+    return (res.request().postData() || "").indexOf(OTHER) >= 0;
+  }, { timeout: stepWait(15000) }).catch(() => null);
+  const appeared = page.waitForFunction((button) => {
+    const el = document.querySelector(button);
+    return !!(el && (el.classList.contains("following") || el.getAttribute("aria-pressed") === "true"));
+  }, sel, { timeout: stepWait(15000) });
+  await page.locator(sel).evaluate((el) => el.click());
   await appeared;
   const onScreenMs = Date.now() - t0;
   await ack;
@@ -332,6 +339,7 @@ async function otherSees(browser, size, origin, text, t0, bag) {
 
 async function oneRun(browser, size, origin, index, bag) {
   stepScale = size.cpu > 1 ? 3 : 1;
+  if (bag) bag.followed = false;
   const session = await openSession(browser, size, bag);
   const row = {};
   try {
