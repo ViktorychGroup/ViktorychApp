@@ -14195,6 +14195,22 @@ const here = parseRoute();
   }
   /* Something changed on a post this account wrote or touched: counts, a reply,
      a like. Home, profiles and the open thread fetch again. */
+  function applyAuthorPost(raw) {
+    if (!raw || !raw.id) return false;
+    if (!publicPosts.some((item) => item && item.id === raw.id)) publicPosts.unshift(raw);
+    if (!openingSettled) return true;
+    const route = parseRoute();
+    if (!route || route.name !== "home") {
+      scheduleOtherHomeTab();
+      return true;
+    }
+    if (insertArrivedPosts([raw])) {
+      hydratePublicMedia();
+      scheduleOtherHomeTab();
+      return true;
+    }
+    return false;
+  }
   function refreshAppPosts() {
     publicStamp = 0;
     Object.keys(authorPostCache).forEach((key) => { if (authorPostCache[key]) authorPostCache[key].at = 0; });
@@ -32607,7 +32623,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (msg.op === "event" && msg.topic === "games" && msg.data && window.ViktorychGameSocial) window.ViktorychGameSocial.onChannel(msg.data);
     if (msg.op === "event" && msg.topic === "sync" && msg.data && msg.data.lists && window.SourceLists && window.SourceLists.notify) window.SourceLists.notify(msg.data);
     if (msg.op === "event" && msg.topic === "posts") {
-      if (msg.data && msg.data.post && applyLivePost(msg.data.post)) return;
+      const incoming = msg.data && msg.data.post;
+      if (incoming && incoming.id) {
+        if (publicCardPresent(incoming.id)) return;
+        const mine = signedAccount();
+        if (mine && String(incoming.authorId || "") === String(mine.publicId || "")) {
+          if (Object.keys(ownSent).length) return;
+          if (applyAuthorPost(incoming)) return;
+        } else if (applyLivePost(incoming)) return;
+        return;
+      }
       clearTimeout(postsLiveTimer);
       postsLiveTimer = setTimeout(refreshAppPosts, 600);
     }

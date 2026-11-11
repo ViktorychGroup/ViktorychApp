@@ -236,7 +236,7 @@ export async function pushLivePost(env, hint) {
 }
 
 /* Notes for the parent's author, the quoted author and anyone mentioned. */
-export async function notifyPost(env, session, post, parentRow, quoteRow, deps) {
+export async function notifyPost(env, session, post, parentRow, quoteRow, deps, opts) {
   let notes;
   try { notes = await import("./notifications.js"); } catch (err) { return; }
   const hash = statusHash(session.handle, post.id);
@@ -268,7 +268,34 @@ export async function notifyPost(env, session, post, parentRow, quoteRow, deps) 
   try {
     await notes.notifyMentions(env, session, post.body || "", told.slice(), "pmention:" + post.id, hash);
   } catch (err) { /* the post is saved */ }
-  await bump(env, deps, [parentRow, quoteRow], session.public_id);
+  await bump(env, deps, [parentRow, quoteRow], opts && opts.skipActor ? "" : session.public_id);
+}
+
+/* The author's other open devices get this one card. The device that just
+   posted already shows it. Too big for the channel, and they keep the
+   id-only note. */
+export function authorPostNote(post) {
+  if (!post || !post.id) return null;
+  const card = {
+    id: post.id,
+    body: post.body || "",
+    createdAt: post.createdAt || 0,
+    parentId: post.parentId || "",
+    authorId: post.authorId || "",
+    authorName: post.authorName || "",
+    authorHandle: post.authorHandle || "",
+    authorAvatar: post.authorAvatar || "",
+    media: Array.isArray(post.media) ? post.media : [],
+    quote: post.quote || null,
+    editedAt: Number(post.editedAt) || 0,
+    likes: Number(post.likes) || 0,
+    liked: !!post.liked
+  };
+  const at = Date.now();
+  try {
+    if (JSON.stringify({ post: card, at: at }).length > 7000) return { id: post.id, at: at };
+  } catch (err) { return { id: post.id, at: at }; }
+  return { post: card, at: at };
 }
 
 /* Live counts: the authors whose posts changed hear about it at once. */

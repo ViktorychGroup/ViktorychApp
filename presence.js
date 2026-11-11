@@ -21,6 +21,7 @@ const CLEAR_IDS = ["30m", "1h", "4h", "today", "week", "never"];
 const cache = new Map();
 let mine = null;
 let socket = null;
+let socketOwner = "";
 let wantSocket = false;
 let reconnectTimer = 0;
 let attempt = 0;
@@ -228,7 +229,6 @@ function sendWatch(ids) {
    post can arrive while Home is open. An empty list before the first watch
    sends nothing. */
 let postsWatchKey = "";
-let socketOwner = "";
 function watchTopic(topic, ids) {
   const clean = [];
   const list = Array.isArray(ids) ? ids : [];
