@@ -4,8 +4,7 @@
 
 import { presentPost, hiddenAuthors, audienceSets, canSee, withParents } from "./posts.js";
 import { canSeeAudience } from "./audience.js";
-import { blocksEither, actorHidden } from "./social.js";
-import { isLockedFollow } from "./locked-sql.js";
+import { blocksEither, actorHidden, acceptedUnlockedFollow } from "./social.js";
 import { listWatchers, deliverToAccount } from "./channel.js";
 import { readFlags } from "./feature-flags.js";
 
@@ -116,49 +115,107 @@ export async function quoteFor(env, request, quoteId, viewerId) {
   };
 }
 
-/* A card for someone else's open Home. liked and the poll vote are the
-   author's, so they come off. A private nickname is never on this object:
-   presentPost filled the author's own public name. Too big to fit the
-   channel, and the next Home fetch still shows the post. */
-export function liveCard(post) {
-  if (!post || !post.id) return null;
-  let copy = null;
-  try { copy = JSON.parse(JSON.stringify(post)); }
-  catch (err) { return null; }
-  copy.liked = false;
-  copy.reposted = false;
-  if (copy.poll && typeof copy.poll === "object") copy.poll.mine = -1;
-  let packed = "";
-  try { packed = JSON.stringify({ post: copy }); }
-  catch (err) { return null; }
-  if (packed.length > 7000) return null;
-  return copy;
+const LIVE_POST_SQL = "SELECT p.id, p.author_id, p.body, p.parent_id, p.quote_id, p.created_at, p.hidden, p.audience, p.reply_control, p.location, p.poll_json, p.scheduled_at, p.edited_at, p.ext_parent, a.handle, a.display_name FROM public_posts p JOIN accounts a ON a.public_id = p.author_id WHERE p.id = ?";
+
+function mediaItem(item, request) {
+  return {
+    id: item.id,
+    mime: item.mime,
+    size: item.size,
+    alt: item.alt_text || "",
+    url: new URL("/v1/posts/media/" + item.id, request.url).pathname
+  };
 }
 
-/* People who already have this author's posts topic watched (Home is open
-   and they follow the author). Blocks, mutes, a locked follow and the
-   post's audience still apply. The author's own devices are not in this. */
-export async function pushLivePost(env, post) {
-  if (!env || !post || !post.id || !post.authorId) return 0;
+/* The public row only: the account's own name and handle, never a viewer's
+   nickname, and no like, repost, or poll vote. */
+async function neutralLiveCard(env, request, row) {
+  if (!row || !row.id) return null;
+  let media = [];
+  try {
+    const listed = await env.DB.prepare("SELECT id, mime, size, alt_text FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(row.id).all();
+    media = ((listed && listed.results) || []).map((item) => mediaItem(item, request));
+  } catch (err) { media = []; }
+  let quote = null;
+  if (row.quote_id) {
+    let quoted = null;
+    try { quoted = await env.DB.prepare(LIVE_POST_SQL).bind(row.quote_id).first(); }
+    catch (err) { quoted = null; }
+    if (!quoted || Number(quoted.hidden) || Number(quoted.scheduled_at) > Date.now()) quote = { id: row.quote_id, unavailable: true };
+    else {
+      let qMedia = [];
+      try {
+        const listed = await env.DB.prepare("SELECT id, mime, size, alt_text FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(quoted.id).all();
+        qMedia = ((listed && listed.results) || []).map((item) => mediaItem(item, request));
+      } catch (err) { qMedia = []; }
+      quote = {
+        id: quoted.id,
+        body: quoted.body || "",
+        authorId: quoted.author_id,
+        authorName: quoted.display_name || "",
+        authorHandle: quoted.handle || "",
+        authorAvatar: "",
+        media: qMedia
+      };
+    }
+  }
+  let poll = null;
+  if (row.poll_json) {
+    try {
+      const parsed = JSON.parse(row.poll_json);
+      if (parsed && Array.isArray(parsed.options)) poll = { options: parsed.options };
+    } catch (err) { poll = null; }
+  }
+  const card = {
+    id: row.id,
+    body: row.body || "",
+    createdAt: row.created_at,
+    parentId: row.parent_id || "",
+    quoteId: row.quote_id || "",
+    authorId: row.author_id,
+    authorName: row.display_name || "",
+    authorHandle: row.handle || "",
+    authorAvatar: "",
+    media: media,
+    quote: quote,
+    audience: row.audience || "everyone",
+    editedAt: Number(row.edited_at) || 0,
+    poll: poll
+  };
+  let packed = "";
+  try { packed = JSON.stringify({ post: card }); }
+  catch (err) { return null; }
+  if (packed.length > 7000) return null;
+  return card;
+}
+
+/* Watchers who still have an accepted, unlocked follow. The post is read
+   again here, so a delete or an edit that landed first is what they see. */
+export async function pushLivePost(env, hint) {
+  const id = hint && hint.id;
+  if (!env || !id) return 0;
   let off = {};
   try { off = await readFlags(env); }
   catch (err) { off = {}; }
   if (off.home_live) return 0;
-  let watchers = [];
-  try { watchers = await listWatchers(env, post.authorId, "posts"); }
+  let fresh = null;
+  try { fresh = await env.DB.prepare(LIVE_POST_SQL).bind(id).first(); }
   catch (err) { return 0; }
-  const card = liveCard(post);
+  if (!fresh || Number(fresh.hidden) || Number(fresh.scheduled_at) > Date.now()) return 0;
+  let watchers = [];
+  try { watchers = await listWatchers(env, fresh.author_id, "posts"); }
+  catch (err) { return 0; }
+  const request = { url: "https://accounts.local/v1/posts" };
+  const card = await neutralLiveCard(env, request, fresh);
   if (!card) return 0;
-  const row = { id: post.id, author_id: post.authorId, audience: post.audience || "everyone" };
   let sent = 0;
   for (let i = 0; i < watchers.length; i++) {
     const viewerId = watchers[i];
-    if (!viewerId || viewerId === post.authorId) continue;
+    if (!viewerId || viewerId === fresh.author_id) continue;
     try {
-      if (await actorHidden(env, viewerId, post.authorId)) continue;
-      if (await isLockedFollow(env, viewerId, "app:" + post.authorId)) continue;
-      if (!(await viewerCanSee(env, viewerId, row))) continue;
-      await deliverToAccount(env, viewerId, "posts", { post: card }, post.authorId);
+      if (!(await acceptedUnlockedFollow(env, viewerId, fresh.author_id))) continue;
+      if (!(await viewerCanSee(env, viewerId, fresh))) continue;
+      await deliverToAccount(env, viewerId, "posts", { post: card }, fresh.author_id);
       sent += 1;
     } catch (err) { /* their next Home fetch still shows the post */ }
   }

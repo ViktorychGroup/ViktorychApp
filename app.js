@@ -13055,8 +13055,9 @@ const here = parseRoute();
      that is stored for the paint. Nothing else is installed up front. */
   let openingSettled = false;
   function settleOpeningPaint() {
+    const first = !openingSettled;
     openingSettled = true;
-    scheduleHomeWatch();
+    if (first) scheduleHomeWatch();
   }
   /* Followed app accounts, at most the channel's watch cap. Catalog feeds
      are not account ids and are left out, so a Home with only those sends
@@ -13092,15 +13093,20 @@ const here = parseRoute();
   }
   function applyLivePost(raw) {
     if (!raw || !raw.id || serverOffList().includes("home_live")) return false;
+    const mine = signedAccount();
+    const follows = (STATE.settings && STATE.settings.accountFollows) || [];
+    const gate = window.ViktorychHomeLive;
+    if (!gate || !gate.allowed({ publicId: mine && mine.publicId || "" }, follows, raw)) return false;
+    const card = raw.platform || raw.appPost ? raw : appCardPost(raw);
+    const route = parseRoute();
+    const home = route && route.name === "home" ? route : { name: "home", tab: "foryou" };
+    if (!card || !homeShows(card, home)) return false;
     if (!publicPosts.some((item) => item && item.id === raw.id)) publicPosts.unshift(raw);
     if (!openingSettled) return false;
-    const route = parseRoute();
     if (!route || route.name !== "home") {
       scheduleOtherHomeTab();
       return true;
     }
-    const card = raw.platform || raw.appPost ? raw : appCardPost(raw);
-    if (!card || !homeShows(card, route)) return true;
     if (Object.keys(ownSent).length) return true;
     if (publicCardPresent(raw.id)) return true;
     if (insertArrivedPosts([raw])) {

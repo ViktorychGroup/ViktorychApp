@@ -33,6 +33,7 @@
      POST https://channel.internal/wipe */
 
 import { isAccountId } from "../../shared/presence.js";
+import { acceptedUnlockedFollow } from "./social.js";
 import { isSwarmName, swarmFetch, swarmMessage, swarmClose } from "./media-swarm.js";
 import { isLiveName, liveFetch, liveMessage, liveClose } from "./live.js";
 import { isPoolName, poolFetch, poolMessage, poolClose } from "./peer-pool.js";
@@ -229,6 +230,14 @@ export class AccountChannel {
     const ids = cleanIds(msg.ids);
     const prev = Array.isArray(att.watches[topic]) ? att.watches[topic] : [];
     let next = ids;
+    if (msg.op === "watch" && topic === "posts") {
+      const allowed = [];
+      for (let i = 0; i < next.length; i++) {
+        if (next[i] === accountName(this.ctx)) continue;
+        if (await acceptedUnlockedFollow(this.env, accountName(this.ctx), next[i])) allowed.push(next[i]);
+      }
+      next = allowed;
+    }
     if (msg.op === "unwatch") {
       const drop = new Set(ids);
       next = prev.filter((id) => !drop.has(id));
