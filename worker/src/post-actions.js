@@ -4,7 +4,7 @@
 
 import { presentPost, hiddenAuthors, audienceSets, canSee, withParents } from "./posts.js";
 import { canSeeAudience } from "./audience.js";
-import { blocksEither, actorHidden, acceptedUnlockedFollow } from "./social.js";
+import { blocksEither, actorHidden, acceptedUnlockedFollow, canSeePosts } from "./social.js";
 import { listWatchers, deliverToAccount } from "./channel.js";
 import { readFlags } from "./feature-flags.js";
 
@@ -140,29 +140,6 @@ async function neutralLiveCard(env, request, row) {
     const listed = await env.DB.prepare("SELECT id, mime, size, alt_text FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(row.id).all();
     media = ((listed && listed.results) || []).map((item) => mediaItem(item, request));
   } catch (err) { media = []; }
-  let quote = null;
-  if (row.quote_id) {
-    let quoted = null;
-    try { quoted = await env.DB.prepare(LIVE_POST_SQL).bind(row.quote_id).first(); }
-    catch (err) { quoted = null; }
-    if (!quoted || Number(quoted.hidden) || Number(quoted.scheduled_at) > Date.now()) quote = { id: row.quote_id, unavailable: true };
-    else {
-      let qMedia = [];
-      try {
-        const listed = await env.DB.prepare("SELECT id, mime, size, alt_text FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(quoted.id).all();
-        qMedia = ((listed && listed.results) || []).map((item) => mediaItem(item, request));
-      } catch (err) { qMedia = []; }
-      quote = {
-        id: quoted.id,
-        body: quoted.body || "",
-        authorId: quoted.author_id,
-        authorName: quoted.display_name || "",
-        authorHandle: quoted.handle || "",
-        authorAvatar: "",
-        media: qMedia
-      };
-    }
-  }
   let poll = null;
   if (row.poll_json) {
     try {
@@ -181,7 +158,7 @@ async function neutralLiveCard(env, request, row) {
     authorHandle: row.handle || "",
     authorAvatar: "",
     media: media,
-    quote: quote,
+    quote: row.quote_id ? { id: row.quote_id, unavailable: true } : null,
     audience: row.audience || "everyone",
     editedAt: Number(row.edited_at) || 0,
     poll: poll
@@ -191,6 +168,31 @@ async function neutralLiveCard(env, request, row) {
   catch (err) { return null; }
   if (packed.length > 7000) return null;
   return card;
+}
+
+/* A quoted post is filled in only for a viewer who may see that author and
+   that audience. Everyone else gets the id and nothing else. */
+async function liveQuoteFor(env, request, viewerId, quoted) {
+  const hidden = { id: quoted && quoted.id || "", unavailable: true };
+  if (!quoted || !quoted.id || Number(quoted.hidden) || Number(quoted.scheduled_at) > Date.now()) return hidden;
+  try {
+    if (!(await canSeePosts(env, viewerId, quoted.author_id))) return hidden;
+    if (!(await viewerCanSee(env, viewerId, quoted))) return hidden;
+  } catch (err) { return hidden; }
+  let qMedia = [];
+  try {
+    const listed = await env.DB.prepare("SELECT id, mime, size, alt_text FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(quoted.id).all();
+    qMedia = ((listed && listed.results) || []).map((item) => mediaItem(item, request));
+  } catch (err) { qMedia = []; }
+  return {
+    id: quoted.id,
+    body: quoted.body || "",
+    authorId: quoted.author_id,
+    authorName: quoted.display_name || "",
+    authorHandle: quoted.handle || "",
+    authorAvatar: "",
+    media: qMedia
+  };
 }
 
 /* Watchers who still have an accepted, unlocked follow. The post is read
@@ -210,8 +212,13 @@ export async function pushLivePost(env, hint) {
   try { watchers = await listWatchers(env, fresh.author_id, "posts"); }
   catch (err) { return 0; }
   const request = { url: "https://accounts.local/v1/posts" };
-  const card = await neutralLiveCard(env, request, fresh);
-  if (!card) return 0;
+  const base = await neutralLiveCard(env, request, fresh);
+  if (!base) return 0;
+  let quoted = null;
+  if (fresh.quote_id) {
+    try { quoted = await env.DB.prepare(LIVE_POST_SQL).bind(fresh.quote_id).first(); }
+    catch (err) { quoted = null; }
+  }
   let sent = 0;
   for (let i = 0; i < watchers.length; i++) {
     const viewerId = watchers[i];
@@ -219,6 +226,8 @@ export async function pushLivePost(env, hint) {
     try {
       if (!(await acceptedUnlockedFollow(env, viewerId, fresh.author_id))) continue;
       if (!(await viewerCanSee(env, viewerId, fresh))) continue;
+      const card = JSON.parse(JSON.stringify(base));
+      if (fresh.quote_id) card.quote = await liveQuoteFor(env, request, viewerId, quoted || { id: fresh.quote_id });
       await deliverToAccount(env, viewerId, "posts", { post: card }, fresh.author_id);
       sent += 1;
     } catch (err) { /* their next Home fetch still shows the post */ }

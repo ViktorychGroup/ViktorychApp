@@ -44,20 +44,44 @@ function mockEnv(mode, delivered) {
           async run() { return { success: true }; },
           async first() {
             if (sql.indexOf("FROM public_posts") >= 0) {
+              if (mode.quoteId && stmt.args && stmt.args[0] === mode.quoteId) {
+                const quote = mode.quote || {};
+                return row({
+                  id: mode.quoteId,
+                  author_id: quote.author_id || OTHER,
+                  body: quote.body || "quoted public",
+                  display_name: "Public Bea",
+                  handle: "bea",
+                  audience: quote.audience || "everyone",
+                  hidden: quote.hidden || 0
+                });
+              }
               if (mode.missing) return null;
               return row(mode.post);
             }
             if (sql.indexOf("account_follows") >= 0 && sql.indexOf("locked_follows") < 0) {
               const viewer = stmt.args[0];
-              if (mode.follow && viewer === VIEWER) return { target_id: "app:" + AUTHOR };
+              if (mode.follow && viewer === VIEWER && stmt.args[1] === "app:" + AUTHOR) return { target_id: "app:" + AUTHOR };
               return null;
             }
             if (sql.indexOf("locked_follows") >= 0) return mode.locked ? { ok: 1 } : null;
-            if (sql.indexOf("account_blocks") >= 0) return mode.block ? { blocked_id: AUTHOR } : null;
+            if (sql.indexOf("account_blocks") >= 0) {
+              const ids = stmt.args || [];
+              const quoteAuthor = (mode.quote && mode.quote.author_id) || OTHER;
+              if (mode.block && ids.indexOf(AUTHOR) >= 0 && ids.indexOf(VIEWER) >= 0) return { blocked_id: AUTHOR };
+              if (mode.quote && mode.quote.blocked && ids.indexOf(quoteAuthor) >= 0) return { blocked_id: quoteAuthor };
+              return null;
+            }
             if (sql.indexOf("account_mutes") >= 0) return mode.mute ? { muted_id: AUTHOR } : null;
             if (sql.indexOf("account_friends") >= 0) return mode.friend ? { friend_id: AUTHOR } : null;
             if (sql.indexOf("account_follow_requests") >= 0) return mode.pending ? { requester_id: VIEWER } : null;
-            if (sql.indexOf("protected_account") >= 0) return { protected_account: mode.protected ? 1 : 0 };
+            if (sql.indexOf("protected_account") >= 0) {
+              const id = stmt.args && stmt.args[0];
+              const quoteAuthor = (mode.quote && mode.quote.author_id) || OTHER;
+              if (mode.protected && id === AUTHOR) return { protected_account: 1 };
+              if (mode.quote && mode.quote.protected && id === quoteAuthor) return { protected_account: 1 };
+              return { protected_account: 0 };
+            }
             if (sql.indexOf("feature_flags") >= 0) return null;
             return null;
           },
@@ -108,26 +132,55 @@ test("an accepted follower receives the current public card", async () => {
   assert.equal(card.authorName.indexOf("Secret"), -1);
 });
 
-test("a quote keeps the quoted account's public name", async () => {
+const QUOTE = "b".repeat(32);
+
+test("a public quote still appears with the quoted account's public name", async () => {
   forgetFlags();
   const delivered = [];
-  const env = mockEnv({ follow: true, post: { quote_id: "b".repeat(32) } }, delivered);
-  const real = env.DB.prepare;
-  env.DB.prepare = (sql) => {
-    const stmt = real(sql);
-    const first = stmt.first.bind(stmt);
-    stmt.first = async () => {
-      if (sql.indexOf("FROM public_posts") >= 0 && stmt.args && stmt.args[0] === "b".repeat(32)) {
-        return row({ id: "b".repeat(32), body: "quoted", display_name: "Public Bea", handle: "bea", author_id: OTHER });
-      }
-      return first();
-    };
-    return stmt;
-  };
-  const n = await pushLivePost(env, { id: POST, authorId: AUTHOR });
+  const n = await pushLivePost(mockEnv({ follow: true, quoteId: QUOTE, post: { quote_id: QUOTE }, quote: { body: "quoted" } }, delivered), { id: POST, authorId: AUTHOR });
   assert.equal(n, 1);
-  assert.equal(delivered[0].data.post.quote.authorName, "Public Bea");
   assert.equal(delivered[0].data.post.quote.body, "quoted");
+  assert.equal(delivered[0].data.post.quote.authorName, "Public Bea");
+  assert.equal(delivered[0].data.post.quote.unavailable, undefined);
+});
+
+test("a friends-only, list, or protected quote is withheld from a follower who cannot see it", async () => {
+  for (const quote of [{ audience: "friends" }, { audience: "list" }, { protected: true, body: "secret quote" }]) {
+    forgetFlags();
+    const delivered = [];
+    const n = await pushLivePost(mockEnv({ follow: true, quoteId: QUOTE, post: { quote_id: QUOTE }, quote: quote }, delivered), { id: POST, authorId: AUTHOR });
+    assert.equal(n, 1, JSON.stringify(quote));
+    assert.equal(delivered[0].data.post.quote.unavailable, true, JSON.stringify(quote));
+    assert.equal(delivered[0].data.post.quote.body, undefined, JSON.stringify(quote));
+    assert.equal(delivered[0].data.post.body, "current text");
+  }
+});
+
+test("a quote from a blocked author is withheld", async () => {
+  forgetFlags();
+  const delivered = [];
+  const n = await pushLivePost(mockEnv({ follow: true, quoteId: QUOTE, post: { quote_id: QUOTE }, quote: { blocked: true, body: "hidden quote" } }, delivered), { id: POST, authorId: AUTHOR });
+  assert.equal(n, 1);
+  assert.equal(delivered[0].data.post.quote.unavailable, true);
+  assert.equal(delivered[0].data.post.quote.body, undefined);
+});
+
+test("home_live off sends nothing and records no posts watch", async () => {
+  forgetFlags();
+  const delivered = [];
+  const env = mockEnv({ follow: true, flagOff: true }, delivered);
+  const n = await pushLivePost(env, { id: POST, authorId: AUTHOR });
+  assert.equal(n, 0);
+  assert.equal(delivered.length, 0);
+  const channel = new AccountChannel({ id: { name: VIEWER }, getWebSockets() { return []; } }, env);
+  const ws = {
+    att: { topics: ["posts"], watches: {} },
+    deserializeAttachment() { return this.att; },
+    serializeAttachment(next) { this.att = next; },
+    send() {}
+  };
+  await channel.webSocketMessage(ws, JSON.stringify({ op: "watch", topic: "posts", ids: [AUTHOR] }));
+  assert.equal(env.watched.length, 0);
 });
 
 test("non-followers, pending follows, locks, blocks, mutes and protected strangers get nothing", async () => {
