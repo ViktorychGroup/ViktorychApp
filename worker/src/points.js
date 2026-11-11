@@ -520,11 +520,11 @@ export async function dailyFreeGift() {
   return { enabled: false };
 }
 
-export async function giftForPost(env, postId, viewerId) {
+export async function giftForPost(env, postId, viewerId, known) {
   if (!postId) return null;
-  const row = await env.DB.prepare(
+  const row = known === undefined ? await env.DB.prepare(
     "SELECT g.id, g.gift_id, g.sender_id, g.recipient_id, g.message, g.privacy, g.hidden, g.context, g.post_id, g.created_at, a.handle AS sender_handle, a.display_name AS sender_name FROM gift_sends g LEFT JOIN accounts a ON a.public_id = g.sender_id WHERE g.post_id = ?"
-  ).bind(postId).first();
+  ).bind(postId).first() : known;
   if (!row || row.hidden === 1) return null;
   const owner = viewerId && viewerId === row.recipient_id;
   return presentGift(row, viewerId || "", !!owner);

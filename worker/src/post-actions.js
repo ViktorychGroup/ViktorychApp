@@ -95,11 +95,15 @@ export async function decorate(env, posts, viewerId) {
 
 /* The quoted post as a card: author, avatar, text, media and time, or a
    placeholder when the viewer may not see it. */
-export async function quoteFor(env, request, quoteId, viewerId) {
-  const row = await env.DB.prepare("SELECT p.id, p.author_id, p.body, p.parent_id, p.created_at, p.audience, p.hidden, p.scheduled_at, p.ext_parent, a.handle, a.display_name, a.avatar FROM public_posts p JOIN accounts a ON a.public_id = p.author_id WHERE p.id = ?").bind(quoteId).first();
+export async function quoteFor(env, request, quoteId, viewerId, cached) {
+  const row = cached && Object.prototype.hasOwnProperty.call(cached, "row")
+    ? cached.row
+    : await env.DB.prepare("SELECT p.id, p.author_id, p.body, p.parent_id, p.created_at, p.audience, p.hidden, p.scheduled_at, p.ext_parent, a.handle, a.display_name, a.avatar FROM public_posts p JOIN accounts a ON a.public_id = p.author_id WHERE p.id = ?").bind(quoteId).first();
   if (!row || row.hidden || Number(row.scheduled_at) > Date.now()) return { id: quoteId, unavailable: true, deleted: !!(row && Number(row.hidden) === DELETED) };
   if (!(await viewerCanSee(env, viewerId, row))) return { id: quoteId, unavailable: true };
-  const mediaRows = await env.DB.prepare("SELECT id, mime, size, alt_text FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(row.id).all();
+  const mediaRows = cached && Array.isArray(cached.media)
+    ? cached.media
+    : ((await env.DB.prepare("SELECT id, mime, size, alt_text FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(row.id).all()).results) || [];
   return {
     id: row.id,
     body: row.body,
@@ -109,7 +113,7 @@ export async function quoteFor(env, request, quoteId, viewerId) {
     authorName: row.display_name,
     authorHandle: row.handle,
     authorAvatar: "", // presentPost fills the viewer-aware face
-    media: ((mediaRows && mediaRows.results) || []).map((item) => ({ id: item.id, mime: item.mime, size: item.size, alt: item.alt_text || "", url: new URL("/v1/posts/media/" + item.id, request.url).pathname }))
+    media: (mediaRows || []).map((item) => ({ id: item.id, mime: item.mime, size: item.size, alt: item.alt_text || "", url: new URL("/v1/posts/media/" + item.id, request.url).pathname }))
   };
 }
 
