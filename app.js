@@ -13146,6 +13146,9 @@ const here = parseRoute();
      drop the new post, so it vanished from Home and its profile. Own posts are
      kept until the server lists them, for ten minutes at most. */
   const ownSent = {};
+  /* A channel card can arrive before the save response. The temp id it
+     replaced is kept here so a failed save can drop that card again. */
+  const earlyAdopted = {};
   const localPostPreview = {};
   function revokePostPreview(id) {
     const bag = localPostPreview[id];
@@ -13334,6 +13337,55 @@ const here = parseRoute();
     });
     const pending = article.querySelector(".app-pending");
     if (pending) pending.remove();
+  }
+  /* The one pending Sending card whose text matches this post. Two matches,
+     or a different text, are a post from another device and are left alone. */
+  function pendingTmpFor(held, post) {
+    if (!held || !post || !post.id || String(post.id).indexOf("tmp-") === 0) return "";
+    let found = "";
+    const keys = Object.keys(held);
+    for (let i = 0; i < keys.length; i++) {
+      const id = keys[i];
+      if (String(id).indexOf("tmp-") !== 0) continue;
+      const pending = held[id] && held[id].post;
+      if (!pending) continue;
+      if (String(pending.body || "") !== String(post.body || "")) continue;
+      if (String(pending.parentId || "") !== String(post.parentId || "")) continue;
+      if (found) return "";
+      found = id;
+    }
+    return found;
+  }
+  function dropEarlyCard(id) {
+    if (!id) return;
+    forgetOwnPost(id);
+    if (typeof document === "undefined") return;
+    try {
+      const sel = 'article[data-post="' + cssAttr(id) + '"]';
+      ownCardRoots().forEach((root) => {
+        root.querySelectorAll(sel).forEach((node) => node.remove());
+      });
+    } catch (err) { /* the next paint drops it */ }
+  }
+  /* The save has not returned. Patch the Sending card to the server id and
+     hold that id, so the response does not insert a second copy. */
+  function adoptEarlySend(post) {
+    const tempId = pendingTmpFor(ownSent, post);
+    if (!tempId || !post || !post.id) return false;
+    const mine = signedAccount();
+    if (!mine || String(post.authorId || "") !== String(mine.publicId || "")) return false;
+    const patched = confirmOwnCard(tempId, post);
+    const bag = localPostPreview[tempId];
+    if (bag) {
+      delete localPostPreview[tempId];
+      if (bag.urls && bag.urls.length) holdPostPreview(post.id, bag.urls, bag.ownerId);
+    }
+    delete ownSent[tempId];
+    publicPosts = publicPosts.filter((item) => !item || item.id !== tempId);
+    earlyAdopted[tempId] = post.id;
+    rememberOwnPost(post, mine.publicId);
+    if (!patched && !publicCardPresent(post.id)) applyAuthorPost(post);
+    return true;
   }
   function confirmOwnCard(tempId, post) {
     if (!tempId || !post || !post.id || typeof document === "undefined") return false;
@@ -13682,9 +13734,12 @@ const here = parseRoute();
         const stale = !sameSession(sender);
         const kept = !stale && res && res.status === 201 && res.post && !later && !res.scheduled;
         const previews = tempId && localPostPreview[tempId] ? localPostPreview[tempId].urls : null;
-        if (kept && tempId && res.post.id && !confirmOwnCard(tempId, res.post)) needsRender = true;
+        const adoptedId = tempId ? earlyAdopted[tempId] || "" : "";
+        if (tempId) delete earlyAdopted[tempId];
+        if (kept && tempId && res.post.id && adoptedId !== res.post.id && !confirmOwnCard(tempId, res.post)) needsRender = true;
         if (tempId) delete localPostPreview[tempId];
         if (tempId) forgetOwnPost(tempId);
+        if (!kept && adoptedId) dropEarlyCard(adoptedId);
         if (stale) render();
         if (!kept) revokeBlobList(blobs);
         if (kept && res.post.id) {
@@ -13888,7 +13943,9 @@ const here = parseRoute();
     const root = accountsApi();
     const finishOk = (post) => {
       if (window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: "" });
-      const painted = !!(tempId && post && post.id && confirmOwnCard(tempId, post));
+      const adoptedId = tempId ? earlyAdopted[tempId] || "" : "";
+      if (tempId) delete earlyAdopted[tempId];
+      const painted = !!(tempId && post && post.id && (adoptedId === post.id || confirmOwnCard(tempId, post)));
       if (tempId) forgetOwnPost(tempId);
       if (post && post.id) { rememberOwnPost(post); nostrMirror(post, null); }
       if (post && post.community && post.community.name && window.ViktorychCommunities && window.ViktorychCommunities.invalidate) window.ViktorychCommunities.invalidate(post.community.name);
@@ -13899,7 +13956,13 @@ const here = parseRoute();
     const tempId = optimisticOwnPost(text, parentId, quoteId);
     if (tempId && !(ownSent[tempId] && showOwnCard(ownSent[tempId].post))) render();
     const finishFail = () => {
-      if (tempId) { forgetOwnPost(tempId); render(); }
+      if (tempId) {
+        const adoptedId = earlyAdopted[tempId] || "";
+        delete earlyAdopted[tempId];
+        forgetOwnPost(tempId);
+        if (adoptedId) dropEarlyCard(adoptedId);
+        render();
+      }
       if (text && window.ViktorychLocal) window.ViktorychLocal.saveDoc("drafts", "compose", { text: text });
       toast(tr("Could not send that post. It is still saved on this device."));
     };
@@ -32554,10 +32617,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
 
   /* One post id. A different post still held in ownSent must not hide a
      card from another device, and must not skip the refresh. */
-  function authorPostsEvent(held, msg, onScreen) {
+  function authorPostsEvent(held, msg, onScreen, selfId) {
     const incoming = msg && msg.data && msg.data.post;
     if (incoming && incoming.id) {
       if ((held && held[incoming.id]) || (onScreen && onScreen(incoming.id))) return "skip";
+      if (selfId && String(incoming.authorId || "") === String(selfId) && pendingTmpFor(held, incoming)) return "bind";
       return "apply";
     }
     return "refresh";
@@ -32575,8 +32639,13 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     if (msg.op === "event" && msg.topic === "sync" && msg.data && msg.data.lists && window.SourceLists && window.SourceLists.notify) window.SourceLists.notify(msg.data);
     if (msg.op === "event" && msg.topic === "posts") {
       const incoming = msg.data && msg.data.post;
-      const step = authorPostsEvent(ownSent, msg, publicCardPresent);
+      const mine = signedAccount();
+      const step = authorPostsEvent(ownSent, msg, publicCardPresent, mine && mine.publicId);
       if (step === "skip") return;
+      if (step === "bind") {
+        if (incoming) adoptEarlySend(incoming);
+        return;
+      }
       if (step === "apply" && incoming && applyAuthorPost(incoming)) return;
       clearTimeout(postsLiveTimer);
       postsLiveTimer = setTimeout(refreshAppPosts, 600);
