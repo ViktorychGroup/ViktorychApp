@@ -32690,8 +32690,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   function onChannelMessage(msg) {
     if (!msg) return;
     if (msg.op === "state") {
-      if (msg.open) stopPoll();
-      else if (document.visibilityState === "visible") startPoll();
+      if (msg.open) {
+        stopPoll();
+        scheduleHomeWatch();
+      } else if (document.visibilityState === "visible") startPoll();
       return;
     }
     if (msg.op === "event" && msg.topic === "notifications" && msg.data) applyHubEvent(msg.data);
@@ -32718,7 +32720,6 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       clearTimeout(postsLiveTimer);
       postsLiveTimer = setTimeout(refreshAppPosts, 600);
     }
-    if (msg.op === "state" && msg.open) scheduleHomeWatch();
   }
   var postsLiveTimer = 0;
 

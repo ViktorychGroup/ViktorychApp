@@ -200,9 +200,9 @@ async function liveQuoteFor(env, request, viewerId, quoted) {
 export async function pushLivePost(env, hint) {
   const id = hint && hint.id;
   if (!env || !id) return 0;
-  let off = {};
+  let off = { home_live: true };
   try { off = await readFlags(env); }
-  catch (err) { off = {}; }
+  catch (err) { off = { home_live: true }; }
   if (off.home_live) return 0;
   let fresh = null;
   try { fresh = await env.DB.prepare(LIVE_POST_SQL).bind(id).first(); }

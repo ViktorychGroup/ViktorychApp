@@ -71,11 +71,17 @@
         if (path === "#/following" || path.indexOf("#/following/") === 0) tab = "following";
         else if (path.indexOf("#/tab/") === 0) tab = "list:" + decodeURIComponent(path.slice(6));
         else if (path.indexOf("#/cat/") === 0) tab = "cat:" + decodeURIComponent(path.slice(6));
-        /* For You turned off in Settings: Home opens on Following. */
+        /* Same order as forYouOff(): the owner switch wins, then the saved
+           Settings choice, then the local flag. */
         if (tab === "foryou") {
           try {
             var srvOff = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]") || [];
-            if (localStorage.getItem("viktorychapp-off-foryou") === "1" && srvOff.indexOf("foryou_off") < 0) tab = "following";
+            if (!(Array.isArray(srvOff) && srvOff.indexOf("foryou_off") >= 0)) {
+              var fySettings = null;
+              try { fySettings = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "null"); } catch (err2) { fySettings = null; }
+              var fyOff = fySettings && typeof fySettings.forYou === "boolean" ? !fySettings.forYou : localStorage.getItem("viktorychapp-off-foryou") === "1";
+              if (fyOff) tab = "following";
+            }
           } catch (err) { /* storage blocked */ }
         }
         window.__homeFreshBoot = { started: perf && perf.now ? perf.now() : 0, tab: tab, feeds: null, config: null };

@@ -106,6 +106,7 @@ const PAGE_STEPS = [
   }),
   step("foryou-chunks", "node scripts/foryou_chunks_test.mjs", { needs: ["pw", "browser"], paths: [file("foryou_chunks_test.mjs"), ...APP] }),
   step("foryou-off", "node scripts/foryou_off_test.mjs", { needs: ["pw", "browser"], paths: [file("foryou_off_test.mjs"), ...APP] }),
+  step("home-watch-rearm", "node scripts/home_watch_rearm_test.mjs", { needs: ["pw", "browser"], paths: [file("home_watch_rearm_test.mjs"), /^app\.js$/, /^presence\.js$/] }),
   step("home-tabs", "node scripts/home_tabs_test.mjs", {
     weight: 170, needs: ["pw", "browser"], timing: true,
     paths: [file("home_tabs_test.mjs"), file("boot_speed_test.mjs"), file("custom_tab_reload_test.mjs"), ...APP]
@@ -295,7 +296,7 @@ const SHARDS = {
   sw: ["sw-update"],
   "ui-profile": ["profile", "profile-tab-scroll"],
   "ui-drawer": ["drawer"],
-  home: ["home-tabs", "tab-member", "reply-lookup", "foryou-chunks", "foryou-off"],
+  home: ["home-tabs", "tab-member", "reply-lookup", "foryou-chunks", "foryou-off", "home-watch-rearm"],
   "compose-core": ["compose-ai", "compose-page"],
   "compose-a": ["community-home", "communities-hub", "own-post", "author-card-race", "author-marks", "post-page"],
   "compose-b": ["music-dock", "video-fallback", "ig-media", "source-assign", "device-guard", "usernames", "owner-user-settings"],
@@ -316,7 +317,7 @@ const REQUIRED_PAGE = [
   "action-bar", "assemble-self", "r2-catalog", "catalog-migrate", "handle-guard", "i18n",
   "about-layout", "points-layout", "telegram-stories", "stories", "stories-layout",
   "assemble-site", "smoke-site", "smoke-mirror", "sw-update", "notifications", "scrollbar-hidden", "profile", "profile-tab-scroll",
-  "home-tabs", "tab-member", "reply-lookup", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
+  "home-tabs", "tab-member", "reply-lookup", "home-watch-rearm", "pill-fit", "drawer", "sidebar", "privacy", "yt-embed", "x-video",
   "signup-flows",
   "device", "translate", "ondevice-ai", "dock", "for-you", "compose-ai", "compose-page", "ios", "live",
   "community-home", "communities-hub", "own-post", "author-card-race", "post-page", "music-dock", "video-fallback", "ig-media", "source-assign",

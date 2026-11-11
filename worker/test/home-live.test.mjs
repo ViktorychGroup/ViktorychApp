@@ -165,6 +165,16 @@ test("a quote from a blocked author is withheld", async () => {
   assert.equal(delivered[0].data.post.quote.body, undefined);
 });
 
+test("a flag read failure sends nothing", async () => {
+  forgetFlags();
+  const delivered = [];
+  const env = mockEnv({ follow: true }, delivered);
+  Object.defineProperty(env, "DB", { get() { throw new Error("flags"); } });
+  const n = await pushLivePost(env, { id: POST, authorId: AUTHOR });
+  assert.equal(n, 0);
+  assert.equal(delivered.length, 0);
+});
+
 test("home_live off sends nothing and records no posts watch", async () => {
   forgetFlags();
   const delivered = [];
