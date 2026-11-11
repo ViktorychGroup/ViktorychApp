@@ -21,6 +21,7 @@ const CLEAR_IDS = ["30m", "1h", "4h", "today", "week", "never"];
 const cache = new Map();
 let mine = null;
 let socket = null;
+let socketOwner = "";
 let wantSocket = false;
 let reconnectTimer = 0;
 let attempt = 0;
@@ -276,6 +277,17 @@ function onSocketMessage(event) {
   try { msg = JSON.parse(String(event.data || "")); }
   catch (err) { return; }
   if (!msg) return;
+  if (msg.op === "event" && msg.topic === "posts") {
+    if (!socketOwner || socketOwner !== selfId()) {
+      socketOwner = "";
+      const current = socket;
+      socket = null;
+      if (current) { try { current.close(); } catch (err) { /* already closed */ } }
+      return;
+    }
+    notifyChannel(msg);
+    return;
+  }
   if (msg.op === "event" && (msg.topic === "notifications" || msg.topic === "sync" || msg.topic === "p2p" || msg.topic === "srv")) {
     notifyChannel(msg);
     return;
@@ -310,6 +322,7 @@ function connect() {
     socket = ws;
     ws.addEventListener("open", function () {
       attempt = 0;
+      socketOwner = selfId();
       try {
         ws.send(JSON.stringify({ op: "subscribe", topics: ["presence", "notifications", "sync", "posts", "p2p", "srv", "games"] }));
         ws.send(JSON.stringify({ op: "watch", topic: "presence", ids: currentIds() }));
@@ -320,6 +333,7 @@ function connect() {
     ws.addEventListener("message", onSocketMessage);
     ws.addEventListener("close", function () {
       if (socket === ws) socket = null;
+      socketOwner = "";
       notifyChannel({ op: "state", open: false });
       if (wantSocket && visible()) {
         armPoll();
@@ -1161,6 +1175,13 @@ function boot() {
     if (!rail) return;
     railQuery = rail.value || "";
     paintRail();
+  });
+  window.addEventListener("viktorych-session", function () {
+    socketOwner = "";
+    const current = socket;
+    socket = null;
+    if (current) { try { current.close(); } catch (err) { /* already closed */ } }
+    if (visible() && token() && isAccountId(selfId())) connect();
   });
   window.addEventListener("viktorych-friend-message", function (event) {
     if (event.detail && event.detail.from === railTo) paintRail();
