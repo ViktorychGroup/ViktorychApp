@@ -273,7 +273,7 @@ async function notePush(page, bag) {
       const target = navigator.serviceWorker;
       if (!target) throw new Error("no service worker");
       target.dispatchEvent(new MessageEvent("message", { data: { type: "push-note", note: payload } }));
-    }, { id: id, kind: kind, at: item.at, body: text, text: text, hash: "#/", handle: "user_b", titleKey: titleKey, titleVars: { name: "User B", handle: "user_b" } });
+    }, { v: 2, k: kind, i: "bench" + kind + i, to: ME });
     await page.waitForFunction((prev) => {
       const badge = document.querySelector(".nav-badge");
       return !!(badge && (badge.textContent || "") !== prev);

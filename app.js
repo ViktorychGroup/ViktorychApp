@@ -32541,7 +32541,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
   }
 
-  async function pullNotes() {
+  async function pullNotes(opts) {
     if (!notesSignedIn()) {
       if (notesPhase !== "off") finishNotes("off");
       return;
@@ -32611,7 +32611,8 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       /* Saving the list rewrites settings. On any page but Notifications
          that waits until the browser is idle, so it does not land on a tap. */
       const apply = () => applyServerNotes(res);
-      if (parseRoute().name === "notifications" || typeof requestIdleCallback !== "function") apply();
+      const immediate = (opts && opts.now) || parseRoute().name === "notifications" || typeof requestIdleCallback !== "function";
+      if (immediate) apply();
       else requestIdleCallback(apply, { timeout: 2000 });
       if (window.ViktorychNotifPrivacy) window.ViktorychNotifPrivacy.remember(res.items, notifPrivacy());
       rememberAcked(items.map((item) => item.id).concat((res.items || []).map((item) => item.id)));
@@ -32885,8 +32886,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   /* A web push for a visible page. The account channel is the live copy.
      This paints the badge from the payload the server already checked,
      instead of waiting for a notifications poll. */
+  function noteRecipientOk(raw) {
+    const mine = typeof signedAccount === "function" ? signedAccount() : null;
+    const mineId = mine ? String(mine.publicId || "").replace(/^app:/, "") : "";
+    const to = String(raw && raw.to || "").replace(/^app:/, "");
+    return !!(mineId && /^\d{12}$/.test(to) && to === mineId);
+  }
   function pushNoteItem(raw) {
-    if (!raw || !raw.id) return null;
+    if (!noteRecipientOk(raw) || !raw.id) return null;
     const kinds = { like: 1, follow: 1, reply: 1, mention: 1, repost: 1, quote: 1 };
     const fromTitle = {
       "{name} liked your post": "like",
@@ -33482,9 +33489,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (data.type === "feeds-updated") wakeHome();
       if (data.type === "bell-delivered" || data.type === "bell-queue") commitBellNotes(data.notes || []);
       if (data.type === "push-note") {
-        const note = pushNoteItem(data.note);
+        const raw = data.note && typeof data.note === "object" ? data.note : {};
+        if (!noteRecipientOk(raw)) return;
+        const note = pushNoteItem(raw);
         if (note) commitBellNotes([note], false);
-        else if (!channelOpen()) pullNotes();
+        else pullNotes({ now: true });
         wakeHome();
       }
       if (data.type === "note-open") {

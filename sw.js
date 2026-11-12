@@ -2027,7 +2027,7 @@ self.addEventListener("message", (event) => {
       await Promise.all(names.filter((name) => name.indexOf("shell-") !== 0).map((name) => caches.delete(name)));
       try {
         const db = await idb();
-        await idbSet(db, "auth-state", { on: false, token: "" });
+        await idbSet(db, "auth-state", { on: false, token: "", publicId: "" });
         await idbSet(db, "follows", []);
         await idbSet(db, "seen-at", 0);
         await idbSet(db, "seen-ids", []);
@@ -2054,7 +2054,7 @@ self.addEventListener("message", (event) => {
     event.waitUntil((async () => {
       try {
         const db = await idb();
-        await idbSet(db, "auth-state", { on: accountsAuthed, token: playToken });
+        await idbSet(db, "auth-state", { on: accountsAuthed, token: playToken, publicId: String(data.publicId || "").replace(/^app:/, "") });
       } catch (err) { /* the page still signs out */ }
       if (!data.on) {
         await wipeUserCaches(data.wipe === "signout");
@@ -2813,7 +2813,7 @@ async function refreshAccountNotes() {
   if (!res || !res.ok) return;
   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
   clients.forEach((client) => {
-    try { client.postMessage({ type: "push-note", note: {} }); } catch (err) { /* a visible page polls */ }
+    try { client.postMessage({ type: "push-note", note: { to: String(auth.publicId || "") } }); } catch (err) { /* a visible page polls */ }
   });
 }
 
@@ -2986,7 +2986,7 @@ async function showCompactPush(c) {
   const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
   if (open.some((client) => client.visibilityState === "visible")) {
     open.forEach((client) => {
-      try { client.postMessage({ type: "push-note", note: {} }); }
+      try { client.postMessage({ type: "push-note", note: { v: 2, k: c.kind, i: c.sid, n: c.count, to: c.to || "" } }); }
       catch (err) { /* the page polls when it is next visible */ }
     });
     return;
@@ -3046,7 +3046,15 @@ self.addEventListener("push", (event) => {
     catch (err) { data = {}; }
     if (await pushIsDnd(!!(data && data.dnd))) return;
     if (data && data.silent) return;
-    const compact = self.ViktorychNotifPrivacy ? self.ViktorychNotifPrivacy.parsePush(data) : null;
+    const NP = self.ViktorychNotifPrivacy;
+    const compact = NP ? NP.parsePush(data) : null;
+    let mine = "";
+    try {
+      const saved = await idbGet(await idb(), "auth-state");
+      mine = saved && saved.publicId ? String(saved.publicId) : "";
+    } catch (err) { mine = ""; }
+    const addressed = NP ? NP.forAccount(compact || data, mine) : false;
+    if (!addressed) return;
     if (compact) {
       await showCompactPush(compact);
       return;

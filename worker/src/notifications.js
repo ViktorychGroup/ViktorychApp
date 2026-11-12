@@ -871,8 +871,9 @@ async function sendPush(env, publicId, item, viewer, deliveryId) {
   if (!rule.push) return { ok: true, skipped: true };
   // Devices on the new service worker get the compact payload: kind, a
   // content-addressed short id and a count. No names, text, links or icons.
-  const compact = encoder.encode(JSON.stringify(Object.assign(await compactPush(item), rule.sound ? {} : { q: 1 })));
+  const compact = encoder.encode(JSON.stringify(Object.assign(await compactPush(item, publicId), rule.sound ? {} : { q: 1 })));
   const payload = encoder.encode(JSON.stringify({
+    to: String(publicId || ""),
     titleKey,
     titleVars: {
       name: item.name || (item.handle ? "@" + item.handle : "Someone"),
@@ -932,11 +933,13 @@ async function sendPush(env, publicId, item, viewer, deliveryId) {
 // The compact push: {v:2,k:kind,i:shortId,n:count}. The short id is the
 // first 9 bytes of SHA-256 over the note id (12 base64url characters), so a
 // device can match it against its own cache without the id itself travelling.
-export async function compactPush(item) {
+export async function compactPush(item, publicId) {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(String((item && item.id) || ""))));
   const out = { v: 2, k: clip(item && item.kind, 24), i: b64url(digest.slice(0, 9)) };
   const others = Number(item && item.others) || 0;
   if (others > 0) out.n = others;
+  const to = String(publicId || "").replace(/^app:/, "");
+  if (/^\d{12}$/.test(to)) out.to = to;
   return out;
 }
 const CN_TITLES = ["Your Community Note is now showing", "Readers added context to your post", "Readers added context to a post you interacted with"];
