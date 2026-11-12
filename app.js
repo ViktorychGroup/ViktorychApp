@@ -32901,7 +32901,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       read: false
     };
   }
-  function commitBellNotes(list) {
+  function commitBellNotes(list, soon) {
     const seen = {};
     (STATE.settings.bellSeen || []).forEach((id) => { if (id) seen[String(id)] = true; });
     const have = {};
@@ -32921,7 +32921,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     STATE.settings.bellNotes = cleanBellNotes(added.concat(STATE.settings.bellNotes || []));
     saveSettings();
     noteSounds(soundBefore);
-    scheduleNoteSync();
+    if (soon === false) {
+      const later = () => scheduleNoteSync();
+      if (typeof requestIdleCallback === "function") requestIdleCallback(later, { timeout: 5000 });
+      else setTimeout(later, 5000);
+    } else scheduleNoteSync();
     if (parseRoute().name === "notifications") render();
     else paintBellBadge();
   }
@@ -33469,7 +33473,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (data.type === "bell-delivered" || data.type === "bell-queue") commitBellNotes(data.notes || []);
       if (data.type === "push-note") {
         const note = pushNoteItem(data.note);
-        if (note) commitBellNotes([note]);
+        if (note) commitBellNotes([note], false);
         else if (!channelOpen()) pullNotes();
         wakeHome();
       }

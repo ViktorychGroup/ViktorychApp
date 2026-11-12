@@ -40,5 +40,5 @@ assert.equal(pushNoteItem({ id: "e".repeat(16), titleKey: "Discord alert" }), nu
 
 const handler = src.slice(src.indexOf('if (data.type === "push-note")'), src.indexOf('if (data.type === "note-open")'));
 assert.match(handler, /pushNoteItem\(data\.note\)/);
-assert.match(handler, /commitBellNotes\(\[note\]\)/);
+assert.match(handler, /commitBellNotes\(\[note\], false\)/);
 assert.match(handler, /!channelOpen\(\)/);
