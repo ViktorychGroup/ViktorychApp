@@ -30,7 +30,7 @@ permissions:
 jobs:
   shard:
     name: shard-${{ matrix.shard }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.shard == 'site' && 'ubuntu-24.04' || 'ubuntu-latest' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
