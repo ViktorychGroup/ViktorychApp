@@ -32608,7 +32608,11 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       else {
       notesPhase = "ready";
       if (friendsOffNow()) res.items = res.items.filter((item) => !item || (item.kind !== "friend_request" && item.kind !== "friend_accept"));
-      applyServerNotes(res);
+      /* Saving the list rewrites settings. On any page but Notifications
+         that waits until the browser is idle, so it does not land on a tap. */
+      const apply = () => applyServerNotes(res);
+      if (parseRoute().name === "notifications" || typeof requestIdleCallback !== "function") apply();
+      else requestIdleCallback(apply, { timeout: 2000 });
       if (window.ViktorychNotifPrivacy) window.ViktorychNotifPrivacy.remember(res.items, notifPrivacy());
       rememberAcked(items.map((item) => item.id).concat((res.items || []).map((item) => item.id)));
       const nowPending = notePending();
