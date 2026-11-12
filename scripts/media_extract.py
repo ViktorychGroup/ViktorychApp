@@ -622,7 +622,13 @@ def publish_file(path: Path, key: str, role: str, info: dict, cf: dict, manifest
         "info": info,
         "probe": probe,
     }
-    return tb.store_loaded(path, obj, kind, manifest, cf, state, directory, obj["etag"], copy_only=role == "video")
+    try:
+        return tb.store_loaded(path, obj, kind, manifest, cf, state, directory, obj["etag"], copy_only=role == "video")
+    except RuntimeError as err:
+        if "telegram returned no file id" not in str(err):
+            raise
+        log("[media-extract] skipped_no_file_id %s" % key)
+        return "fail"
 
 
 def video_posts(work: Path, account: dict, catalog: dict) -> list:
@@ -1186,6 +1192,21 @@ def selftest() -> int:
         sample.unlink(missing_ok=True)
     check("store_community_originals" in source and "backup_originals" in source, "community originals go through the media pipeline")
     check(source.count("probe_saved(") >= 2 and "stored_media_size" in source, "stored photos and videos keep probed width and height without re-encoding")
+    def missing_id(*_args, **_kwargs):
+        raise RuntimeError("telegram returned no file id")
+    saved_store = tb.store_loaded
+    saved_probe = tb.probe_saved
+    tb.store_loaded = missing_id
+    tb.probe_saved = lambda _path: {}
+    try:
+        with tempfile.TemporaryDirectory() as note_dir:
+            clip = Path(note_dir) / "clip.mp4"
+            clip.write_bytes(b"not-a-real-video")
+            result = publish_file(clip, "social/x/1/video/0", "video", {}, {}, {"files": []}, {}, Path(note_dir))
+        check(result == "fail", "a missing Telegram file id skips that file and the extract continues")
+    finally:
+        tb.store_loaded = saved_store
+        tb.probe_saved = saved_probe
     print("media extract selftest ok")
     return 0
 

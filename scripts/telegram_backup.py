@@ -1551,37 +1551,106 @@ def put_bytes(token: str, account: str, bucket: str, key: str, payload: bytes, c
     cf_json("PUT", url, token, payload, content_type)
 
 
-def put_object_file(token: str, account: str, bucket: str, key: str, path: Path, content_type: str) -> None:
-    """Store one original on R2. curl streams the file so a long video is not held in memory."""
+def curl_reset(text: str) -> bool:
+    raw = text or ""
+    return "(35)" in raw or "connection reset by peer" in raw.lower()
+
+
+def r2_backoff(attempt: int) -> float:
+    return float(min(8, 2 ** max(0, attempt)))
+
+
+def file_id_from_message(result: dict) -> tuple:
+    """The file id Telegram put on the message, whichever media field holds it."""
+    if not isinstance(result, dict):
+        return "", 0
+    for key in ("document", "video", "animation", "audio", "voice", "video_note"):
+        media = result.get(key) or {}
+        if isinstance(media, dict) and media.get("file_id"):
+            return str(media["file_id"]), int(media.get("file_size") or 0)
+    photos = result.get("photo") or []
+    if isinstance(photos, list) and photos:
+        last = photos[-1]
+        if isinstance(last, dict) and last.get("file_id"):
+            return str(last["file_id"]), int(last.get("file_size") or 0)
+    return "", 0
+
+
+def note_from_upload(parsed: dict, size: int) -> dict | None:
+    if not isinstance(parsed, dict) or not parsed.get("ok"):
+        return None
+    result = parsed.get("result") or {}
+    if not isinstance(result, dict):
+        return None
+    file_id, reported = file_id_from_message(result)
+    if not file_id:
+        return None
+    return {
+        "message_id": int(result.get("message_id") or 0),
+        "file_id": file_id,
+        "file_size": reported or size,
+        "date": int(result.get("date") or 0),
+    }
+
+
+def object_size(token: str, account: str, bucket: str, key: str) -> int:
+    """Bytes already stored at this key, or 0 when the object is missing."""
     url = f"https://api.cloudflare.com/client/v4/accounts/{account}/r2/buckets/{urllib.parse.quote(bucket)}/objects/{quote_key(key)}"
-    if shutil.which("curl") is None:
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token, "User-Agent": UA}, method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            if res.status != 200:
+                return 0
+            return int(res.headers.get("Content-Length") or 0)
+    except Exception:
+        return 0
+
+
+def put_object_file(token: str, account: str, bucket: str, key: str, path: Path, content_type: str, run=None, head=None, sleep=None) -> None:
+    """Store one original on R2. curl streams the file so a long video is not held in memory.
+
+    A dropped connection is retried against the same key. If the first PUT
+    already landed, the retry sees that size and does not write it again.
+    """
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account}/r2/buckets/{urllib.parse.quote(bucket)}/objects/{quote_key(key)}"
+    if shutil.which("curl") is None and run is None:
         if path.stat().st_size > 80 * 1024 * 1024:
             raise RuntimeError("curl is required to store a large original")
         put_bytes(token, account, bucket, key, path.read_bytes(), content_type or "application/octet-stream")
         return
-    proc = subprocess.run(
-        [
-            "curl", "-sS", "--max-time", "3600",
-            "-X", "PUT",
-            "-H", "Authorization: Bearer " + token,
-            "-H", "Content-Type: " + (content_type or "application/octet-stream"),
-            "--data-binary", "@" + str(path),
-            "-w", "\n%{http_code}",
-            url,
-        ],
-        capture_output=True,
-    )
-    text = proc.stdout.decode("utf-8", "replace")
-    err = scrub(proc.stderr.decode("utf-8", "replace"), current_secrets())
-    if "\n" not in text:
-        raise RuntimeError(err or "r2 upload failed")
-    _body, _, status_text = text.rpartition("\n")
-    try:
-        status = int(status_text.strip())
-    except ValueError:
+    pause = sleep or time.sleep
+    look = head or (lambda: object_size(token, account, bucket, key))
+    command = [
+        "curl", "-sS", "--max-time", "3600",
+        "-X", "PUT",
+        "-H", "Authorization: Bearer " + token,
+        "-H", "Content-Type: " + (content_type or "application/octet-stream"),
+        "--data-binary", "@" + str(path),
+        "-w", "\n%{http_code}",
+        url,
+    ]
+    last = "r2 upload failed"
+    for attempt in range(4):
+        if attempt and look() == path.stat().st_size:
+            return
+        proc = run(command) if run else subprocess.run(command, capture_output=True)
+        text = proc.stdout.decode("utf-8", "replace") if isinstance(proc.stdout, bytes) else str(proc.stdout or "")
+        err = scrub(proc.stderr.decode("utf-8", "replace") if isinstance(proc.stderr, bytes) else str(proc.stderr or ""), current_secrets())
         status = 0
-    if proc.returncode != 0 or status < 200 or status >= 300:
-        raise RuntimeError(err or "r2 upload failed")
+        if "\n" in text:
+            _body, _, status_text = text.rpartition("\n")
+            try:
+                status = int(status_text.strip())
+            except ValueError:
+                status = 0
+        if proc.returncode == 0 and 200 <= status < 300:
+            return
+        last = err or "r2 upload failed"
+        if curl_reset(err) and attempt < 3:
+            pause(r2_backoff(attempt))
+            continue
+        break
+    raise RuntimeError(last)
 
 
 def already_kept(prior: dict | None) -> bool:
@@ -1948,6 +2017,33 @@ def curl_form(api_base: str, token: str, channel: str, path: Path, caption: str,
     return parsed
 
 
+def bot_method(api_base: str, token: str, method: str, fields: dict) -> dict:
+    url = api_base.rstrip("/") + "/bot" + token + "/" + method
+    body = json.dumps(fields).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res:
+            raw = res.read()
+    except Exception:
+        return {}
+    try:
+        parsed = json.loads(raw.decode("utf-8", "replace"))
+    except (json.JSONDecodeError, UnicodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def fetch_message_file(api_base: str, token: str, channel: str, message_id: int, caption: str) -> dict:
+    """Ask Telegram for the message it already accepted, without sending it again."""
+    parsed = bot_method(api_base, token, "editMessageCaption", {
+        "chat_id": channel,
+        "message_id": int(message_id),
+        "caption": caption[:1024],
+    })
+    result = parsed.get("result") if isinstance(parsed, dict) else None
+    return result if isinstance(result, dict) else {}
+
+
 def send_document(api_base: str, token: str, channel: str, path: Path, caption: str, state: dict, max_time: int = 3600, max_wait: int | None = None) -> dict:
     bot_lasts = state.setdefault("bot_lasts", {})
     for _attempt in range(6):
@@ -1975,17 +2071,17 @@ def send_document(api_base: str, token: str, channel: str, path: Path, caption: 
                 raise OwnerKeyRejected("owner key needs attention")
             reason = f" ({code}: {desc})" if (code or desc) else ""
             raise RuntimeError("telegram rejected a document" + reason)
-        result = parsed.get("result") or {}
-        document = result.get("document") or {}
-        file_id = str(document.get("file_id") or "")
-        if not file_id:
-            raise RuntimeError("telegram returned no file id")
-        return {
-            "message_id": int(result.get("message_id") or 0),
-            "file_id": file_id,
-            "file_size": int(document.get("file_size") or path.stat().st_size),
-            "date": int(result.get("date") or 0),
-        }
+        noted = note_from_upload(parsed, path.stat().st_size)
+        if noted:
+            return noted
+        result = parsed.get("result") if isinstance(parsed.get("result"), dict) else {}
+        message_id = int(result.get("message_id") or 0)
+        if message_id:
+            fetched = fetch_message_file(api_base, token, channel, message_id, caption)
+            noted = note_from_upload({"ok": True, "result": fetched}, path.stat().st_size) if fetched else None
+            if noted:
+                return noted
+        raise RuntimeError("telegram returned no file id")
     raise RuntimeError("telegram rate limit did not clear")
 
 
@@ -3094,6 +3190,35 @@ def selftest() -> int:
     check(part_spans(PART_BYTES, PART_BYTES) == [(0, PART_BYTES)], "a 1950 MiB archive is one part")
     check(part_spans(PART_BYTES + 10, PART_BYTES) == [(0, PART_BYTES), (PART_BYTES, 10)], "a larger archive is split at 1950 MiB")
     check(retry_after(429, {"ok": False, "error_code": 429, "parameters": {"retry_after": 9}}) == 9, "retry_after is honored")
+    check(curl_reset("curl: (35) Recv failure: Connection reset by peer") and not curl_reset("curl: (22) The requested URL returned error: 404"), "only a dropped curl connection is retried")
+    video = {"ok": True, "result": {"message_id": 9, "video": {"file_id": "vid", "file_size": 4}}}
+    noted = note_from_upload(video, 4)
+    check(noted and noted["file_id"] == "vid" and noted["message_id"] == 9, "a file id is read from the message, including a video")
+    check(note_from_upload({"ok": True, "result": {"message_id": 3}}, 4) is None, "a message with no file id is not stored yet")
+    with tempfile.TemporaryDirectory() as upload_dir:
+        sample = Path(upload_dir) / "clip.bin"
+        sample.write_bytes(b"clip")
+        calls = {"n": 0, "urls": []}
+
+        def run_once(cmd):
+            calls["n"] += 1
+            calls["urls"].append(cmd[-1])
+            if calls["n"] == 1:
+                return subprocess.CompletedProcess(cmd, 35, b"", b"curl: (35) Recv failure: Connection reset by peer")
+            return subprocess.CompletedProcess(cmd, 0, b"{}\n200", b"")
+
+        def missing(_url=None, _token=None):
+            return 0
+
+        put_object_file("token", "acct", "bucket", "cdn/social/x/1/video/0", sample, "video/mp4", run=run_once, head=lambda: missing(), sleep=lambda _s: None)
+        check(calls["n"] == 2 and calls["urls"][0] == calls["urls"][1] and calls["urls"][0].endswith("cdn/social/x/1/video/0"), "a reset upload retries the same R2 key")
+        calls["n"] = 0
+
+        def already():
+            return sample.stat().st_size
+
+        put_object_file("token", "acct", "bucket", "cdn/social/x/1/video/0", sample, "video/mp4", run=run_once, head=already, sleep=lambda _s: None)
+        check(calls["n"] == 1, "a reset upload is not written again when that key already has the file")
     check(retry_after(200, {"ok": True}) is None, "a normal response is not a rate limit")
     check(gap_seconds(10, 11) == 2, "messages stay at least 3 seconds apart")
     check(may_delete("small", True, 100) and may_delete("hls", True, 10**9) and not may_delete("archive", True, 100) and not may_delete("small", False, 100) and not may_delete("loop", True, 100) and not may_delete("mirror", True, 100) and not may_delete("r2", True, 10**9), "only a verified loadable file can leave R2, and music, covers, the radio loop, and a kept original never do")
