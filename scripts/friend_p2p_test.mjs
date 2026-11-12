@@ -26,12 +26,18 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"></head><body><div
   window.ViktorychAccounts = { account: () => ({ publicId: me }), token: () => "t",
     call: (p, o) => {
       if (p === "/v1/p2p/signal") { window.__relay(me, o.body.to, JSON.stringify(o.body.signal)); return Promise.resolve({ status: 200 }); }
-      if (p === "/v1/messages") { if (!navigator.onLine) return Promise.reject(new Error("offline")); window.__server.push(o.body); return Promise.resolve({ status: 200 }); }
+      if (p === "/v1/messages") {
+        if (!navigator.onLine) return Promise.reject(new Error("offline"));
+        window.__server.push(o.body);
+        if (window.__relayDm) window.__relayDm(me, o.body.id, o.body.text, "dm-" + o.body.text.length);
+        return Promise.resolve({ status: 200, id: "dm-" + o.body.text.length });
+      }
       return Promise.resolve(null);
     } };
   window.ViktorychPresence = { onChannel: (fn) => listeners.push(fn), stateOf: () => "online", myState: () => "online", refresh: () => {},
     seen: (id, state) => window.__seen.push([id, state]) };
   window.__deliver = (from, sig) => listeners.forEach((fn) => fn({ op: "event", topic: "p2p", data: { from: from, signal: JSON.parse(sig) } }));
+  window.__deliverDm = (from, text, id) => listeners.forEach((fn) => fn({ op: "event", topic: "dm", data: { from: from, text: text, id: id, at: Date.now() } }));
 </script>
 <script type="module" src="/friend-p2p.js"></script></body></html>`;
 
@@ -128,8 +134,11 @@ async function main() {
     for (const p of [pa, pb]) p.on("pageerror", (e) => errors.push(String(e)));
     const pages = { [A]: pa, [B]: pb };
     const relay = (from, to, sig) => { const target = pages[to]; if (target) target.evaluate(([f, s]) => window.__deliver(f, s), [from, sig]).catch(() => {}); };
+    const relayDm = (from, to, text, id) => { const target = pages[to]; if (target) target.evaluate(([f, t, i]) => window.__deliverDm(f, t, i), [from, text, id]).catch(() => {}); };
     await pa.exposeFunction("__relay", relay);
     await pb.exposeFunction("__relay", relay);
+    await pa.exposeFunction("__relayDm", relayDm);
+    await pb.exposeFunction("__relayDm", relayDm);
     if (fake) {
       // Keep each direction in order, like a real data channel.
       let chain = Promise.resolve();
@@ -186,9 +195,15 @@ async function main() {
     // The friend stops answering: the server takes over.
     await pb.evaluate(() => window.ViktorychFriendP2P.setEnabled(false));
     await pa.waitForFunction(() => window.ViktorychFriendP2P.peers().length === 0, null, { timeout: 8000 });
-    const fallback = await pa.evaluate((b) => window.ViktorychFriendP2P.send(b, "via server"), B);
-    if (fallback.via !== "server") fail("no server fallback: " + JSON.stringify(fallback));
+    const fallback = await pa.evaluate(async (b) => {
+      const t = performance.now();
+      const sent = await window.ViktorychFriendP2P.send(b, "via server");
+      return { via: sent.via, ms: performance.now() - t };
+    }, B);
+    if (fallback.via !== "server" || fallback.ms > 1000) fail("no fast server fallback: " + JSON.stringify(fallback));
     if ((await pa.evaluate(() => window.__server.map((m) => m.text).join("|"))) !== "via server") fail("the server copy is wrong");
+    const onB = await pb.waitForFunction((a) => window.ViktorychFriendP2P.thread(a).some((m) => m.text === "via server" && !m.mine), A, { timeout: 3000 }).then(() => true).catch(() => false);
+    if (!onB) fail("the server copy did not reach the friend");
 
     // Offline outbox.
     await ctxA.setOffline(true);
