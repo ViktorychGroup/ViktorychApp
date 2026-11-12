@@ -23059,7 +23059,10 @@ if (STATE.histClear) {
     const left = el.scrollLeft || 0;
     const max = el.scrollWidth - el.clientWidth;
     const store = hscrollStore();
-    if (left <= 0 && store[id] > 1 && (max <= 1 || hscrollHolding)) return;
+    /* A rebuilt strip starts at 0 before it is bound. Recording that would
+       throw away the position an arrow just set. A strip the person is
+       scrolling is already bound, so a real return to the start is kept. */
+    if (left <= 0 && store[id] > 1 && (max <= 1 || hscrollHolding || el.dataset.hscrollBound !== "1")) return;
     store[id] = left;
     if (el.classList.contains("tabs")) {
       tabScrollLeft = left;

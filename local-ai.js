@@ -90,6 +90,32 @@
     return null;
   }
 
+  /* A graphics probe or Chrome's built-in model check that never answers
+     used to leave setup on "Checking this device…". Four seconds is enough
+     for a real answer; after that the list is built from what we know. */
+  var PROBE_MS = 4000;
+  function within(promise, ms) {
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        reject(new Error("timeout"));
+      }, ms);
+      Promise.resolve(promise).then(function (value) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      }, function (err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+  }
+
   /* What this device can run. Everything is read locally. */
   function detect(env) {
     env = env || {};
@@ -107,7 +133,7 @@
     function finish() { info.tier = tierOf(info); return info; }
     var jobs = [];
     if (nav.gpu && nav.gpu.requestAdapter) {
-      jobs.push(Promise.resolve().then(function () { return nav.gpu.requestAdapter({ powerPreference: "high-performance" }); }).then(function (a) {
+      jobs.push(within(Promise.resolve().then(function () { return nav.gpu.requestAdapter({ powerPreference: "high-performance" }); }), PROBE_MS).then(function (a) {
         if (!a) { info.webgpu = false; return; }
         info.f16 = !!(a.features && a.features.has && a.features.has("shader-f16"));
         info.maxBuffer = (a.limits && a.limits.maxBufferSize) || 0;
@@ -116,7 +142,7 @@
     }
     var LM = env.LanguageModel || (root && root.LanguageModel);
     if (LM && LM.availability) {
-      jobs.push(Promise.resolve().then(function () { return LM.availability({ expectedInputs: [{ type: "text", languages: ["en"] }], expectedOutputs: [{ type: "text", languages: ["en"] }] }); })
+      jobs.push(within(Promise.resolve().then(function () { return LM.availability({ expectedInputs: [{ type: "text", languages: ["en"] }], expectedOutputs: [{ type: "text", languages: ["en"] }] }); }), PROBE_MS)
         .then(function (state) { info.nano = String(state || "no"); }).catch(function () { info.nano = "no"; }));
     }
     return Promise.all(jobs).then(finish, finish);

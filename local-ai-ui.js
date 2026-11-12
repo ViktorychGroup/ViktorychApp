@@ -137,10 +137,14 @@
     var n = tps >= 10 ? Math.round(tps) : tps.toFixed(1);
     return core().measured(m, S.info) ? tr("{n} tokens/s measured", { n: n }) : tr("about {n} tokens/s", { n: n });
   }
+  /* Opening the page and starting setup both ask. A second graphics probe
+     can leave the first one unanswered, so the model list never arrives. */
+  var detectJob = null;
   function detectOnce() {
     if (S.info) return Promise.resolve(S.info);
+    if (detectJob) return detectJob;
     var h = host();
-    return core().detect({ saveData: h && h.lowEnd ? h.lowEnd() : false }).then(function (info) {
+    detectJob = core().detect({ saveData: h && h.lowEnd ? h.lowEnd() : false }).then(function (info) {
       S.info = info;
       info.bench = benchOnce();
       info.speed = readJson(SPEED_KEY) || {};
@@ -148,8 +152,13 @@
       info.noGguf = !!(h && h.ggufOff && h.ggufOff());
       S.choices = core().choices(info);
       paintBar();
+      detectJob = null;
       return info;
+    }, function (err) {
+      detectJob = null;
+      throw err;
     });
+    return detectJob;
   }
   function sizeText(mb) {
     if (!mb) return tr("No download");

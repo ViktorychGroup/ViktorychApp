@@ -221,3 +221,37 @@ for (const q of ["who can send me friend requests", "stop friend requests"]) {
   assert.ok(/gguf_models:\s*\{/.test(flags) && /SERVER_FEATURES\s*=\s*\[[^\]]*"gguf_models"/.test(appJs), "GGUF models have their own switch");
 }
 console.log("local ai tests ok (" + want.size + " strings in 4 packs)");
+
+/* A probe that never answers must still finish, and a fast one still counts. */
+(async function detectChecks() {
+  const nav = { userAgent: "Mozilla/5.0", deviceMemory: 8, hardwareConcurrency: 8 };
+  const t0 = Date.now();
+  const hung = await A.detect({
+    navigator: Object.assign({}, nav, { gpu: { requestAdapter() { return new Promise(function () {}); } } }),
+    LanguageModel: { availability() { return new Promise(function () {}); } }
+  });
+  const waited = Date.now() - t0;
+  assert.ok(waited < 6000, "a stuck device probe still finishes, waited " + waited);
+  assert.ok(waited >= 3000, "the probe is given a few seconds, waited " + waited);
+  assert.strictEqual(hung.webgpu, false);
+  assert.strictEqual(hung.nano, "no");
+  assert.strictEqual(hung.tier, "cpu");
+  const fast = await A.detect({
+    navigator: Object.assign({}, nav, {
+      gpu: {
+        requestAdapter() {
+          return Promise.resolve({
+            features: { has(name) { return name === "shader-f16"; } },
+            limits: { maxBufferSize: 2 * 1024 * 1024 * 1024 },
+            info: { isFallbackAdapter: false }
+          });
+        }
+      }
+    })
+  });
+  assert.strictEqual(fast.webgpu, true);
+  assert.strictEqual(fast.f16, true);
+  assert.strictEqual(fast.maxBuffer, 2 * 1024 * 1024 * 1024);
+  assert.strictEqual(fast.tier, "max");
+  console.log("local ai detect ok");
+})().catch((err) => { console.error(err); process.exit(1); });

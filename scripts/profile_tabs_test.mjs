@@ -61,15 +61,30 @@ function idsOf(page) {
 }
 
 async function drag(page, id, dx) {
-  const grip = page.locator(`[data-ptab-id="${id}"] .ptab-grip`).first();
-  await grip.scrollIntoViewIfNeeded();
-  const box = await grip.boundingBox();
+  /* A profile re-render replaces the tab strip. Wait until the same tabs
+     have stayed on screen, then read the grip that is attached now. */
+  const live = await page.waitForFunction((tabId) => {
+    const bar = document.querySelector(".ptabs");
+    const grip = document.querySelector('[data-ptab-id="' + tabId + '"] .ptab-grip');
+    if (!bar || !grip || !grip.isConnected) return false;
+    const ids = [...bar.querySelectorAll("[data-ptab-id]")].map((el) => el.getAttribute("data-ptab-id")).join(",");
+    if (window.__ptabIds !== ids) {
+      window.__ptabIds = ids;
+      window.__ptabAt = performance.now();
+      return false;
+    }
+    if (performance.now() - (window.__ptabAt || 0) < 50) return false;
+    grip.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const box = grip.getBoundingClientRect();
+    const strip = bar.getBoundingClientRect();
+    if (box.width < 1 || box.height < 1 || strip.width < 1) return false;
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2, barX: strip.x, barW: strip.width };
+  }, id, { timeout: 5000 });
+  const box = await live.jsonValue().catch(() => null);
   if (!box) fail("missing tab " + id);
-  const bar = await page.locator(".ptabs").first().boundingBox();
-  if (!bar) fail("missing tab strip");
-  const x = box.x + box.width / 2;
-  const y = box.y + box.height / 2;
-  const end = dx < 0 ? bar.x + 8 : Math.min(bar.x + bar.width - 8, x + dx);
+  const x = box.x;
+  const y = box.y;
+  const end = dx < 0 ? box.barX + 8 : Math.min(box.barX + box.barW - 8, x + dx);
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(end, y, { steps: 16 });
