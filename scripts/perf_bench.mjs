@@ -15,7 +15,7 @@ const root = process.env.BENCH_ROOT || path.resolve(path.dirname(fileURLToPath(i
 const runs = Math.max(1, Number(process.env.BENCH_RUNS || 5));
 const ME = "100000000001";
 const OTHER = "200000000002";
-const store = { posts: [], likes: {}, followed: false, catalog: "" };
+const store = { posts: [], likes: {}, followed: false, catalog: "", notes: [] };
 
 function mime(file) {
   if (file.endsWith(".css")) return "text/css";
@@ -127,6 +127,7 @@ async function arm(context, bag) {
       data.followed = method === "PUT";
       return send(200, { ok: true, id: "app:" + OTHER, pending: false, followersCount: data.followed ? 6 : 5, followingCount: data.followed ? 2 : 1 });
     }
+    if (pathName === "/v1/notifications") return send(200, { items: (data.notes || []).slice(), unread: (data.notes || []).length });
     return send(200, { ok: true });
   });
   await context.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort());
@@ -248,6 +249,46 @@ async function likeOnce(page) {
   return { onScreenMs, durableMs: Date.now() - t0, visibleMs: null, longMax: null };
 }
 
+async function notePush(page, bag) {
+  const kinds = [
+    ["like", "{name} liked your post", "Bench like note"],
+    ["follow", "{name} followed you", "Bench follow note"],
+    ["reply", "{name} replied to you", "Bench reply note"],
+    ["mention", "{name} mentioned you", "Bench mention note"]
+  ];
+  const times = {};
+  for (let i = 0; i < kinds.length; i++) {
+    const kind = kinds[i][0];
+    const titleKey = kinds[i][1];
+    const text = kinds[i][2];
+    const id = "n" + kind + "bench" + i;
+    const item = { id: id, kind: kind, at: Date.now(), text: text, hash: "#/", handle: "user_b", name: "User B", read: false };
+    if (bag) {
+      bag.notes = bag.notes || [];
+      bag.notes.push(item);
+    }
+    const before = await page.evaluate(() => (document.querySelector(".nav-badge") || {}).textContent || "");
+    const t0 = Date.now();
+    await page.evaluate((payload) => {
+      const target = navigator.serviceWorker;
+      if (!target) throw new Error("no service worker");
+      target.dispatchEvent(new MessageEvent("message", { data: { type: "push-note", note: payload } }));
+    }, { id: id, kind: kind, at: item.at, body: text, text: text, hash: "#/", handle: "user_b", titleKey: titleKey, titleVars: { name: "User B", handle: "user_b" } });
+    await page.waitForFunction((prev) => {
+      const badge = document.querySelector(".nav-badge");
+      return !!(badge && (badge.textContent || "") !== prev);
+    }, before, { timeout: stepWait(8000) });
+    times[kind] = Date.now() - t0;
+  }
+  const listT = Date.now();
+  await page.evaluate(() => { location.hash = "#/notifications"; });
+  await page.waitForFunction(() => (document.body.innerText || "").indexOf("Bench mention note") >= 0, null, { timeout: stepWait(8000) });
+  times.list = Date.now() - listT;
+  await page.evaluate(() => { location.hash = "#/"; });
+  await page.waitForSelector("article.post", { timeout: stepWait(15000) });
+  return times;
+}
+
 async function followOnce(page, origin) {
   await page.goto(origin + "/index.html#/@user_b", { waitUntil: "domcontentloaded" });
   /* The first follow button on the page can be a feed control whose hidden
@@ -339,7 +380,10 @@ async function otherSees(browser, size, origin, text, t0, bag) {
 
 async function oneRun(browser, size, origin, index, bag) {
   stepScale = size.cpu > 1 ? 3 : 1;
-  if (bag) bag.followed = false;
+  if (bag) {
+    bag.followed = false;
+    bag.notes = [];
+  }
   const session = await openSession(browser, size, bag);
   const row = {};
   try {
@@ -350,6 +394,7 @@ async function oneRun(browser, size, origin, index, bag) {
     await session.page.waitForSelector("article.post", { timeout: stepWait(15000) });
     row.scroll = await scrollJank(session.page);
     row.like = await likeOnce(session.page);
+    row.notes = await notePush(session.page, bag);
     row.follow = await followOnce(session.page, origin);
     await session.page.goto(origin + "/index.html#/", { waitUntil: "domcontentloaded" });
     await session.page.waitForFunction(() => [...document.querySelectorAll('button[data-act="compose"]')].some((el) => el.getBoundingClientRect().width > 8), null, { timeout: stepWait(20000) });
@@ -389,7 +434,12 @@ const PICKS = [
   ["postVisible", (row) => row.post && row.post.visibleMs],
   ["replyOnScreen", (row) => row.reply && row.reply.onScreenMs],
   ["replyDurable", (row) => row.reply && row.reply.durableMs],
-  ["replyVisible", (row) => row.reply && row.reply.visibleMs]
+  ["replyVisible", (row) => row.reply && row.reply.visibleMs],
+  ["noteLikeBell", (row) => row.notes && row.notes.like],
+  ["noteFollowBell", (row) => row.notes && row.notes.follow],
+  ["noteReplyBell", (row) => row.notes && row.notes.reply],
+  ["noteMentionBell", (row) => row.notes && row.notes.mention],
+  ["noteListWarm", (row) => row.notes && row.notes.list]
 ];
 function summarize(name, rows) {
   const out = { name: name, n: rows.length };
@@ -404,7 +454,7 @@ async function main() {
   const mod = await import(spec.startsWith("/") ? pathToFileURL(spec).href : spec);
   const chromium = mod.chromium || (mod.default && mod.default.chromium);
   const altRoot = process.env.BENCH_ALT || "";
-  const altBag = { posts: [], likes: {}, followed: false, catalog: "" };
+  const altBag = { posts: [], likes: {}, followed: false, catalog: "", notes: [] };
   const server = await startServer(root, store);
   const origin = "http://127.0.0.1:" + server.address().port;
   let altServer = null;

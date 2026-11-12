@@ -882,6 +882,8 @@ async function sendPush(env, publicId, item, viewer, deliveryId) {
     body: item.text || "",
     hash: item.hash || "#/",
     id: item.id,
+    kind: item.kind || "",
+    at: Number(item.at) || Date.now(),
     icon: legacyMedia(item.avatar) ? "" : (item.avatar || ""),
     tag: "note-" + item.id,
     platform: item.platform || "",

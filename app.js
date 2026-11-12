@@ -32805,6 +32805,32 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   window.ViktorychProfile = { chrome: profileChrome, top: profileTop };
   /* presence.js owns ViktorychPresence. A partial stand-in threw on .wrap and left a black page. */
 
+  /* A web push for a visible page. The account channel is the live copy.
+     This paints the badge from the payload the server already checked,
+     instead of waiting for a notifications poll. */
+  function pushNoteItem(raw) {
+    if (!raw || !raw.id) return null;
+    const kinds = { like: 1, follow: 1, reply: 1, mention: 1, repost: 1, quote: 1 };
+    const fromTitle = {
+      "{name} liked your post": "like",
+      "{name} followed you": "follow",
+      "{name} replied to you": "reply",
+      "{name} mentioned you": "mention"
+    };
+    const kind = kinds[raw.kind] ? raw.kind : fromTitle[raw.titleKey];
+    if (!kind) return null;
+    const vars = raw.titleVars && typeof raw.titleVars === "object" ? raw.titleVars : {};
+    return {
+      id: String(raw.id),
+      kind: kind,
+      at: Number(raw.at) || Date.now(),
+      text: String(raw.body || raw.text || ""),
+      hash: String(raw.hash || "#/"),
+      handle: String(raw.handle || vars.handle || "").replace(/^@/, ""),
+      name: String(vars.name || ""),
+      read: false
+    };
+  }
   function commitBellNotes(list) {
     const seen = {};
     (STATE.settings.bellSeen || []).forEach((id) => { if (id) seen[String(id)] = true; });
@@ -33371,7 +33397,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (data.type === "data" && /feeds\.json$/.test(data.url || "")) wakeHome();
       if (data.type === "feeds-updated") wakeHome();
       if (data.type === "bell-delivered" || data.type === "bell-queue") commitBellNotes(data.notes || []);
-      if (data.type === "push-note") { pullNotes(); wakeHome(); }
+      if (data.type === "push-note") {
+        const note = pushNoteItem(data.note);
+        if (note) commitBellNotes([note]);
+        else if (!channelOpen()) pullNotes();
+        wakeHome();
+      }
       if (data.type === "note-open") {
         if (data.hash) location.hash = data.hash;
         if (data.id) queueReadIds([data.id]);
