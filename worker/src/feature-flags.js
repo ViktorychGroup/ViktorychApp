@@ -46,6 +46,9 @@ export const FEATURES = {
   bitchat: { paths: [] },
   // Contacts address book: local-first directory, device contact sync, dialer protocol.
   contacts: { paths: [] },
+  // An open Home gets a new post from someone this account follows, on the
+  // channel it already has. On by default. Off leaves Home on its usual fetch.
+  home_live: { paths: [] },
   // Local AI settings page. No server endpoints: models run on the device.
   local_ai: { paths: [] },
   // Local AI first-run setup: device check, download, test and preferences

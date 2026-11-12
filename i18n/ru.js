@@ -6344,6 +6344,8 @@ SI18n.addPack("ru", {
   "Read": "Читать",
   "Read article": "Читать статью",
   "Article reader": "Читалка статей",
+  "Live Home": "Живая лента",
+  "An open Home shows a new post from someone you follow without waiting for the next refresh.": "Открытая лента сразу показывает новую запись того, на кого вы подписаны, не дожидаясь следующего обновления.",
   "A reading view for public article links in posts. Off leaves those links opening on their own sites.": "Режим чтения для ссылок на публичные статьи в записях. Выключено — ссылки открываются на своих сайтах.",
   "Reader": "Читалка",
   "Close reading view": "Закрыть читалку",

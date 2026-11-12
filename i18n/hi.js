@@ -6332,6 +6332,8 @@ SI18n.addPack("hi", {
   "Read": "पढ़ें",
   "Read article": "लेख पढ़ें",
   "Article reader": "लेख पाठक",
+  "Live Home": "लाइव होम",
+  "An open Home shows a new post from someone you follow without waiting for the next refresh.": "खुला होम किसी ऐसे व्यक्ति की नई पोस्ट तुरंत दिखाता है जिसे आप फ़ॉलो करते हैं, अगले रीफ़्रेश का इंतज़ार किए बिना।",
   "A reading view for public article links in posts. Off leaves those links opening on their own sites.": "पोस्ट में सार्वजनिक लेखों की लिंक के लिए पढ़ने का दृश्य। बंद होने पर लिंक अपनी साइट पर खुलते हैं।",
   "Reader": "पाठक",
   "Close reading view": "पढ़ने का दृश्य बंद करें",

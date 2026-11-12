@@ -4,7 +4,9 @@
 
 import { presentPost, hiddenAuthors, audienceSets, canSee, withParents } from "./posts.js";
 import { canSeeAudience } from "./audience.js";
-import { blocksEither, actorHidden } from "./social.js";
+import { blocksEither, actorHidden, acceptedUnlockedFollow, canSeePosts } from "./social.js";
+import { listWatchers, deliverToAccount } from "./channel.js";
+import { readFlags } from "./feature-flags.js";
 
 export const POST_ACTION_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS public_post_likes (post_id TEXT NOT NULL, account_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (post_id, account_id))",
@@ -115,6 +117,122 @@ export async function quoteFor(env, request, quoteId, viewerId, cached) {
     authorAvatar: "", // presentPost fills the viewer-aware face
     media: (mediaRows || []).map((item) => ({ id: item.id, mime: item.mime, size: item.size, alt: item.alt_text || "", url: new URL("/v1/posts/media/" + item.id, request.url).pathname }))
   };
+}
+
+const LIVE_POST_SQL = "SELECT p.id, p.author_id, p.body, p.parent_id, p.quote_id, p.created_at, p.hidden, p.audience, p.reply_control, p.location, p.poll_json, p.scheduled_at, p.edited_at, p.ext_parent, a.handle, a.display_name FROM public_posts p JOIN accounts a ON a.public_id = p.author_id WHERE p.id = ?";
+
+function mediaItem(item, request) {
+  return {
+    id: item.id,
+    mime: item.mime,
+    size: item.size,
+    alt: item.alt_text || "",
+    url: new URL("/v1/posts/media/" + item.id, request.url).pathname
+  };
+}
+
+/* The public row only: the account's own name and handle, never a viewer's
+   nickname, and no like, repost, or poll vote. */
+async function neutralLiveCard(env, request, row) {
+  if (!row || !row.id) return null;
+  let media = [];
+  try {
+    const listed = await env.DB.prepare("SELECT id, mime, size, alt_text FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(row.id).all();
+    media = ((listed && listed.results) || []).map((item) => mediaItem(item, request));
+  } catch (err) { media = []; }
+  let poll = null;
+  if (row.poll_json) {
+    try {
+      const parsed = JSON.parse(row.poll_json);
+      if (parsed && Array.isArray(parsed.options)) poll = { options: parsed.options };
+    } catch (err) { poll = null; }
+  }
+  const card = {
+    id: row.id,
+    body: row.body || "",
+    createdAt: row.created_at,
+    parentId: row.parent_id || "",
+    quoteId: row.quote_id || "",
+    authorId: row.author_id,
+    authorName: row.display_name || "",
+    authorHandle: row.handle || "",
+    authorAvatar: "",
+    media: media,
+    quote: row.quote_id ? { id: row.quote_id, unavailable: true } : null,
+    audience: row.audience || "everyone",
+    editedAt: Number(row.edited_at) || 0,
+    poll: poll
+  };
+  let packed = "";
+  try { packed = JSON.stringify({ post: card }); }
+  catch (err) { return null; }
+  if (packed.length > 7000) return null;
+  return card;
+}
+
+/* A quoted post is filled in only for a viewer who may see that author and
+   that audience. Everyone else gets the id and nothing else. */
+async function liveQuoteFor(env, request, viewerId, quoted) {
+  const hidden = { id: quoted && quoted.id || "", unavailable: true };
+  if (!quoted || !quoted.id || Number(quoted.hidden) || Number(quoted.scheduled_at) > Date.now()) return hidden;
+  try {
+    if (!(await canSeePosts(env, viewerId, quoted.author_id))) return hidden;
+    if (!(await viewerCanSee(env, viewerId, quoted))) return hidden;
+  } catch (err) { return hidden; }
+  let qMedia = [];
+  try {
+    const listed = await env.DB.prepare("SELECT id, mime, size, alt_text FROM public_post_media WHERE post_id = ? ORDER BY sort_order ASC, id ASC").bind(quoted.id).all();
+    qMedia = ((listed && listed.results) || []).map((item) => mediaItem(item, request));
+  } catch (err) { qMedia = []; }
+  return {
+    id: quoted.id,
+    body: quoted.body || "",
+    authorId: quoted.author_id,
+    authorName: quoted.display_name || "",
+    authorHandle: quoted.handle || "",
+    authorAvatar: "",
+    media: qMedia
+  };
+}
+
+/* Watchers who still have an accepted, unlocked follow. The post is read
+   again here, so a delete or an edit that landed first is what they see. */
+export async function pushLivePost(env, hint) {
+  const id = hint && hint.id;
+  if (!env || !id) return 0;
+  let off = { home_live: true };
+  try { off = await readFlags(env); }
+  catch (err) { off = { home_live: true }; }
+  if (off.home_live) return 0;
+  let fresh = null;
+  try { fresh = await env.DB.prepare(LIVE_POST_SQL).bind(id).first(); }
+  catch (err) { return 0; }
+  if (!fresh || Number(fresh.hidden) || Number(fresh.scheduled_at) > Date.now()) return 0;
+  let watchers = [];
+  try { watchers = await listWatchers(env, fresh.author_id, "posts"); }
+  catch (err) { return 0; }
+  const request = { url: "https://accounts.local/v1/posts" };
+  const base = await neutralLiveCard(env, request, fresh);
+  if (!base) return 0;
+  let quoted = null;
+  if (fresh.quote_id) {
+    try { quoted = await env.DB.prepare(LIVE_POST_SQL).bind(fresh.quote_id).first(); }
+    catch (err) { quoted = null; }
+  }
+  let sent = 0;
+  for (let i = 0; i < watchers.length; i++) {
+    const viewerId = watchers[i];
+    if (!viewerId || viewerId === fresh.author_id) continue;
+    try {
+      if (!(await acceptedUnlockedFollow(env, viewerId, fresh.author_id))) continue;
+      if (!(await viewerCanSee(env, viewerId, fresh))) continue;
+      const card = JSON.parse(JSON.stringify(base));
+      if (fresh.quote_id) card.quote = await liveQuoteFor(env, request, viewerId, quoted || { id: fresh.quote_id });
+      await deliverToAccount(env, viewerId, "posts", { post: card }, fresh.author_id);
+      sent += 1;
+    } catch (err) { /* their next Home fetch still shows the post */ }
+  }
+  return sent;
 }
 
 /* Notes for the parent's author, the quoted author and anyone mentioned. */
