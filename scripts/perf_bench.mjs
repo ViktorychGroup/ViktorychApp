@@ -165,7 +165,7 @@ function taskMark(page) {
    those runs. Desktop stays on the original waits. */
 let stepScale = 1;
 function stepWait(ms) {
-  return stepScale > 1 ? ms * 3 : ms;
+  return stepScale > 1 ? ms * 4 : ms;
 }
 
 async function openSession(browser, size, bag) {
@@ -480,11 +480,19 @@ async function main() {
       for (let i = 1; i <= runs; i++) {
         process.stderr.write(size.name + (altOrigin ? " A" : "") + " run " + i + "\n");
         try { rows.push(await oneRun(browser, size, origin, i, store)); }
-        catch (err) { process.stderr.write(size.name + " run " + i + " failed " + (err && err.message) + "\n"); }
+        catch (err) {
+          process.stderr.write(size.name + " run " + i + " failed " + (err && err.message) + "\n");
+          try { rows.push(await oneRun(browser, size, origin, i, store)); }
+          catch (err2) { process.stderr.write(size.name + " run " + i + " retry failed " + (err2 && err2.message) + "\n"); }
+        }
         if (!altOrigin) continue;
         process.stderr.write(size.name + " B run " + i + "\n");
         try { altRows.push(await oneRun(browser, size, altOrigin, i, altBag)); }
-        catch (err) { process.stderr.write(size.name + " B run " + i + " failed " + (err && err.message) + "\n"); }
+        catch (err) {
+          process.stderr.write(size.name + " B run " + i + " failed " + (err && err.message) + "\n");
+          try { altRows.push(await oneRun(browser, size, altOrigin, i, altBag)); }
+          catch (err2) { process.stderr.write(size.name + " B run " + i + " retry failed " + (err2 && err2.message) + "\n"); }
+        }
       }
       summary.push(summarize(size.name, rows));
       if (altOrigin) altSummary.push(summarize(size.name, altRows));

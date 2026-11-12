@@ -32889,7 +32889,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     };
     const kind = kinds[raw.kind] ? raw.kind : fromTitle[raw.titleKey];
     if (!kind) return null;
+    const mine = typeof signedAccount === "function" ? signedAccount() : null;
+    const mineHandle = mine ? String(mine.handle || "").replace(/^@/, "").toLowerCase() : "";
     const vars = raw.titleVars && typeof raw.titleVars === "object" ? raw.titleVars : {};
+    const actor = String(raw.handle || vars.handle || "").replace(/^@/, "").toLowerCase();
+    const actorId = String(raw.actorId || "").replace(/^app:/, "");
+    if (mine && ((mineHandle && actor === mineHandle) || (actorId && actorId === String(mine.publicId || "")))) return null;
     return {
       id: String(raw.id),
       kind: kind,
@@ -32921,11 +32926,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     STATE.settings.bellNotes = cleanBellNotes(added.concat(STATE.settings.bellNotes || []));
     saveSettings();
     noteSounds(soundBefore);
-    if (soon === false) {
-      const later = () => scheduleNoteSync();
-      if (typeof requestIdleCallback === "function") requestIdleCallback(later, { timeout: 5000 });
-      else setTimeout(later, 5000);
-    } else scheduleNoteSync();
+    /* A note that was just painted does not need a poll. The poll would
+       land on the next tap. Other callers still reconcile. */
+    if (soon !== false) scheduleNoteSync();
     if (parseRoute().name === "notifications") render();
     else paintBellBadge();
   }
@@ -34430,8 +34433,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       } else if (fresh.length || bellUnread()) updateBadge(Math.max(fresh.length, bellUnread()));
       scanBellPosts(STATE.data.posts);
       if (document.visibilityState === "visible") {
-        pullNotes();
-        ensureHub();
+        const armNotes = () => {
+          pullNotes();
+          ensureHub();
+        };
+        if (typeof requestIdleCallback === "function") requestIdleCallback(armNotes, { timeout: 1500 });
+        else setTimeout(armNotes, 1);
       }
       if ("serviceWorker" in navigator) navigator.serviceWorker.ready.then(() => pullBellQueue()).catch(() => {});
       hydrateTabSnapshots();
