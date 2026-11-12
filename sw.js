@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-11T05:27:00.000Z-author-card
+// cache-bust: 2026-11-12T19:20:00.000Z-tab-scroll
 try { importScripts("./shorts-enabled.js"); } catch (err) { /* Shorts stays off when the switch file is missing */ }
 
 const ACCOUNTS_WALL = false;
@@ -87,6 +87,7 @@ const SHELL_FILES = [
   "./i18n/es.js",
   "./i18n/hi.js",
   "./app.js",
+  "./shared/home-live.js",
   "./emoji.js",
   "./image-copy.js",
   "./shorts-enabled.js",

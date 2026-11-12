@@ -190,6 +190,20 @@ export async function actorHidden(env, recipientId, actorId) {
   }
 }
 
+/* A live Home watch is only for a follow that is already in account_follows:
+   accepted, not pending, not locked, and still allowed to see the author's
+   posts (blocks, mutes, a protected account). */
+export async function acceptedUnlockedFollow(env, viewerId, authorId) {
+  if (!/^\d{12}$/.test(String(viewerId || "")) || !/^\d{12}$/.test(String(authorId || "")) || viewerId === authorId) return false;
+  let row = null;
+  try {
+    row = await one(env, "SELECT target_id FROM account_follows WHERE follower_id = ? AND target_id = ?", viewerId, "app:" + authorId);
+  } catch (err) { return false; }
+  if (!row) return false;
+  if (await isLockedFollow(env, viewerId, "app:" + authorId)) return false;
+  return canSeePosts(env, viewerId, authorId);
+}
+
 export async function canSeePosts(env, viewerId, authorId) {
   if (!viewerId || !authorId) return false;
   if (viewerId === authorId) return true;

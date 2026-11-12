@@ -71,11 +71,17 @@
         if (path === "#/following" || path.indexOf("#/following/") === 0) tab = "following";
         else if (path.indexOf("#/tab/") === 0) tab = "list:" + decodeURIComponent(path.slice(6));
         else if (path.indexOf("#/cat/") === 0) tab = "cat:" + decodeURIComponent(path.slice(6));
-        /* For You turned off in Settings: Home opens on Following. */
+        /* Same order as forYouOff(): the owner switch wins, then the saved
+           Settings choice, then the local flag. */
         if (tab === "foryou") {
           try {
             var srvOff = JSON.parse(localStorage.getItem("viktorychapp-server-off") || "[]") || [];
-            if (localStorage.getItem("viktorychapp-off-foryou") === "1" && srvOff.indexOf("foryou_off") < 0) tab = "following";
+            if (!(Array.isArray(srvOff) && srvOff.indexOf("foryou_off") >= 0)) {
+              var fySettings = null;
+              try { fySettings = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "null"); } catch (err2) { fySettings = null; }
+              var fyOff = fySettings && typeof fySettings.forYou === "boolean" ? !fySettings.forYou : localStorage.getItem("viktorychapp-off-foryou") === "1";
+              if (fyOff) tab = "following";
+            }
           } catch (err) { /* storage blocked */ }
         }
         window.__homeFreshBoot = { started: perf && perf.now ? perf.now() : 0, tab: tab, feeds: null, config: null };
@@ -890,6 +896,7 @@
     <link rel="stylesheet" href="reader.css">
     <script src="reader.js" type="module"></script>
     <script src="image-copy.js" defer></script>
+    <script src="shared/home-live.js" defer></script>
     <script src="app.js" defer></script>
     <script src="keys.js" defer></script>
     <script src="keys-ui.js" defer></script>
@@ -948,8 +955,17 @@
           if (server.indexOf("stories") >= 0) off.push("stories.js", "stories.css");
           if (server.indexOf("x_broadcast") >= 0) off.push("shared/x-broadcast.js");
           if (server.indexOf("article_reader") >= 0) off.push("reader.js", "reader.css");
-          /* For You off (allowed unless the owner switched foryou_off off): no ranking code. */
-          if (localStorage.getItem("viktorychapp-off-foryou") === "1" && server.indexOf("foryou_off") < 0) off.push("shared/for-you.js");
+          /* Same order as forYouOff() in app.js. The owner switch wins, then
+             the saved Settings choice, then the local flag. A stale flag
+             must not skip the file while the tab is still shown. */
+          var fyOff = false;
+          if (!(Array.isArray(server) && server.indexOf("foryou_off") >= 0)) {
+            var fySettings = null;
+            try { fySettings = JSON.parse(localStorage.getItem("viktorychapp-settings-v1") || "null"); } catch (err2) { fySettings = null; }
+            if (fySettings && typeof fySettings.forYou === "boolean") fyOff = !fySettings.forYou;
+            else fyOff = localStorage.getItem("viktorychapp-off-foryou") === "1";
+          }
+          if (fyOff) off.push("shared/for-you.js");
         } catch (err) { /* storage blocked */ }
         if (window.SHORTS_ENABLED !== true) off.push("shared/shorts-play.js");
         function wanted(node) {

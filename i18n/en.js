@@ -6342,6 +6342,8 @@ SI18n.addPack("en", {
   "Read": "Read",
   "Read article": "Read article",
   "Article reader": "Article reader",
+  "Live Home": "Live Home",
+  "An open Home shows a new post from someone you follow without waiting for the next refresh.": "An open Home shows a new post from someone you follow without waiting for the next refresh.",
   "A reading view for public article links in posts. Off leaves those links opening on their own sites.": "A reading view for public article links in posts. Off leaves those links opening on their own sites.",
   "Reader": "Reader",
   "Close reading view": "Close reading view",

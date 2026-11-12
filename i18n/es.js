@@ -6345,6 +6345,8 @@ SI18n.addPack("es", {
   "Read": "Leer",
   "Read article": "Leer el artículo",
   "Article reader": "Lector de artículos",
+  "Live Home": "Inicio en vivo",
+  "An open Home shows a new post from someone you follow without waiting for the next refresh.": "Un Inicio abierto muestra una publicación nueva de alguien a quien sigues, sin esperar la siguiente actualización.",
   "A reading view for public article links in posts. Off leaves those links opening on their own sites.": "Una vista de lectura para enlaces de artículos públicos en las publicaciones. Apagado, esos enlaces se abren en su propio sitio.",
   "Reader": "Lector",
   "Close reading view": "Cerrar la vista de lectura",
