@@ -64,7 +64,7 @@ permissions:
 jobs:
   navshard:
     name: nav-${{ matrix.shard }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.shard == 'nav-pages' && 'ubuntu-24.04' || 'ubuntu-latest' }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
