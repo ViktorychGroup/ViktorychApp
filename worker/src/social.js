@@ -695,9 +695,15 @@ async function writeMessage(request, env, viewer, deps) {
   await env.DB.prepare(
     "INSERT INTO account_messages (id, sender_id, recipient_id, body, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, 0)"
   ).bind(id, viewer.public_id, otherId, text, now).run();
+  /* The live copy goes only to an accepted friend, and not when that
+     friend already hides this sender. Anyone else keeps today's stored
+     message and does not get the text on the channel. */
   try {
-    const channel = await import("./channel.js");
-    await channel.publishToAccount(env, otherId, "dm", { from: viewer.public_id, id: id, text: clip(text, 2000), at: now }, viewer.public_id);
+    const friend = await env.DB.prepare("SELECT friend_id FROM account_friends WHERE user_id = ? AND friend_id = ?").bind(viewer.public_id, otherId).first();
+    if (friend && !(await actorHidden(env, otherId, viewer.public_id))) {
+      const channel = await import("./channel.js");
+      await channel.publishToAccount(env, otherId, "dm", { from: viewer.public_id, id: id, text: clip(text, 2000), at: now }, viewer.public_id);
+    }
   } catch (err) { /* the message is saved; the friend can read it on the next open */ }
   if (!(await actorHidden(env, otherId, viewer.public_id))) {
     try {
