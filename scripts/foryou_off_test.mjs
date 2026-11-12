@@ -153,6 +153,31 @@ async function run(browser, origin) {
   await page.waitForSelector('[data-act="home-feature"][data-key="stories"]', { timeout: 20000 });
   if (await page.locator('[data-act="home-feature"][data-key="forYou"]').count()) fail("owner switch off hides the For You choice");
   await context.close();
+
+  const hint = async (setup, expect) => {
+    const box = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await box.addInitScript(setup);
+    const hintPage = await box.newPage();
+    await hintPage.goto(origin + "/#/", { waitUntil: "domcontentloaded" });
+    const tab = await hintPage.evaluate(() => window.__homeFreshBoot && window.__homeFreshBoot.tab);
+    await box.close();
+    if (tab !== expect) fail("early Home hint wanted " + expect + " and got " + tab);
+  };
+  await hint(() => {
+    localStorage.setItem("viktorychapp-settings-v1", JSON.stringify({ version: 1, forYou: false }));
+    localStorage.removeItem("viktorychapp-off-foryou");
+    localStorage.setItem("viktorychapp-server-off", "[]");
+  }, "following");
+  await hint(() => {
+    localStorage.setItem("viktorychapp-settings-v1", JSON.stringify({ version: 1, forYou: true }));
+    localStorage.setItem("viktorychapp-off-foryou", "1");
+    localStorage.setItem("viktorychapp-server-off", "[]");
+  }, "foryou");
+  await hint(() => {
+    localStorage.setItem("viktorychapp-settings-v1", JSON.stringify({ version: 1, forYou: false }));
+    localStorage.setItem("viktorychapp-off-foryou", "1");
+    localStorage.setItem("viktorychapp-server-off", JSON.stringify(["foryou_off"]));
+  }, "foryou");
   console.log("foryou off ok");
 }
 

@@ -2155,7 +2155,7 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
   function friendsOffNow() {
     return !!(window.ViktorychFriendsPref && window.ViktorychFriendsPref.isOff());
   }
-  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "app_scale", "image_copy", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings"];
+  const SERVER_FEATURES = ["contacts", "shorts", "stories", "lives", "telegram", "pills", "nostr", "regone_leaderboard", "regone_online", "regone_rooms", "regone_profile_stats", "nzlay_forum", "nzlay_forum_post", "nzlay_forum_regone", "nft", "bitchat", "feed_requests", "friends_off", "local_ai", "local_ai_setup", "ext_nicknames", "merged_profiles", "owner_inspector", "live_frame_grab", "app_repair", "auto_update", "swipe_tabs", "compact_header", "status_bar", "zoom_lock", "app_scale", "image_copy", "update_notice", "foryou_off", "status_icons", "side_panel", "ai_people", "gguf_models", "instant_limits", "ai_tools", "site_permissions", "notif_sounds", "owner_user_settings", "tiktok_auto_record", "ai_device_setup", "x_broadcast", "ai_auto_model", "article_reader", "storage_recordings", "home_live"];
   function serverOffList() {
     try {
       const list = JSON.parse(localStorage.getItem(SERVER_OFF_KEY) || "[]");
@@ -2278,7 +2278,8 @@ parsed.historyPause = cleanHistoryPause(parsed.historyPause);
       tiktok_auto_record: [tr("Automatic TikTok recorder"), tr("Records TikTok lives on the server and sends segments to the backup channel. Off stops new recordings and uploads.")],
       x_broadcast: [tr("X broadcasts"), tr("Public X broadcasts play in the feed when a public stream is available. Otherwise the card opens the broadcast on X.")],
       article_reader: [tr("Article reader"), tr("A reading view for public article links in posts. Off leaves those links opening on their own sites.")],
-      storage_recordings: [tr("Storage recordings"), tr("Encrypted recordings open on this device. The key stays in this tab. Off hides that part of Storage.")]
+      storage_recordings: [tr("Storage recordings"), tr("Encrypted recordings open on this device. The key stays in this tab. Off hides that part of Storage.")],
+      home_live: [tr("Live Home"), tr("An open Home shows a new post from someone you follow without waiting for the next refresh.")]
     };
     const rows = SERVER_FEATURES.map((name) => {
       const on = !off.includes(name);
@@ -13054,7 +13055,66 @@ const here = parseRoute();
      that is stored for the paint. Nothing else is installed up front. */
   let openingSettled = false;
   function settleOpeningPaint() {
+    const first = !openingSettled;
     openingSettled = true;
+    if (first) scheduleHomeWatch();
+  }
+  /* Followed app accounts, at most the channel's watch cap. Catalog feeds
+     are not account ids and are left out, so a Home with only those sends
+     nothing. */
+  function homeWatchIds() {
+    if (serverOffList().includes("home_live")) return [];
+    const route = parseRoute();
+    if (!route || route.name !== "home") return [];
+    const raw = (STATE.settings && STATE.settings.accountFollows) || [];
+    const ids = [];
+    for (let i = 0; i < raw.length && ids.length < 30; i++) {
+      const id = String(raw[i] || "").replace(/^app:/, "");
+      if (/^\d{12}$/.test(id) && ids.indexOf(id) < 0) ids.push(id);
+    }
+    return ids;
+  }
+  let homeWatchTimer = 0;
+  let homeWatchArmed = false;
+  function scheduleHomeWatch() {
+    clearTimeout(homeWatchTimer);
+    const ids = homeWatchIds();
+    if (!ids.length && !homeWatchArmed) return;
+    homeWatchArmed = ids.length > 0;
+    homeWatchTimer = setTimeout(() => {
+      const run = () => {
+        const presence = window.ViktorychPresence;
+        if (!presence || !presence.watchTopic) return;
+        presence.watchTopic("posts", ids);
+      };
+      if (typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 1000 });
+      else run();
+    }, 400);
+  }
+  function applyLivePost(raw) {
+    if (!raw || !raw.id || serverOffList().includes("home_live")) return false;
+    const mine = signedAccount();
+    const follows = (STATE.settings && STATE.settings.accountFollows) || [];
+    const gate = window.ViktorychHomeLive;
+    if (!gate || !gate.allowed({ publicId: mine && mine.publicId || "" }, follows, raw)) return false;
+    const card = raw.platform || raw.appPost ? raw : appCardPost(raw);
+    const route = parseRoute();
+    const home = route && route.name === "home" ? route : { name: "home", tab: "foryou" };
+    if (!card || !homeShows(card, home)) return false;
+    if (!publicPosts.some((item) => item && item.id === raw.id)) publicPosts.unshift(raw);
+    if (!openingSettled) return false;
+    if (!route || route.name !== "home") {
+      scheduleOtherHomeTab();
+      return true;
+    }
+    if (Object.keys(ownSent).length) return true;
+    if (publicCardPresent(raw.id)) return true;
+    if (insertArrivedPosts([raw])) {
+      hydratePublicMedia();
+      scheduleOtherHomeTab();
+      return true;
+    }
+    return false;
   }
   function schedulePublicPosts() {
     if (gameBusy()) return;
@@ -32630,8 +32690,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   function onChannelMessage(msg) {
     if (!msg) return;
     if (msg.op === "state") {
-      if (msg.open) stopPoll();
-      else if (document.visibilityState === "visible") startPoll();
+      if (msg.open) {
+        stopPoll();
+        scheduleHomeWatch();
+      } else if (document.visibilityState === "visible") startPoll();
       return;
     }
     if (msg.op === "event" && msg.topic === "notifications" && msg.data) applyHubEvent(msg.data);
@@ -32646,7 +32708,15 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
         if (incoming) adoptEarlySend(incoming);
         return;
       }
-      if (step === "apply" && incoming && applyAuthorPost(incoming)) return;
+      if (step === "apply" && incoming) {
+        const own = mine && String(incoming.authorId || "") === String(mine.publicId || "");
+        if (own) {
+          if (applyAuthorPost(incoming)) return;
+        } else {
+          applyLivePost(incoming);
+          return;
+        }
+      }
       clearTimeout(postsLiveTimer);
       postsLiveTimer = setTimeout(refreshAppPosts, 600);
     }
@@ -34830,6 +34900,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       STATE.settings.follows = feeds.slice();
       STATE.settings.accountFollows = apps.slice();
       saveSettings();
+      scheduleHomeWatch();
       return true;
     };
     window.ViktorychAccounts.readHistory = readHistory;

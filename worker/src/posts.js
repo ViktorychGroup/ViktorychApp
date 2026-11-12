@@ -13,7 +13,7 @@ import { canSeeAudience, setListGrants } from "./audience.js";
 import { addCommunityPost, communityHomeRows } from "./communities.js";
 import { attachParents } from "./reply-context.js";
 import { postAuthorFace, visibleAvatarUrl } from "./profile-media.js";
-import { POST_ACTION_SCHEMA, handlePostActions, decorate, quoteFor, viewerCanSee, notifyPost, authorPostNote } from "./post-actions.js";
+import { POST_ACTION_SCHEMA, handlePostActions, decorate, quoteFor, viewerCanSee, notifyPost, pushLivePost, authorPostNote } from "./post-actions.js";
 
 const POST_MAX = 500;
 const MEDIA_MAX = 12 * 1024 * 1024;
@@ -761,9 +761,14 @@ async function createPost(request, env, deps) {
   const post = await presentPost(env, request, row, session.public_id);
   await withParents(env, request, session, [post], await hiddenAuthors(env, session.public_id));
   await decorate(env, [post], session.public_id);
-  if (!when && deps.publish) {
-    const note = Promise.resolve(deps.publish(env, session.public_id, "posts", authorPostNote(post), session.public_id)).catch(() => {});
-    if (deps.waitUntil) deps.waitUntil(note);
+  if (!when) {
+    const fan = pushLivePost(env, post).catch(() => 0);
+    const note = deps.publish
+      ? Promise.resolve(deps.publish(env, session.public_id, "posts", authorPostNote(post), session.public_id)).catch(() => {})
+      : Promise.resolve();
+    const both = Promise.all([fan, note]);
+    if (deps.waitUntil) deps.waitUntil(both);
+    else await both;
   }
   return deps.json(201, { post: post, scheduled: when > 0 });
 }
