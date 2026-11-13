@@ -79,6 +79,13 @@ function newKey(prefix) {
   return prefix + hex;
 }
 
+/* The sender's own message id. Eighteen hex characters, same as the direct
+   copy, and never a server dm_ key, so one client cannot pick another's row. */
+function offeredMessageId(raw) {
+  const id = String(raw || "");
+  return /^[a-f0-9]{18}$/.test(id) ? id : "";
+}
+
 function pageLimit(url) {
   const n = Number(url && url.searchParams ? url.searchParams.get("limit") : PAGE_DEFAULT);
   if (!Number.isFinite(n) || n <= 0) return PAGE_DEFAULT;
@@ -690,11 +697,22 @@ async function writeMessage(request, env, viewer, deps) {
   }
   const tempGate = await tempDmGate(env, viewer, otherId, deps.rateHit);
   if (tempGate) return deps.json(tempGate.status, { error: tempGate.error, message: "Temporary accounts can message only a few new people a day. Save this account to lift the limit." }, { "retry-after": String(tempGate.retry || 3600) });
-  const id = newKey("dm_");
+  let id = offeredMessageId(body.mid) || newKey("dm_");
   const now = Date.now();
-  await env.DB.prepare(
+  const insertMessage = (key, at) => env.DB.prepare(
     "INSERT INTO account_messages (id, sender_id, recipient_id, body, created_at, deleted_at) VALUES (?, ?, ?, ?, ?, 0)"
-  ).bind(id, viewer.public_id, otherId, text, now).run();
+  ).bind(key, viewer.public_id, otherId, text, at).run();
+  try {
+    await insertMessage(id, now);
+  } catch (err) {
+    const existing = await env.DB.prepare(
+      "SELECT sender_id, recipient_id, body FROM account_messages WHERE id = ?"
+    ).bind(id).first();
+    if (!existing || existing.sender_id !== viewer.public_id || existing.recipient_id !== otherId || existing.body !== text) {
+      id = newKey("dm_");
+      await insertMessage(id, now);
+    }
+  }
   /* The live copy goes only to an accepted friend, and not when that
      friend already hides this sender. Anyone else keeps today's stored
      message and does not get the text on the channel. */

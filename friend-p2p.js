@@ -260,10 +260,13 @@ function viaPeer(id, mid, text) {
     if (!send(have, { t: "msg", mid: mid, text: text })) { clearTimeout(timer); acks.delete(mid); resolve(false); }
   });
 }
-function viaServer(id, text) {
-  return call("/v1/messages", { method: "POST", body: { id: id, text: text } }).then((body) => {
-    if (!body) return "offline";
-    return body.status === 200 ? "server" : "refused";
+function viaServer(id, text, mid) {
+  const body = { id: id, text: text };
+  /* The same id the direct copy used, so a late server copy is one message. */
+  if (mid) body.mid = mid;
+  return call("/v1/messages", { method: "POST", body: body }).then((res) => {
+    if (!res) return "offline";
+    return res.status === 200 ? "server" : "refused";
   });
 }
 function queue(id, mid, text) {
@@ -280,7 +283,7 @@ function sendMessage(id, text, mid) {
   const direct = enabled() ? viaPeer(id, mid, text) : Promise.resolve(false);
   return direct.then((ok) => {
     if (ok) return { via: "p2p", mid: mid };
-    return viaServer(id, text).then((via) => {
+    return viaServer(id, text, mid).then((via) => {
       if (via === "offline") { queue(id, mid, text); return { via: "outbox", mid: mid }; }
       return { via: via, mid: mid };
     });
@@ -292,7 +295,7 @@ function flush() {
   if (!box.length) return Promise.resolve(0);
   flushing = box.reduce((chain, row) => chain.then((sent) => {
     const direct = enabled() ? viaPeer(row.to, row.mid, row.text) : Promise.resolve(false);
-    return direct.then((ok) => (ok ? "p2p" : viaServer(row.to, row.text))).then((via) => {
+    return direct.then((ok) => (ok ? "p2p" : viaServer(row.to, row.text, row.mid))).then((via) => {
       if (via === "offline") return sent;
       writeJson(OUTBOX, readJson(OUTBOX, []).filter((r) => r.mid !== row.mid));
       return sent + 1;
