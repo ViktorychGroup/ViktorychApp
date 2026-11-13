@@ -2044,13 +2044,22 @@ def fetch_message_file(api_base: str, token: str, channel: str, message_id: int,
     return result if isinstance(result, dict) else {}
 
 
-def send_document(api_base: str, token: str, channel: str, path: Path, caption: str, state: dict, max_time: int = 3600, max_wait: int | None = None) -> dict:
+def send_document(api_base: str, token: str, channel: str, path: Path, caption: str, state: dict, max_time: int = 3600, max_wait: int | None = None, post=None, pause=None) -> dict:
+    """Send one file. A dropped connection is tried again; a rejection is not."""
+    post = post or curl_form
+    pause = pause or time.sleep
     bot_lasts = state.setdefault("bot_lasts", {})
     for _attempt in range(6):
         wait = gap_seconds(bot_lasts.get(token) or 0, time.time())
         if wait:
             time.sleep(wait)
-        parsed = curl_form(api_base, token, channel, path, caption, max_time)
+        try:
+            parsed = post(api_base, token, channel, path, caption, max_time)
+        except RuntimeError as err:
+            if curl_reset(str(err)) and _attempt < 5:
+                pause(r2_backoff(_attempt))
+                continue
+            raise
         now = time.time()
         bot_lasts[token] = now
         state["last"] = now
@@ -3212,6 +3221,28 @@ def selftest() -> int:
 
         put_object_file("token", "acct", "bucket", "cdn/social/x/1/video/0", sample, "video/mp4", run=run_once, head=lambda: missing(), sleep=lambda _s: None)
         check(calls["n"] == 2 and calls["urls"][0] == calls["urls"][1] and calls["urls"][0].endswith("cdn/social/x/1/video/0"), "a reset upload retries the same R2 key")
+        sends = {"n": 0}
+
+        def post_once(*_args):
+            sends["n"] += 1
+            if sends["n"] == 1:
+                raise RuntimeError("curl: (35) Recv failure: Connection reset by peer")
+            return {"ok": True, "result": {"message_id": 4, "document": {"file_id": "doc", "file_size": sample.stat().st_size}}}
+
+        sent = send_document("https://api.telegram.org", "token", "1", sample, "clip", {}, post=post_once, pause=lambda _s: None)
+        check(sends["n"] == 2 and sent["file_id"] == "doc", "a dropped telegram upload is sent again")
+        sends["n"] = 0
+
+        def reject(*_args):
+            sends["n"] += 1
+            raise RuntimeError("telegram rejected a document")
+
+        rejected = False
+        try:
+            send_document("https://api.telegram.org", "token", "1", sample, "clip", {}, post=reject, pause=lambda _s: None)
+        except RuntimeError as err:
+            rejected = "rejected" in str(err)
+        check(rejected and sends["n"] == 1, "a rejected telegram upload is not retried")
         calls["n"] = 0
 
         def already():
