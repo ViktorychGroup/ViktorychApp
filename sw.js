@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-14T16:20:00.000Z-note-now
+// cache-bust: 2026-11-14T16:30:00.000Z-note-auth
 try { importScripts("./shorts-enabled.js"); } catch (err) { /* Shorts stays off when the switch file is missing */ }
 
 const ACCOUNTS_WALL = false;
@@ -3055,7 +3055,11 @@ async function signedPublicId() {
   const body = await res.json().catch(() => null);
   const id = body && body.account ? String(body.account.publicId || "").replace(/^app:/, "") : "";
   if (!/^\d{12}$/.test(id)) return "";
-  try { await idbSet(db, "auth-state", Object.assign({}, saved, { publicId: id })); } catch (err) { /* the check still uses this id */ }
+  const fresh = await idbGet(db, "auth-state");
+  if (!fresh || fresh.token !== saved.token) return "";
+  const already = fresh.publicId ? String(fresh.publicId).replace(/^app:/, "") : "";
+  if (/^\d{12}$/.test(already)) return already;
+  try { await idbSet(db, "auth-state", Object.assign({}, fresh, { publicId: id })); } catch (err) { /* the check still uses this id */ }
   return id;
 }
 
