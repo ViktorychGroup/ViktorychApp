@@ -66,6 +66,30 @@ async function openProfile(browser, port, width, height, hidden) {
   return { context, page };
 }
 
+/* The arrow scrolls by about one viewport, then stops at the end. A strip
+   that only overflows a little still has to reach that end. */
+async function scrolled(page, dir, from, minStep) {
+  try {
+    await page.waitForFunction((arg) => {
+      const el = document.querySelector(".ptabs");
+      if (!el) return false;
+      const max = Math.max(0, el.scrollWidth - el.clientWidth);
+      const at = el.scrollLeft || 0;
+      const delta = arg.dir > 0 ? at - arg.from : arg.from - at;
+      if (delta <= 2) return false;
+      if (arg.dir > 0) return delta >= arg.minStep || at >= max - 2;
+      return delta >= arg.minStep || at <= 2;
+    }, { dir, from, minStep }, { timeout: 15000 });
+  } catch (err) {
+    const now = await page.evaluate(() => {
+      const el = document.querySelector(".ptabs");
+      if (!el) return null;
+      return { at: el.scrollLeft || 0, max: el.scrollWidth - el.clientWidth };
+    });
+    throw new Error("profile tabs did not scroll from " + from + " " + JSON.stringify(now));
+  }
+}
+
 function strip(page) {
   return page.evaluate(() => {
     const bar = document.querySelector(".ptabs-bar");
@@ -107,7 +131,7 @@ async function main() {
     await desk.page.locator(".ptabs-bar").hover();
     const before = await desk.page.evaluate(() => document.querySelector(".ptabs").scrollLeft);
     await desk.page.locator(".ptabs-bar .tab-arrow.right").click();
-    await desk.page.waitForFunction((n) => document.querySelector(".ptabs").scrollLeft > n + 20, before);
+    await scrolled(desk.page, 1, before, 20);
     const mid = await desk.page.evaluate(() => {
       const scroller = document.querySelector(".ptabs");
       const left = document.querySelector(".ptabs-bar .tab-arrow.left");
@@ -116,7 +140,7 @@ async function main() {
     if (mid.leftHidden) throw new Error("left arrow stayed hidden after scrolling right");
     await desk.page.locator(".ptabs-bar .tab-arrow.left").focus();
     await desk.page.keyboard.press("Enter");
-    await desk.page.waitForFunction((n) => document.querySelector(".ptabs").scrollLeft < n - 10, mid.at);
+    await scrolled(desk.page, -1, mid.at, 10);
     await desk.page.mouse.move(0, 0);
     await desk.page.locator(".ptabs-bar .tab-arrow.right").focus();
     const focused = await desk.page.evaluate(() => {
@@ -126,9 +150,9 @@ async function main() {
     });
     if (focused.hidden || focused.act !== "tab-scroll") throw new Error("right arrow could not take keyboard focus " + JSON.stringify(focused));
     await desk.page.keyboard.press("Space");
-    await desk.page.waitForFunction((n) => document.querySelector(".ptabs").scrollLeft > n + 20, focused.at);
+    await scrolled(desk.page, 1, focused.at, 20);
     const afterKey = await desk.page.evaluate(() => document.querySelector(".ptabs").scrollLeft);
-    if (afterKey < 10) throw new Error("keyboard did not scroll profile tabs " + JSON.stringify(focused) + " after " + afterKey);
+    if (!(afterKey > focused.at + 2)) throw new Error("keyboard did not scroll profile tabs " + JSON.stringify(focused) + " after " + afterKey);
     const last = info.tabs[info.tabs.length - 1];
     await desk.page.evaluate((label) => {
       const tab = [...document.querySelectorAll(".ptabs .tab")].find((el) => (el.textContent || "").indexOf(label) >= 0);
