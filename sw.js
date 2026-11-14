@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-12T23:20:00.000Z-perf5
+// cache-bust: 2026-11-14T16:20:00.000Z-note-now
 try { importScripts("./shorts-enabled.js"); } catch (err) { /* Shorts stays off when the switch file is missing */ }
 
 const ACCOUNTS_WALL = false;
@@ -3039,6 +3039,26 @@ async function declineGameInvite(id) {
   }).catch(() => null);
 }
 
+async function signedPublicId() {
+  const db = await idb();
+  const saved = await idbGet(db, "auth-state");
+  const have = saved && saved.publicId ? String(saved.publicId).replace(/^app:/, "") : "";
+  if (/^\d{12}$/.test(have)) return have;
+  if (!saved || !saved.token) return "";
+  const api = await idbGet(db, "api-base");
+  if (!api) return "";
+  const res = await fetch(String(api).replace(/\/$/, "") + "/v1/session", {
+    headers: { Authorization: "Bearer " + saved.token },
+    cache: "no-store"
+  });
+  if (!res || !res.ok) return "";
+  const body = await res.json().catch(() => null);
+  const id = body && body.account ? String(body.account.publicId || "").replace(/^app:/, "") : "";
+  if (!/^\d{12}$/.test(id)) return "";
+  try { await idbSet(db, "auth-state", Object.assign({}, saved, { publicId: id })); } catch (err) { /* the check still uses this id */ }
+  return id;
+}
+
 self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
     let data = {};
@@ -3049,10 +3069,8 @@ self.addEventListener("push", (event) => {
     const NP = self.ViktorychNotifPrivacy;
     const compact = NP ? NP.parsePush(data) : null;
     let mine = "";
-    try {
-      const saved = await idbGet(await idb(), "auth-state");
-      mine = saved && saved.publicId ? String(saved.publicId) : "";
-    } catch (err) { mine = ""; }
+    try { mine = await signedPublicId(); }
+    catch (err) { mine = ""; }
     const addressed = NP ? NP.forAccount(compact || data, mine) : false;
     if (!addressed) return;
     if (compact) {

@@ -52,7 +52,8 @@ assert.equal(pushNoteItem({ id: "a".repeat(16), kind: "like", to: other, body: "
 
 const handler = src.slice(src.indexOf('if (data.type === "push-note")'), src.indexOf('if (data.type === "note-open")'));
 assert.match(handler, /noteRecipientOk\(raw\)/);
-assert.match(handler, /if \(!noteRecipientOk\(raw\)\) return/);
+assert.match(handler, /if \(named && !noteRecipientOk\(raw\)\) return/);
+assert.match(handler, /if \(!named\) \{ pullNotes\(\{ now: true \}\); wakeHome\(\); return; \}/);
 assert.match(handler, /pushNoteItem\(raw\)/);
 assert.match(handler, /commitBellNotes\(\[note\], false\)/);
 assert.match(handler, /pullNotes\(\{ now: true \}\)/);

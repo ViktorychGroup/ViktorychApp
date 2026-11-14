@@ -32379,6 +32379,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   let noteApplying = false;
   let notesPhase = "idle";
   let notesAgain = false;
+  let notesAgainNow = false;
   let noteTabsSeeded = false;
   let hubPoll = 0;
   let channelBound = false;
@@ -32548,6 +32549,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
     if (noteApplying) {
       notesAgain = true;
+      if (opts && opts.now) notesAgainNow = true;
       return;
     }
     noteApplying = true;
@@ -32673,8 +32675,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     finally { noteApplying = false; }
     if (failed && notesPhase !== "ready") finishNotes("error");
     if (again || notesAgain) {
+      const soon = notesAgainNow;
       notesAgain = false;
-      pullNotes();
+      notesAgainNow = false;
+      pullNotes(soon ? { now: true } : undefined);
     }
   }
 
@@ -33490,7 +33494,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (data.type === "bell-delivered" || data.type === "bell-queue") commitBellNotes(data.notes || []);
       if (data.type === "push-note") {
         const raw = data.note && typeof data.note === "object" ? data.note : {};
-        if (!noteRecipientOk(raw)) return;
+        const named = String(raw.to || "").replace(/^app:/, "");
+        if (named && !noteRecipientOk(raw)) return;
+        if (!named) { pullNotes({ now: true }); wakeHome(); return; }
         const note = pushNoteItem(raw);
         if (note) commitBellNotes([note], false);
         else pullNotes({ now: true });
