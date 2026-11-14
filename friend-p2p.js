@@ -9,7 +9,7 @@ import { STUN_URLS } from "./shared/peer-media.js";
 const PREF = "viktorychapp-friend-p2p";
 const OUTBOX = "viktorychapp-friend-outbox";
 const THREADS = "viktorychapp-friend-threads";
-const ACK_MS = 2500;
+const ACK_MS = 800;
 const CONNECT_MS = 4000;
 const IDLE_MS = 5 * 60 * 1000;
 const HERE_MS = 25000;
@@ -248,20 +248,25 @@ function friendOnline(id) {
 }
 function viaPeer(id, mid, text) {
   const have = peers.get(id);
-  const ready = have && have.open ? Promise.resolve(have) : friendOnline(id) ? connect(id) : Promise.resolve(null);
-  return ready.then((peer) => {
-    if (!peer) return false;
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => { acks.delete(mid); resolve(false); }, ACK_MS);
-      acks.set(mid, (ok) => { clearTimeout(timer); acks.delete(mid); resolve(ok); });
-      if (!send(peer, { t: "msg", mid: mid, text: text })) { clearTimeout(timer); acks.delete(mid); resolve(false); }
-    });
+  /* A closed channel goes to the server now. Connecting can take seconds
+     and the message would sit on this device until it gave up. */
+  if (!have || !have.open) {
+    if (friendOnline(id)) connect(id);
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { acks.delete(mid); resolve(false); }, ACK_MS);
+    acks.set(mid, (ok) => { clearTimeout(timer); acks.delete(mid); resolve(ok); });
+    if (!send(have, { t: "msg", mid: mid, text: text })) { clearTimeout(timer); acks.delete(mid); resolve(false); }
   });
 }
-function viaServer(id, text) {
-  return call("/v1/messages", { method: "POST", body: { id: id, text: text } }).then((body) => {
-    if (!body) return "offline";
-    return body.status === 200 ? "server" : "refused";
+function viaServer(id, text, mid) {
+  const body = { id: id, text: text };
+  /* The same id the direct copy used, so a late server copy is one message. */
+  if (mid) body.mid = mid;
+  return call("/v1/messages", { method: "POST", body: body }).then((res) => {
+    if (!res) return "offline";
+    return res.status === 200 ? "server" : "refused";
   });
 }
 function queue(id, mid, text) {
@@ -278,7 +283,7 @@ function sendMessage(id, text, mid) {
   const direct = enabled() ? viaPeer(id, mid, text) : Promise.resolve(false);
   return direct.then((ok) => {
     if (ok) return { via: "p2p", mid: mid };
-    return viaServer(id, text).then((via) => {
+    return viaServer(id, text, mid).then((via) => {
       if (via === "offline") { queue(id, mid, text); return { via: "outbox", mid: mid }; }
       return { via: via, mid: mid };
     });
@@ -290,7 +295,7 @@ function flush() {
   if (!box.length) return Promise.resolve(0);
   flushing = box.reduce((chain, row) => chain.then((sent) => {
     const direct = enabled() ? viaPeer(row.to, row.mid, row.text) : Promise.resolve(false);
-    return direct.then((ok) => (ok ? "p2p" : viaServer(row.to, row.text))).then((via) => {
+    return direct.then((ok) => (ok ? "p2p" : viaServer(row.to, row.text, row.mid))).then((via) => {
       if (via === "offline") return sent;
       writeJson(OUTBOX, readJson(OUTBOX, []).filter((r) => r.mid !== row.mid));
       return sent + 1;
@@ -400,7 +405,17 @@ function boot() {
     const p = presence();
     if (!p || !p.onChannel) return false;
     p.onChannel((msg) => {
-      if (msg && msg.op === "event" && msg.topic === "p2p" && msg.data) onSignal(String(msg.data.from || ""), msg.data.signal);
+      if (!msg || msg.op !== "event" || !msg.data) return;
+      if (msg.topic === "p2p") onSignal(String(msg.data.from || ""), msg.data.signal);
+      if (msg.topic === "dm") {
+        const from = String(msg.data.from || "");
+        const text = String(msg.data.text || "").slice(0, 2000);
+        const mid = String(msg.data.id || "").slice(0, 40);
+        if (!/^\d{12}$/.test(from) || !text || !mid) return;
+        if (remember(from, { mid: mid, mine: false, text: text, at: Number(msg.data.at) || Date.now(), via: "server" })) {
+          window.dispatchEvent(new CustomEvent("viktorych-friend-message", { detail: { from: from, text: text } }));
+        }
+      }
     });
     return true;
   };

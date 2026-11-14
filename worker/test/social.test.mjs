@@ -14,6 +14,9 @@ function workerOptions() {
     compatibilityDate: "2026-01-15",
     d1Databases: ["DB"],
     r2Buckets: ["DATA"],
+    durableObjects: {
+      ACCOUNT_CHANNEL: { className: "AccountChannel", useSQLite: true }
+    },
     bindings: {
       ACCOUNT_PEPPER: "pepper-test",
       OWNER_CLAIM_CODE: "claim-test",
@@ -344,4 +347,78 @@ test("a friend accept needs a real request, and a protected account can still fo
   const ids = await call("/v1/follows", { ip: "203.0.113.126", token: south.token });
   assert.equal(ids.body.ids.indexOf("app:@" + north.account.handle) >= 0, false);
   assert.equal(ids.body.ids.indexOf("x:plainyard") >= 0, true);
+});
+
+test("a client message id is stored and pushed, and a repeat does not add a second row", async () => {
+  const left = await signup("203.0.113.180", "dedupe_left", "Dedupe Left");
+  const right = await signup("203.0.113.181", "dedupe_right", "Dedupe Right");
+  const ticket = await call("/v1/channel/ticket", { method: "POST", ip: "203.0.113.182", token: right.token });
+  assert.equal(ticket.status, 200);
+  const opened = await mf.dispatchFetch("https://accounts.test/v1/channel?ticket=" + encodeURIComponent(ticket.body.ticket), {
+    headers: { Upgrade: "websocket", Connection: "Upgrade" }
+  });
+  assert.equal(opened.status, 101);
+  const ws = opened.webSocket;
+  ws.accept();
+  const messages = [];
+  ws.addEventListener("message", (event) => {
+    try { messages.push(JSON.parse(String(event.data))); }
+    catch (err) { messages.push({ op: "bad" }); }
+  });
+  ws.send(JSON.stringify({ op: "subscribe", topics: ["dm"] }));
+  const waitFor = (fn) => new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      if (fn()) resolve();
+      else if (Date.now() - start > 3000) reject(new Error("timed out"));
+      else setTimeout(tick, 20);
+    };
+    tick();
+  });
+  await waitFor(() => messages.some((msg) => msg.op === "ok" && msg.for === "subscribe" && (msg.topics || []).indexOf("dm") >= 0));
+  const mid = "ab".repeat(9);
+  const early = await call("/v1/messages", {
+    method: "POST",
+    ip: "203.0.113.183",
+    token: left.token,
+    body: { id: right.account.publicId, text: "before friends", mid: mid }
+  });
+  assert.equal(early.status, 200);
+  assert.equal(early.body.id, mid);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(messages.some((msg) => msg.op === "event" && msg.topic === "dm"), false);
+  await call("/v1/friends/request", { method: "POST", ip: "203.0.113.184", token: left.token, body: { targetId: "app:" + right.account.publicId } });
+  const accepted = await call("/v1/friends/accept", { method: "POST", ip: "203.0.113.185", token: right.token, body: { targetId: "app:" + left.account.publicId } });
+  assert.equal(accepted.body.status, "friends");
+  const liveMid = "cd".repeat(9);
+  const live = await call("/v1/messages", {
+    method: "POST",
+    ip: "203.0.113.186",
+    token: left.token,
+    body: { id: right.account.publicId, text: "one copy", mid: liveMid }
+  });
+  assert.equal(live.status, 200);
+  assert.equal(live.body.id, liveMid);
+  await waitFor(() => messages.some((msg) => msg.op === "event" && msg.topic === "dm" && msg.data && msg.data.id === liveMid && msg.data.text === "one copy" && msg.data.from === left.account.publicId));
+  const again = await call("/v1/messages", {
+    method: "POST",
+    ip: "203.0.113.187",
+    token: left.token,
+    body: { id: right.account.publicId, text: "one copy", mid: liveMid }
+  });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.id, liveMid);
+  const inbox = await call("/v1/messages?id=" + encodeURIComponent(left.account.publicId), { ip: "203.0.113.188", token: right.token });
+  const copies = (inbox.body.messages || []).filter((row) => row.body === "one copy");
+  assert.equal(copies.length, 1);
+  assert.equal(copies[0].id, liveMid);
+  const rejected = await call("/v1/messages", {
+    method: "POST",
+    ip: "203.0.113.189",
+    token: left.token,
+    body: { id: right.account.publicId, text: "fresh", mid: "dm_notallowed!!" }
+  });
+  assert.equal(rejected.status, 200);
+  assert.match(rejected.body.id, /^dm_[a-f0-9]{16}$/);
+  ws.close();
 });

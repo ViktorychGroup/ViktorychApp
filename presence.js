@@ -310,7 +310,7 @@ function onSocketMessage(event) {
     notifyChannel(msg);
     return;
   }
-  if (msg.op === "event" && (msg.topic === "notifications" || msg.topic === "sync" || msg.topic === "p2p" || msg.topic === "srv")) {
+  if (msg.op === "event" && (msg.topic === "notifications" || msg.topic === "sync" || msg.topic === "p2p" || msg.topic === "dm" || msg.topic === "srv")) {
     notifyChannel(msg);
     return;
   }
@@ -346,7 +346,7 @@ function connect() {
       attempt = 0;
       socketOwner = selfId();
       try {
-        ws.send(JSON.stringify({ op: "subscribe", topics: ["presence", "notifications", "sync", "posts", "p2p", "srv", "games"] }));
+        ws.send(JSON.stringify({ op: "subscribe", topics: ["presence", "notifications", "sync", "posts", "p2p", "dm", "srv", "games"] }));
         ws.send(JSON.stringify({ op: "watch", topic: "presence", ids: currentIds() }));
       } catch (err) { /* close reconnects */ }
       clearInterval(pollTimer);

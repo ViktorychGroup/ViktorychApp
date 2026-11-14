@@ -196,5 +196,5 @@ assert.ok(timesBody.includes("slice(0, 1000)"), "membership times use that same 
 
 // Live updates ride the account channel.
 const presence = fs.readFileSync("presence.js", "utf8");
-assert.match(presence, /topics: \["presence", "notifications", "sync", "posts", "p2p", "srv", "games"\]/);
+assert.match(presence, /topics: \["presence", "notifications", "sync", "posts", "p2p", "dm", "srv", "games"\]/);
 console.log("device sync ok");
