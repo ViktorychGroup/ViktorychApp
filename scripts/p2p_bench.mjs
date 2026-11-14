@@ -366,7 +366,7 @@ async function main() {
       msgP2pMs: msgP2pMs,
       msgServerMs: server.via === "server" ? server.ms : null,
       msgServerClosed: closed ? 1 : 0,
-      msgServerCloseMs: closeMs,
+      msgServerCloseMs: closed ? closeMs : null,
       msgServerReachedB: bThread.indexOf("bench server") >= 0 ? 1 : 0,
       offlineDrained: drained ? 1 : 0,
       offlineSeenOnB: onB === 1 ? 1 : 0,
@@ -532,7 +532,7 @@ async function main() {
         }
         rows.push(row);
       }
-      const keys = ["friendConnectMs", "msgP2pMs", "msgServerMs", "poolConnectMs", "poolOriginMs", "poolPeerMs", "poolBytesSaved", "rawOriginMs", "poolMissMs", "postServerMs", "likeServerMs", "followServerMs", "settingServerMs"];
+      const keys = ["friendConnectMs", "msgP2pMs", "msgServerMs", "msgServerCloseMs", "poolConnectMs", "poolOriginMs", "poolPeerMs", "poolBytesSaved", "rawOriginMs", "poolMissMs", "postServerMs", "likeServerMs", "followServerMs", "settingServerMs"];
       const summary = {};
       keys.forEach((key) => { summary[key] = quartile(rows.map((r) => r[key])); });
       ["friendConnectOk", "msgServerReachedB", "msgServerClosed", "offlineDrained", "offlineSeenOnB", "offlineDup", "poolConnectOk", "poolHit", "hashOk", "noteReadStayedLocal", "offlineMergeOk"].forEach((key) => {
