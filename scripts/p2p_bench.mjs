@@ -329,8 +329,13 @@ async function main() {
       await pb.waitForFunction((id) => window.ViktorychFriendP2P.thread(id).some((m) => m.text === "bench hello" && !m.mine), A, { timeout: 5000 }).catch(() => {});
     }
     await pb.evaluate(() => window.ViktorychFriendP2P.setEnabled(false));
-    await pa.waitForFunction(() => window.ViktorychFriendP2P.peers().length === 0, null, { timeout: 400 }).catch(() => {});
-    const server = await pa.evaluate(async (id) => {
+    /* The other device only leaves A's list when the channel close arrives.
+       A short wait that ignores failure leaves the old channel up, and the
+       next send then waits for an acknowledgement instead of reconnecting. */
+    const closeT = Date.now();
+    const closed = await pa.waitForFunction(() => window.ViktorychFriendP2P.peers().length === 0, null, { timeout: slow ? 30000 : 3000 }).then(() => true).catch(() => false);
+    const closeMs = Date.now() - closeT;
+    const server = !closed ? { via: "open", ms: null, serverN: 0 } : await pa.evaluate(async (id) => {
       const t = performance.now();
       const sent = await window.ViktorychFriendP2P.send(id, "bench server");
       return { via: sent.via, ms: performance.now() - t, serverN: window.__server.length };
@@ -360,6 +365,8 @@ async function main() {
       friendConnectOk: linked ? 1 : 0,
       msgP2pMs: msgP2pMs,
       msgServerMs: server.via === "server" ? server.ms : null,
+      msgServerClosed: closed ? 1 : 0,
+      msgServerCloseMs: closeMs,
       msgServerReachedB: bThread.indexOf("bench server") >= 0 ? 1 : 0,
       offlineDrained: drained ? 1 : 0,
       offlineSeenOnB: onB === 1 ? 1 : 0,
@@ -513,15 +520,22 @@ async function main() {
       for (let i = 1; i <= RUNS; i++) {
         process.stderr.write(profile.name + " " + i + "/" + RUNS + "\n");
         const row = {};
-        try { Object.assign(row, await friendRun(profile.slow)); } catch (err) { row.friendError = String(err && err.message || err); }
-        try { Object.assign(row, await poolRun(profile.slow)); } catch (err) { row.poolError = String(err && err.message || err); }
-        try { Object.assign(row, await syncRun(profile.slow)); } catch (err) { row.syncError = String(err && err.message || err); }
+        const part = process.env.P2P_PART || "all";
+        if (part === "all" || part === "friend") {
+          try { Object.assign(row, await friendRun(profile.slow)); } catch (err) { row.friendError = String(err && err.message || err); }
+        }
+        if (part === "all" || part === "pool") {
+          try { Object.assign(row, await poolRun(profile.slow)); } catch (err) { row.poolError = String(err && err.message || err); }
+        }
+        if (part === "all" || part === "sync") {
+          try { Object.assign(row, await syncRun(profile.slow)); } catch (err) { row.syncError = String(err && err.message || err); }
+        }
         rows.push(row);
       }
       const keys = ["friendConnectMs", "msgP2pMs", "msgServerMs", "poolConnectMs", "poolOriginMs", "poolPeerMs", "poolBytesSaved", "rawOriginMs", "poolMissMs", "postServerMs", "likeServerMs", "followServerMs", "settingServerMs"];
       const summary = {};
       keys.forEach((key) => { summary[key] = quartile(rows.map((r) => r[key])); });
-      ["friendConnectOk", "msgServerReachedB", "offlineDrained", "offlineSeenOnB", "offlineDup", "poolConnectOk", "poolHit", "hashOk", "noteReadStayedLocal", "offlineMergeOk"].forEach((key) => {
+      ["friendConnectOk", "msgServerReachedB", "msgServerClosed", "offlineDrained", "offlineSeenOnB", "offlineDup", "poolConnectOk", "poolHit", "hashOk", "noteReadStayedLocal", "offlineMergeOk"].forEach((key) => {
         summary[key] = rate(rows.map((r) => r[key]));
       });
       const reads = rows.map((r) => r.poolOriginReads).filter((n) => typeof n === "number");
