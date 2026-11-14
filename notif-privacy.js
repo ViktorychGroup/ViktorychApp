@@ -181,10 +181,20 @@
     });
   }
 
+  function accountId(value) {
+    return String(value || "").replace(/^app:/, "");
+  }
+  /* A push is only for the account named in it. A missing name is not a match. */
+  function forAccount(data, publicId) {
+    var to = accountId(data && data.to);
+    var mine = accountId(publicId);
+    return !!(to && mine && /^\d{12}$/.test(to) && to === mine);
+  }
   function parsePush(data) {
     var d = data && typeof data === "object" ? data : {};
     if (d.v !== 2) return null;
-    return { kind: String(d.k || ""), sid: String(d.i || "").slice(0, 24), count: Math.max(0, Number(d.n) || 0), quiet: d.q === 1 };
+    var to = accountId(d.to);
+    return { kind: String(d.k || ""), sid: String(d.i || "").slice(0, 24), count: Math.max(0, Number(d.n) || 0), quiet: d.q === 1, to: /^\d{12}$/.test(to) ? to : "" };
   }
 
   function openDb() {
@@ -338,7 +348,7 @@
     META_KEY: META_KEY, CACHE_KEY: CACHE_KEY, TYPES: TYPES,
     defaults: defaults, normalize: normalize, typeOf: typeOf, showNames: showNames, showPreview: showPreview,
     genericText: genericText, actionTitle: actionTitle, kindFromTitleKey: kindFromTitleKey, present: present, bannerText: bannerText, badgeCount: badgeCount, titleCount: titleCount,
-    shortId: shortId, parsePush: parsePush, load: load, persist: persist, remember: remember, lookup: lookup, wipe: wipe, NOTES_DB: NOTES_DB,
+    shortId: shortId, parsePush: parsePush, forAccount: forAccount, load: load, persist: persist, remember: remember, lookup: lookup, wipe: wipe, NOTES_DB: NOTES_DB,
     settingsHtml: settingsHtml, toggle: toggle
   };
 });
