@@ -203,7 +203,7 @@
     if (wipe === "signout" && window.ViktorychLocal) window.ViktorychLocal.wipe();
     if (!navigator.serviceWorker) return;
     var session = on ? readSession() : null;
-    var msg = { type: "auth", on: !!on, token: session && session.token ? session.token : "", wipe: wipe || "" };
+    var msg = { type: "auth", on: !!on, token: session && session.token ? session.token : "", publicId: session && session.account ? String(session.account.publicId || "") : "", wipe: wipe || "" };
     try {
       if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage(msg);
     } catch (err) { /* the worker may still be installing */ }
@@ -7945,7 +7945,8 @@ else if (act === "usage-retry") { loadUsage(true); if (window.ViktorychAccounts.
             reg.active.postMessage({
               type: "auth",
               on: !!session,
-              token: session && session.token ? session.token : ""
+              token: session && session.token ? session.token : "",
+              publicId: session && session.account ? String(session.account.publicId || "") : ""
             }, [channel.port2]);
           } catch (err) {
             clearTimeout(timer);

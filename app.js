@@ -32379,6 +32379,7 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   let noteApplying = false;
   let notesPhase = "idle";
   let notesAgain = false;
+  let notesAgainNow = false;
   let noteTabsSeeded = false;
   let hubPoll = 0;
   let channelBound = false;
@@ -32541,13 +32542,14 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     }
   }
 
-  async function pullNotes() {
+  async function pullNotes(opts) {
     if (!notesSignedIn()) {
       if (notesPhase !== "off") finishNotes("off");
       return;
     }
     if (noteApplying) {
       notesAgain = true;
+      if (opts && opts.now) notesAgainNow = true;
       return;
     }
     noteApplying = true;
@@ -32608,7 +32610,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       else {
       notesPhase = "ready";
       if (friendsOffNow()) res.items = res.items.filter((item) => !item || (item.kind !== "friend_request" && item.kind !== "friend_accept"));
-      applyServerNotes(res);
+      /* Saving the list rewrites settings. On any page but Notifications
+         that waits until the browser is idle, so it does not land on a tap. */
+      const apply = () => applyServerNotes(res);
+      const immediate = (opts && opts.now) || parseRoute().name === "notifications" || typeof requestIdleCallback !== "function";
+      if (immediate) apply();
+      else requestIdleCallback(apply, { timeout: 2000 });
       if (window.ViktorychNotifPrivacy) window.ViktorychNotifPrivacy.remember(res.items, notifPrivacy());
       rememberAcked(items.map((item) => item.id).concat((res.items || []).map((item) => item.id)));
       const nowPending = notePending();
@@ -32668,8 +32675,10 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     finally { noteApplying = false; }
     if (failed && notesPhase !== "ready") finishNotes("error");
     if (again || notesAgain) {
+      const soon = notesAgainNow;
       notesAgain = false;
-      pullNotes();
+      notesAgainNow = false;
+      pullNotes(soon ? { now: true } : undefined);
     }
   }
 
@@ -32878,7 +32887,44 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
   window.ViktorychProfile = { chrome: profileChrome, top: profileTop };
   /* presence.js owns ViktorychPresence. A partial stand-in threw on .wrap and left a black page. */
 
-  function commitBellNotes(list) {
+  /* A web push for a visible page. The account channel is the live copy.
+     This paints the badge from the payload the server already checked,
+     instead of waiting for a notifications poll. */
+  function noteRecipientOk(raw) {
+    const mine = typeof signedAccount === "function" ? signedAccount() : null;
+    const mineId = mine ? String(mine.publicId || "").replace(/^app:/, "") : "";
+    const to = String(raw && raw.to || "").replace(/^app:/, "");
+    return !!(mineId && /^\d{12}$/.test(to) && to === mineId);
+  }
+  function pushNoteItem(raw) {
+    if (!noteRecipientOk(raw) || !raw.id) return null;
+    const kinds = { like: 1, follow: 1, reply: 1, mention: 1, repost: 1, quote: 1 };
+    const fromTitle = {
+      "{name} liked your post": "like",
+      "{name} followed you": "follow",
+      "{name} replied to you": "reply",
+      "{name} mentioned you": "mention"
+    };
+    const kind = kinds[raw.kind] ? raw.kind : fromTitle[raw.titleKey];
+    if (!kind) return null;
+    const mine = typeof signedAccount === "function" ? signedAccount() : null;
+    const mineHandle = mine ? String(mine.handle || "").replace(/^@/, "").toLowerCase() : "";
+    const vars = raw.titleVars && typeof raw.titleVars === "object" ? raw.titleVars : {};
+    const actor = String(raw.handle || vars.handle || "").replace(/^@/, "").toLowerCase();
+    const actorId = String(raw.actorId || "").replace(/^app:/, "");
+    if (mine && ((mineHandle && actor === mineHandle) || (actorId && actorId === String(mine.publicId || "")))) return null;
+    return {
+      id: String(raw.id),
+      kind: kind,
+      at: Number(raw.at) || Date.now(),
+      text: String(raw.body || raw.text || ""),
+      hash: String(raw.hash || "#/"),
+      handle: String(raw.handle || vars.handle || "").replace(/^@/, ""),
+      name: String(vars.name || ""),
+      read: false
+    };
+  }
+  function commitBellNotes(list, soon) {
     const seen = {};
     (STATE.settings.bellSeen || []).forEach((id) => { if (id) seen[String(id)] = true; });
     const have = {};
@@ -32898,7 +32944,9 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
     STATE.settings.bellNotes = cleanBellNotes(added.concat(STATE.settings.bellNotes || []));
     saveSettings();
     noteSounds(soundBefore);
-    scheduleNoteSync();
+    /* A note that was just painted does not need a poll. The poll would
+       land on the next tap. Other callers still reconcile. */
+    if (soon !== false) scheduleNoteSync();
     if (parseRoute().name === "notifications") render();
     else paintBellBadge();
   }
@@ -33444,7 +33492,16 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       if (data.type === "data" && /feeds\.json$/.test(data.url || "")) wakeHome();
       if (data.type === "feeds-updated") wakeHome();
       if (data.type === "bell-delivered" || data.type === "bell-queue") commitBellNotes(data.notes || []);
-      if (data.type === "push-note") { pullNotes(); wakeHome(); }
+      if (data.type === "push-note") {
+        const raw = data.note && typeof data.note === "object" ? data.note : {};
+        const named = String(raw.to || "").replace(/^app:/, "");
+        if (named && !noteRecipientOk(raw)) return;
+        if (!named) { pullNotes({ now: true }); wakeHome(); return; }
+        const note = pushNoteItem(raw);
+        if (note) commitBellNotes([note], false);
+        else pullNotes({ now: true });
+        wakeHome();
+      }
       if (data.type === "note-open") {
         if (data.hash) location.hash = data.hash;
         if (data.id) queueReadIds([data.id]);
@@ -34398,8 +34455,12 @@ if (data.historyPause) STATE.settings.historyPause = cleanHistoryPause(data.hist
       } else if (fresh.length || bellUnread()) updateBadge(Math.max(fresh.length, bellUnread()));
       scanBellPosts(STATE.data.posts);
       if (document.visibilityState === "visible") {
-        pullNotes();
-        ensureHub();
+        const armNotes = () => {
+          pullNotes();
+          ensureHub();
+        };
+        if (typeof requestIdleCallback === "function") requestIdleCallback(armNotes, { timeout: 1500 });
+        else setTimeout(armNotes, 1);
       }
       if ("serviceWorker" in navigator) navigator.serviceWorker.ready.then(() => pullBellQueue()).catch(() => {});
       hydrateTabSnapshots();

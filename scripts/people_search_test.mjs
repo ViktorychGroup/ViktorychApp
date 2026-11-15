@@ -153,7 +153,12 @@ async function check(browser, port, size) {
   if ((await page.getAttribute(sw, "aria-checked")) !== "true") fail(label + ": search switch is not on by default");
   const text = await page.textContent(sw);
   if (!text.includes("Let others find me in search")) fail(label + ": switch label " + text);
-  await page.locator(sw).scrollIntoViewIfNeeded();
+  await page.waitForFunction((s) => {
+    const el = document.querySelector(s);
+    if (!el || !el.isConnected || el.getAttribute("aria-checked") !== "true") return false;
+    el.scrollIntoView({ block: "nearest" });
+    return true;
+  }, sw);
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "search-setting-on-" + label + ".png") });
   await page.click(sw);
   await page.waitForFunction((s) => document.querySelector(s) && document.querySelector(s).getAttribute("aria-checked") === "false", sw, { timeout: 5000 }).catch(() => fail(label + ": switch did not turn off"));

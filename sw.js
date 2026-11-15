@@ -4,7 +4,7 @@ const VERSION = "viktorych-a281-__SW_VERSION__";
 const BUILT = "__SW_BUILT__";
 const MIRROR_GITHUB = "__MIRROR_GITHUB__";
 const MIRROR_PAGES = "__MIRROR_PAGES__";
-// cache-bust: 2026-11-12T19:20:00.000Z-tab-scroll
+// cache-bust: 2026-11-14T16:30:00.000Z-note-auth
 try { importScripts("./shorts-enabled.js"); } catch (err) { /* Shorts stays off when the switch file is missing */ }
 
 const ACCOUNTS_WALL = false;
@@ -2027,7 +2027,7 @@ self.addEventListener("message", (event) => {
       await Promise.all(names.filter((name) => name.indexOf("shell-") !== 0).map((name) => caches.delete(name)));
       try {
         const db = await idb();
-        await idbSet(db, "auth-state", { on: false, token: "" });
+        await idbSet(db, "auth-state", { on: false, token: "", publicId: "" });
         await idbSet(db, "follows", []);
         await idbSet(db, "seen-at", 0);
         await idbSet(db, "seen-ids", []);
@@ -2054,7 +2054,7 @@ self.addEventListener("message", (event) => {
     event.waitUntil((async () => {
       try {
         const db = await idb();
-        await idbSet(db, "auth-state", { on: accountsAuthed, token: playToken });
+        await idbSet(db, "auth-state", { on: accountsAuthed, token: playToken, publicId: String(data.publicId || "").replace(/^app:/, "") });
       } catch (err) { /* the page still signs out */ }
       if (!data.on) {
         await wipeUserCaches(data.wipe === "signout");
@@ -2813,7 +2813,7 @@ async function refreshAccountNotes() {
   if (!res || !res.ok) return;
   const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
   clients.forEach((client) => {
-    try { client.postMessage({ type: "push-note", note: {} }); } catch (err) { /* a visible page polls */ }
+    try { client.postMessage({ type: "push-note", note: { to: String(auth.publicId || "") } }); } catch (err) { /* a visible page polls */ }
   });
 }
 
@@ -2986,7 +2986,7 @@ async function showCompactPush(c) {
   const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
   if (open.some((client) => client.visibilityState === "visible")) {
     open.forEach((client) => {
-      try { client.postMessage({ type: "push-note", note: {} }); }
+      try { client.postMessage({ type: "push-note", note: { v: 2, k: c.kind, i: c.sid, n: c.count, to: c.to || "" } }); }
       catch (err) { /* the page polls when it is next visible */ }
     });
     return;
@@ -3039,6 +3039,30 @@ async function declineGameInvite(id) {
   }).catch(() => null);
 }
 
+async function signedPublicId() {
+  const db = await idb();
+  const saved = await idbGet(db, "auth-state");
+  const have = saved && saved.publicId ? String(saved.publicId).replace(/^app:/, "") : "";
+  if (/^\d{12}$/.test(have)) return have;
+  if (!saved || !saved.token) return "";
+  const api = await idbGet(db, "api-base");
+  if (!api) return "";
+  const res = await fetch(String(api).replace(/\/$/, "") + "/v1/session", {
+    headers: { Authorization: "Bearer " + saved.token },
+    cache: "no-store"
+  });
+  if (!res || !res.ok) return "";
+  const body = await res.json().catch(() => null);
+  const id = body && body.account ? String(body.account.publicId || "").replace(/^app:/, "") : "";
+  if (!/^\d{12}$/.test(id)) return "";
+  const fresh = await idbGet(db, "auth-state");
+  if (!fresh || fresh.token !== saved.token) return "";
+  const already = fresh.publicId ? String(fresh.publicId).replace(/^app:/, "") : "";
+  if (/^\d{12}$/.test(already)) return already;
+  try { await idbSet(db, "auth-state", Object.assign({}, fresh, { publicId: id })); } catch (err) { /* the check still uses this id */ }
+  return id;
+}
+
 self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
     let data = {};
@@ -3046,7 +3070,13 @@ self.addEventListener("push", (event) => {
     catch (err) { data = {}; }
     if (await pushIsDnd(!!(data && data.dnd))) return;
     if (data && data.silent) return;
-    const compact = self.ViktorychNotifPrivacy ? self.ViktorychNotifPrivacy.parsePush(data) : null;
+    const NP = self.ViktorychNotifPrivacy;
+    const compact = NP ? NP.parsePush(data) : null;
+    let mine = "";
+    try { mine = await signedPublicId(); }
+    catch (err) { mine = ""; }
+    const addressed = NP ? NP.forAccount(compact || data, mine) : false;
+    if (!addressed) return;
     if (compact) {
       await showCompactPush(compact);
       return;

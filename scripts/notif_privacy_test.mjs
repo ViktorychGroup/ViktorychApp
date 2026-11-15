@@ -15,11 +15,12 @@ const item = {
 };
 
 test("compact push has no names, handles, text, links or icons", async () => {
-  const payload = await compactPush(item);
+  const payload = await compactPush(item, "100000000001");
   const raw = JSON.stringify(payload);
-  assert.deepEqual(Object.keys(payload).sort(), ["i", "k", "n", "v"]);
+  assert.deepEqual(Object.keys(payload).sort(), ["i", "k", "n", "to", "v"]);
+  assert.equal(payload.to, "100000000001");
   for (const bad of ["Sample", "sampleperson", "reply", "cdn.example", "status", "post:"]) assert.equal(raw.includes(bad), false, bad);
-  assert.ok(raw.length <= 48, "compact payload is " + raw.length + " bytes");
+  assert.ok(raw.length <= 80, "compact payload is " + raw.length + " bytes");
   const legacy = JSON.stringify({
     titleKey: "{name} and {n} others liked your post", titleVars: { name: item.name, handle: item.handle, n: "3" },
     body: item.text, hash: item.hash, id: item.id, icon: item.avatar, tag: "note-" + item.id, platform: item.platform, handle: item.handle, feedId: ""
@@ -28,11 +29,15 @@ test("compact push has no names, handles, text, links or icons", async () => {
 });
 
 test("device and Worker compute the same short id", async () => {
-  const payload = await compactPush(item);
+  const payload = await compactPush(item, "100000000001");
   assert.equal(await NP.shortId(item.id), payload.i);
   const parsed = NP.parsePush(payload);
   assert.equal(parsed.kind, "like");
   assert.equal(parsed.count, 3);
+  assert.equal(parsed.to, "100000000001");
+  assert.equal(NP.forAccount(payload, "100000000001"), true);
+  assert.equal(NP.forAccount(payload, "100000000002"), false);
+  assert.equal(NP.forAccount({ v: 2, k: "like" }, "100000000001"), false);
   assert.equal(NP.parsePush({ titleKey: "x" }), null);
 });
 
