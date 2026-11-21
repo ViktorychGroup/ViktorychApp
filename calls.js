@@ -16,7 +16,7 @@ import { createAudioUnlock, createWakeFallback, micFailure, micPlatform } from "
 import { createLiveSession, MIC_WORKLET, OUTPUT_RATE, CHUNK_SAMPLES, proxiesAudio } from "./shared/call-gemini.js";
 import { createDiarizer } from "./shared/call-speakers.js";
 import { createEngine } from "./shared/call-engine.js";
-import { holdStatus, shouldRemountOnStatus, shouldRemountOnPeer, GUEST_SESSION_KEY, guestSessionRecord, guestSessionLive, guestSessionForRoute } from "./shared/call-status.js";
+import { holdStatus, shouldRemountOnStatus, shouldRemountOnPeer, GUEST_SESSION_KEY, guestSessionRecord, guestSessionLive, guestSessionForRoute, callErrorKind } from "./shared/call-status.js";
 import { SCHEDULE_TOKEN, icsForSchedule, clipDuration, DEFAULT_DURATION } from "./shared/call-schedule.js";
 import { ROTATE_TOKEN, ROTATE_REFRESH_MS } from "./shared/call-rotate-qr.js";
 
@@ -2686,15 +2686,24 @@ function onEngineEvent(type, d) {
 
 /* ---------- starting calls ---------- */
 function errorFor(res) {
-  const code = res && res.data && res.data.error;
-  if (code === "not_configured") return tr("Calls are not set up yet");
-  if (code === "calls_closed") return tr("This person is not taking calls right now.");
-  if (code === "not_found") return tr("That call link does not work any more.");
-  if (code === "ended") return tr("The call has ended.");
-  if (code === "in_call") return tr("Someone is already in this call.");
-  if (code === "guests") return tr("This person turned guest links off.");
-  if (res && res.status === 429) return tr("Too many calls. Try again later.");
-  if (res && res.status === 401) return tr("Sign in to start a call, or open a guest link to join one.");
+  const kind = callErrorKind(res);
+  if (kind === "not_configured") return tr("Calls are not set up yet");
+  if (kind === "calls_closed") return tr("This person is not taking calls right now.");
+  if (kind === "not_found") return tr("That call link does not work any more.");
+  if (kind === "ended") return tr("The call has ended.");
+  if (kind === "cancelled") return tr("That scheduled call was cancelled.");
+  if (kind === "not_due") return tr("That scheduled call is not open yet.");
+  if (kind === "in_call") return tr("Someone is already in this call.");
+  if (kind === "guests") return tr("This person turned guest links off.");
+  if (kind === "unauthorized") return tr("Sign in to start a call, or open a guest link to join one.");
+  if (kind === "quota") return tr("Too many calls. Try again later.");
+  if (kind === "unavailable") return tr("The call service is temporarily unavailable. Try again in a moment.");
+  if (kind === "ticket") return tr("The connection was lost.");
+  if (kind === "slug_taken") return tr("That name is taken.");
+  if (kind === "bad_slug") return tr("Use 3 to 30 letters, numbers or single dashes.");
+  if (kind === "bad_key") return tr("That Gemini key was not accepted. Paste a new one.");
+  if (kind === "lang") return tr("That language is not supported.");
+  if (kind === "failed") return tr("Could not start that call. Try again.");
   return tr("The call could not start. Check your connection and try again.");
 }
 async function resumeGuest(row) {

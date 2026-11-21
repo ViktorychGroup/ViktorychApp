@@ -137,3 +137,37 @@ export function guestSessionForRoute(row, route, now) {
   if (r.name === "calls" || !r.name) return row;
   return row;
 }
+
+/* Map a Worker or HTTP failure to a stable kind. The call page turns the
+   kind into a translated line. Unknown 5xx errors are a service problem,
+   not the person's network. */
+export function callErrorKind(res) {
+  const status = res && res.status;
+  const code = res && res.data && res.data.error;
+  if (code === "not_configured") return "not_configured";
+  if (code === "calls_closed") return "calls_closed";
+  if (code === "not_found" || code === "token") return "not_found";
+  if (code === "ended" || code === "missed") return "ended";
+  if (code === "cancelled") return "cancelled";
+  if (code === "not_due") return "not_due";
+  if (code === "in_call") return "in_call";
+  if (code === "guests") return "guests";
+  if (code === "unauthorized") return "unauthorized";
+  if (code === "quota") return "quota";
+  if (code === "unavailable" || code === "upstream" || code === "channel") return "unavailable";
+  if (code === "ticket") return "ticket";
+  if (code === "slug_taken") return "slug_taken";
+  if (code === "bad_slug") return "bad_slug";
+  if (code === "bad_key" || code === "badkey") return "bad_key";
+  if (code === "lang") return "lang";
+  if (code === "clone" || code === "method" || code === "bad_call" || code === "state" || code === "ids" || code === "text" || code === "rsvp" || code === "when") {
+    return "failed";
+  }
+  if (status === 429) return "quota";
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "calls_closed";
+  if (status === 404) return "not_found";
+  if (status === 410) return "ended";
+  if (status >= 500) return "unavailable";
+  return "network";
+}

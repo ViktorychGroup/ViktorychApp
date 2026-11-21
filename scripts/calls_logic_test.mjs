@@ -926,7 +926,7 @@ console.log("calls logic ok", JSON.stringify(report));
     applyStatusCode, holdStatus, shouldRemountOnStatus, shouldRemountOnPeer,
     signalOpenRestores, iceAlreadyUp, iceClearlyDown, iceConfigWithServers, signalAdmit, RECONNECT_HOLD_MS,
     shouldRefreshLivePipe, micTrackLive, FOREGROUND_PIPE_MS, LIVE_PIPE_IDLE_MS,
-    guestSessionRecord, guestSessionLive, guestSessionForRoute, GUEST_SESSION_MS
+    guestSessionRecord, guestSessionLive, guestSessionForRoute, GUEST_SESSION_MS, callErrorKind
   } = await import("../shared/call-status.js");
   const fs = await import("node:fs");
   const path = await import("node:path");
@@ -1342,4 +1342,34 @@ console.log("calls logic ok", JSON.stringify(report));
   }
   assert.notEqual(es.split("Rejoin this call")[1].slice(0, 80), en.split("Rejoin this call")[1].slice(0, 80), "Spanish translates Rejoin");
   console.log("calls guest rejoin ok");
+}
+
+{
+  const {
+    callErrorKind
+  } = await import("../shared/call-status.js");
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
+  assert.equal(callErrorKind({ status: 500, data: { error: "upstream" } }), "unavailable");
+  assert.equal(callErrorKind({ status: 503, data: {} }), "unavailable");
+  assert.equal(callErrorKind({ status: 403, data: { error: "calls_closed" } }), "calls_closed");
+  assert.equal(callErrorKind({ status: 410, data: { error: "ended" } }), "ended");
+  assert.equal(callErrorKind({ status: 410, data: { error: "cancelled" } }), "cancelled");
+  assert.equal(callErrorKind({ status: 403, data: { error: "not_due" } }), "not_due");
+  assert.equal(callErrorKind({ status: 409, data: { error: "in_call" } }), "in_call");
+  assert.equal(callErrorKind({ status: 403, data: { error: "mystery" } }), "calls_closed");
+  assert.equal(callErrorKind(null), "network");
+  const js = fs.readFileSync(path.join(root, "calls.js"), "utf8");
+  assert.ok(js.includes("callErrorKind") && js.includes("That scheduled call was cancelled."), "the call page uses the Worker error map");
+  const en = fs.readFileSync(path.join(root, "i18n/en.js"), "utf8");
+  const es = fs.readFileSync(path.join(root, "i18n/es.js"), "utf8");
+  const ru = fs.readFileSync(path.join(root, "i18n/ru.js"), "utf8");
+  const hi = fs.readFileSync(path.join(root, "i18n/hi.js"), "utf8");
+  for (const pack of [en, es, ru, hi]) {
+    assert.ok(pack.includes("The call service is temporarily unavailable. Try again in a moment."), "every language pack has the service outage line");
+    assert.ok(pack.includes("That scheduled call was cancelled."), "every language pack has the cancelled line");
+  }
+  assert.notEqual(es.split("The call service is temporarily unavailable. Try again in a moment.")[1].slice(0, 80), en.split("The call service is temporarily unavailable. Try again in a moment.")[1].slice(0, 80), "Spanish translates the outage line");
+  console.log("calls clear errors ok");
 }

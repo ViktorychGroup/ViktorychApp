@@ -30,6 +30,8 @@ If the voice path drops, an ICE restart is queued until the previous offer finis
 
 If a guest's phone reloads mid-call, the same guest session is kept on that phone only and they can rejoin. Leaving the call forgets it, and a second person cannot take over the link.
 
+Call start and join errors use the Worker's error, so a cancelled scheduled call, a finished call, or a service outage is not described as a network problem.
+
 
 ## How to work on this repo
 

@@ -6988,5 +6988,9 @@ SI18n.addPack("ru", {
   "Live translation dropped. This call is translating one phrase at a time.": "Поток перевода прервался. Сейчас фразы переводятся по одной.",
   "Rejoin this call": "Вернуться в звонок",
   "Rejoining…": "Подключаемся снова…",
-  "Someone is already in this call.": "В этом звонке уже кто-то есть."
+  "Someone is already in this call.": "В этом звонке уже кто-то есть.",
+  "That scheduled call was cancelled.": "Этот запланированный звонок отменён.",
+  "That scheduled call is not open yet.": "Этот запланированный звонок ещё не открыт.",
+  "The call service is temporarily unavailable. Try again in a moment.": "Сервис звонков временно недоступен. Попробуйте через минуту.",
+  "That language is not supported.": "Этот язык не поддерживается."
 });

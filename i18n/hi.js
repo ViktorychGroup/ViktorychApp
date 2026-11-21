@@ -6976,5 +6976,9 @@ SI18n.addPack("hi", {
   "Live translation dropped. This call is translating one phrase at a time.": "लाइव अनुवाद रुक गया। इस कॉल में अब एक-एक वाक्य का अनुवाद हो रहा है।",
   "Rejoin this call": "इस कॉल में फिर शामिल हों",
   "Rejoining…": "फिर से जुड़ रहे हैं…",
-  "Someone is already in this call.": "इस कॉल में पहले से कोई है।"
+  "Someone is already in this call.": "इस कॉल में पहले से कोई है।",
+  "That scheduled call was cancelled.": "वह निर्धारित कॉल रद्द हो गई।",
+  "That scheduled call is not open yet.": "वह निर्धारित कॉल अभी खुली नहीं है।",
+  "The call service is temporarily unavailable. Try again in a moment.": "कॉल सेवा फिलहाल उपलब्ध नहीं है। थोड़ी देर बाद कोशिश करें।",
+  "That language is not supported.": "यह भाषा समर्थित नहीं है।"
 });

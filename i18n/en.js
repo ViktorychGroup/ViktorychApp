@@ -6986,5 +6986,9 @@ SI18n.addPack("en", {
   "Live translation dropped. This call is translating one phrase at a time.": "Live translation dropped. This call is translating one phrase at a time.",
   "Rejoin this call": "Rejoin this call",
   "Rejoining…": "Rejoining…",
-  "Someone is already in this call.": "Someone is already in this call."
+  "Someone is already in this call.": "Someone is already in this call.",
+  "That scheduled call was cancelled.": "That scheduled call was cancelled.",
+  "That scheduled call is not open yet.": "That scheduled call is not open yet.",
+  "The call service is temporarily unavailable. Try again in a moment.": "The call service is temporarily unavailable. Try again in a moment.",
+  "That language is not supported.": "That language is not supported."
 });
